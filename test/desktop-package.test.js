@@ -284,6 +284,7 @@ test("desktop shell and Forge config keep the renderer isolated and package nati
   assert.match(canvasPreload, /readClipboardFile:\(\) => ipcRenderer\.invoke\("penecho:read-clipboard-file"\)/);
   assert.match(canvasPreload, /readClipboardFiles:\(\) => ipcRenderer\.invoke\("penecho:read-clipboard-files"\)/);
   assert.match(canvasPreload, /openProjectFile:projectId => ipcRenderer\.invoke\("penecho:open-project-file", projectId\)/);
+  assert.match(canvasPreload, /setPageScale:scale => ipcRenderer\.invoke\("penecho:set-page-scale", scale\)/);
   assert.match(main, /ipcMain\.on\("penecho:has-clipboard-file"[\s\S]*?fromCanvas\(event\)/);
   assert.match(main, /ipcMain\.handle\("penecho:read-clipboard-file"[\s\S]*?fromCanvas\(event\)/);
   assert.match(main, /ipcMain\.handle\("penecho:read-clipboard-files"[\s\S]*?fromCanvas\(event\)/);

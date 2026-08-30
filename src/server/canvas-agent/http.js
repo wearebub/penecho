@@ -219,7 +219,7 @@ function attachCanvasAgent({ server, authorize, resolveConnection, listConnectio
             sendForGeneration(generation)("error", { message:String(error?.message || error || "PenEcho Agent failed."), fatal:false }, session);
             return;
           }
-          void runtime.submit(session, envelope.payload?.text, envelope.type === "steer", envelope.payload?.images, envelope.payload?.references, envelope.payload?.initialState, envelope.payload?.fileIds).catch(error => {
+          void runtime.submit(session, envelope.payload?.text, envelope.type === "steer", envelope.payload?.images, envelope.payload?.references, envelope.payload?.initialState, envelope.payload?.fileIds, envelope.payload?.canvasTitleNeeded === true).catch(error => {
             sendForGeneration(generation)("error", { message:String(error?.message || error || "PenEcho Agent failed."), fatal:false }, session);
           });
         }

@@ -66,7 +66,7 @@ test("toolbar ships a mixed Canvas and Widget Favorites picker", () => {
   assert.match(script, /isCanvas \? "savedOpen" : "savedAdd"/);
   assert.match(script, /savedT\("savedSourceLocal"/);
   assert.match(css, /\.crafts-modal/);
-  assert.match(css, /\.crafts-modal\s*\{[^}]*color-scheme:\s*light[^}]*--ink:\s*#1c1f27[^}]*--panel-raised:\s*#ffffff[^}]*--gold-bright:\s*#4338ca[^}]*background:\s*#ffffff/s);
+  assert.match(css, /\.crafts-modal\s*\{[^}]*color-scheme:\s*light[^}]*--ink:\s*var\(--studio-text, #1c1f27\)[^}]*--panel-raised:\s*var\(--studio-panel, #ffffff\)[^}]*--gold-bright:\s*var\(--studio-accent-strong, #4338ca\)[^}]*background:\s*var\(--penecho-dialog-surface\)[^}]*backdrop-filter:\s*var\(--penecho-dialog-surface-filter\)/s);
   assert.match(css, /\.crafts-modal \.cloud-dialog-close\s*\{[^}]*width:\s*32px[^}]*height:\s*32px[^}]*color:\s*var\(--muted\)/s);
   assert.match(css, /\.crafts-modal \.cloud-dialog-close:focus-visible\s*\{[^}]*outline:\s*2px solid var\(--gold-bright\)/s);
   assert.match(css, /\.crafts-refresh-spinner\s*\{[^}]*animation:\s*crafts-refresh-spin/);

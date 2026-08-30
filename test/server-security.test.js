@@ -78,6 +78,18 @@ function claudeServerEnv(fakeCli, overrides = {}) {
   };
 }
 
+async function recoverableCodexCli(directory) {
+  const bin = path.join(directory, "bin"), record = path.join(directory, "codex-invocations.txt"), windows = process.platform === "win32",
+    command = path.join(bin, windows ? "codex.cmd" : "codex"),
+    script = windows ? path.join(bin, "node_modules", "@openai", "codex", "bin", "codex.js") : command,
+    communityMetadata = { name:"Recovered Widget", description:"A Widget whose metadata was generated after Codex CLI recovery.", category:"developer", tags:["codex","recovery"], continuationPrompt:"" };
+  await fs.promises.mkdir(path.dirname(script), { recursive:true });
+  await fs.promises.writeFile(script, `#!${process.execPath}\n"use strict";\nconst fs=require("node:fs");\nconst args=process.argv.slice(2),record=${JSON.stringify(record)};\nif(args[0]==="--version"){fs.appendFileSync(record,"version\\n");process.stdout.write("codex-cli 0.149.1\\n");process.exit(0);}\nif(args[0]==="login"&&args[1]==="status"){fs.appendFileSync(record,"login\\n");process.stdout.write("Logged in\\n");process.exit(0);}\nlet prompt="";process.stdin.setEncoding("utf8");process.stdin.on("data",chunk=>prompt+=chunk);process.stdin.on("end",()=>{const community=prompt.includes("public Craft metadata"),answer=community?${JSON.stringify(JSON.stringify(communityMetadata))}:'{"intent":"answer","observedText":"recovered","message":"Recovered Canvas AI","commands":[]}';fs.appendFileSync(record,community?"community\\n":"canvas\\n");const output=args[args.indexOf("-o")+1];fs.writeFileSync(output,answer);process.stdout.write(JSON.stringify({type:"item.completed",item:{type:"agent_message",text:answer}})+"\\n");process.stdout.write(JSON.stringify({type:"turn.completed",usage:{}})+"\\n");});\n`, { mode:0o700 });
+  if (windows) await fs.promises.writeFile(command, "@echo off\r\n", "utf8");
+  else await fs.promises.chmod(command, 0o700);
+  return { bin, command, record, communityMetadata };
+}
+
 function startApiServer(responseContent = '{"intent":"none","commands":[]}', options = {}) {
   const requests = [];
   const server = http.createServer((req, res) => {
@@ -970,6 +982,27 @@ test("Codex CLI mode writes the configured WebP image with a .webp extension", {
   }
 });
 
+test("Main Canvas AI rediscovers Codex CLI after its configured executable disappears and reuses the recovery", { timeout:20000 }, async () => {
+  const directory=await fs.promises.mkdtemp(path.join(os.tmpdir(),"penecho-codex-recovery-")),cli=await recoverableCodexCli(directory),stateDir=path.join(directory,"state"),
+    missing=path.join(directory,"removed-codex"),env=serverEnv({PENECHO_STATE_DIR:stateDir,CODEX_CLI_PATH:missing,PATH:`${cli.bin}${path.delimiter}${process.env.PATH||""}`}),
+    {child,origin}=await startServer(env);
+  try {
+    const page=await fetch(origin),cookie=page.headers.get("set-cookie")?.split(";",1)[0],headers={"Content-Type":"application/json",Origin:origin,Cookie:cookie};
+    for(let index=0;index<2;index++){
+      const response=await fetch(`${origin}/api/ai/command`,{method:"POST",headers,body:JSON.stringify(validPayload())}),body=await response.json();
+      assert.equal(response.status,200,JSON.stringify(body));
+      assert.equal(body.message,"Recovered Canvas AI");
+    }
+    const invocations=(await fs.promises.readFile(cli.record,"utf8")).trim().split(/\r?\n/);
+    assert.deepEqual(invocations,["version","login","canvas","canvas"]);
+    const logText=await fs.promises.readFile(path.join(stateDir,"logs","penecho.log"),"utf8");
+    assert.match(logText,/"type":"cli-auto-recovery"/);
+  } finally {
+    await stopServer(child);
+    await fs.promises.rm(directory,{recursive:true,force:true});
+  }
+});
+
 test("Claude CLI failures expose the useful upstream diagnostic", { timeout:20000 }, async () => {
   const directory=await fs.promises.mkdtemp(path.join(os.tmpdir(),"penecho-server-claude-error-")),fakeCli=path.join(directory,"fake-claude.js");
   await fs.promises.writeFile(fakeCli, `process.stderr.write("invalid effort value: future-model-level");process.exit(1);\n`);
@@ -1259,6 +1292,14 @@ test("shared PenEcho server canvases support authorized metadata-first CRUD", { 
     const legacyLoaded=await fetch(`${origin}/api/canvases/${encodeURIComponent(snapshot.id)}`).then(response=>response.json());
     assert.equal(legacyLoaded.canvas.view.navigationLocked,false);
     assert.equal(legacyLoaded.canvas.theme,"studio");
+
+    const renamed=await fetch(`${origin}/api/canvases/${encodeURIComponent(snapshot.id)}`,{method:"PATCH",headers:mutationHeaders,body:JSON.stringify({name:"Renamed from History"})}),
+      renamedBody=await renamed.json();
+    assert.equal(renamed.status,200,JSON.stringify(renamedBody));
+    assert.equal(renamedBody.canvas.name,"Renamed from History");
+    assert.equal((await fetch(`${origin}/api/canvases/${encodeURIComponent(snapshot.id)}`).then(response=>response.json())).canvas.name,"Renamed from History");
+    const blankRename=await fetch(`${origin}/api/canvases/${encodeURIComponent(snapshot.id)}`,{method:"PATCH",headers:mutationHeaders,body:JSON.stringify({name:"   "})});
+    assert.equal(blankRename.status,400);
 
     const invalidId=await fetch(`${origin}/api/canvases/../../package.json`);
     assert.equal(invalidId.status,404);
@@ -2291,6 +2332,24 @@ test("community metadata accepts an optional continuation prompt and validates t
   } finally {
     await stopServer(running.child);
     await new Promise(resolve=>upstream.server.close(resolve));
+  }
+});
+
+test("Widget publish metadata uses the same Codex CLI auto-recovery as Main Canvas AI", { timeout:20000 }, async () => {
+  const directory=await fs.promises.mkdtemp(path.join(os.tmpdir(),"penecho-community-codex-recovery-")),cli=await recoverableCodexCli(directory),stateDir=path.join(directory,"state"),
+    image=await sharp({create:{width:96,height:64,channels:4,background:{r:35,g:92,b:155,alpha:1}}}).webp({quality:80}).toBuffer(),
+    payload={kind:"widget",language:"en",preview:{contentType:"image/webp",width:96,height:64,dataBase64:image.toString("base64")},current:{name:"",description:"",category:"productivity",tags:[]},context:{title:"Recovered Widget"}},
+    env=serverEnv({PENECHO_STATE_DIR:stateDir,CODEX_CLI_PATH:path.join(directory,"removed-codex"),PATH:`${cli.bin}${path.delimiter}${process.env.PATH||""}`}),
+    running=await startServer(env);
+  try {
+    const response=await fetch(`${running.origin}/api/community/metadata`,{method:"POST",headers:{Origin:running.origin,"Content-Type":"application/json","X-PenEcho-Connection":"default"},body:JSON.stringify(payload)}),body=await response.json();
+    assert.equal(response.status,200,JSON.stringify(body));
+    assert.deepEqual(body.metadata,cli.communityMetadata);
+    const invocations=(await fs.promises.readFile(cli.record,"utf8")).trim().split(/\r?\n/);
+    assert.deepEqual(invocations,["version","login","community"]);
+  } finally {
+    await stopServer(running.child);
+    await fs.promises.rm(directory,{recursive:true,force:true});
   }
 });
 

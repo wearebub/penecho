@@ -86,9 +86,6 @@
   function stopActiveAIRequests() {
     const active = state.activeAI || aiPreparation;
     if (!active || active.superseded) return false;
-    state.radialGesture = null;
-    state.radialSuppressClickUntil = performance.now() + 450;
-    closeRadialMenu();
     supersedeActiveAI("user-stop");
     return true;
   }
@@ -1167,6 +1164,8 @@
     image.naturalWidth = naturalWidth;
     image.logicalWidth = naturalWidth;
     image.logicalHeight = naturalHeight;
+    image.contentInsetX = 2;
+    image.contentInsetY = 2 - (rowHeight - f) / 2;
     return image;
   }
   function layoutText(content, context, maxWidth) {
@@ -1305,6 +1304,8 @@
     }
     image.logicalWidth = naturalWidth;
     image.logicalHeight = naturalHeight;
+    image.contentInsetX = padding;
+    image.contentInsetY = padding;
     image.revealRows = rows.map((row) => Math.max(1, row.width));
     image.revealRowHeight = naturalHeight / Math.max(1, rows.length);
     return image;
@@ -2869,8 +2870,8 @@
     }
     notePendingContinuedInput(d);
     state.autoEligible ||= shouldRequest;
+    saveUserCanvasChange();
     if (state.dirty && state.autoEligible && !refineCandidate) schedule();
-    save();
     requestInteractionLayerRender();
     if (shouldRequest || d.erase) setStatusKey(refineCandidate ? "widgetRefinePending" : state.pending?.items ? "batchDraftReady" : state.pending ? "draftReady" : "ready");
   }

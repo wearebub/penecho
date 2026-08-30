@@ -7,9 +7,12 @@ const { test } = require("node:test");
 const { createRemoteCanvasHttpExecutor, remoteCanvasTarget } = require("../src/server/remote-canvas-http.js");
 
 const remoteCanvasClientSource = fs.readFileSync(path.resolve(__dirname, "../public/remote-canvas.js"), "utf8");
+const serverSource = fs.readFileSync(path.resolve(__dirname, "../src/server/main.js"), "utf8");
 
 test("Remote Canvas allows only reviewed local routes and methods", () => {
   assert.equal(remoteCanvasTarget("GET", "/api/canvases"), "/api/canvases");
+  assert.equal(remoteCanvasTarget("PATCH", "/api/canvases/1234567890123-canvasname"), "/api/canvases/1234567890123-canvasname");
+  assert.equal(remoteCanvasTarget("PATCH", "/api/cloud/canvases/123e4567-e89b-42d3-a456-426614174000"), "/api/cloud/canvases/123e4567-e89b-42d3-a456-426614174000");
   assert.equal(remoteCanvasTarget("GET", "/api/canvas-agent/projects"), "/api/canvas-agent/projects");
   assert.throws(() => remoteCanvasTarget("POST", "/api/canvas-agent/projects"), /not available/);
   assert.throws(() => remoteCanvasTarget("GET", "/api/canvas-agent/host-roots"), /not available/);
@@ -68,6 +71,11 @@ test("Remote Canvas allows only reviewed local routes and methods", () => {
   assert.throws(() => remoteCanvasTarget("PATCH", "/api/canvases"), /not available/);
   assert.throws(() => remoteCanvasTarget("OPTIONS", "/api/canvases"), /method/);
   assert.throws(() => remoteCanvasTarget("GET", "https://example.com/api/canvases"), /invalid/);
+});
+
+test("Canvas rename updates only validated server metadata", () => {
+  assert.match(serverSource, /function renameSharedCanvas\(id,value\)[\s\S]*?value\.trim\(\)\.slice\(0,48\)[\s\S]*?metadata\.name=name[\s\S]*?atomicJsonWrite\(metadataFile,metadata\)/);
+  assert.match(serverSource, /req\.method==="PATCH"&&sharedCanvasMatch[\s\S]*?renameSharedCanvas\(sharedCanvasMatch\[1\],input\?\.name\)/);
 });
 
 test("Remote Canvas client pins bridged HTTP and PenEcho Agent WebSocket traffic to the status device", () => {

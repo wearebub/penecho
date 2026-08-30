@@ -8,7 +8,17 @@ When a symbolic result is needed, derive it before authoring with deterministic 
 
 ## Numerical and mathematical evidence
 
-Before styling, record the domain, units, tick spacing, coordinate bounds, formulas, parameter values, rounding rule, special points, and assumptions. Every plotted value must come from a pure deterministic function with fixed constants. Use stable sampling, show the sample count/step, and avoid random values.
+Before styling, record the domain, units, tick spacing, coordinate bounds, formulas, parameter values, rounding rule, special points, and assumptions. Every plotted value must come from a pure deterministic function with fixed constants. Use stable sampling, show the effective sample count/step, and avoid random values.
+
+### Function-curve fidelity
+
+A mathematical function curve is not a low-count chart series. Never approximate it with a handful of hand-picked points or expose visible straight chords between sparse samples.
+
+- For each continuous interval, derive SVG path data or renderer geometry from the pure function. Base uniform density on the curve's rendered CSS width: use at least `max(320, ceil(width * 1.5))` finite evaluations, capped at 2400 before adaptive refinement. Do not keep a small fixed sample count when the Widget becomes wider.
+- For authored SVG path data, adaptively subdivide any segment whose evaluated midpoint differs from the chord midpoint by more than 0.35 rendered CSS pixels, stopping only below that tolerance or at a deterministic depth cap of 12. This refinement is in addition to the width-based baseline and concentrates work where curvature is high. Cap the final retained vertices at 8192 and expose the accuracy limit if it is reached.
+- Split the path at non-finite values, domain exclusions, asymptotes, or jumps that leave the visible range. Never connect separate branches across an invalid or clipped interval.
+- Render function curves as paths with round caps and joins, but do not use cosmetic spline smoothing through sparse points: it can move extrema, roots, or inflections away from the evaluated function.
+- Recompute or re-render from the same function and bounds when responsive layout materially changes plot width. The visible sample count/step must describe the final rendered curve, not an earlier placeholder.
 
 For each graph:
 
@@ -72,7 +82,8 @@ try {
   });
   const f = (x) => x * x - 2 * x - 1;
   const axes = new Axes({ xRange:[-4, 5, 1], yRange:[-3, 8, 1], xLength:8, yLength:5, tips:false });
-  const curve = axes.plot(f, { xRange:[-4, 5], color:BLUE, numSamples:320 });
+  const numSamples = Math.max(320, Math.min(2400, Math.ceil(box.width * 1.5)));
+  const curve = axes.plot(f, { xRange:[-4, 5], color:BLUE, numSamples });
   scene.add(axes, curve);
 } catch (error) {
   scienceError = error;

@@ -1,6 +1,8 @@
 // DeepSeek Harness bridge. The browser remains authoritative for Canvas state.
   const canvasAgentControl = document.querySelector("#canvasAgentControl"),
     canvasAgentToggle = document.querySelector("#canvasAgentToggle"),
+    canvasAgentToolbar = document.querySelector(".toolbar"),
+    canvasAgentToolbarHome = document.querySelector("#canvasAgentToolbarHome"),
     canvasAgentPanel = document.querySelector("#canvasAgentPanel"),
     canvasAgentHome = document.querySelector("#canvasAgentHome"),
     canvasAgentFrame = view.closest(".canvas-frame"),
@@ -275,6 +277,7 @@
     viewRevision:0,
     viewSignature:"",
     latestChange:null,
+    hideOnFirstUserCanvasChange:false,
   };
   sessionStorage.setItem(CANVAS_AGENT_CLIENT_KEY,canvasAgent.clientId);
   try {
@@ -327,7 +330,7 @@
     canvasAgentSyncAutomaticAIStatus();
   }
   function canvasAgentSyncTriggerState() {
-    const busy = (canvasAgent.requestPending || canvasAgent.running) && canvasAgentPanel.hidden;
+    const busy = canvasAgent.requestPending || canvasAgent.running;
     canvasAgentControl.classList.toggle("is-busy",busy);
     canvasAgentToggle.setAttribute("aria-busy",String(busy));
     canvasAgentSyncPromptSuggestions();
@@ -1160,13 +1163,35 @@
     if (!key) return false;
     if (normalized.length) {
       store.canvases[key]=normalized;
-      if(key===state.canvasAgentCanvasKey)canvasAgentRememberCanvasMeta(store,key,{name:state.currentSnapshotName,updatedAt:normalized[0].updatedAt});
+      if(key===state.canvasAgentCanvasKey)canvasAgentRememberCanvasMeta(store,key,{name:currentCanvasDisplayName(),updatedAt:normalized[0].updatedAt});
     } else {
       delete store.canvases[key];
       if(store.canvasMeta)delete store.canvasMeta[key];
     }
     try { localStorage.setItem(CANVAS_AGENT_HISTORY_KEY,JSON.stringify(store)); return true; }
     catch { return false; }
+  }
+  function canvasAgentDeleteStoredConversation(canvasKey, conversationId) {
+    const key=String(canvasKey||""),id=String(conversationId||""),deletingCurrent=!canvasAgent.projectId&&key===state.canvasAgentCanvasKey&&id===canvasAgent.currentConversation?.id;
+    if(!key||!id)return {deleted:false,reason:"missing"};
+    if(deletingCurrent&&(canvasAgent.requestPending||canvasAgent.running))return {deleted:false,reason:"busy"};
+    const store=canvasAgentReadHistoryStore(),previous=(Array.isArray(store.canvases[key])?store.canvases[key]:[]).map(canvasAgentNormalizeConversation).filter(conversation=>conversation?.items.length),remaining=previous.filter(conversation=>conversation.id!==id);
+    if(remaining.length===previous.length)return {deleted:false,reason:"missing"};
+    if(remaining.length){
+      store.canvases[key]=remaining;
+      canvasAgentRememberCanvasMeta(store,key,{name:store.canvasMeta?.[key]?.name,updatedAt:remaining[0].updatedAt});
+    }else{
+      delete store.canvases[key];
+      if(store.canvasMeta)delete store.canvasMeta[key];
+    }
+    try{localStorage.setItem(CANVAS_AGENT_HISTORY_KEY,JSON.stringify(store));}
+    catch{return {deleted:false,reason:"storage"};}
+    if(deletingCurrent){
+      canvasAgentBeginLocalConversation({persistCurrent:false});
+      canvasAgentDropSessionIdentity();
+      canvasAgentSetStatus(t("canvasAgentReadyConnect"),"ready");
+    }else canvasAgentRenderHistoryList();
+    return {deleted:true,reason:"",remaining:remaining.length};
   }
   function canvasAgentConversationTitle(conversation) {
     const firstUser=conversation?.items?.find(item=>item.type==="message"&&item.role==="user"&&item.text.trim());
@@ -1398,6 +1423,7 @@
   }
   function canvasAgentCanvasDidChange(identity = null,options = null) {
     const clearProject=options?.clearProject===true,deferConversationStart=options?.deferConversationStart===true;
+    canvasAgent.hideOnFirstUserCanvasChange=true;
     canvasAgentPersistCurrentConversation();
     if(clearProject){
       canvasAgent.projectSelectionRevision++;
@@ -1417,6 +1443,12 @@
     canvasAgentSyncPromptSuggestions();
     if (state.canvasAgentAutoOpen && canvasAgentPanel.hidden) openCanvasAgent({focus:false});
   }
+  function canvasAgentDidCommitUserCanvasChange(historyEntry) {
+    if (!historyEntry || !canvasAgent.hideOnFirstUserCanvasChange) return historyEntry;
+    canvasAgent.hideOnFirstUserCanvasChange=false;
+    if (!canvasAgentPanel.hidden) closeCanvasAgent({focus:false});
+    return historyEntry;
+  }
   function canvasAgentCanvasDidPersist(location,id) {
     if (!location||!id) return;
     const previousKey=state.canvasAgentCanvasKey, nextKey=canvasAgentCanvasIdentity({location,id});
@@ -1430,7 +1462,7 @@
     const store=canvasAgentReadHistoryStore(), previous=(Array.isArray(store.canvases[previousKey])?store.canvases[previousKey]:[]).map(canvasAgentNormalizeConversation).filter(Boolean), next=(Array.isArray(store.canvases[nextKey])?store.canvases[nextKey]:[]).map(canvasAgentNormalizeConversation).filter(Boolean), merged=[];
     for (const conversation of [...previous,...next].sort((a,b)=>b.updatedAt-a.updatedAt)) if (conversation?.items.length&&!merged.some(item=>item.id===conversation.id)) merged.push(conversation);
     if (previousKey?.startsWith("draft:")) {delete store.canvases[previousKey];delete store.canvasMeta?.[previousKey];}
-    canvasAgentRememberCanvasMeta(store,nextKey,{name:state.currentSnapshotName,updatedAt:merged[0]?.updatedAt});
+    canvasAgentRememberCanvasMeta(store,nextKey,{name:currentCanvasDisplayName(),updatedAt:merged[0]?.updatedAt});
     canvasAgentWriteHistoryForCanvas(nextKey,merged,store);
     state.canvasAgentCanvasKey=nextKey;
     canvasAgentRenderHistoryList();
@@ -1562,18 +1594,24 @@
     });
     canvasAgentReferenceList.replaceChildren();
     for (const item of widgets) {
-      const option=document.createElement("button"), label=document.createElement("span"), status=document.createElement("small"), referenced=canvasAgent.references.includes(item.id);
+      const option=document.createElement("button"), icon=document.createElement("span"), label=document.createElement("span"), status=document.createElement("small"), referenced=canvasAgent.references.includes(item.id);
       option.type="button";
       option.setAttribute("role","option");
       option.setAttribute("aria-selected",String(referenced));
+      icon.className="canvas-agent-reference-item-icon";
+      icon.setAttribute("aria-hidden","true");
+      label.className="canvas-agent-reference-item-label";
       label.textContent=canvasAgentReferenceLabel(item.id);
       label.title=String(item.id);
       status.textContent=t(referenced?"canvasAgentReferenced":"canvasAgentReferenceAdd");
-      option.append(label,status);
+      option.append(icon,label,status);
       option.addEventListener("click",()=>canvasAgentToggleReference(item.id));
       canvasAgentReferenceList.append(option);
     }
-    canvasAgentReferenceNote.textContent=!state.widgets.length?t("canvasAgentReferenceEmpty"):!widgets.length?t("canvasAgentReferenceNoMatch"):t("canvasAgentReferenceCount").replace("{count}",String(widgets.length));
+    const message=!state.widgets.length?t("canvasAgentReferenceEmpty"):!widgets.length?t("canvasAgentReferenceNoMatch"):"";
+    canvasAgentReferencePicker.classList.toggle("has-message",Boolean(message));
+    canvasAgentReferenceNote.classList.toggle("is-message",Boolean(message));
+    canvasAgentReferenceNote.textContent=message||t(widgets.length===1?"canvasAgentReferenceCountOne":"canvasAgentReferenceCount").replace("{count}",String(widgets.length));
   }
   function canvasAgentTranscriptNearLatest() {
     const remaining = canvasAgentTranscript.scrollHeight - canvasAgentTranscript.clientHeight - canvasAgentTranscript.scrollTop;
@@ -1601,8 +1639,38 @@
   function canvasAgentDockedPanel() {
     return document.body.classList.contains("studio-agent-docked") && canvasAgentPanel.parentElement === canvasAgentFrame;
   }
+  let canvasAgentToolbarLayoutFrame = 0;
+  function canvasAgentToolbarOverflows() {
+    return Boolean(canvasAgentToolbar?.clientWidth && canvasAgentToolbar.scrollWidth > canvasAgentToolbar.clientWidth + 1);
+  }
+  function canvasAgentSyncToolbarLayout(theme = state.theme) {
+    const body = document.body,
+      toolbarAvailable = theme === "studio" && Boolean(window.matchMedia?.("(min-width: 701px)").matches) && canvasAgentToolbar && canvasAgentToolbarHome;
+    body.classList.remove("studio-toolbar-effort-compact", "studio-toolbar-controls-compact", "studio-agent-launcher-floating");
+    if (!toolbarAvailable) {
+      if (canvasAgentControl.parentElement !== canvasAgentFrame) canvasAgentFrame.append(canvasAgentControl);
+      body.classList.toggle("studio-agent-launcher-floating", theme === "studio");
+      return "floating";
+    }
+    if (canvasAgentControl.parentElement !== canvasAgentToolbarHome) canvasAgentToolbarHome.append(canvasAgentControl);
+    if (!canvasAgentToolbarOverflows()) return "full";
+    body.classList.add("studio-toolbar-effort-compact");
+    if (!canvasAgentToolbarOverflows()) return "effort-compact";
+    body.classList.add("studio-toolbar-controls-compact");
+    if (!canvasAgentToolbarOverflows()) return "controls-compact";
+    body.classList.add("studio-agent-launcher-floating");
+    canvasAgentFrame.append(canvasAgentControl);
+    return "floating";
+  }
+  function canvasAgentScheduleToolbarLayout() {
+    if (canvasAgentToolbarLayoutFrame) return;
+    canvasAgentToolbarLayoutFrame = requestAnimationFrame(() => {
+      canvasAgentToolbarLayoutFrame = 0;
+      canvasAgentSyncToolbarLayout();
+    });
+  }
   function syncStudioWorkbench(theme = state.theme) {
-    const docked = theme === "studio" && Boolean(window.matchMedia?.("(min-width: 1101px)").matches);
+    const docked = theme === "studio" && Boolean(window.matchMedia?.("(min-width: 701px)").matches);
     document.body.classList.toggle("studio-agent-docked", docked);
     if (docked && canvasAgentPanel.parentElement !== canvasAgentFrame) canvasAgentFrame.append(canvasAgentPanel);
     else if (!docked && canvasAgentPanel.parentElement !== view) canvasAgentHome.after(canvasAgentPanel);
@@ -1611,13 +1679,16 @@
       canvasAgentResetPositionClasses();
       canvasAgent.panelPosition = null;
     }
+    canvasAgentSyncToolbarLayout(theme);
     window.PenEchoStudioNavigator?.syncTheme?.(theme);
   }
   function canvasAgentResetHeightClasses() {
     for (const name of [...canvasAgentPanel.classList]) if (/^canvas-agent-height-\d+$/.test(name)) canvasAgentPanel.classList.remove(name);
   }
   function canvasAgentResetWidthClasses() {
-    for (const name of [...canvasAgentPanel.classList]) if (/^canvas-agent-width-\d+$/.test(name)) canvasAgentPanel.classList.remove(name);
+    for (const target of [canvasAgentPanel,canvasAgentFrame]) {
+      for (const name of [...target.classList]) if (/^canvas-agent-width-\d+$/.test(name)) target.classList.remove(name);
+    }
   }
   function canvasAgentApplyPanelHeight(height) {
     const extent=Math.max(1,view.clientHeight), step=Math.max(0,Math.min(CANVAS_AGENT_SIZE_STEPS,Math.round((Number(height)||CANVAS_AGENT_HEIGHT_MIN)/extent*CANVAS_AGENT_SIZE_STEPS)));
@@ -1630,6 +1701,7 @@
     const extent=Math.max(1,canvasAgentDockedPanel()?canvasAgentFrame.clientWidth:view.clientWidth), step=Math.max(0,Math.min(CANVAS_AGENT_SIZE_STEPS,Math.round((Number(width)||CANVAS_AGENT_WIDTH_MIN)/extent*CANVAS_AGENT_SIZE_STEPS)));
     canvasAgentResetWidthClasses();
     canvasAgentPanel.classList.add(`canvas-agent-width-${step}`);
+    canvasAgentFrame.classList.add(`canvas-agent-width-${step}`);
     canvasAgentSyncResizeHandleValues();
     return canvasAgentPanel.offsetWidth;
   }
@@ -1719,6 +1791,7 @@
     if (canvasAgentDockedPanel() && edge!=="left") return;
     canvasAgent.panelResize={pointerId:event.pointerId,edge,vertical,startCoordinate:vertical?point.y:point.x,startSize:vertical?canvasAgentPanel.offsetHeight:canvasAgentPanel.offsetWidth,anchor:canvasAgentResizeAnchor(),handle:event.currentTarget};
     canvasAgentPanel.classList.add("resizing",`resizing-${edge}`);
+    if (canvasAgentDockedPanel()) canvasAgentFrame.classList.add("canvas-agent-resizing");
     event.currentTarget.setPointerCapture?.(event.pointerId);
     event.preventDefault();
     event.stopPropagation();
@@ -1735,6 +1808,7 @@
     if (resize?.pointerId!==event.pointerId) return;
     canvasAgent.panelResize=null;
     canvasAgentPanel.classList.remove("resizing","resizing-top","resizing-bottom","resizing-left","resizing-right");
+    canvasAgentFrame.classList.remove("canvas-agent-resizing");
     if (resize.handle.hasPointerCapture?.(event.pointerId)) resize.handle.releasePointerCapture(event.pointerId);
     canvasAgentSavePanelSize();
     canvasAgentSavePanelPosition();
@@ -2175,7 +2249,8 @@
     ];
   }
   function canvasAgentViewFacts() {
-    const viewport = viewportRect(), signature = JSON.stringify({viewport,scale:state.scale,panX:state.panX,panY:state.panY,selection:canvasAgentSelectionIds(),ink:state.selection?.box || null});
+    // Panel and window geometry belongs to app chrome; only Canvas interaction advances this revision.
+    const viewport = viewportRect(), signature = JSON.stringify({scale:state.scale,panX:state.panX,panY:state.panY,selection:canvasAgentSelectionIds(),ink:state.selection?.box || null});
     if (signature !== canvasAgent.viewSignature) {
       canvasAgent.viewSignature = signature;
       canvasAgent.viewRevision++;
@@ -2851,7 +2926,10 @@
       }
     } else if (event.kind === "turn_end") {
       canvasAgent.requestPending = false;
-      if(event.reason?.kind==="completed")canvasAgentMarkTurnSummaryCopyable(event.turn);
+      if(event.reason?.kind==="completed"){
+        canvasAgentMarkTurnSummaryCopyable(event.turn);
+        applyCurrentCanvasGeneratedName(event.canvasTitle);
+      }
       canvasAgent.lastTurnError=event.reason?.kind==="error"?canvasAgentNormalizeError(event.reason?.error||event.reason):null;
       canvasAgentSetRunning(false);
       if(canvasAgent.lastTurnError){
@@ -3864,9 +3942,21 @@
     canvasAgentPanel.inert = false;
     canvasAgentPanel.setAttribute("aria-hidden","false");
     canvasAgentToggle.setAttribute("aria-expanded","true");
+    const docked=canvasAgentDockedPanel();
+    if(docked){
+      // Resolve the persisted inspector width while it is still offscreen so the
+      // slide and every control following its leading edge share one geometry.
+      canvasAgentRestorePanelSize();
+      canvasAgentRestorePanelPosition();
+      canvasAgentResizeInput();
+    }
     document.body.classList.add("canvas-agent-open");
+    // Opening Agent changes workbench geometry, but never the selected Canvas
+    // tool. Re-apply the authoritative mode presentation so a stale temporary
+    // Hand/grab cursor or toolbar highlight cannot survive the transition.
+    syncCanvasModePresentation();
     canvasAgentSyncTriggerState();
-    if(animate&&!canvasAgentDockedPanel()){
+    if(animate&&!docked){
       canvasAgentPanel.classList.add("canvas-agent-motion-target");
       canvasAgent.panelMotionFrame=requestAnimationFrame(()=>{
         canvasAgent.panelMotionFrame=0;
@@ -3877,10 +3967,15 @@
           (canvasAgent.inputMode==="ink"?canvasAgentInkCanvas:canvasAgentInput).focus():null);
       });
     }else{
-      canvasAgentRestorePanelSize();
-      canvasAgentRestorePanelPosition();
-      canvasAgentResizeInput();
-      if(focus)(canvasAgent.inputMode==="ink"?canvasAgentInkCanvas:canvasAgentInput).focus();
+      if(!docked){
+        canvasAgentRestorePanelSize();
+        canvasAgentRestorePanelPosition();
+        canvasAgentResizeInput();
+      }
+      if(focus){
+        const focusTarget=canvasAgent.inputMode==="ink"?canvasAgentInkCanvas:canvasAgentInput;
+        try{focusTarget.focus({preventScroll:true});}catch{focusTarget.focus();}
+      }
     }
     if(connect){
       canvasAgentSyncState();
@@ -3897,6 +3992,7 @@
     canvasAgent.panelDrag = null;
     canvasAgent.panelResize = null;
     canvasAgentPanel.classList.remove("dragging","resizing","resizing-top","resizing-bottom","resizing-left","resizing-right");
+    canvasAgentFrame.classList.remove("canvas-agent-resizing");
     if (dragPointerId !== undefined && canvasAgentHead.hasPointerCapture?.(dragPointerId)) canvasAgentHead.releasePointerCapture(dragPointerId);
     if (resize?.handle.hasPointerCapture?.(resize.pointerId)) resize.handle.releasePointerCapture(resize.pointerId);
     canvasAgentPanel.hidden = true;
@@ -4094,7 +4190,7 @@
       canvasAgentAssertSubmitExecution(submitExecution);
       canvasAgentRow("user",displayText,displayAttachments);
       canvasAgentAssertSubmitExecution(submitExecution);
-      canvasAgentSendRequest(canvasAgent.running ? "steer" : "user_turn",{text:prompt,references:canvasAgentTurnReferences(),images:outgoingAttachments.map(attachment=>attachment.wire),fileIds:fileAttachments.map(attachment=>attachment.projectId),initialState,webSearchEnabled:canvasAgent.searchEnabled});
+      canvasAgentSendRequest(canvasAgent.running ? "steer" : "user_turn",{text:prompt,references:canvasAgentTurnReferences(),images:outgoingAttachments.map(attachment=>attachment.wire),fileIds:fileAttachments.map(attachment=>attachment.projectId),initialState,webSearchEnabled:canvasAgent.searchEnabled,canvasTitleNeeded:currentCanvasNeedsAgentName()});
       requestSent = true;
       focusComposerAfterSubmit=!hasInk;
       if(clearInput){canvasAgentInput.value = "";canvasAgentResizeInput();}
@@ -4175,6 +4271,9 @@
   if (typeof ResizeObserver==="function") {
     new ResizeObserver(()=>{canvasAgentSchedulePanelSizeSave();canvasAgentResizeInput();}).observe(canvasAgentPanel);
     new ResizeObserver(canvasAgentScheduleScrollToLatest).observe(canvasAgentTranscript);
+    const toolbarLayoutObserver = new ResizeObserver(canvasAgentScheduleToolbarLayout);
+    toolbarLayoutObserver.observe(canvasAgentToolbar);
+    toolbarLayoutObserver.observe(document.querySelector(".tool-group.primary-tools"));
   }
   canvasAgentResizeInput();
   window.addEventListener("resize",()=>requestAnimationFrame(()=>{syncStudioWorkbench();canvasAgentRestorePanelSize();canvasAgentRestorePanelPosition();}),{passive:true});

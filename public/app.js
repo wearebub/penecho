@@ -132,6 +132,10 @@
     MAX_HISTORY = 30,
     DEFAULT_AUTO_DELAY = 5000,
     DEFAULT_AI_TIMEOUT = 260000,
+    PEN_STROKE_MIN = 1,
+    PEN_PRESSURE_TIP_RATIO = 0.25,
+    PEN_SIZE_MIN = 4,
+    PEN_SIZE_MAX = 8,
     screen = document.querySelector("#screen"),
     view = document.querySelector("#viewport"),
     canvasNavigationLock = document.querySelector("#canvasNavigationLock"),
@@ -195,7 +199,6 @@
     debugRequest = document.querySelector("#debugRequest"),
     embodiment = document.querySelector("#aiEmbodiment"),
     aiOrb = document.querySelector("#aiOrb"),
-    aiRadial = document.querySelector("#aiRadial"),
     selectionOverlayLayer = document.querySelector("#selectionOverlayLayer"),
     selectionToolbar = document.querySelector("#selectionToolbar"),
     selectionTypesetButton = document.querySelector("#selectionTypesetBtn"),
@@ -204,10 +207,9 @@
     imagePickerButton = document.querySelector("#imagePickerBtn"),
     clipboardCopyButton = document.querySelector("#clipboardCopyBtn"),
     imagePickerInput = document.querySelector("#imagePickerInput"),
+    imageSelectionMaterial = document.querySelector("#imageSelectionMaterial"),
     imageEditBar = document.querySelector("#imageEditBar"),
-    imagePlaceButton = document.querySelector("#imagePlaceBtn"),
     imageMergeButton = document.querySelector("#imageMergeBtn"),
-    imageDeleteButton = document.querySelector("#imageDeleteBtn"),
     textEditorLayer = document.querySelector("#textEditorLayer"),
     textInputHint = document.querySelector("#textInputHint"),
     tourMain = document.querySelector("main"),
@@ -304,6 +306,17 @@
     summonToggle = document.querySelector("#summonToggle"),
     settingsTourButton = document.querySelector("#settingsTourBtn"),
     settingsChangelogButton = document.querySelector("#settingsChangelogBtn");
+
+  function clampPenWidth(value) {
+    const width = Number(value);
+    if (!Number.isFinite(width)) return PEN_SIZE_MIN;
+    return Math.max(PEN_SIZE_MIN, Math.min(PEN_SIZE_MAX, width));
+  }
+  function clampStrokeWidth(value) {
+    const width = Number(value);
+    if (!Number.isFinite(width)) return PEN_SIZE_MIN;
+    return Math.max(PEN_STROKE_MIN, Math.min(PEN_SIZE_MAX, width));
+  }
   const ZH = window.PENECHO_LOCALES?.zh || {};
   const DRAW = window.PENECHO_DRAW;
   const SELECT = window.PENECHO_SELECTION;
@@ -402,18 +415,6 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       title: "PenEcho | Handwritten AI Canvas",
       language: "Language",
       hintPrefix: "Hint",
-      theme: "Theme",
-      themeArcane: "Arcane",
-      themeScifi: "Sci-fi",
-      themeResearch: "Research",
-      themeStudio: "Studio",
-      themeFocusArcane: "Favors interdisciplinary insight, intuitive analogy, and creative exploration",
-      themeFocusScifi: "Favors engineering, debugging, system design, and future technology",
-      themeFocusResearch: "Favors mathematical physics, rigorous derivation, teaching, and code verification",
-      themeFocusStudio: "Favors clean layout, concise structured answers, and practical next steps",
-      guideArcane: "Arcane knowledge crystal",
-      guideScifi: "Holographic analysis core",
-      guideResearch: "Einstein scientific mentor",
       guideStudio: "Studio assistant",
       boardTools: "Board tools",
       hand: "Hand tool: move canvas and objects",
@@ -522,9 +523,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       debug: "Debug",
       canvas: "Zoomable handwritten AI canvas",
       aiGuide: "AI knowledge guide",
-      openAIMenu: "Open AI action menu",
+      triggerAutoAI: "Run Auto AI now",
       stopAIRequest: "Stop current AI request",
-      aiActions: "AI actions",
       answer: "Answer",
       hint: "Hint",
       continue: "Continue",
@@ -549,8 +549,6 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       tourEffortBody: "AI Effort controls the reasoning depth used for each request. Higher levels suit difficult derivations and multi-step problems, but can take longer. Configured uses the default selected in your local setup.",
       tourHandTitle: "Move objects with the Hand tool",
       tourHandBody: "Choose Hand, then tap an image, animation, text box, or AI widget to reveal its controls. HTML widgets remain interactive; drag empty space to pan.",
-      tourStudioThemeTitle: "Try the new Studio theme",
-      tourStudioThemeBody: "Open Theme to switch the canvas's visual style and the AI's response emphasis. The new Studio theme uses a clean, focused interface and favors concise, well-structured, practical answers. You can switch themes at any time.",
       tourLassoTitle: "Work with exactly the content you select",
       tourLassoBody: "With a mouse or stylus, draw a closed loop around handwriting. Drag the selected region to move it; use the right edge, bottom edge, or lower-right corner to resize it. The selection toolbar can typeset handwriting, delete it, or cancel. Selection-scoped AI requests do not reference the rest of the canvas.",
       tourTextTitle: "Add editable text and formulas",
@@ -565,8 +563,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       tourShareCanvasBody: "Share opens a preview and publishing form for the current Canvas. After signing in, review its details before making it public in Echoes, then copy its link or share it as an image. Use Cloud instead for private saves.",
       tourCloudTitle: "Keep private work in PenEcho Cloud",
       tourCloudBody: "Open Cloud to sign in, save and reopen private versioned Canvases by project, and use favorite Canvases or Widgets from Echoes in your current Canvas.",
-      tourManualAITitle: "Ask AI for a specific kind of help",
-      tourManualAIBody: "Click the magic orb to open manual AI actions such as Answer, Hint, Continue, Explain, and Plot. Manual requests use the current canvas context—or only the lasso selection when one is active.",
+      tourManualAITitle: "Run Auto AI on demand",
+      tourManualAIBody: "Click the magic orb to run the same prompt used by Auto AI immediately. It uses the current canvas context—or only the lasso selection when one is active.",
       tourStatusTitle: "Follow every AI request and result",
       tourStatusBody: "This status indicator reports when AI is observing, writing, finished, delayed, or needs confirmation. When a multi-part draft is ready, nearby controls let you accept or discard the complete response.",
       tourCanvasTitle: "Navigate the large canvas",
@@ -582,6 +580,34 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       changelogEraserMemory: "PenEcho remembers whether you last chose the eraser or area eraser across canvases and reloads.",
       settingsTitle: "Settings",
       settingsClose: "Close settings",
+      settingsSubtitle: "Choose a category, then adjust its settings without leaving this window.",
+      settingsNavigation: "Settings categories",
+      settingsNavAppearance: "Appearance",
+      settingsNavConnections: "AI & connections",
+      settingsNavCanvas: "Canvas",
+      settingsNavAbout: "Help & about",
+      settingsAppearance: "Appearance",
+      settingsAppearanceHelp: "Studio stays consistent while its accent and supporting neutrals change together.",
+      settingsColorScheme: "Color scheme",
+      settingsColorSchemeHelp: "Eight restrained, professional Studio palettes.",
+      settingsInterfaceScale: "Interface scale",
+      settingsInterfaceScaleHelp: "Scale the application text and controls.",
+      studioPaletteIndigo: "Indigo",
+      studioPaletteIndigoHelp: "Creative and balanced",
+      studioPaletteGraphite: "Graphite",
+      studioPaletteGraphiteHelp: "Neutral and distraction-free",
+      studioPaletteCobalt: "Cobalt",
+      studioPaletteCobaltHelp: "Classic productivity blue",
+      studioPaletteAzure: "Azure",
+      studioPaletteAzureHelp: "Clear and open",
+      studioPaletteTeal: "Teal",
+      studioPaletteTealHelp: "Calm and technical",
+      studioPaletteForest: "Forest",
+      studioPaletteForestHelp: "Focused and grounded",
+      studioPaletteAmber: "Amber",
+      studioPaletteAmberHelp: "Warm and decisive",
+      studioPaletteBurgundy: "Burgundy",
+      studioPaletteBurgundyHelp: "Deep and editorial",
       settingsApiSection: "AI connection",
       settingsApiDescription: "Choose an API or an existing local CLI login.",
       settingsProvider: "AI provider",
@@ -740,6 +766,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       settingsDownloadMac: "Download for macOS",
       settingsDownloadWin: "Download for Windows",
       settingsGitHub: "GitHub repository",
+      summonUnderstanding: "Understanding this part of the canvas...",
       summonPhrase1: "I’m following the trail your pen left behind...",
       summonPhrase2: "Give me a moment—I’m fitting the pieces on the canvas together.",
       summonPhrase3: "This deserves another look. I’m still thinking with you.",
@@ -799,6 +826,12 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       studioNavigatorMessageCount: "{count} messages",
       studioNavigatorManageAgents: "Open Agent history",
       studioNavigatorManageCanvases: "Manage in Canvas history",
+      studioNavigatorDeleteSession: "Delete session “{name}”",
+      studioNavigatorDeleteSessionTitle: "Delete session?",
+      studioNavigatorDeleteSessionAction: "Delete",
+      studioNavigatorDeleteSessionConfirm: "“{name}” will be permanently deleted. This cannot be undone.",
+      studioNavigatorDeleteSessionBusy: "Stop the current Agent session before deleting it.",
+      studioNavigatorDeleteSessionFailed: "This session could not be deleted. Try again.",
       saveLocation: "Location",
       storageThisDevice: "Device",
       storagePenEchoServer: "Server",
@@ -822,6 +855,12 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       saveCanvas: "Save canvas",
       saveCurrentSnapshot: "Save",
       canvasUntitledName: "Untitled canvas",
+      canvasRename: "Rename",
+      canvasRenameCurrent: "Rename current canvas",
+      canvasRenameNamed: "Rename canvas “{name}”",
+      canvasNamePlaceholder: "Canvas name",
+      canvasNameRequired: "Enter a canvas name.",
+      canvasRenamed: "Canvas renamed",
       canvasSaveStateUnsaved: "Not saved",
       canvasSaveStateSaved: "Saved",
       canvasSaveStateEdited: "Edited",
@@ -852,6 +891,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       snapshotLibraryLoading: "Loading {location} canvases…",
       snapshotLibraryLoadingDetail: "The previous location is being replaced with verified items.",
       snapshotLibraryLoadFailed: "Could not load {location}. Select the location to try again.",
+      snapshotCloudCacheRefreshing: "Showing cached Cloud canvases while the latest version loads.",
+      snapshotCloudCacheLoadFailed: "Cloud is unavailable. Cached canvases remain visible; select Cloud to try again.",
       snapshotCloudSignInRequired: "Sign in to view Cloud canvases",
       snapshotCloudSignInHint: "Your Cloud projects and canvases appear here once you are signed in.",
       openPenEchoCloud: "Open PenEcho Cloud",
@@ -1162,14 +1203,15 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       canvasAgentReferences: "Referenced canvas objects",
       canvasAgentReferenceWidget: "Reference a Widget",
       canvasAgentReferenceWidgetTitle: "Pick a Widget to reference",
-      canvasAgentReferenceHelp: "Click a Widget on the canvas to add it automatically, or choose one below.",
-      canvasAgentReferenceSearch: "Filter Widgets, or click one on the canvas",
-      canvasAgentReferenceAdd: "Add",
+      canvasAgentReferenceHelp: "Choose one from the list, or click it directly on the canvas.",
+      canvasAgentReferenceSearch: "Search canvas Widgets",
+      canvasAgentReferenceAdd: "Reference",
       canvasAgentRemoveReference: "Remove reference",
       canvasAgentReferenceLimit: "You can reference up to 20 Widgets in one message.",
       canvasAgentReferenceEmpty: "There are no Widgets on this canvas yet.",
       canvasAgentReferenceNoMatch: "No matching Widgets.",
       canvasAgentReferencePickMiss: "No Widget there — click directly on a Widget or choose one from the list.",
+      canvasAgentReferenceCountOne: "1 Widget",
       canvasAgentReferenceCount: "{count} Widgets",
       canvasAgentMove: "Drag to move PenEcho Agent",
       canvasAgentAttach: "Attach files and images",
@@ -1372,7 +1414,11 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     zh: ZH,
   };
   const PLUGIN_STORAGE_KEY = "penecho-plugins",
-    SUPPORTED_THEMES = new Set(["arcane", "scifi", "research", "studio"]),
+    DEFAULT_THEME = "studio",
+    DEFAULT_STUDIO_PALETTE = "indigo",
+    REMOVED_THEMES = new Set(["arcane", "scifi", "research"]),
+    SUPPORTED_THEMES = new Set([DEFAULT_THEME]),
+    SUPPORTED_STUDIO_PALETTES = new Set(["indigo", "graphite", "cobalt", "azure", "teal", "forest", "amber", "burgundy"]),
     DIAGRAM_RUNTIME_VERSION = "penecho-diagram-source-v1",
     DIAGRAM_SOURCE_FORMATS = new Set(["mermaid", "dot", "bpmn-xml", "vega-lite", "geojson", "smiles", "cytoscape-json"]),
     BUILTIN_PLUGIN_DEFINITIONS = Object.freeze([]);
@@ -1386,7 +1432,13 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     pluginCatalogLoadPromise = null;
   let screenClientRatio = 1;
   function normalizeTheme(theme) {
-    return SUPPORTED_THEMES.has(theme) ? theme : "studio";
+    return SUPPORTED_THEMES.has(theme) ? theme : DEFAULT_THEME;
+  }
+  function normalizeStudioPalette(palette) {
+    return SUPPORTED_STUDIO_PALETTES.has(palette) ? palette : DEFAULT_STUDIO_PALETTE;
+  }
+  function normalizeStudioPaletteForTheme(theme, palette) {
+    return REMOVED_THEMES.has(theme) ? DEFAULT_STUDIO_PALETTE : normalizeStudioPalette(palette);
   }
   function storedPluginSettings() {
     let stored = {};
@@ -1405,8 +1457,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   const storedPrimaryLanguage = localStorage.getItem("penecho-language"),
     storedLegacyLanguage = localStorage.getItem("ghostboard-language"),
     storedTheme = localStorage.getItem("penecho-theme") || localStorage.getItem("ghostboard-theme"),
+    storedStudioPalette = localStorage.getItem("penecho-studio-palette"),
     storedGrid = localStorage.getItem("penecho-grid") ?? localStorage.getItem("ghostboard-grid"),
-    storedResearchGrid = localStorage.getItem("penecho-research-grid"),
     storedAutoEnabled = localStorage.getItem("penecho-auto-ai"),
     storedAutoDelayText = localStorage.getItem("penecho-auto-delay-ms"),
     storedSummonEnabled = localStorage.getItem("penecho-summon-enabled"),
@@ -1419,8 +1471,9 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     storedAutoDelay = storedAutoDelayText === null ? NaN : Number(storedAutoDelayText),
     initialLanguage = TOUR.resolveInitialLanguage(storedPrimaryLanguage, storedLegacyLanguage),
     initialTheme = normalizeTheme(storedTheme),
+    initialStudioPalette = normalizeStudioPaletteForTheme(storedTheme, storedStudioPalette),
+    initialPageScale = window.PenEchoPageScale?.current?.() || 0.9,
     initialGrid = storedGrid === null ? true : storedGrid === "true",
-    initialResearchGrid = storedResearchGrid === "true",
     configuredAutoDelay = Number(window.PENECHO_CONFIG?.autoAiDelayMs),
     configuredAiTimeout = Number(window.PENECHO_CONFIG?.aiRequestTimeoutMs),
     configuredAiEffort = String(window.PENECHO_CONFIG?.aiEffort || "").trim().toLowerCase(),
@@ -1478,6 +1531,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   const tiles = new Map(),
     state = {
       mode: "pen",
+      previousToolMode: "pen",
       eraserMode: initialEraserMode,
       scale: 0.1,
       panX: 0,
@@ -1607,6 +1661,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       snapshotLocation: initialSnapshotLocation,
       currentSnapshotId: null,
       currentSnapshotName: "",
+      currentSnapshotHasExplicitName: false,
+      currentCanvasSuggestedName: "",
       currentSnapshotLocation: null,
       currentSnapshotProjectId: null,
       currentSnapshotRevisionId: null,
@@ -1624,13 +1680,12 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       renderQueued: false,
       language: initialLanguage,
       theme: initialTheme,
-      gridVisible: initialTheme === "research" ? initialResearchGrid : initialGrid,
+      studioPalette: initialStudioPalette,
+      pageScale: initialPageScale,
+      gridVisible: initialGrid,
       paint: { paper: "#ead9ad", paperGrid: "#c8ae7155", outside: "#090814", border: "#7f693b" },
       navigationTimer: 0,
       aiOrbIdleTimer: 0,
-      radialGesture: null,
-      radialCloseTimer: 0,
-      radialSuppressClickUntil: 0,
       statusKey: "ready",
       aiProgressEvent: null,
       canvasHintKey: null,
@@ -1649,7 +1704,6 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     { id: "core-effort-v1", targets: ["#aiEffortButton"], titleKey: "tourEffortTitle", bodyKey: "tourEffortBody", placement: "bottom", radius: 8 },
     { id: "favorites-add-v1", targets: ["#craftsButton"], titleKey: "tourFavoritesTitle", bodyKey: "tourFavoritesBody", placement: "bottom", radius: 8 },
     { id: "hand-v1", targets: ["#handToolBtn"], titleKey: "tourHandTitle", bodyKey: "tourHandBody", placement: "bottom", radius: 7 },
-    { id: "studio-theme-v1", targets: ["#theme"], titleKey: "tourStudioThemeTitle", bodyKey: "tourStudioThemeBody", placement: "bottom", radius: 8 },
     { id: "core-lasso-v1", targets: ["#lassoToolBtn"], titleKey: "tourLassoTitle", bodyKey: "tourLassoBody", placement: "bottom", radius: 7 },
     { id: "core-text-v1", targets: ["#textToolBtn"], titleKey: "tourTextTitle", bodyKey: "tourTextBody", placement: "bottom", radius: 7 },
     { id: "core-image-v1", targets: ["#imagePickerBtn"], titleKey: "tourImageTitle", bodyKey: "tourImageBody", placement: "bottom", radius: 7 },
@@ -1802,113 +1856,12 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     t,
     getTransform: () => ({ scale: state.scale, panX: state.panX, panY: state.panY, width: view.clientWidth, height: view.clientHeight, dpr: devicePixelRatio || 1 }),
     getAiColor: () => state.aiColor,
+    getReducedMotion: () => Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches),
     styleFor: (element) => runtimeElementStyle(element, "summon-copy"),
   });
-  function summonBlockers() {
-    const visible = viewportRect(),
-      rects = [];
-    if (visible) {
-      for (const [k, c] of tiles) {
-        const [tx, ty] = k.split(",").map(Number),
-          tileBox = { x: tx * TILE, y: ty * TILE, w: TILE, h: TILE };
-        if (!intersection(tileBox, visible)) continue;
-        let ink = state.inkBounds.get(k);
-        if (ink === undefined) {
-          ink = c ? inkBox(c, Math.min(TILE, SIZE - tx * TILE), Math.min(TILE, SIZE - ty * TILE)) : null;
-          state.inkBounds.set(k, ink);
-        }
-        if (ink) rects.push({ x: tileBox.x + ink.x, y: tileBox.y + ink.y, w: ink.w, h: ink.h });
-      }
-    }
-    for (const widget of state.widgets) rects.push({ x: widget.x, y: widget.y, w: widget.w, h: widget.h });
-    if (state.pendingWidget) rects.push({ x:state.pendingWidget.x, y:state.pendingWidget.y, w:state.pendingWidget.w, h:state.pendingWidget.h });
-    for (const item of state.textBoxes) rects.push({ x:item.x, y:item.y, w:item.w, h:item.h });
-    for (const editor of state.textEditors.values()) {
-      const scale = Math.max(0.03, state.scale);
-      rects.push({ x: editor.x, y: editor.y, w: editor.widthCss / scale, h: editor.heightCss / scale });
-    }
-    for (const image of state.images)
-      if (Number.isFinite(image.x) && Number.isFinite(image.y)) rects.push({ x: image.x, y: image.y, w: image.logicalWidth || image.width || 0, h: image.logicalHeight || image.height || 0 });
-    for (const animation of state.animations)
-      if (Number.isFinite(animation.x)) rects.push({ x: animation.x, y: animation.y, w: animation.w, h: animation.h });
-    for (const item of state.pending?.items || [])
-      if (item && Number.isFinite(item.x)) rects.push({ x: item.x, y: item.y, w: item.layoutWidth || item.w || 0, h: item.layoutHeight || item.h || 0 });
-    return rects.filter((r) => r.w > 0 && r.h > 0);
-  }
-  function summonControlBlockers() {
-    const viewport = { x:0, y:0, w:view.clientWidth, h:view.clientHeight },
-      selectors = [
-        ".object-chrome-button",
-        ".animation-controls:not([hidden])",
-        ".image-edit-bar:not([hidden])",
-        ".selection-context-toolbar",
-        ".text-editor",
-        ".text-input-hint:not([hidden])",
-        ".ai-embodiment",
-        ".ai-embodiment.menu-open .radial-action",
-        "#tip",
-      ].join(","),
-      rects = [];
-    for (const element of view.querySelectorAll(selectors)) {
-      const style = getComputedStyle(element),
-        rect = canvasElementLayoutRect(element);
-      if (style.display === "none" || style.visibility === "hidden" || Number(style.opacity) <= 0.02
-        || rect.width <= 0 || rect.height <= 0) continue;
-      const padding = 8,
-        clipped = intersection({
-          x:rect.left - padding,
-          y:rect.top - padding,
-          w:rect.width + padding * 2,
-          h:rect.height + padding * 2,
-        }, viewport);
-      if (clipped) rects.push({ ...clipped, weight:4 });
-    }
-    return rects;
-  }
-  function summonScreenBlockers() {
-    const scale = Math.max(0.03, state.scale),
-      viewport = { x:0, y:0, w:view.clientWidth, h:view.clientHeight },
-      padding = 8,
-      rects = [];
-    for (const rect of summonBlockers()) {
-      const clipped = intersection({
-        x:rect.x * scale + state.panX - padding,
-        y:rect.y * scale + state.panY - padding,
-        w:rect.w * scale + padding * 2,
-        h:rect.h * scale + padding * 2,
-      }, viewport);
-      if (clipped) rects.push({ ...clipped, weight:1 });
-    }
-    return rects.concat(summonControlBlockers());
-  }
-  function summonPlacement() {
-    const width = view.clientWidth,
-      height = view.clientHeight,
-      scale = Math.max(0.03, state.scale);
-    if (width <= 0 || height <= 0 || !SUMMON?.chooseThinkingPlacement) return null;
-    const anchor = state.summonAnchor
-        ? {
-            x:state.summonAnchor.x * scale + state.panX,
-            y:state.summonAnchor.y * scale + state.panY,
-            w:state.summonAnchor.w * scale,
-            h:state.summonAnchor.h * scale,
-          }
-        : null,
-      placement = SUMMON.chooseThinkingPlacement({
-        width,
-        height,
-        anchor,
-        blockers:summonScreenBlockers(),
-      });
-    return {
-      x:(placement.x - state.panX) / scale,
-      y:(placement.y - state.panY) / scale,
-    };
-  }
   function showSummon() {
     if (!summonFX || !state.summonEnabled) return;
-    const spot = summonPlacement();
-    if (spot) summonFX.show(spot);
+    summonFX.show(state.summonAnchor);
   }
   function hideSummon() {
     summonFX?.hide();
@@ -2116,7 +2069,6 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     hideAutoDelayControl();
     hideEffortControl();
     hidePluginControl();
-    closeRadialMenu();
     featureTour.active = true;
     featureTour.steps = available;
     featureTour.index = 0;
@@ -2269,7 +2221,6 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     hideAutoDelayControl();
     hideEffortControl();
     hidePluginControl();
-    closeRadialMenu();
     const active = document.activeElement;
     changelog.restoreFocus = active?.isConnected && active !== document.body && !tourLayer.contains(active) ? active : settingsButton;
     changelog.active = true;
@@ -2314,7 +2265,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     return true;
   }
   if (configurationBody && canvasSettingsForm) configurationBody.append(canvasSettingsForm);
-  const settings = { open:false, restoreFocus:null, requestTrace:false, cli:{}, cliStatuses:{}, cliInspectionGeneration:0, currentProvider:"api", configurationMode:"", configurationRestoreFocus:null, connections:[], activeConnectionId:"default", connectionLimit:10, editingConnectionId:null, deepSeekSearchProvider:"deepseek-official", hasDeepSeekSearchApiKey:false, hasTavilyApiKey:false, searchTestResults:null, searchTestGeneration:0, searchTestBusy:false, fetchedApiModels:[], fetchingApiModels:false, connectionActionBusy:false };
+  const settings = { open:false, activePage:"appearance", restoreFocus:null, requestTrace:false, cli:{}, cliStatuses:{}, cliInspectionGeneration:0, currentProvider:"api", configurationMode:"", configurationRestoreFocus:null, connections:[], activeConnectionId:"default", connectionLimit:10, editingConnectionId:null, deepSeekSearchProvider:"deepseek-official", hasDeepSeekSearchApiKey:false, hasTavilyApiKey:false, searchTestResults:null, searchTestGeneration:0, searchTestBusy:false, fetchedApiModels:[], fetchingApiModels:false, connectionActionBusy:false };
   function syncLocalConnectionSelection() {
     const selected = selectedAiConnectionId(), activeId = settings.connections.some(connection => connection.id === selected) ? selected : "default";
     if (activeId !== selected) localStorage.setItem(AI_CONNECTION_STORAGE_KEY, activeId);
@@ -3067,8 +3018,44 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     if (button.dataset.connectionEdit) fillConnectionEditor(connection);
     else if (window.confirm(t("settingsDeleteConfirm"))) void updateConnection("delete", connection.id);
   }
+  function selectSettingsPage(page, { focus = false } = {}) {
+    if (!settingsPanel) return false;
+    const tabs = [...settingsPanel.querySelectorAll("[data-settings-page-target]")],
+      pages = [...settingsPanel.querySelectorAll("[data-settings-page]")],
+      available = new Set(pages.map((node) => node.dataset.settingsPage)),
+      nextPage = available.has(page) ? page : "appearance",
+      pageChanged = settings.activePage !== nextPage;
+    settings.activePage = nextPage;
+    tabs.forEach((tab) => {
+      const selected = tab.dataset.settingsPageTarget === settings.activePage;
+      tab.classList.toggle("active", selected);
+      tab.setAttribute("aria-selected", String(selected));
+      tab.tabIndex = selected ? 0 : -1;
+      if (selected && focus) tab.focus({ preventScroll:true });
+    });
+    pages.forEach((node) => {
+      const selected = node.dataset.settingsPage === settings.activePage;
+      node.classList.toggle("active", selected);
+      node.hidden = !selected;
+      if (selected && pageChanged) node.scrollTop = 0;
+    });
+    return true;
+  }
+  function handleSettingsNavigationKeydown(event) {
+    const current = event.target.closest("[data-settings-page-target]");
+    if (!current || !["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return false;
+    const tabs = [...settingsPanel.querySelectorAll("[data-settings-page-target]")];
+    let index = tabs.indexOf(current);
+    if (event.key === "Home") index = 0;
+    else if (event.key === "End") index = tabs.length - 1;
+    else index = (index + (event.key === "ArrowDown" ? 1 : -1) + tabs.length) % tabs.length;
+    event.preventDefault();
+    selectSettingsPage(tabs[index]?.dataset.settingsPageTarget, { focus:true });
+    return true;
+  }
   function updateSettingsPanel() {
     if (!settingsPanel) return;
+    selectSettingsPage(settings.activePage);
     settingsAutoToggle.classList.toggle("on", state.auto);
     settingsAutoToggle.setAttribute("aria-checked", String(state.auto));
     settingsCanvasAgentAutoOpenToggle.classList.toggle("on", state.canvasAgentAutoOpen);
@@ -3088,7 +3075,6 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     hideAutoDelayControl();
     hideEffortControl();
     hidePluginControl();
-    closeRadialMenu();
     settings.open = true;
     settings.restoreFocus = document.activeElement?.isConnected && document.activeElement !== document.body ? document.activeElement : settingsButton;
     settingsLayer.hidden = false;
@@ -3155,15 +3141,46 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       settingsAutoToggle.setAttribute("aria-checked", String(state.auto));
     }
   }
+  function positionToolbarPopover(controlSelector, popoverSelector, options) {
+    options ||= {};
+    const control = document.querySelector(controlSelector),
+      popover = document.querySelector(popoverSelector),
+      host = document.querySelector(".topbar");
+    if (!control || !popover || !host || popover.hidden) return;
+    if (popover.parentElement !== host) host.append(popover);
+    const controlRect = control.getBoundingClientRect(),
+      hostRect = host.getBoundingClientRect(),
+      scaleX = host.offsetWidth > 0 && hostRect.width > 0 ? hostRect.width / host.offsetWidth : 1,
+      scaleY = host.offsetHeight > 0 && hostRect.height > 0 ? hostRect.height / host.offsetHeight : scaleX,
+      inset = 6,
+      controlLeft = (controlRect.left - hostRect.left) / scaleX,
+      controlWidth = controlRect.width / scaleX,
+      desiredLeft = options.align === "center" ? controlLeft + (controlWidth - popover.offsetWidth) / 2 : controlLeft,
+      maxLeft = Math.max(inset, host.offsetWidth - popover.offsetWidth - inset);
+    popover.classList.add("toolbar-anchored-popover");
+    popover.style.left = `${Math.max(inset, Math.min(desiredLeft, maxLeft))}px`;
+    popover.style.top = `${(controlRect.bottom - hostRect.top) / scaleY + (Number(options.gap) || 8)}px`;
+  }
+  function positionOpenToolbarPopovers() {
+    positionToolbarPopover("#autoControl", "#autoDelayPopover");
+    positionToolbarPopover("#effortControl", "#effortPopover");
+    positionToolbarPopover("#eraserToolControl", "#eraserToolMenu", { align:"center", gap:6 });
+    positionToolbarPopover('[data-color-control="ink"]', "#inkColorPopover", { align:"center", gap:6 });
+    positionToolbarPopover('[data-color-control="ai"]', "#aiColorPopover", { align:"center", gap:6 });
+  }
   function updateEffortControl() {
     if (!EFFORT_OPTIONS.includes(state.reasoningEffort)) state.reasoningEffort = "config";
     const control = document.querySelector("#effortControl"),
       button = document.querySelector("#aiEffortButton"),
       label = document.querySelector("#aiEffortLabel"),
+      fullLabel = label.querySelector(".effort-label-full"),
+      shortLabel = label.querySelector(".effort-label-short"),
       levelKey = { config:"effortConfigured", none:"effortNone", low:"effortLow", medium:"effortMedium", high:"effortHigh", max:"effortMaximum" }[state.reasoningEffort] || "effortConfigured",
       level = t({ config:"effortConfiguredShort", medium:"effortMediumShort" }[state.reasoningEffort] || levelKey),
+      shortLevel = t({ config:"effortConfiguredShort", medium:"effortMediumShort" }[state.reasoningEffort] || levelKey),
       text = t("reasoningEffortDisplay").replace("{level}", level);
-    label.textContent = text;
+    fullLabel.textContent = text;
+    shortLabel.textContent = shortLevel;
     button.setAttribute("aria-label", text);
     button.setAttribute("title", text);
     button.setAttribute("aria-expanded", String(!document.querySelector("#effortPopover").hidden));
@@ -3174,6 +3191,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       option.setAttribute("aria-selected", String(option.dataset.effort === state.reasoningEffort));
       option.classList.toggle("active", option.dataset.effort === state.reasoningEffort);
     });
+    if (typeof canvasAgentScheduleToolbarLayout === "function") canvasAgentScheduleToolbarLayout();
   }
   function hideAutoDelayControl() {
     clearTimeout(state.autoPopoverTimer);
@@ -3188,6 +3206,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   function showAutoDelayControl() {
     document.querySelector("#autoDelayPopover").hidden = false;
     document.querySelector("#auto").setAttribute("aria-expanded", "true");
+    positionToolbarPopover("#autoControl", "#autoDelayPopover");
+    requestAnimationFrame(positionOpenToolbarPopovers);
     keepAutoDelayControlOpen();
   }
   function hideEffortControl() {
@@ -3204,6 +3224,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     document.querySelector("#effortPopover").hidden = false;
     document.querySelector("#aiEffortButton").setAttribute("aria-expanded", "true");
     updateEffortControl();
+    positionToolbarPopover("#effortControl", "#effortPopover");
+    requestAnimationFrame(positionOpenToolbarPopovers);
     keepEffortControlOpen();
   }
   function pluginEnabled(pluginId) {
@@ -4030,6 +4052,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       paperGrid: css.getPropertyValue("--paper-grid").trim() || "#c8ae7155",
       outside: css.getPropertyValue("--outside").trim() || "#090814",
       border: css.getPropertyValue("--line").trim() || "#7f693b",
+      accent: css.getPropertyValue("--studio-accent").trim() || "#4f46e5",
     };
   }
   function applyLanguage() {
@@ -4045,7 +4068,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     updatePluginControl();
     updatePluginAuthoringUi();
     updateFullscreenButton();
-    updateThemeCopy();
+    updateAppearanceControls();
     updateEmbodimentLabel();
     updateGridButton();
     updateHistorySaveFeedbackLanguage();
@@ -4065,15 +4088,22 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     requestInteractionLayerRender();
     window.dispatchEvent(new CustomEvent("penecho:languagechange", { detail:{ language:state.language } }));
   }
-  function updateThemeCopy() {
-    const focus = t({ arcane: "themeFocusArcane", scifi: "themeFocusScifi", research: "themeFocusResearch", studio: "themeFocusStudio" }[state.theme]);
-    document.querySelector("#theme").setAttribute("title", focus);
-    document.querySelector("#theme").setAttribute("aria-description", focus);
+  function updateAppearanceControls() {
+    document.querySelectorAll(".studio-palette-option[data-studio-palette]").forEach((button) => {
+      const selected = button.dataset.studioPalette === state.studioPalette;
+      button.setAttribute("aria-checked", String(selected));
+      button.classList.toggle("selected", selected);
+    });
+    document.querySelectorAll("[data-page-scale]").forEach((button) => {
+      const selected = Math.abs(Number(button.dataset.pageScale) - state.pageScale) < 0.0001;
+      button.setAttribute("aria-checked", String(selected));
+      button.classList.toggle("selected", selected);
+    });
   }
   function updateEmbodimentLabel() {
-    const label = t({ arcane: "guideArcane", scifi: "guideScifi", research: "guideResearch", studio: "guideStudio" }[state.theme]);
+    const label = t("guideStudio");
     embodiment.setAttribute("aria-label", label);
-    const orbLabel = state.busy ? t("stopAIRequest") : t("openAIMenu");
+    const orbLabel = state.busy ? t("stopAIRequest") : t("triggerAutoAI");
     aiOrb.setAttribute("aria-label", orbLabel);
     aiOrb.setAttribute("title", orbLabel);
   }
@@ -4101,29 +4131,45 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     button.setAttribute("title", label);
   }
   function applyTheme(theme) {
+    const removedTheme = REMOVED_THEMES.has(theme),
+      studioPalette = normalizeStudioPaletteForTheme(theme, state.studioPalette),
+      studioPaletteChanged = studioPalette !== state.studioPalette;
     theme = normalizeTheme(theme);
     state.theme = theme;
+    state.studioPalette = studioPalette;
     document.body.dataset.theme = theme;
+    document.body.dataset.studioPalette = studioPalette;
     embodiment.dataset.theme = theme;
-    document.querySelector("#theme").value = theme;
     localStorage.setItem("penecho-theme", theme);
-    if (theme === "research") state.gridVisible = localStorage.getItem("penecho-research-grid") === "true";
-    else state.gridVisible = (localStorage.getItem("penecho-grid") ?? localStorage.getItem("ghostboard-grid")) !== "false";
-    updateThemeCopy();
+    if (removedTheme || studioPaletteChanged) {
+      localStorage.setItem("penecho-studio-palette", studioPalette);
+      updateAppearanceControls();
+    }
+    state.gridVisible = (localStorage.getItem("penecho-grid") ?? localStorage.getItem("ghostboard-grid")) !== "false";
     updateEmbodimentLabel();
     updateGridButton();
     syncStudioWorkbench(theme);
     updatePaint();
     requestRender();
   }
+  function applyStudioPalette(palette) {
+    state.studioPalette = normalizeStudioPalette(palette);
+    document.body.dataset.studioPalette = state.studioPalette;
+    localStorage.setItem("penecho-studio-palette", state.studioPalette);
+    updateAppearanceControls();
+    updatePaint();
+    requestRender();
+  }
+  function applyPageScale(scale) {
+    state.pageScale = window.PenEchoPageScale?.apply?.(scale) || 1;
+    updateAppearanceControls();
+    window.dispatchEvent(new Event("resize"));
+  }
   function setBusy(value) {
     state.busy = Boolean(value);
     embodiment.classList.toggle("working", state.busy);
     embodiment.setAttribute("aria-busy", String(state.busy));
-    aiOrb.setAttribute("aria-haspopup", state.busy ? "false" : "menu");
     if (state.busy) {
-      state.radialGesture = null;
-      closeRadialMenu();
       revealAIOrb();
       showSummon();
     } else {
@@ -4185,6 +4231,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   }
   function invokeAIAction(action) {
     cancelWidgetRefinement("manual-action");
+    clearTimeout(state.timer);
+    state.timer = 0;
     if (state.selection?.phase === "active") {
       const selection = state.selection,
         packed = buildSelectionTypesetRequest(selection);
@@ -4203,55 +4251,11 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   }
   function scheduleAIOrbIdle() {
     revealAIOrb();
-    if (state.busy || embodiment.classList.contains("menu-open")) return;
+    if (state.busy) return;
     state.aiOrbIdleTimer = setTimeout(() => {
       state.aiOrbIdleTimer = 0;
-      if (!state.busy && !state.radialGesture && !embodiment.classList.contains("menu-open")) embodiment.classList.add("idle-dim");
+      if (!state.busy) embodiment.classList.add("idle-dim");
     }, AI_ORB_IDLE_DELAY_MS);
-  }
-  function openRadialMenu() {
-    if (state.busy) return;
-    revealAIOrb();
-    clearTimeout(state.radialCloseTimer);
-    embodiment.classList.add("menu-open");
-    aiOrb.setAttribute("aria-expanded", "true");
-    aiRadial.setAttribute("aria-hidden", "false");
-    document.querySelectorAll(".radial-action").forEach((button) => button.setAttribute("tabindex", "0"));
-  }
-  function closeRadialMenu() {
-    if (state.radialGesture) return;
-    embodiment.classList.remove("menu-open");
-    aiOrb.setAttribute("aria-expanded", "false");
-    aiRadial.setAttribute("aria-hidden", "true");
-    document.querySelectorAll(".radial-action").forEach((button) => {
-      button.classList.remove("is-highlighted");
-      button.setAttribute("tabindex", "-1");
-    });
-    if (!state.busy) scheduleAIOrbIdle();
-  }
-  function chooseRadialAction(clientX, clientY) {
-    const orbRect = aiOrb.getBoundingClientRect(),
-      origin = { x: orbRect.left + orbRect.width / 2, y: orbRect.top + orbRect.height / 2 },
-      pointerDistance = Math.hypot(clientX - origin.x, clientY - origin.y);
-    let selected = null,
-      angleDistance = Infinity;
-    if (pointerDistance < 22) {
-      document.querySelectorAll(".radial-action").forEach((button) => button.classList.remove("is-highlighted"));
-      return null;
-    }
-    const pointerAngle = Math.atan2(clientY - origin.y, clientX - origin.x);
-    document.querySelectorAll(".radial-action").forEach((button) => {
-      const r = button.getBoundingClientRect(),
-        buttonAngle = Math.atan2(r.top + r.height / 2 - origin.y, r.left + r.width / 2 - origin.x),
-        next = Math.abs(Math.atan2(Math.sin(pointerAngle - buttonAngle), Math.cos(pointerAngle - buttonAngle)));
-      if (next < angleDistance) {
-        angleDistance = next;
-        selected = button;
-      }
-    });
-    if (angleDistance > 0.42) selected = null;
-    document.querySelectorAll(".radial-action").forEach((button) => button.classList.toggle("is-highlighted", button === selected));
-    return selected;
   }
   function debug(event, details = {}) {
     const item = document.createElement("li");
@@ -4348,6 +4352,14 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
 
   function textBoxBox(item) {
     return { x:item.x, y:item.y, w:item.w, h:item.h };
+  }
+  function textImageContentInset(image) {
+    const x = Number(image?.contentInsetX),
+      y = Number(image?.contentInsetY);
+    return {
+      x:Number.isFinite(x) ? x : 2,
+      y:Number.isFinite(y) ? y : 2,
+    };
   }
   function textBoxHistoryRecord(item) {
     return {
@@ -4952,7 +4964,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     let refineCandidate = null;
     if (edit?.changed) {
       state.userRevision++;
-      save();
+      saveUserCanvasChange();
     } else if (edit) state.imageHistoryBefore = null;
     if (edit && state.dirtyImageIds.has(edit.id)) {
       recomputeDirtyBounds();
@@ -5083,7 +5095,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       state.imageGesture = null;
     }
     state.userRevision++;
-    save();
+    saveUserCanvasChange();
     if (edited) finishManualImageHandMode();
     if (state.mode !== "hand") schedule();
     requestRender();
@@ -5126,8 +5138,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     recomputeDirtyBounds();
     if (edited) finishManualImageHandMode();
     state.autoEligible = true;
+    saveUserCanvasChange();
     if (state.mode !== "hand") schedule();
-    save();
     requestRender();
     setStatusKey("imageMerged");
     if (options.showHint) showHandStatusHint("image-merged", ["handImageMergedHint", "handAutoAIManual"]);
@@ -5216,10 +5228,11 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       recomputeDirtyBounds();
       state.autoEligible = true;
       state.userRevision++;
-      save();
+      saveUserCanvasChange();
       requestRender();
       enterManualImageHandMode();
       beginImageEdit(item);
+      showHandObjectToolbar("image", item);
       setStatusKey("imageAdded");
     } catch (error) {
       setStatusKey(error?.statusKey || "imageImportFailed");
@@ -5238,6 +5251,29 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   function visibleWidgets(region = null) {
     if (!widgetRuntimeEnabled()) return [];
     return state.widgets.filter((widget) => !widget.hiddenForReplacement && pluginEnabled(widget.pluginId) && pluginManifests.has(widget.pluginId) && (!region || intersection(widgetBox(widget), region)));
+  }
+  function syncWidgetLayerOrder() {
+    let stackIndex = 1;
+    for (const widget of state.widgets) {
+      if (widget.styleRule?.style) widget.styleRule.style.zIndex = String(stackIndex);
+      stackIndex++;
+    }
+    if (state.pendingWidget?.styleRule?.style) state.pendingWidget.styleRule.style.zIndex = String(stackIndex);
+  }
+  function setWidgetStackIndex(widget, nextIndex) {
+    const currentIndex = state.widgets.indexOf(widget);
+    if (currentIndex < 0 || !Number.isInteger(nextIndex)) return false;
+    nextIndex = Math.max(0, Math.min(state.widgets.length - 1, nextIndex));
+    if (currentIndex === nextIndex) return false;
+    state.widgets.splice(currentIndex, 1);
+    state.widgets.splice(nextIndex, 0, widget);
+    syncWidgetLayerOrder();
+    return true;
+  }
+  function bringHtmlWidgetToFront(widget) {
+    if (widget?.widgetType !== "html_widget" || !setWidgetStackIndex(widget, state.widgets.length - 1)) return false;
+    if (state.widgetEdit?.id === widget.id) state.widgetEdit.changed = true;
+    return true;
   }
   function capturableWidgets(region = null) {
     const widgets = visibleWidgets(region),
@@ -5435,7 +5471,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     }
     state.userRevision++;
     state.autoEligible = false;
-    save();
+    saveUserCanvasChange();
     requestRender();
     return { id:widget.id, title:widget.title };
   }
@@ -5484,7 +5520,12 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     frame.referrerPolicy = "no-referrer";
     frame.src = widgetHostUrl(manifest);
     frame.addEventListener("load", () => {
-      if (widget.frame === frame) probeWidgetHost(widget);
+      if (widget.frame !== frame) return;
+      widget.initialized = false;
+      widget.hostReady = false;
+      widget.hostStateKey = null;
+      widget.hostReadyPromise = new Promise((resolve) => (widget.resolveHostReady = resolve));
+      probeWidgetHost(widget);
     });
     frame.addEventListener("pointerenter", (event) => {
       if (state.mode !== "hand" || event.pointerType === "touch") return;
@@ -5506,6 +5547,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     widget.hostReadyPromise = new Promise((resolve) => (widget.resolveHostReady = resolve));
     widget.hostStateKey = null;
     addWidgetStyleRule(widget);
+    syncWidgetLayerOrder();
     positionWidget(widget);
   }
   function unmountWidget(widget) {
@@ -5604,9 +5646,10 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     }, widget.hostOrigin || location.origin);
   }
   function sendWidgetHostState(widget, scaleX = state.scale * widget.w / widget.contentW, scaleY = state.scale * widget.h / widget.contentH, force = false) {
+    const selected = widget.pending === true || (state.widgetEdit?.id === widget.id && state.selectedWidgetId === widget.id);
+    widget.shell?.classList.toggle("is-selected", selected);
     if (!widget.frame?.contentWindow || !widget.hostReady || !Number.isFinite(scaleX) || scaleX <= 0 || !Number.isFinite(scaleY) || scaleY <= 0) return;
-    const selected = widget.pending === true || (state.widgetEdit?.id === widget.id && state.selectedWidgetId === widget.id),
-      active = widget.renderActive !== false,
+    const active = widget.renderActive !== false,
       key = `${selected ? 1 : 0}:${active ? 1 : 0}:${state.navigationLocked ? 1 : 0}:${scaleX.toFixed(6)}:${scaleY.toFixed(6)}`;
     if (!force && widget.hostStateKey === key) return;
     widget.hostStateKey = key;
@@ -5802,7 +5845,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     if (state.widgetEdit) acceptWidgetEdit();
     recordWidgetsBefore();
     state.selectedWidgetId = widget.id;
-    state.widgetEdit = { id:widget.id, before:widgetLayout(widget), changed:false };
+    state.widgetEdit = { id:widget.id, before:widgetLayout(widget), beforeIndex:state.widgets.indexOf(widget), changed:false };
     syncWidgetHostStates();
     requestInteractionLayerRender();
     return true;
@@ -5816,7 +5859,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     state.selectedWidgetId = null;
     if (edit?.changed) {
       state.userRevision++;
-      save();
+      saveUserCanvasChange();
     } else if (edit) state.widgetHistoryBefore = null;
     syncWidgetHostStates();
     requestInteractionLayerRender();
@@ -5830,6 +5873,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     if (edit) clearHandToolbarTarget("widget", edit.id);
     if (widget) {
       Object.assign(widget, edit.before);
+      setWidgetStackIndex(widget, edit.beforeIndex);
       positionWidget(widget);
     }
     state.widgetHistoryBefore = null;
@@ -5909,7 +5953,10 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     if (!result?.widget) return false;
     if (result.hit === "accept") return (result.pending ? acceptPendingWidget({ showHint:true }) : acceptWidgetEdit({ showHint:true })) || true;
     if (result.hit === "cancel") return (result.pending ? rejectPendingWidget() : deleteWidget(result.widget)) || true;
-    if (!result.pending) beginWidgetEdit(result.widget);
+    if (!result.pending) {
+      beginWidgetEdit(result.widget);
+      bringHtmlWidgetToFront(result.widget);
+    }
     state.widgetGesture = {
       id:event.pointerId,
       widget:result.widget,
@@ -6075,6 +6122,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     if (!pending && (!state.widgets.includes(widget) || !beginWidgetEdit(widget))) return false;
     const viewportPoint = widgetHostViewportPoint(widget, message);
     if (!viewportPoint) return false;
+    if (!pending) bringHtmlWidgetToFront(widget);
     state.widgetGesture = {
       id:widgetHostPointerId(widget, message.pointerId),
       hostPointerId:message.pointerId,
@@ -6127,7 +6175,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       state.widgetGesture = null;
     }
     state.userRevision++;
-    save();
+    saveUserCanvasChange();
     requestInteractionLayerRender();
     setStatusKey("widgetDeleted");
     return true;
@@ -6411,7 +6459,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     hideAnimationControls();
     if (edit?.changed) {
       state.userRevision++;
-      save();
+      saveUserCanvasChange();
     } else if (edit) state.animationHistoryBefore = null;
     requestAnimationLayerRender();
     requestInteractionLayerRender();
@@ -6476,7 +6524,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     state.animationEdit = null;
     hideAnimationControls();
     state.userRevision++;
-    save();
+    saveUserCanvasChange();
     requestAnimationLayerRender();
     requestInteractionLayerRender();
     setStatusKey("animationDeleted");
@@ -6862,6 +6910,27 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       y = (height / 2 - state.panY) / state.scale;
     coords.textContent = `x ${Math.round(x)} · y ${Math.round(y)} · ${Math.round(state.scale * 100)}%`;
   }
+  function drawCanvasLineGrid(context, region, renderScale) {
+    if (!region || region.w <= 0 || region.h <= 0) return;
+    const scale = Math.max(0.03, Number(renderScale) || 1),
+      step = 500,
+      right = region.x + region.w,
+      bottom = region.y + region.h;
+    context.save();
+    context.strokeStyle = state.paint.paperGrid;
+    context.lineWidth = 0.5 / scale;
+    context.beginPath();
+    for (let x = Math.floor(region.x / step) * step; x <= right; x += step) {
+      context.moveTo(x, region.y);
+      context.lineTo(x, bottom);
+    }
+    for (let y = Math.floor(region.y / step) * step; y <= bottom; y += step) {
+      context.moveTo(region.x, y);
+      context.lineTo(right, y);
+    }
+    context.stroke();
+    context.restore();
+  }
   function render() {
     const d = devicePixelRatio || 1,
       metrics = canvasViewportMetrics(),
@@ -6883,20 +6952,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     ctx.beginPath();
     ctx.rect(0, 0, SIZE, SIZE);
     ctx.clip();
-    if (state.gridVisible) {
-      ctx.strokeStyle = state.paint.paperGrid;
-      ctx.lineWidth = 1 / state.scale;
-      ctx.beginPath();
-      for (let x = Math.floor(l / 500) * 500; x < rr; x += 500) {
-        ctx.moveTo(x, t);
-        ctx.lineTo(x, b);
-      }
-      for (let y = Math.floor(t / 500) * 500; y < b; y += 500) {
-        ctx.moveTo(l, y);
-        ctx.lineTo(rr, y);
-      }
-      ctx.stroke();
-    }
+    if (state.gridVisible) drawCanvasLineGrid(ctx, { x:l, y:t, w:rr - l, h:b - t }, state.scale);
     ctx.restore();
     ctx.strokeStyle = state.paint.border;
     ctx.lineWidth = 2 / state.scale;
@@ -7085,7 +7141,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       unit = 1 / state.scale,
       handle = 14 * unit;
     context.save();
-    context.strokeStyle = widget.pending ? "#72b7e5" : "#2679b8";
+    context.strokeStyle = state.paint.accent || "#4f46e5";
+    context.globalAlpha = widget.pending ? .72 : 1;
     context.lineWidth = 2 * unit;
     if (widget.pending) {
       context.setLineDash([7 * unit, 6 * unit]);
@@ -7104,11 +7161,14 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   function positionImageEditBar() {
     const item = state.imageEdit ? selectedImage() : null;
     if (!item) {
+      imageSelectionMaterial.hidden = true;
       imageEditBar.classList.remove("hand-toolbar-hiding");
       if (!imageEditBar.hidden) imageEditBar.hidden = true;
       return;
     }
-    imageEditBar.classList.toggle("hand-toolbar-hiding", Boolean(handToolbarRecord({ kind:"image", id:item.id })?.hiding));
+    const hiding = Boolean(handToolbarRecord({ kind:"image", id:item.id })?.hiding);
+    imageEditBar.classList.toggle("hand-toolbar-hiding", hiding);
+    if (imageSelectionMaterial.hidden) imageSelectionMaterial.hidden = false;
     if (imageEditBar.hidden) imageEditBar.hidden = false;
     const { width:viewportWidth, height:viewportHeight } = canvasViewportMetrics(),
       box = imageBox(item),
@@ -7116,10 +7176,15 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       top = state.panY + box.y * state.scale,
       width = box.w * state.scale,
       height = box.h * state.scale,
+      materialStyle = runtimeElementStyle(imageSelectionMaterial, "canvas-image-selection"),
       barWidth = imageEditBar.offsetWidth || 200,
-      barHeight = imageEditBar.offsetHeight || 210,
+      barHeight = imageEditBar.offsetHeight || 52,
       gap = 12,
       style = runtimeElementStyle(imageEditBar, "image-edit-bar");
+    materialStyle?.setProperty("--image-selection-x", `${left.toFixed(1)}px`);
+    materialStyle?.setProperty("--image-selection-y", `${top.toFixed(1)}px`);
+    materialStyle?.setProperty("--image-selection-width", `${width.toFixed(1)}px`);
+    materialStyle?.setProperty("--image-selection-height", `${height.toFixed(1)}px`);
     let x = left + width + gap;
     if (x + barWidth > viewportWidth - 8) x = left - barWidth - gap;
     if (x < 8) x = Math.max(8, Math.min(viewportWidth - barWidth - 8, left + width / 2 - barWidth / 2));
@@ -7600,7 +7665,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
         box,
         widget,
         widgetTool:true,
-        widgetToolPlacement:options.widgetCoreMoveKey && options.widgetCoreAcceptKey ? "move-right-or-accept" : "right-middle",
+        widgetToolPlacement:"inside-top",
         widgetCoreMoveKey:options.widgetCoreMoveKey || "",
         widgetCoreAcceptKey:options.widgetCoreAcceptKey || "",
         widgetToolGroup,
@@ -7635,26 +7700,16 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       chromeGap = 7;
     if (viewportWidth <= 0 || viewportHeight <= 0 || right < -8 || bottom < -8 || screenBox.left > viewportWidth + 8 || screenBox.top > viewportHeight + 8) return null;
     const clampX = (value) => Math.max(6, Math.min(Math.max(6, viewportWidth - width - 6), value)),
-      clampY = (value) => Math.max(6, Math.min(Math.max(6, viewportHeight - height - 6), value)),
-      obstacles = [...(globalThis.document?.querySelectorAll?.(".top-row, .toolbar, .animation-controls:not([hidden]), .image-edit-bar:not([hidden]), .selection-context-toolbar, .text-editor, .ai-embodiment, .canvas-agent-control, .object-chrome-button") || [])]
-        .filter(element => element.dataset.objectChromeKey !== ignoreKey && (!spec?.widgetToolGroup || element.dataset.widgetToolGroup !== spec.widgetToolGroup))
-        .map(element => {
-          const rect = canvasElementLayoutRect(element);
-          return { x:rect.left, y:rect.top, w:rect.width, h:rect.height };
-        }),
-      overlapsObstacle = position => obstacles.some(obstacle => position.x < obstacle.x + obstacle.w + 5 && position.x + position.w + 5 > obstacle.x && position.y < obstacle.y + obstacle.h + 5 && position.y + position.h + 5 > obstacle.y),
-      fits = (position, extraBottom = 0) => position.x >= 6 && position.y >= 6 && position.x + position.w <= viewportWidth - 6 && position.y + position.h + extraBottom <= viewportHeight - 6 && !overlapsObstacle(position),
-      fallbackPosition = (position, extraBottom = 0) => ({
-        ...position,
-        x:Math.max(6, Math.min(Math.max(6, viewportWidth - position.w - 6), position.x)),
-        y:Math.max(6, Math.min(Math.max(6, viewportHeight - position.h - extraBottom - 6), position.y)),
-      });
+      clampY = (value) => Math.max(6, Math.min(Math.max(6, viewportHeight - height - 6), value));
     if (spec?.widgetTool) {
       const horizontalWidth = spec.groupHorizontalWidth * controlScale,
         verticalWidth = spec.groupVerticalWidth * controlScale,
         verticalHeight = spec.groupVerticalHeight * controlScale,
-        hintSpace = spec.groupRefineCandidate && widgetRefineHintVisible(spec.groupRefineCandidate) ? 88 : 0,
-        gap = chromeGap * controlScale;
+        gap = chromeGap * controlScale,
+        inset = 8,
+        insideLeft = screenBox.left + inset,
+        insideRight = right - inset,
+        insideTop = screenBox.top + inset;
       if (spec.widgetCoreMoveKey && spec.widgetCoreAcceptKey) {
         const movePosition = knownPositions?.get?.(spec.widgetCoreMoveKey),
           acceptPosition = knownPositions?.get?.(spec.widgetCoreAcceptKey);
@@ -7671,17 +7726,17 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
             h:height,
           },
           fitsBetweenCoreControls = Math.abs(movePosition.y - acceptPosition.y) <= 2
-            && preferred.x + preferred.w <= acceptPosition.x - gap
-            && fits(preferred, hintSpace),
+            && preferred.x >= insideLeft
+            && preferred.x + preferred.w <= acceptPosition.x - gap,
           belowAccept = {
             side:"accept",
             layout:"vertical",
-            x:acceptPosition.x + acceptWidth - verticalWidth,
+            x:Math.max(insideLeft, acceptPosition.x + acceptWidth - verticalWidth),
             y:acceptPosition.y + acceptHeight + gap,
             w:verticalWidth,
             h:verticalHeight,
           },
-          groupPosition = fitsBetweenCoreControls ? preferred : fallbackPosition(belowAccept, hintSpace),
+          groupPosition = fitsBetweenCoreControls ? preferred : belowAccept,
           vertical = groupPosition.layout === "vertical";
         return {
           x:groupPosition.x + (vertical ? groupPosition.w - width : spec.groupHorizontalOffset * controlScale),
@@ -7691,21 +7746,13 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
           baseHeight,
         };
       }
-      const positions = [
-          { side:"right", layout:"vertical", x:right + gap, y:screenBox.top + screenBox.height / 2 - verticalHeight / 2, w:verticalWidth, h:verticalHeight },
-          { side:"right", layout:"vertical", x:right + gap, y:screenBox.top, w:verticalWidth, h:verticalHeight },
-          { side:"right", layout:"vertical", x:right + gap, y:bottom - verticalHeight, w:verticalWidth, h:verticalHeight },
-          { side:"bottom", layout:"horizontal", x:screenBox.left + screenBox.width / 2 - horizontalWidth / 2, y:bottom + gap, w:horizontalWidth, h:height },
-          { side:"top", layout:"horizontal", x:screenBox.left + screenBox.width / 2 - horizontalWidth / 2, y:screenBox.top - height - gap, w:horizontalWidth, h:height },
-          { side:"left", layout:"vertical", x:screenBox.left - verticalWidth - gap, y:screenBox.top + screenBox.height / 2 - verticalHeight / 2, w:verticalWidth, h:verticalHeight },
-          { side:"left", layout:"vertical", x:screenBox.left - verticalWidth - gap, y:screenBox.top, w:verticalWidth, h:verticalHeight },
-          { side:"left", layout:"vertical", x:screenBox.left - verticalWidth - gap, y:bottom - verticalHeight, w:verticalWidth, h:verticalHeight },
-        ],
-        groupPosition = positions.find(position => fits(position, hintSpace)) || fallbackPosition(positions[0], hintSpace);
-      const vertical = groupPosition.layout === "vertical",
-        alignRight = vertical && groupPosition.side === "left";
+      const horizontalFits = horizontalWidth <= Math.max(0, insideRight - insideLeft),
+        groupPosition = horizontalFits
+          ? { side:"inside-top", layout:"horizontal", x:insideRight - horizontalWidth, y:insideTop, w:horizontalWidth, h:height }
+          : { side:"inside-right", layout:"vertical", x:Math.max(insideLeft, insideRight - verticalWidth), y:insideTop, w:verticalWidth, h:verticalHeight },
+        vertical = groupPosition.layout === "vertical";
       return {
-        x:groupPosition.x + (vertical ? alignRight ? groupPosition.w - width : 0 : spec.groupHorizontalOffset * controlScale),
+        x:groupPosition.x + (vertical ? groupPosition.w - width : spec.groupHorizontalOffset * controlScale),
         y:groupPosition.y + (vertical ? spec.groupVerticalOffset * controlScale : 0),
         scale:controlScale,
         baseWidth,
@@ -7713,22 +7760,11 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       };
     }
     if (spec?.widgetCore) {
-      const topY = screenBox.top - height - chromeGap,
-        centerY = screenBox.top + screenBox.height / 2 - height / 2,
-        positions = kind === "move" ? [
-          { x:screenBox.left + screenBox.width / 2 - width / 2, y:topY, w:width, h:height },
-          { x:screenBox.left + screenBox.width / 2 - width / 2, y:bottom + chromeGap, w:width, h:height },
-        ] : kind === "cancel" ? [
-          { x:screenBox.left, y:topY, w:width, h:height },
-          { x:screenBox.left - width - chromeGap, y:centerY, w:width, h:height },
-          { x:screenBox.left, y:bottom + chromeGap, w:width, h:height },
-        ] : [
-          { x:right - width, y:topY, w:width, h:height },
-          { x:right + chromeGap, y:centerY, w:width, h:height },
-          { x:right - width, y:bottom + chromeGap, w:width, h:height },
-        ],
-        position = positions.find(candidate => fits(candidate)) || fallbackPosition(positions[0]);
-      return { x:position.x, y:position.y, scale:1, baseWidth, baseHeight };
+      const inset = 8,
+        x = kind === "move"
+          ? screenBox.left + screenBox.width / 2 - width / 2
+          : kind === "cancel" ? screenBox.left + inset : right - width - inset;
+      return { x, y:screenBox.top + inset, scale:1, baseWidth, baseHeight };
     }
     const above = screenBox.top - height - chromeGap,
       y = clampY(above >= 6 ? above : screenBox.top + chromeGap);
@@ -7878,7 +7914,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       state.dirtyTextBoxIds.add(gesture.item.id);
       recomputeDirtyBounds();
       state.autoEligible = true;
-      save();
+      saveUserCanvasChange();
       const refineCandidate = latchWidgetRefineCandidate(gesture.item, "text-box");
       if (state.auto && !refineCandidate) schedule(Math.max(1000, state.autoDelayMs));
       if (refineCandidate) setStatusKey("widgetRefinePending");
@@ -8014,7 +8050,13 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       if (record.kind === "text-box" && !state.textEditors.size) {
         specs.push({ key:`text-box:${handTarget.id}:move`, kind:"move", box:textBoxBox(handTarget), target:"text-box", object:handTarget, ...shared, priority:2 });
       } else if (record.kind === "image") {
-        specs.push({ key:`image:${handTarget.id}:move`, kind:"move", box:imageBox(handTarget), target:"image", object:handTarget, ...shared, priority:2 });
+        const box = imageBox(handTarget),
+          imageToolGroup = `image-${handTarget.id}-tools`;
+        specs.push({ key:`image:${handTarget.id}:move`, kind:"move", box, target:"image", object:handTarget, widgetCore:true, widgetToolGroup:imageToolGroup, ...shared, priority:2 });
+        if (record.expanded && state.handToolbarActiveKey === key && state.imageEdit?.id === handTarget.id) {
+          specs.push({ key:`image:${handTarget.id}:cancel`, kind:"cancel", label:t("imageDelete"), box, widgetCore:true, widgetToolGroup:imageToolGroup, activate:() => deleteImage(handTarget), ...shared, priority:3 });
+          specs.push({ key:`image:${handTarget.id}:accept`, kind:"accept", label:t("imagePlace"), box, widgetCore:true, widgetToolGroup:imageToolGroup, activate:() => acceptImageEdit({ showHint:true }), ...shared, priority:3 });
+        }
       } else if (record.kind === "animation") {
         const box = animationBox(handTarget);
         specs.push({ key:`animation:${handTarget.id}:move`, kind:"move", box, target:"animation", object:handTarget, ...shared, priority:2 });
@@ -8074,6 +8116,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
         declaration = (button.penechoStyleRule || ensureObjectChromeStyleRule(button))?.["style"];
       button.penechoSpec = spec;
       button.classList.toggle("widget-tool", Boolean(spec.widgetTool));
+      button.classList.toggle("widget-chrome-control", Boolean(spec.widgetTool || spec.widgetCore));
       button.classList.toggle("icon-only", Boolean(spec.iconOnly));
       button.classList.toggle("solo-widget-tool", Boolean(spec.widgetTool && spec.groupItemCount === 1));
       button.classList.toggle("hand-toolbar-control", Boolean(spec.handToolbar));
@@ -8137,7 +8180,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   objectChromeLayer?.addEventListener("pointercancel", finishObjectChromeGesture);
   function drawPointerPreview(context) {
     const preview = state.pointerPreview;
-    if (!preview || state.mode !== "eraser" || !valid(preview)) return;
+    if (!preview || state.mode !== "eraser" && !state.drawing?.erase || !valid(preview)) return;
     const radius = logicalWidth(state.eraser) / 2,
       unit = 1 / state.scale;
     context.save();
@@ -8489,6 +8532,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
         else declaration.removeProperty("--text-editor-preview-width");
         if (editor.previewLogicalHeight) declaration.setProperty("--text-editor-preview-height", `${editor.previewLogicalHeight}px`);
         else declaration.removeProperty("--text-editor-preview-height");
+        declaration.setProperty("--text-editor-preview-inset-x", `${editor.previewInsetX || 0}px`);
+        declaration.setProperty("--text-editor-preview-inset-y", `${editor.previewInsetY || 0}px`);
       }
       editor.element.classList.toggle("active", active);
     }
@@ -8627,13 +8672,48 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     editor.preview.removeAttribute("data-fallback");
     editor.previewLogicalWidth = 0;
     editor.previewLogicalHeight = 0;
+    editor.previewInsetX = 0;
+    editor.previewInsetY = 0;
+  }
+  function textEditorContentMetrics(editor) {
+    const body = editor?.body || editor?.element?.querySelector(".text-editor-body"),
+      editorRect = canvasElementLayoutRect(editor?.element),
+      bodyRect = canvasElementLayoutRect(body),
+      style = body && window.getComputedStyle ? window.getComputedStyle(body) : null,
+      paddingLeft = Number.parseFloat(style?.paddingLeft) || 10,
+      paddingRight = Number.parseFloat(style?.paddingRight) || 10,
+      paddingTop = Number.parseFloat(style?.paddingTop) || 10,
+      fallbackLeft = (body?.offsetLeft || 0) + paddingLeft,
+      fallbackTop = (body?.offsetTop || 40) + paddingTop,
+      fallbackWidth = Math.max(1, editor.widthCss - paddingLeft - paddingRight - 2);
+    if (!editorRect || !bodyRect) return { x:fallbackLeft, y:fallbackTop, width:fallbackWidth };
+    return {
+      x:bodyRect.left - editorRect.left + paddingLeft,
+      y:bodyRect.top - editorRect.top + paddingTop,
+      width:Math.max(1, bodyRect.width - paddingLeft - paddingRight),
+    };
+  }
+  function textBoxOriginFromEditor(editor, contentMetrics, contentInset, scale) {
+    const editorScale = Math.max(0.03, Number(scale) || 0);
+    return {
+      x:editor.x + contentMetrics.x / editorScale - contentInset.x,
+      y:editor.y + contentMetrics.y / editorScale - contentInset.y,
+    };
+  }
+  function textEditorOriginFromTextBox(item, contentMetrics, contentInset, scale) {
+    const editorScale = Math.max(0.03, Number(scale) || 0);
+    return {
+      x:item.x + contentInset.x - contentMetrics.x / editorScale,
+      y:item.y + contentInset.y - contentMetrics.y / editorScale,
+    };
   }
   async function renderTextEditorPreview(editor) {
     if (!editor || !editor.mixedMode || editor.committing || editor.cancelled || state.textEditors.get(editor.id) !== editor) return;
     const revision = ++editor.previewRevision,
       text = editor.textarea.value,
       fontCss = editor.fontCss,
-      maxWidth = Math.max(fontCss * 3, editor.widthCss - 16),
+      contentMetrics = textEditorContentMetrics(editor),
+      maxWidth = Math.max(fontCss * 3, contentMetrics.width),
       color = editor.color || state.inkColor;
     editor.preview.setAttribute("aria-busy", "true");
     let image,
@@ -8648,6 +8728,9 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     image.classList.add("text-editor-preview-canvas");
     editor.previewLogicalWidth = image.logicalWidth || image.width;
     editor.previewLogicalHeight = image.logicalHeight || image.height;
+    const previewInset = textImageContentInset(image);
+    editor.previewInsetX = previewInset.x;
+    editor.previewInsetY = previewInset.y;
     editor.preview.replaceChildren(image);
     editor.preview.toggleAttribute("data-fallback", fallback);
     editor.preview.setAttribute("aria-label", text || t("textPreview"));
@@ -8707,13 +8790,6 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     textHelpInvoker = null;
     if (invoker?.isConnected && !invoker.disabled) invoker.focus({ preventScroll: true });
   }
-  function textEditorContentOffset(editor) {
-    const body = editor?.body || editor?.element?.querySelector(".text-editor-body"),
-      left = body?.offsetLeft || 0,
-      top = body?.offsetTop || 36;
-    return { x: left + 8, y: top + 8 };
-  }
-
   async function confirmTextEditor(editor, options = null) {
     options ||= {};
     if (!editor) return;
@@ -8734,18 +8810,16 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       clearTimeout(state.timer);
       state.timer = 0;
       editor.element.querySelectorAll("button").forEach((button) => (button.disabled = true));
-      const contentOffset = textEditorContentOffset(editor),
+      const contentMetrics = textEditorContentMetrics(editor),
         editorScale = Math.max(0.03, state.scale);
-      editor.x += contentOffset.x / editorScale;
-      editor.y += contentOffset.y / editorScale;
       editor.mixedMode = true;
       const proposedFontSize = editor.fontCss / Math.max(0.03, state.scale);
       let fontSize = editor.sourceTextBoxId && !editor.resized ? editor.sourceFontSize : proposedFontSize,
-        proposedMaxWidth = Math.max(fontSize * 3, (editor.widthCss - 16) / Math.max(0.03, state.scale)),
+        proposedMaxWidth = Math.max(fontSize * 3, contentMetrics.width / editorScale),
         color = editor.color || state.inkColor;
       let maxWidth = editor.sourceTextBoxId && !editor.resized ? editor.sourceMaxWidth : proposedMaxWidth,
-        x = editor.sourceTextBoxId && !editor.moved ? editor.sourceX : editor.x,
-        y = editor.sourceTextBoxId && !editor.moved ? editor.sourceY : editor.y;
+        x,
+        y;
       const fitted = await fittedTextBoxContent(text, fontSize, color, maxWidth);
       if (editor.cancelled || state.textEditors.get(editor.id) !== editor) return;
       const image = fitted.image,
@@ -8754,6 +8828,11 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
         height = fitted.height;
       fontSize = fitted.fontSize;
       maxWidth = fitted.maxWidth;
+      const contentInset = textImageContentInset(image),
+        alignedOrigin = textBoxOriginFromEditor(editor, contentMetrics, contentInset, editorScale),
+        preserveSourceOrigin = editor.sourceTextBoxId && !editor.moved && !editor.resized;
+      x = preserveSourceOrigin ? editor.sourceX : alignedOrigin.x;
+      y = preserveSourceOrigin ? editor.sourceY : alignedOrigin.y;
       x = Math.max(0, Math.min(SIZE - width, x));
       y = Math.max(0, Math.min(SIZE - height, y));
       const
@@ -8784,7 +8863,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       removeTextEditor(editor);
       blockCanvasInput(TEXT_INPUT_GUARD_MS);
       restoreTextEditorMode(editor);
-      save();
+      saveUserCanvasChange();
       render();
       setStatusKey(mixedFallback ? "textMixedModeError" : "ready");
       if (state.auto && !refineCandidate) schedule(Math.max(1000, state.autoDelayMs));
@@ -8827,7 +8906,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     if (deletedTextBox) {
       state.userRevision++;
       reconcileDirtyAfterTextBoxDeletion(deletedTextBox);
-      save();
+      saveUserCanvasChange();
     }
     render();
     setStatusKey("ready");
@@ -8854,6 +8933,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
         previewTimer: 0,
         previewLogicalWidth: 0,
         previewLogicalHeight: 0,
+        previewInsetX: 0,
+        previewInsetY: 0,
         committing: false,
         cancelled: false,
         gesture: null,
@@ -8905,8 +8986,6 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     helpButton.textContent = "?";
     helpButton.setAttribute("aria-haspopup", "dialog");
     helpButton.setAttribute("aria-controls", "textHelpDialog");
-    acceptButton.textContent = "✓";
-    cancelButton.textContent = "×";
     header.append(title, helpButton, mixedModeButton, acceptButton, cancelButton);
     body.className = "text-editor-body";
     textarea.className = "text-editor-input";
@@ -9015,9 +9094,11 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       state.selectedTextBoxId = null;
       return false;
     }
-    const offset = textEditorContentOffset(editor);
-    editor.x -= offset.x / scale;
-    editor.y -= offset.y / scale;
+    const contentMetrics = textEditorContentMetrics(editor),
+      contentInset = textImageContentInset(item.image),
+      editorOrigin = textEditorOriginFromTextBox(item, contentMetrics, contentInset, scale);
+    editor.x = editorOrigin.x;
+    editor.y = editorOrigin.y;
     positionTextEditors();
     setStatusKey("ready");
     render();
@@ -9318,9 +9399,24 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     serverCanvasProjects = [],
     selectedServerProjectId = storedServerProjectId(),
     cloudCanvasProjects = [],
+    cloudHistoryCache = null,
     selectedCloudProjectId = storedCloudProjectId(),
     cloudHistorySignInRequired = false,
     pendingCanvasTransition = null;
+  function currentCanvasDisplayName() {
+    return state.currentCanvasSuggestedName || state.currentSnapshotName;
+  }
+  function currentCanvasNeedsAgentName() {
+    return !state.currentSnapshotHasExplicitName && !state.currentCanvasSuggestedName;
+  }
+  function applyCurrentCanvasGeneratedName(value) {
+    const name=String(value||"").replace(/\s+/g," ").trim().slice(0,48);
+    if(!name||!currentCanvasNeedsAgentName())return false;
+    state.currentCanvasSuggestedName=name;
+    window.PenEchoStudioNavigator?.updateDocument?.();
+    window.PenEchoStudioNavigator?.renderAgent?.();
+    return true;
+  }
   function validServerProjectSelection(projectId) {
     return projectId === SERVER_DEFAULT_PROJECT_ID || projectId === SERVER_ALL_PROJECTS_ID || /^project-[a-zA-Z0-9-]{8,64}$/.test(projectId || "");
   }
@@ -9379,6 +9475,22 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     // an unrelated request and must remain an ordinary recoverable error.
     return String(error?.code || "") === "cloud_sign_in_required";
   }
+  function cacheCloudHistory(items) {
+    cloudHistoryCache = {
+      items:Array.isArray(items) ? items.slice() : [],
+      projects:cloudCanvasProjects.slice(),
+    };
+  }
+  function restoreCloudHistoryCache() {
+    if (!cloudHistoryCache) return false;
+    snapshotItems = cloudHistoryCache.items.slice();
+    cloudCanvasProjects = cloudHistoryCache.projects.slice();
+    snapshotItemsLocation = "cloud";
+    return true;
+  }
+  function clearCloudHistoryCache() {
+    cloudHistoryCache = null;
+  }
   function updateSnapshotLocationUi() {
     const location = SNAPSHOT_LOCATIONS.has(state.snapshotLocation) ? state.snapshotLocation : "device",
       descriptionKey = location === "server" ? "storagePenEchoServerDescription" : location === "cloud" ? "storagePenEchoCloudDescription" : "storageThisDeviceDescription";
@@ -9394,6 +9506,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   function setSnapshotLocation(location, { refresh = true } = {}) {
     if (!SNAPSHOT_LOCATIONS.has(location) || state.snapshotLocation === location) {
       updateSnapshotLocationUi();
+      if (location === "cloud" && snapshotItemsLocation !== "cloud" && restoreCloudHistoryCache()) renderSnapshotList();
       return refresh ? refreshSnapshots() : Promise.resolve(false);
     }
     if (snapshotLoadInProgress) {
@@ -9409,7 +9522,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     else if (location === "server") serverCanvasProjects = [];
     updateSnapshotLocationUi();
     updateNewCanvasDialog();
-    renderSnapshotListLoading(location);
+    if (location === "cloud" && restoreCloudHistoryCache()) renderSnapshotList();
+    else renderSnapshotListLoading(location);
     if (!refresh) return Promise.resolve(true);
     const request = refreshSnapshots();
     request.catch((error) => {
@@ -9483,7 +9597,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     document.querySelectorAll('#historyProjectSelect, #historyProjectCreate, #historyProjectDelete, #historyName, #historySaveCurrent, #historySave').forEach((control) => (control.disabled = busy || cloudBlocked));
     const topSave = document.querySelector("#saveCanvasBtn");
     if (topSave) topSave.disabled = snapshotSaveInProgress || cloudBlocked;
-    document.querySelectorAll(".history-load, .history-delete, .history-move").forEach((control) => (control.disabled = busy));
+    document.querySelectorAll(".history-load, .history-delete, .history-move, .history-rename").forEach((control) => (control.disabled = busy));
     document.querySelectorAll(".history-card").forEach((card) => card.classList.toggle("loading", snapshotLoadInProgress && card.dataset.snapshotId === snapshotLoadingId));
     document.querySelectorAll(".history-load").forEach((button) => {
       const active = snapshotLoadInProgress && button.dataset.snapshotId === snapshotLoadingId;
@@ -9539,7 +9653,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     if (snapshotSaveInProgress) return;
     const overwriteId = state.currentSnapshotLocation === state.snapshotLocation ? state.currentSnapshotId : null,
       requestedName = document.querySelector("#historyName")?.value.trim(),
-      name = requestedName || (overwriteId ? state.currentSnapshotName : "");
+      name = requestedName || currentCanvasDisplayName();
     setHistorySaveBusy(true);
     showHistoryNoticeKey("snapshotSaving", "busy", 0);
     try {
@@ -9551,6 +9665,32 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       const message = `${t("snapshotError")}${error.message}`;
       setStatus(message);
       showHistoryNotice(message, "error", { duration:5000 });
+    } finally {
+      setHistorySaveBusy(false);
+    }
+  }
+  async function renameCurrentCanvasFromTitle(value) {
+    if (snapshotSaveInProgress) return false;
+    const name = String(value || "").trim().slice(0, 48),
+      location = state.currentSnapshotLocation || state.snapshotLocation,
+      overwriteId = state.currentSnapshotId && state.currentSnapshotLocation === location ? state.currentSnapshotId : null;
+    if (!name) throw Error(t("canvasNameRequired"));
+    if (name === state.currentSnapshotName) return true;
+    setHistorySaveBusy(true);
+    showHistoryNoticeKey("snapshotSaving", "busy", 0);
+    try {
+      const id = await saveSnapshot({ overwriteId, name, location });
+      if (!id) {
+        showHistoryNoticeKey(selectionAIBusy() ? selectionAIStatusKey() : "emptyCanvas", "info");
+        return false;
+      }
+      showHistoryNoticeKey("canvasRenamed", "success");
+      return true;
+    } catch (error) {
+      const message = `${t("snapshotError")}${error.message}`;
+      setStatus(message);
+      showHistoryNotice(message, "error", { duration:5000 });
+      return false;
     } finally {
       setHistorySaveBusy(false);
     }
@@ -9839,22 +9979,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     context.fillRect(0, 0, canvas.width, canvas.height);
     context.save();
     context.setTransform(scale, 0, 0, scale, -region.x * scale, -region.y * scale);
-    if (state.gridVisible) {
-      const right = region.x + region.w,
-        bottom = region.y + region.h;
-      context.strokeStyle = state.paint.paperGrid;
-      context.lineWidth = 1 / scale;
-      context.beginPath();
-      for (let x = Math.floor(region.x / 500) * 500; x <= right; x += 500) {
-        context.moveTo(x, region.y);
-        context.lineTo(x, bottom);
-      }
-      for (let y = Math.floor(region.y / 500) * 500; y <= bottom; y += 500) {
-        context.moveTo(region.x, y);
-        context.lineTo(right, y);
-      }
-      context.stroke();
-    }
+    if (state.gridVisible) drawCanvasLineGrid(context, region, scale);
     drawAnimationsToContext(context, region, captureTime);
     drawWidgetsToContext(context, region);
     drawImagesToContext(context, region);
@@ -10201,6 +10326,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       // metadata for rendering, but keep the editable storage identity empty.
       state.currentSnapshotId = null;
       state.currentSnapshotName = String(item.name || "").slice(0, 160);
+      state.currentSnapshotHasExplicitName = Boolean(state.currentSnapshotName.trim());
+      state.currentCanvasSuggestedName = "";
       state.currentSnapshotLocation = null;
       state.currentSnapshotProjectId = null;
       state.currentSnapshotRevisionId = null;
@@ -10341,7 +10468,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       images = storedImages(),
       tileEntries = await Promise.all([...tiles].map(async ([k, canvas]) => ({ k, blob: await canvasBlob(canvas) }))),
       preview = location === "cloud" ? await cloudSnapshotPreviewBlob() : await snapshotPreviewBlob(),
-      requestedName = String(name === null ? nameInput.value : name).trim().slice(0, 48),
+      requestedName = String(name === null ? nameInput.value || state.currentCanvasSuggestedName : name).trim().slice(0, 48),
       item = {
         version:2,
         id,
@@ -10385,6 +10512,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     nameInput.value = "";
     state.currentSnapshotId = storedId;
     state.currentSnapshotName = snapshotName(item);
+    state.currentSnapshotHasExplicitName = Boolean(String(item.name||"").trim());
+    state.currentCanvasSuggestedName = "";
     state.currentSnapshotLocation = location;
     state.currentSnapshotProjectId = item.projectId;
     state.currentSnapshotRevisionId = storedRevisionId;
@@ -10576,6 +10705,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       setCanvasNavigationLocked(item.view?.navigationLocked === true);
       state.currentSnapshotId = item.id;
       state.currentSnapshotName = snapshotName(item);
+      state.currentSnapshotHasExplicitName = Boolean(String(item.name||"").trim());
+      state.currentCanvasSuggestedName = "";
       state.currentSnapshotLocation = location;
       state.currentSnapshotProjectId = item.projectId || null;
       state.currentSnapshotRevisionId = location === "cloud" ? item.currentRevisionId || null : null;
@@ -10642,6 +10773,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     if (state.currentSnapshotId === id && state.currentSnapshotLocation === location) {
       state.currentSnapshotId = null;
       state.currentSnapshotName = "";
+      state.currentSnapshotHasExplicitName = false;
+      state.currentCanvasSuggestedName = "";
       state.currentSnapshotLocation = null;
       state.currentSnapshotProjectId = null;
       state.currentSnapshotRevisionId = null;
@@ -10660,7 +10793,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       description = document.querySelector("#newCanvasDialog > form > p:not(.current-snapshot)"),
       discard = document.querySelector("#newDiscard"),
       saveCopy = document.querySelector("#newSaveCopy"),
-      loading = Boolean(pendingCanvasTransition),
+      loading = pendingCanvasTransition?.type === "load",
       cloudBlocked = state.snapshotLocation === "cloud" && cloudHistorySignInRequired;
     if (!label || !overwrite) return;
     if (title) title.textContent = t(loading ? "loadCanvasTitle" : "newCanvasTitle");
@@ -10714,6 +10847,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     state.historyBefore.clear();
     state.currentSnapshotId = null;
     state.currentSnapshotName = "";
+    state.currentSnapshotHasExplicitName = false;
+    state.currentCanvasSuggestedName = "";
     state.currentSnapshotLocation = null;
     state.currentSnapshotProjectId = null;
     state.currentSnapshotRevisionId = null;
@@ -10742,16 +10877,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   }
   function openNewCanvasDialog() {
     window.PenEchoStudioNavigator?.cancelPendingConversation?.();
-    if (!canvasHasUnsavedChanges()) {
-      startBlankCanvas();
-      return;
-    }
-    pendingCanvasTransition = null;
-    const dialog = document.querySelector("#newCanvasDialog");
-    document.querySelector("#newSnapshotName").value = "";
-    setNewCanvasDialogBusy(false);
-    updateNewCanvasDialog();
-    if (!dialog.open) dialog.showModal();
+    return requestCanvasTransition({ type:"new" });
   }
   async function completeNewCanvas(saveMode) {
     const name = document.querySelector("#newSnapshotName").value;
@@ -10766,32 +10892,42 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       }
       const transition = pendingCanvasTransition;
       pendingCanvasTransition = null;
-      if (transition) {
+      if (transition?.type === "load") {
         const dialog = document.querySelector("#newCanvasDialog");
         if (dialog.open) dialog.close();
-        await loadSnapshot(transition.id, transition.location);
-      } else startBlankCanvas();
+      }
+      await performCanvasTransition(transition);
     } catch (error) {
       setStatus(`${t("snapshotError")}${error.message}`);
       setNewCanvasDialogBusy(false);
     }
   }
   function canvasHasUnsavedChanges() {
+    const nameChanged = Boolean(state.currentSnapshotId && state.currentCanvasSuggestedName);
+    if (!nameChanged && state.userRevision === state.snapshotSavedRevision) return false;
     const hasContent = tiles.size || state.images.length || state.textBoxes.length || state.preservedSnapshotAnimations.length || (pluginEnabled("animation") && state.animations.length) || visibleWidgets().length;
-    return Boolean(hasContent && (state.dirty || state.userRevision !== state.snapshotSavedRevision));
+    return Boolean(state.currentSnapshotId || hasContent);
   }
-  function confirmExternalCanvasOpen() {
-    return !canvasHasUnsavedChanges() || window.confirm(cloudHistoryCopy("confirmExternalOpen"));
+  function performCanvasTransition(transition) {
+    if (transition?.type === "load") return loadSnapshot(transition.id, transition.location);
+    startBlankCanvas();
+    return true;
   }
-  function requestLoadSnapshot(id, location = state.snapshotLocation) {
-    if (!canvasHasUnsavedChanges()) return loadSnapshot(id, location);
-    pendingCanvasTransition = { id, location };
+  function requestCanvasTransition(transition) {
+    if (!canvasHasUnsavedChanges()) return performCanvasTransition(transition);
+    pendingCanvasTransition = transition;
     const dialog = document.querySelector("#newCanvasDialog");
     document.querySelector("#newSnapshotName").value = "";
     setNewCanvasDialogBusy(false);
     updateNewCanvasDialog();
     if (!dialog.open) dialog.showModal();
     return Promise.resolve(false);
+  }
+  function confirmExternalCanvasOpen() {
+    return !canvasHasUnsavedChanges() || window.confirm(cloudHistoryCopy("confirmExternalOpen"));
+  }
+  function requestLoadSnapshot(id, location = state.snapshotLocation) {
+    return requestCanvasTransition({ type:"load", id, location });
   }
   async function openCloudProjectHistory(projectId = null) {
     if (projectId && validCloudProjectSelection(projectId)) rememberSelectedCloudProject(projectId);
@@ -10814,13 +10950,109 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   function discardCanvasTransition() {
     const transition = pendingCanvasTransition;
     pendingCanvasTransition = null;
-    if (!transition) return startBlankCanvas();
     const dialog = document.querySelector("#newCanvasDialog");
     if (dialog.open) dialog.close();
-    return loadSnapshot(transition.id, transition.location);
+    return performCanvasTransition(transition);
   }
   function snapshotName(item) {
     return item.name || new Intl.DateTimeFormat(state.language === "zh" ? "zh-CN" : "en", { dateStyle: "medium", timeStyle: "short" }).format(item.createdAt);
+  }
+  async function renameDeviceSnapshot(id, name) {
+    const db = await snapshotDb(),
+      transaction = db.transaction(SNAPSHOT_STORE, "readwrite"),
+      store = transaction.objectStore(SNAPSHOT_STORE),
+      item = await requestResult(store.get(id));
+    if (!item) throw Error(t("noCurrentSnapshot"));
+    item.name = name;
+    item.updatedAt = Date.now();
+    store.put(item);
+    await transactionDone(transaction);
+  }
+  async function renameSnapshot(id, location, value) {
+    const name = String(value || "").trim().slice(0, 48);
+    if (!name) throw Error(t("canvasNameRequired"));
+    if (historyBusy()) throw Error(t("snapshotSaving"));
+    setHistorySaveBusy(true);
+    try {
+      if (location === "device") await renameDeviceSnapshot(id, name);
+      else {
+        const response = await fetch(location === "cloud" ? `/api/cloud/canvases/${encodeURIComponent(id)}` : `/api/canvases/${encodeURIComponent(id)}`, {
+          method:"PATCH",
+          credentials:"same-origin",
+          headers:authenticatedApiHeaders({ "Content-Type":"application/json" }),
+          body:JSON.stringify({ name }),
+        });
+        await snapshotApiResponse(response);
+      }
+      if (state.currentSnapshotId === id && state.currentSnapshotLocation === location) {
+        state.currentSnapshotName = name;
+        state.currentSnapshotHasExplicitName = true;
+        state.currentCanvasSuggestedName = "";
+        canvasAgentCanvasDidPersist(location, id);
+        window.PenEchoStudioNavigator?.updateDocument?.();
+      }
+      await refreshSnapshots();
+      showHistoryNoticeKey("canvasRenamed", "success");
+      return true;
+    } finally {
+      setHistorySaveBusy(false);
+    }
+  }
+  function beginSnapshotRename(item, location, titleRow, title, renameButton) {
+    if (historyBusy()) return;
+    const form = document.createElement("form"), input = document.createElement("input"),
+      confirm = document.createElement("button"), cancel = document.createElement("button"),
+      originalName = snapshotName(item), restore = () => titleRow.replaceChildren(title, renameButton);
+    form.className = "history-rename-form";
+    form.setAttribute("aria-label", t("canvasRenameNamed").replace("{name}", originalName));
+    input.className = "history-rename-input";
+    input.type = "text";
+    input.maxLength = 48;
+    input.value = originalName;
+    input.setAttribute("aria-label", t("canvasNamePlaceholder"));
+    confirm.type = "submit";
+    confirm.textContent = "✓";
+    confirm.setAttribute("aria-label", t("saveCurrentSnapshot"));
+    cancel.type = "button";
+    cancel.textContent = "×";
+    cancel.setAttribute("aria-label", t("cancel"));
+    cancel.addEventListener("click", restore);
+    input.addEventListener("input", () => input.setCustomValidity(""));
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        restore();
+        renameButton.focus({ preventScroll:true });
+      }
+    });
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const name = input.value.trim().slice(0, 48);
+      if (!name) {
+        input.setCustomValidity(t("canvasNameRequired"));
+        input.reportValidity();
+        return;
+      }
+      if (name === originalName) {
+        restore();
+        renameButton.focus({ preventScroll:true });
+        return;
+      }
+      input.disabled = confirm.disabled = cancel.disabled = true;
+      try {
+        await renameSnapshot(item.id, location, name);
+      } catch (error) {
+        const message = `${t("snapshotError")}${error.message}`;
+        setStatus(message);
+        showHistoryNotice(message, "error", { duration:5000 });
+        input.disabled = confirm.disabled = cancel.disabled = false;
+        input.focus({ preventScroll:true });
+      }
+    });
+    form.append(input, confirm, cancel);
+    titleRow.replaceChildren(form);
+    input.focus({ preventScroll:true });
+    input.select();
   }
   function renderSnapshotListLoading(location = state.snapshotLocation) {
     const list = document.querySelector("#historyList");
@@ -10985,6 +11217,10 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
         ? snapshotItems.filter((item) => item.projectId === selectedCloudProjectId)
         : snapshotItems;
   }
+  function renderStudioSnapshotLists() {
+    window.PenEchoStudioNavigator?.renderCanvases?.();
+    window.PenEchoStudioNavigator?.renderAgent?.();
+  }
   function renderSnapshotList() {
     const list = document.querySelector("#historyList"),
       location = state.snapshotLocation,
@@ -11006,7 +11242,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       empty.className = "history-empty";
       empty.textContent = t((location === "server" || location === "cloud") && snapshotItems.length ? "emptyProjectHistory" : location === "server" ? "emptyServerHistory" : location === "cloud" ? "emptyCloudHistory" : "emptyDeviceHistory");
       list.append(empty);
-      window.PenEchoStudioNavigator?.renderCanvases?.();
+      renderStudioSnapshotLists();
       return;
     }
     for (const item of items) {
@@ -11014,7 +11250,9 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
         preview = document.createElement("div"),
         image = document.createElement("img"),
         meta = document.createElement("div"),
+        titleRow = document.createElement("div"),
         title = document.createElement("strong"),
+        rename = document.createElement("button"),
         detail = document.createElement("small"),
         actions = document.createElement("div"),
         load = document.createElement("button"),
@@ -11033,7 +11271,15 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       }
       preview.append(image);
       meta.className = "history-meta";
+      titleRow.className = "history-title-row";
       title.textContent = snapshotName(item);
+      rename.className = "history-rename";
+      rename.type = "button";
+      rename.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 20 4.4-1 10-10a2.1 2.1 0 0 0-3-3l-10 10L4 20Z"/><path d="m13.8 7.6 3 3"/></svg>';
+      rename.setAttribute("aria-label", t("canvasRenameNamed").replace("{name}", title.textContent));
+      rename.title = t("canvasRename");
+      rename.addEventListener("click", () => beginSnapshotRename(item, location, titleRow, title, rename));
+      titleRow.append(title, rename);
       const modified = new Intl.DateTimeFormat(state.language === "zh" ? "zh-CN" : "en", { dateStyle: "short", timeStyle: "short" }).format(item.updatedAt || item.createdAt);
       detail.textContent = t("snapshotModified").replace("{time}", modified);
       const stats = document.createElement("div"),
@@ -11057,7 +11303,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       remove.textContent = t("deleteSnapshot");
       remove.onclick = () => runSnapshotAction(() => deleteSnapshot(item.id, location));
       actions.append(load, remove);
-      meta.append(title, detail, stats, actions);
+      meta.append(titleRow, detail, stats, actions);
       if (location === "server" || location === "cloud") {
         const move = document.createElement("select");
         move.className = "history-move";
@@ -11077,12 +11323,13 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       card.append(preview, meta);
       list.append(card);
     }
-    window.PenEchoStudioNavigator?.renderCanvases?.();
+    renderStudioSnapshotLists();
   }
   async function refreshSnapshots() {
     const generation = ++snapshotListGeneration,
       location = state.snapshotLocation,
-      replacingLocation = snapshotItemsLocation !== location;
+      replacingLocation = snapshotItemsLocation !== location,
+      showingCloudCache = location === "cloud" && snapshotItemsLocation === "cloud" && Boolean(cloudHistoryCache);
     snapshotListInProgress = true;
     if (replacingLocation) {
       snapshotItems = [];
@@ -11091,7 +11338,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     }
     setHistoryActivity(
       t("snapshotLibraryLoading").replace("{location}", snapshotLocationLabel(location)),
-      t("snapshotLibraryLoadingDetail"),
+      t(showingCloudCache ? "snapshotCloudCacheRefreshing" : "snapshotLibraryLoadingDetail"),
       null,
     );
     updateHistoryReadControls();
@@ -11102,6 +11349,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       if (location === "cloud") cloudHistorySignInRequired = false;
       snapshotItems = items;
       snapshotItemsLocation = location;
+      if (location === "cloud") cacheCloudHistory(items);
       renderSnapshotList();
       hideHistoryActivity(260);
       return true;
@@ -11113,6 +11361,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
           snapshotItems = [];
           snapshotItemsLocation = null;
           cloudCanvasProjects = [];
+          clearCloudHistoryCache();
           renderCloudHistorySignIn();
         } else if (replacingLocation) {
           snapshotItems = [];
@@ -11122,7 +11371,9 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
         if (!authenticationRequired) {
           setHistoryActivity(
             t("snapshotLibraryLoading").replace("{location}", snapshotLocationLabel(location)),
-            t("snapshotLibraryLoadFailed").replace("{location}", snapshotLocationLabel(location)),
+            t(location === "cloud" && snapshotItemsLocation === "cloud" && cloudHistoryCache
+              ? "snapshotCloudCacheLoadFailed"
+              : "snapshotLibraryLoadFailed").replace("{location}", snapshotLocationLabel(location)),
             null,
             "error",
           );
@@ -11369,7 +11620,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     recomputeDirtyBounds();
     filterErasedDirtyHotspots(touchedTiles);
     const refineCandidate = relatchWidgetRefineCandidateFromDirty();
-    save();
+    saveUserCanvasChange();
     requestRender();
     if (state.dirty && state.autoEligible && !refineCandidate) schedule();
     setStatusKey(refineCandidate ? "widgetRefinePending" : state.pending?.items ? "batchDraftReady" : state.pending ? "draftReady" : "areaEraseDeleted");
@@ -11392,8 +11643,10 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     return true;
   }
   function pressureWidth(e) {
-    if (e.pointerType !== "pen" || !Number.isFinite(e.pressure) || e.pressure <= 0) return state.pen;
-    return Math.max(3, Math.min(16, state.pen * (0.72 + e.pressure * 0.7)));
+    if (e.pointerType !== "pen" || !Number.isFinite(e.pressure)) return state.pen;
+    const pressure = Math.max(0, Math.min(1, e.pressure)),
+      tip = Math.max(PEN_STROKE_MIN, state.pen * PEN_PRESSURE_TIP_RATIO);
+    return clampStrokeWidth(tip + (state.pen - tip) * Math.sqrt(pressure));
   }
   function logicalWidth(cssWidth) {
     const maximum = state.mode === "eraser" ? 1600 : 320;
@@ -11553,6 +11806,9 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     state.future = [];
     window.PenEchoStudioNavigator?.updateDocument?.();
     return entry;
+  }
+  function saveUserCanvasChange() {
+    return canvasAgentDidCommitUserCanvasChange(save());
   }
   function applyHistory(entry, side) {
     const changes = Array.isArray(entry) ? entry : entry?.tiles || [];
@@ -11810,7 +12066,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       blitSized(fragment.renderImage || fragment.image, target.x, target.y, target.w, target.h);
     }
     state.userRevision++;
-    save();
+    saveUserCanvasChange();
     resetCanvasCursor();
     render();
     setStatusKey("selectionCommitted");
@@ -11880,7 +12136,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     state.selectionGesture = null;
     state.userRevision++;
     preservePendingAfterSelectionDelete(selection, pending, selectionRequest);
-    save();
+    saveUserCanvasChange();
     resetCanvasCursor();
     render();
     setStatusKey("selectionDeleted");
@@ -12084,9 +12340,6 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   function stopActiveAIRequests() {
     const active = state.activeAI || aiPreparation;
     if (!active || active.superseded) return false;
-    state.radialGesture = null;
-    state.radialSuppressClickUntil = performance.now() + 450;
-    closeRadialMenu();
     supersedeActiveAI("user-stop");
     return true;
   }
@@ -13165,6 +13418,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     image.naturalWidth = naturalWidth;
     image.logicalWidth = naturalWidth;
     image.logicalHeight = naturalHeight;
+    image.contentInsetX = 2;
+    image.contentInsetY = 2 - (rowHeight - f) / 2;
     return image;
   }
   function layoutText(content, context, maxWidth) {
@@ -13303,6 +13558,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     }
     image.logicalWidth = naturalWidth;
     image.logicalHeight = naturalHeight;
+    image.contentInsetX = padding;
+    image.contentInsetY = padding;
     image.revealRows = rows.map((row) => Math.max(1, row.width));
     image.revealRowHeight = naturalHeight / Math.max(1, rows.length);
     return image;
@@ -14867,14 +15124,16 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     }
     notePendingContinuedInput(d);
     state.autoEligible ||= shouldRequest;
+    saveUserCanvasChange();
     if (state.dirty && state.autoEligible && !refineCandidate) schedule();
-    save();
     requestInteractionLayerRender();
     if (shouldRequest || d.erase) setStatusKey(refineCandidate ? "widgetRefinePending" : state.pending?.items ? "batchDraftReady" : state.pending ? "draftReady" : "ready");
   }
 // DeepSeek Harness bridge. The browser remains authoritative for Canvas state.
   const canvasAgentControl = document.querySelector("#canvasAgentControl"),
     canvasAgentToggle = document.querySelector("#canvasAgentToggle"),
+    canvasAgentToolbar = document.querySelector(".toolbar"),
+    canvasAgentToolbarHome = document.querySelector("#canvasAgentToolbarHome"),
     canvasAgentPanel = document.querySelector("#canvasAgentPanel"),
     canvasAgentHome = document.querySelector("#canvasAgentHome"),
     canvasAgentFrame = view.closest(".canvas-frame"),
@@ -15149,6 +15408,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     viewRevision:0,
     viewSignature:"",
     latestChange:null,
+    hideOnFirstUserCanvasChange:false,
   };
   sessionStorage.setItem(CANVAS_AGENT_CLIENT_KEY,canvasAgent.clientId);
   try {
@@ -15201,7 +15461,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     canvasAgentSyncAutomaticAIStatus();
   }
   function canvasAgentSyncTriggerState() {
-    const busy = (canvasAgent.requestPending || canvasAgent.running) && canvasAgentPanel.hidden;
+    const busy = canvasAgent.requestPending || canvasAgent.running;
     canvasAgentControl.classList.toggle("is-busy",busy);
     canvasAgentToggle.setAttribute("aria-busy",String(busy));
     canvasAgentSyncPromptSuggestions();
@@ -16034,13 +16294,35 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     if (!key) return false;
     if (normalized.length) {
       store.canvases[key]=normalized;
-      if(key===state.canvasAgentCanvasKey)canvasAgentRememberCanvasMeta(store,key,{name:state.currentSnapshotName,updatedAt:normalized[0].updatedAt});
+      if(key===state.canvasAgentCanvasKey)canvasAgentRememberCanvasMeta(store,key,{name:currentCanvasDisplayName(),updatedAt:normalized[0].updatedAt});
     } else {
       delete store.canvases[key];
       if(store.canvasMeta)delete store.canvasMeta[key];
     }
     try { localStorage.setItem(CANVAS_AGENT_HISTORY_KEY,JSON.stringify(store)); return true; }
     catch { return false; }
+  }
+  function canvasAgentDeleteStoredConversation(canvasKey, conversationId) {
+    const key=String(canvasKey||""),id=String(conversationId||""),deletingCurrent=!canvasAgent.projectId&&key===state.canvasAgentCanvasKey&&id===canvasAgent.currentConversation?.id;
+    if(!key||!id)return {deleted:false,reason:"missing"};
+    if(deletingCurrent&&(canvasAgent.requestPending||canvasAgent.running))return {deleted:false,reason:"busy"};
+    const store=canvasAgentReadHistoryStore(),previous=(Array.isArray(store.canvases[key])?store.canvases[key]:[]).map(canvasAgentNormalizeConversation).filter(conversation=>conversation?.items.length),remaining=previous.filter(conversation=>conversation.id!==id);
+    if(remaining.length===previous.length)return {deleted:false,reason:"missing"};
+    if(remaining.length){
+      store.canvases[key]=remaining;
+      canvasAgentRememberCanvasMeta(store,key,{name:store.canvasMeta?.[key]?.name,updatedAt:remaining[0].updatedAt});
+    }else{
+      delete store.canvases[key];
+      if(store.canvasMeta)delete store.canvasMeta[key];
+    }
+    try{localStorage.setItem(CANVAS_AGENT_HISTORY_KEY,JSON.stringify(store));}
+    catch{return {deleted:false,reason:"storage"};}
+    if(deletingCurrent){
+      canvasAgentBeginLocalConversation({persistCurrent:false});
+      canvasAgentDropSessionIdentity();
+      canvasAgentSetStatus(t("canvasAgentReadyConnect"),"ready");
+    }else canvasAgentRenderHistoryList();
+    return {deleted:true,reason:"",remaining:remaining.length};
   }
   function canvasAgentConversationTitle(conversation) {
     const firstUser=conversation?.items?.find(item=>item.type==="message"&&item.role==="user"&&item.text.trim());
@@ -16272,6 +16554,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   }
   function canvasAgentCanvasDidChange(identity = null,options = null) {
     const clearProject=options?.clearProject===true,deferConversationStart=options?.deferConversationStart===true;
+    canvasAgent.hideOnFirstUserCanvasChange=true;
     canvasAgentPersistCurrentConversation();
     if(clearProject){
       canvasAgent.projectSelectionRevision++;
@@ -16291,6 +16574,12 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     canvasAgentSyncPromptSuggestions();
     if (state.canvasAgentAutoOpen && canvasAgentPanel.hidden) openCanvasAgent({focus:false});
   }
+  function canvasAgentDidCommitUserCanvasChange(historyEntry) {
+    if (!historyEntry || !canvasAgent.hideOnFirstUserCanvasChange) return historyEntry;
+    canvasAgent.hideOnFirstUserCanvasChange=false;
+    if (!canvasAgentPanel.hidden) closeCanvasAgent({focus:false});
+    return historyEntry;
+  }
   function canvasAgentCanvasDidPersist(location,id) {
     if (!location||!id) return;
     const previousKey=state.canvasAgentCanvasKey, nextKey=canvasAgentCanvasIdentity({location,id});
@@ -16304,7 +16593,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     const store=canvasAgentReadHistoryStore(), previous=(Array.isArray(store.canvases[previousKey])?store.canvases[previousKey]:[]).map(canvasAgentNormalizeConversation).filter(Boolean), next=(Array.isArray(store.canvases[nextKey])?store.canvases[nextKey]:[]).map(canvasAgentNormalizeConversation).filter(Boolean), merged=[];
     for (const conversation of [...previous,...next].sort((a,b)=>b.updatedAt-a.updatedAt)) if (conversation?.items.length&&!merged.some(item=>item.id===conversation.id)) merged.push(conversation);
     if (previousKey?.startsWith("draft:")) {delete store.canvases[previousKey];delete store.canvasMeta?.[previousKey];}
-    canvasAgentRememberCanvasMeta(store,nextKey,{name:state.currentSnapshotName,updatedAt:merged[0]?.updatedAt});
+    canvasAgentRememberCanvasMeta(store,nextKey,{name:currentCanvasDisplayName(),updatedAt:merged[0]?.updatedAt});
     canvasAgentWriteHistoryForCanvas(nextKey,merged,store);
     state.canvasAgentCanvasKey=nextKey;
     canvasAgentRenderHistoryList();
@@ -16436,18 +16725,24 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     });
     canvasAgentReferenceList.replaceChildren();
     for (const item of widgets) {
-      const option=document.createElement("button"), label=document.createElement("span"), status=document.createElement("small"), referenced=canvasAgent.references.includes(item.id);
+      const option=document.createElement("button"), icon=document.createElement("span"), label=document.createElement("span"), status=document.createElement("small"), referenced=canvasAgent.references.includes(item.id);
       option.type="button";
       option.setAttribute("role","option");
       option.setAttribute("aria-selected",String(referenced));
+      icon.className="canvas-agent-reference-item-icon";
+      icon.setAttribute("aria-hidden","true");
+      label.className="canvas-agent-reference-item-label";
       label.textContent=canvasAgentReferenceLabel(item.id);
       label.title=String(item.id);
       status.textContent=t(referenced?"canvasAgentReferenced":"canvasAgentReferenceAdd");
-      option.append(label,status);
+      option.append(icon,label,status);
       option.addEventListener("click",()=>canvasAgentToggleReference(item.id));
       canvasAgentReferenceList.append(option);
     }
-    canvasAgentReferenceNote.textContent=!state.widgets.length?t("canvasAgentReferenceEmpty"):!widgets.length?t("canvasAgentReferenceNoMatch"):t("canvasAgentReferenceCount").replace("{count}",String(widgets.length));
+    const message=!state.widgets.length?t("canvasAgentReferenceEmpty"):!widgets.length?t("canvasAgentReferenceNoMatch"):"";
+    canvasAgentReferencePicker.classList.toggle("has-message",Boolean(message));
+    canvasAgentReferenceNote.classList.toggle("is-message",Boolean(message));
+    canvasAgentReferenceNote.textContent=message||t(widgets.length===1?"canvasAgentReferenceCountOne":"canvasAgentReferenceCount").replace("{count}",String(widgets.length));
   }
   function canvasAgentTranscriptNearLatest() {
     const remaining = canvasAgentTranscript.scrollHeight - canvasAgentTranscript.clientHeight - canvasAgentTranscript.scrollTop;
@@ -16475,8 +16770,38 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   function canvasAgentDockedPanel() {
     return document.body.classList.contains("studio-agent-docked") && canvasAgentPanel.parentElement === canvasAgentFrame;
   }
+  let canvasAgentToolbarLayoutFrame = 0;
+  function canvasAgentToolbarOverflows() {
+    return Boolean(canvasAgentToolbar?.clientWidth && canvasAgentToolbar.scrollWidth > canvasAgentToolbar.clientWidth + 1);
+  }
+  function canvasAgentSyncToolbarLayout(theme = state.theme) {
+    const body = document.body,
+      toolbarAvailable = theme === "studio" && Boolean(window.matchMedia?.("(min-width: 701px)").matches) && canvasAgentToolbar && canvasAgentToolbarHome;
+    body.classList.remove("studio-toolbar-effort-compact", "studio-toolbar-controls-compact", "studio-agent-launcher-floating");
+    if (!toolbarAvailable) {
+      if (canvasAgentControl.parentElement !== canvasAgentFrame) canvasAgentFrame.append(canvasAgentControl);
+      body.classList.toggle("studio-agent-launcher-floating", theme === "studio");
+      return "floating";
+    }
+    if (canvasAgentControl.parentElement !== canvasAgentToolbarHome) canvasAgentToolbarHome.append(canvasAgentControl);
+    if (!canvasAgentToolbarOverflows()) return "full";
+    body.classList.add("studio-toolbar-effort-compact");
+    if (!canvasAgentToolbarOverflows()) return "effort-compact";
+    body.classList.add("studio-toolbar-controls-compact");
+    if (!canvasAgentToolbarOverflows()) return "controls-compact";
+    body.classList.add("studio-agent-launcher-floating");
+    canvasAgentFrame.append(canvasAgentControl);
+    return "floating";
+  }
+  function canvasAgentScheduleToolbarLayout() {
+    if (canvasAgentToolbarLayoutFrame) return;
+    canvasAgentToolbarLayoutFrame = requestAnimationFrame(() => {
+      canvasAgentToolbarLayoutFrame = 0;
+      canvasAgentSyncToolbarLayout();
+    });
+  }
   function syncStudioWorkbench(theme = state.theme) {
-    const docked = theme === "studio" && Boolean(window.matchMedia?.("(min-width: 1101px)").matches);
+    const docked = theme === "studio" && Boolean(window.matchMedia?.("(min-width: 701px)").matches);
     document.body.classList.toggle("studio-agent-docked", docked);
     if (docked && canvasAgentPanel.parentElement !== canvasAgentFrame) canvasAgentFrame.append(canvasAgentPanel);
     else if (!docked && canvasAgentPanel.parentElement !== view) canvasAgentHome.after(canvasAgentPanel);
@@ -16485,13 +16810,16 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       canvasAgentResetPositionClasses();
       canvasAgent.panelPosition = null;
     }
+    canvasAgentSyncToolbarLayout(theme);
     window.PenEchoStudioNavigator?.syncTheme?.(theme);
   }
   function canvasAgentResetHeightClasses() {
     for (const name of [...canvasAgentPanel.classList]) if (/^canvas-agent-height-\d+$/.test(name)) canvasAgentPanel.classList.remove(name);
   }
   function canvasAgentResetWidthClasses() {
-    for (const name of [...canvasAgentPanel.classList]) if (/^canvas-agent-width-\d+$/.test(name)) canvasAgentPanel.classList.remove(name);
+    for (const target of [canvasAgentPanel,canvasAgentFrame]) {
+      for (const name of [...target.classList]) if (/^canvas-agent-width-\d+$/.test(name)) target.classList.remove(name);
+    }
   }
   function canvasAgentApplyPanelHeight(height) {
     const extent=Math.max(1,view.clientHeight), step=Math.max(0,Math.min(CANVAS_AGENT_SIZE_STEPS,Math.round((Number(height)||CANVAS_AGENT_HEIGHT_MIN)/extent*CANVAS_AGENT_SIZE_STEPS)));
@@ -16504,6 +16832,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     const extent=Math.max(1,canvasAgentDockedPanel()?canvasAgentFrame.clientWidth:view.clientWidth), step=Math.max(0,Math.min(CANVAS_AGENT_SIZE_STEPS,Math.round((Number(width)||CANVAS_AGENT_WIDTH_MIN)/extent*CANVAS_AGENT_SIZE_STEPS)));
     canvasAgentResetWidthClasses();
     canvasAgentPanel.classList.add(`canvas-agent-width-${step}`);
+    canvasAgentFrame.classList.add(`canvas-agent-width-${step}`);
     canvasAgentSyncResizeHandleValues();
     return canvasAgentPanel.offsetWidth;
   }
@@ -16593,6 +16922,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     if (canvasAgentDockedPanel() && edge!=="left") return;
     canvasAgent.panelResize={pointerId:event.pointerId,edge,vertical,startCoordinate:vertical?point.y:point.x,startSize:vertical?canvasAgentPanel.offsetHeight:canvasAgentPanel.offsetWidth,anchor:canvasAgentResizeAnchor(),handle:event.currentTarget};
     canvasAgentPanel.classList.add("resizing",`resizing-${edge}`);
+    if (canvasAgentDockedPanel()) canvasAgentFrame.classList.add("canvas-agent-resizing");
     event.currentTarget.setPointerCapture?.(event.pointerId);
     event.preventDefault();
     event.stopPropagation();
@@ -16609,6 +16939,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     if (resize?.pointerId!==event.pointerId) return;
     canvasAgent.panelResize=null;
     canvasAgentPanel.classList.remove("resizing","resizing-top","resizing-bottom","resizing-left","resizing-right");
+    canvasAgentFrame.classList.remove("canvas-agent-resizing");
     if (resize.handle.hasPointerCapture?.(event.pointerId)) resize.handle.releasePointerCapture(event.pointerId);
     canvasAgentSavePanelSize();
     canvasAgentSavePanelPosition();
@@ -17049,7 +17380,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     ];
   }
   function canvasAgentViewFacts() {
-    const viewport = viewportRect(), signature = JSON.stringify({viewport,scale:state.scale,panX:state.panX,panY:state.panY,selection:canvasAgentSelectionIds(),ink:state.selection?.box || null});
+    // Panel and window geometry belongs to app chrome; only Canvas interaction advances this revision.
+    const viewport = viewportRect(), signature = JSON.stringify({scale:state.scale,panX:state.panX,panY:state.panY,selection:canvasAgentSelectionIds(),ink:state.selection?.box || null});
     if (signature !== canvasAgent.viewSignature) {
       canvasAgent.viewSignature = signature;
       canvasAgent.viewRevision++;
@@ -17725,7 +18057,10 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       }
     } else if (event.kind === "turn_end") {
       canvasAgent.requestPending = false;
-      if(event.reason?.kind==="completed")canvasAgentMarkTurnSummaryCopyable(event.turn);
+      if(event.reason?.kind==="completed"){
+        canvasAgentMarkTurnSummaryCopyable(event.turn);
+        applyCurrentCanvasGeneratedName(event.canvasTitle);
+      }
       canvasAgent.lastTurnError=event.reason?.kind==="error"?canvasAgentNormalizeError(event.reason?.error||event.reason):null;
       canvasAgentSetRunning(false);
       if(canvasAgent.lastTurnError){
@@ -18738,9 +19073,21 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     canvasAgentPanel.inert = false;
     canvasAgentPanel.setAttribute("aria-hidden","false");
     canvasAgentToggle.setAttribute("aria-expanded","true");
+    const docked=canvasAgentDockedPanel();
+    if(docked){
+      // Resolve the persisted inspector width while it is still offscreen so the
+      // slide and every control following its leading edge share one geometry.
+      canvasAgentRestorePanelSize();
+      canvasAgentRestorePanelPosition();
+      canvasAgentResizeInput();
+    }
     document.body.classList.add("canvas-agent-open");
+    // Opening Agent changes workbench geometry, but never the selected Canvas
+    // tool. Re-apply the authoritative mode presentation so a stale temporary
+    // Hand/grab cursor or toolbar highlight cannot survive the transition.
+    syncCanvasModePresentation();
     canvasAgentSyncTriggerState();
-    if(animate&&!canvasAgentDockedPanel()){
+    if(animate&&!docked){
       canvasAgentPanel.classList.add("canvas-agent-motion-target");
       canvasAgent.panelMotionFrame=requestAnimationFrame(()=>{
         canvasAgent.panelMotionFrame=0;
@@ -18751,10 +19098,15 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
           (canvasAgent.inputMode==="ink"?canvasAgentInkCanvas:canvasAgentInput).focus():null);
       });
     }else{
-      canvasAgentRestorePanelSize();
-      canvasAgentRestorePanelPosition();
-      canvasAgentResizeInput();
-      if(focus)(canvasAgent.inputMode==="ink"?canvasAgentInkCanvas:canvasAgentInput).focus();
+      if(!docked){
+        canvasAgentRestorePanelSize();
+        canvasAgentRestorePanelPosition();
+        canvasAgentResizeInput();
+      }
+      if(focus){
+        const focusTarget=canvasAgent.inputMode==="ink"?canvasAgentInkCanvas:canvasAgentInput;
+        try{focusTarget.focus({preventScroll:true});}catch{focusTarget.focus();}
+      }
     }
     if(connect){
       canvasAgentSyncState();
@@ -18771,6 +19123,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     canvasAgent.panelDrag = null;
     canvasAgent.panelResize = null;
     canvasAgentPanel.classList.remove("dragging","resizing","resizing-top","resizing-bottom","resizing-left","resizing-right");
+    canvasAgentFrame.classList.remove("canvas-agent-resizing");
     if (dragPointerId !== undefined && canvasAgentHead.hasPointerCapture?.(dragPointerId)) canvasAgentHead.releasePointerCapture(dragPointerId);
     if (resize?.handle.hasPointerCapture?.(resize.pointerId)) resize.handle.releasePointerCapture(resize.pointerId);
     canvasAgentPanel.hidden = true;
@@ -18968,7 +19321,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       canvasAgentAssertSubmitExecution(submitExecution);
       canvasAgentRow("user",displayText,displayAttachments);
       canvasAgentAssertSubmitExecution(submitExecution);
-      canvasAgentSendRequest(canvasAgent.running ? "steer" : "user_turn",{text:prompt,references:canvasAgentTurnReferences(),images:outgoingAttachments.map(attachment=>attachment.wire),fileIds:fileAttachments.map(attachment=>attachment.projectId),initialState,webSearchEnabled:canvasAgent.searchEnabled});
+      canvasAgentSendRequest(canvasAgent.running ? "steer" : "user_turn",{text:prompt,references:canvasAgentTurnReferences(),images:outgoingAttachments.map(attachment=>attachment.wire),fileIds:fileAttachments.map(attachment=>attachment.projectId),initialState,webSearchEnabled:canvasAgent.searchEnabled,canvasTitleNeeded:currentCanvasNeedsAgentName()});
       requestSent = true;
       focusComposerAfterSubmit=!hasInk;
       if(clearInput){canvasAgentInput.value = "";canvasAgentResizeInput();}
@@ -19049,6 +19402,9 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   if (typeof ResizeObserver==="function") {
     new ResizeObserver(()=>{canvasAgentSchedulePanelSizeSave();canvasAgentResizeInput();}).observe(canvasAgentPanel);
     new ResizeObserver(canvasAgentScheduleScrollToLatest).observe(canvasAgentTranscript);
+    const toolbarLayoutObserver = new ResizeObserver(canvasAgentScheduleToolbarLayout);
+    toolbarLayoutObserver.observe(canvasAgentToolbar);
+    toolbarLayoutObserver.observe(document.querySelector(".tool-group.primary-tools"));
   }
   canvasAgentResizeInput();
   window.addEventListener("resize",()=>requestAnimationFrame(()=>{syncStudioWorkbench();canvasAgentRestorePanelSize();canvasAgentRestorePanelPosition();}),{passive:true});
@@ -19058,8 +19414,11 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   canvasAgentCanvasDidChange();
 // Studio-only navigator for recent Agent conversations and saved canvases.
   {
-    const STUDIO_NAVIGATOR_OPEN_KEY = "penecho-studio-navigator-open",
-      STUDIO_NAVIGATOR_TAB_KEY = "penecho-studio-navigator-tab",
+    const STUDIO_NAVIGATOR_TAB_KEY = "penecho-studio-navigator-tab",
+      STUDIO_EDGE_SWIPE_START_PX = 28,
+      STUDIO_EDGE_SWIPE_COMMIT_PX = 56,
+      STUDIO_EDGE_SWIPE_CANCEL_PX = 36,
+      STUDIO_EDGE_SWIPE_DIRECTION_RATIO = 1.25,
       studioNavigatorToggle = document.querySelector("#studioNavigatorToggle"),
       studioNavigator = document.querySelector("#studioNavigator"),
       studioNavigatorClose = document.querySelector("#studioNavigatorClose"),
@@ -19072,22 +19431,33 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       studioAgentRecentList = document.querySelector("#studioAgentRecentList"),
       studioCanvasRecentList = document.querySelector("#studioCanvasRecentList"),
       studioNavigatorManage = document.querySelector("#studioNavigatorManage"),
+      studioSessionDeleteDialog = document.querySelector("#studioSessionDeleteDialog"),
+      studioSessionDeleteDescription = document.querySelector("#studioSessionDeleteDescription"),
+      studioSessionDeleteCancel = document.querySelector("#studioSessionDeleteCancel"),
+      studioSessionDeleteConfirm = document.querySelector("#studioSessionDeleteConfirm"),
       canvasDocumentMeta = document.querySelector("#canvasDocumentMeta"),
       canvasDocumentName = document.querySelector("#canvasDocumentName"),
+      canvasDocumentNameLabel = document.querySelector("#canvasDocumentNameLabel"),
+      canvasDocumentNameInput = document.querySelector("#canvasDocumentNameInput"),
       canvasDocumentSaveState = document.querySelector("#canvasDocumentSaveState"),
       canvasDocumentSaveLabel = document.querySelector("#canvasDocumentSaveLabel"),
       saveCanvasLabel = document.querySelector("#saveCanvasLabel"),
       canvasWelcome = document.querySelector("#canvasWelcome"),
       studioNavigatorCompactMedia = window.matchMedia?.("(max-width: 1100px)");
-    let studioNavigatorOpenPreference = storedStudioNavigatorOpen(),
+    let studioNavigatorOpenPreference = false,
       studioNavigatorActiveTab = storedStudioNavigatorTab(),
-      studioNavigatorPreviewUrls = new Set(),
-      studioNavigatorPendingConversation = null;
+      studioNavigatorAgentPreviewUrls = new Set(),
+      studioNavigatorCanvasPreviewUrls = new Set(),
+      studioNavigatorCanvasGroupSnapshots = new Map(),
+      studioNavigatorCanvasGroupSnapshotLoads = new Map(),
+      studioNavigatorCanvasGroupSnapshotRetryAt = new Map(),
+      studioNavigatorDraftSnapshot = {canvasKey:"",revision:-1,item:null,request:null,retryAt:0},
+      studioNavigatorPendingConversation = null,
+      studioSessionDeletePending = null,
+      canvasDocumentRenameActive = false,
+      canvasDocumentRenameCommitting = false,
+      studioEdgeSwipe = null;
 
-    function storedStudioNavigatorOpen() {
-      try { return localStorage.getItem(STUDIO_NAVIGATOR_OPEN_KEY) !== "false"; }
-      catch { return true; }
-    }
     function storedStudioNavigatorTab() {
       try { return localStorage.getItem(STUDIO_NAVIGATOR_TAB_KEY) === "canvas" ? "canvas" : "agent"; }
       catch { return "agent"; }
@@ -19105,8 +19475,9 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       return Boolean(tiles.size || state.images.length || state.textBoxes.length || state.preservedSnapshotAnimations.length || (pluginEnabled("animation") && state.animations.length) || visibleWidgets().length);
     }
     function updateStudioDocumentState() {
-      const active = studioNavigatorIsStudio(), saved = Boolean(state.currentSnapshotId), edited = saved && canvasHasUnsavedChanges(),
+      const active = studioNavigatorIsStudio(), saved = Boolean(state.currentSnapshotId), edited = saved && (canvasHasUnsavedChanges() || Boolean(state.currentCanvasSuggestedName)),
         stateKey = snapshotSaveInProgress ? "saving" : !saved ? "unsaved" : edited ? "edited" : "saved",
+        documentName = currentCanvasDisplayName() || t("canvasUntitledName"),
         copyKey = {
           unsaved:"canvasSaveStateUnsaved",
           saved:"canvasSaveStateSaved",
@@ -19114,12 +19485,59 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
           saving:"canvasSaveStateSaving",
         }[stateKey];
       canvasDocumentMeta.hidden = !active;
-      canvasDocumentName.textContent = state.currentSnapshotName || t("canvasUntitledName");
-      canvasDocumentName.title = canvasDocumentName.textContent;
+      canvasDocumentNameLabel.textContent = documentName;
+      canvasDocumentName.title = t("canvasRenameNamed").replace("{name}", documentName);
+      canvasDocumentName.setAttribute("aria-label", t("canvasRenameNamed").replace("{name}", documentName));
+      canvasDocumentNameInput.disabled = snapshotSaveInProgress;
+      canvasDocumentNameInput.setAttribute("aria-busy", String(snapshotSaveInProgress));
       canvasDocumentSaveState.dataset.state = stateKey;
       canvasDocumentSaveLabel.textContent = t(copyKey);
       saveCanvasLabel.textContent = t(snapshotSaveInProgress ? "snapshotSavingShort" : "saveCurrentSnapshot");
       canvasWelcome.hidden = !active || state.viewMode || studioCanvasHasContent();
+    }
+    function finishCanvasDocumentRename({ focus = false } = {}) {
+      canvasDocumentRenameActive = false;
+      canvasDocumentRenameCommitting = false;
+      canvasDocumentNameInput.hidden = true;
+      canvasDocumentNameInput.disabled = false;
+      canvasDocumentNameInput.setCustomValidity("");
+      canvasDocumentName.hidden = false;
+      updateStudioDocumentState();
+      if (focus) canvasDocumentName.focus({ preventScroll:true });
+    }
+    function beginCanvasDocumentRename() {
+      if (!studioNavigatorIsStudio() || state.viewMode || snapshotSaveInProgress || canvasDocumentRenameActive) return;
+      canvasDocumentRenameActive = true;
+      canvasDocumentNameInput.value = currentCanvasDisplayName() || "";
+      canvasDocumentNameInput.setCustomValidity("");
+      canvasDocumentName.hidden = true;
+      canvasDocumentNameInput.hidden = false;
+      canvasDocumentNameInput.focus({ preventScroll:true });
+      canvasDocumentNameInput.select();
+    }
+    async function commitCanvasDocumentRename() {
+      if (!canvasDocumentRenameActive || canvasDocumentRenameCommitting) return;
+      const name = canvasDocumentNameInput.value.trim().slice(0, 48);
+      if (!name) {
+        canvasDocumentNameInput.setCustomValidity(t("canvasNameRequired"));
+        canvasDocumentNameInput.reportValidity();
+        canvasDocumentNameInput.focus({ preventScroll:true });
+        return;
+      }
+      if (name === currentCanvasDisplayName()) {
+        finishCanvasDocumentRename();
+        return;
+      }
+      canvasDocumentRenameCommitting = true;
+      canvasDocumentNameInput.disabled = true;
+      const saved = await renameCurrentCanvasFromTitle(name);
+      if (saved) finishCanvasDocumentRename();
+      else {
+        canvasDocumentRenameCommitting = false;
+        canvasDocumentNameInput.disabled = false;
+        canvasDocumentNameInput.focus({ preventScroll:true });
+        canvasDocumentNameInput.select();
+      }
     }
     function updateStudioNavigatorSurfaceInert() {
       const blocked = studioNavigatorIsStudio() && studioNavigatorIsOpen() && studioNavigatorIsCompact() && !state.viewMode;
@@ -19145,14 +19563,11 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       studioNavigatorScrim.hidden = !(active && open && studioNavigatorIsCompact() && !state.viewMode);
       updateStudioNavigatorSurfaceInert();
     }
-    function setStudioNavigatorOpen(open, { focus = false, persist = true } = {}) {
+    function setStudioNavigatorOpen(open, { focus = false } = {}) {
       studioNavigatorOpenPreference = Boolean(open);
-      if (persist) {
-        try { localStorage.setItem(STUDIO_NAVIGATOR_OPEN_KEY, String(studioNavigatorOpenPreference)); }
-        catch {}
-      }
       document.body.classList.toggle("studio-navigator-open", studioNavigatorIsStudio() && studioNavigatorOpenPreference);
       updateStudioNavigatorA11y();
+      if(open&&studioNavigatorIsStudio())(studioNavigatorActiveTab==="canvas"?renderStudioCanvasHistory:renderStudioAgentHistory)();
       if (!open && studioNavigator.contains(document.activeElement)) studioNavigatorToggle.focus({ preventScroll:true });
       else if (open && focus) requestAnimationFrame(() => studioNavigatorSearch.focus({ preventScroll:true }));
     }
@@ -19185,13 +19600,88 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     function closeStudioNavigatorAfterCompactAction() {
       if (studioNavigatorIsCompact()) setStudioNavigatorOpen(false);
     }
+    function collapseStudioNavigatorForWorkspaceFocus() {
+      if (studioNavigatorIsOpen()) setStudioNavigatorOpen(false);
+    }
     function studioNavigatorCanvasIdentity(canvasKey) {
       const match=/^(device|server|cloud):(.+)$/.exec(String(canvasKey||""));
       return match?{location:match[1],id:match[2]}:null;
     }
+    function studioNavigatorCanvasGroupSnapshot(group) {
+      const canvasKey=String(group?.canvasKey||"");
+      if(canvasKey.startsWith("draft:"))return canvasKey===state.canvasAgentCanvasKey&&studioNavigatorDraftSnapshot.canvasKey===canvasKey&&studioNavigatorDraftSnapshot.revision===state.userRevision?studioNavigatorDraftSnapshot.item:null;
+      const identity=studioNavigatorCanvasIdentity(group?.canvasKey);
+      if(!identity)return null;
+      const key=`${identity.location}:${identity.id}`;
+      if(snapshotItemsLocation===identity.location){
+        const item=snapshotItems.find(candidate=>candidate.id===identity.id)||null;
+        if(item){studioNavigatorCanvasGroupSnapshots.set(key,item);studioNavigatorCanvasGroupSnapshotRetryAt.delete(key);}
+        else studioNavigatorCanvasGroupSnapshots.delete(key);
+        return item;
+      }
+      return studioNavigatorCanvasGroupSnapshots.get(key)||null;
+    }
+    async function studioNavigatorLoadDraftSnapshot(request) {
+      try{
+        const preview=await snapshotPreviewBlob();
+        if(request===studioNavigatorDraftSnapshot.request&&request.canvasKey===state.canvasAgentCanvasKey&&request.revision===state.userRevision){
+          studioNavigatorDraftSnapshot.canvasKey=request.canvasKey;
+          studioNavigatorDraftSnapshot.revision=request.revision;
+          studioNavigatorDraftSnapshot.item={id:request.canvasKey,preview};
+          studioNavigatorDraftSnapshot.retryAt=0;
+        }
+      }catch{
+        if(request===studioNavigatorDraftSnapshot.request)studioNavigatorDraftSnapshot.retryAt=Date.now()+30_000;
+      }finally{
+        if(request===studioNavigatorDraftSnapshot.request)studioNavigatorDraftSnapshot.request=null;
+        if(studioNavigatorIsStudio()&&studioNavigatorActiveTab==="agent")renderStudioAgentHistory();
+      }
+    }
+    function studioNavigatorQueueDraftSnapshot(group) {
+      const canvasKey=String(group?.canvasKey||""),revision=state.userRevision,current=studioNavigatorDraftSnapshot.request;
+      if(!canvasKey.startsWith("draft:")||canvasKey!==state.canvasAgentCanvasKey||studioNavigatorCanvasGroupSnapshot(group))return;
+      if(studioNavigatorDraftSnapshot.retryAt>Date.now())return;
+      if(current?.canvasKey===canvasKey&&current.revision===revision)return;
+      const request={canvasKey,revision};
+      studioNavigatorDraftSnapshot.request=request;
+      void studioNavigatorLoadDraftSnapshot(request);
+    }
+    async function studioNavigatorLoadCanvasGroupSnapshots(location,request) {
+      try{
+        const items=snapshotItemsLocation===location?snapshotItems:await snapshotsAt(location),byId=new Map(items.map(item=>[item.id,item]));
+        for(const [id,key] of request.ids){
+          const item=byId.get(id)||null;
+          if(item){studioNavigatorCanvasGroupSnapshots.set(key,item);studioNavigatorCanvasGroupSnapshotRetryAt.delete(key);}
+          else{studioNavigatorCanvasGroupSnapshots.delete(key);studioNavigatorCanvasGroupSnapshotRetryAt.set(key,Date.now()+30_000);}
+        }
+      }catch{
+        for(const key of request.ids.values())studioNavigatorCanvasGroupSnapshotRetryAt.set(key,Date.now()+30_000);
+      }finally{
+        studioNavigatorCanvasGroupSnapshotLoads.delete(location);
+        if(studioNavigatorIsStudio()&&studioNavigatorActiveTab==="agent")renderStudioAgentHistory();
+      }
+    }
+    function studioNavigatorQueueCanvasGroupSnapshots(groups) {
+      const now=Date.now(),byLocation=new Map();
+      for(const group of groups){
+        const identity=studioNavigatorCanvasIdentity(group.canvasKey),key=identity?`${identity.location}:${identity.id}`:"";
+        if(!identity){studioNavigatorQueueDraftSnapshot(group);continue;}
+        if(studioNavigatorCanvasGroupSnapshot(group)||studioNavigatorCanvasGroupSnapshotRetryAt.get(key)>now)continue;
+        if(state.snapshotLocation===identity.location&&snapshotListInProgress)continue;
+        if(!byLocation.has(identity.location))byLocation.set(identity.location,new Map());
+        byLocation.get(identity.location).set(identity.id,key);
+      }
+      for(const [location,ids] of byLocation){
+        const pending=studioNavigatorCanvasGroupSnapshotLoads.get(location);
+        if(pending){for(const [id,key] of ids)pending.ids.set(id,key);continue;}
+        const request={ids};
+        studioNavigatorCanvasGroupSnapshotLoads.set(location,request);
+        void studioNavigatorLoadCanvasGroupSnapshots(location,request);
+      }
+    }
     function studioNavigatorCanvasGroupName(group) {
-      if(group.canvasKey===state.canvasAgentCanvasKey)return state.currentSnapshotName||t("canvasUntitledName");
-      const identity=studioNavigatorCanvasIdentity(group.canvasKey),metadata=identity&&snapshotItemsLocation===identity.location?snapshotItems.find(item=>item.id===identity.id):null;
+      if(group.canvasKey===state.canvasAgentCanvasKey)return currentCanvasDisplayName()||t("canvasUntitledName");
+      const metadata=studioNavigatorCanvasGroupSnapshot(group);
       return group.name||(metadata?snapshotName(metadata):t("studioNavigatorUnknownCanvas"));
     }
     async function openStudioConversationOnCurrentCanvas(pending) {
@@ -19249,30 +19739,53 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       studioNavigator.removeAttribute("aria-busy");
       renderStudioAgentHistory();
     }
+    function openStudioSessionDeleteDialog(group,conversation) {
+      const title=conversation.title||t("canvasAgentHistoryUntitled"),current=group.canvasKey===state.canvasAgentCanvasKey&&conversation.id===canvasAgent.currentConversation?.id,busy=current&&(canvasAgent.requestPending||canvasAgent.running);
+      studioSessionDeletePending={canvasKey:group.canvasKey,conversationId:conversation.id};
+      studioSessionDeleteDescription.textContent=t(busy?"studioNavigatorDeleteSessionBusy":"studioNavigatorDeleteSessionConfirm").replace("{name}",title);
+      studioSessionDeleteConfirm.disabled=busy;
+      if(!studioSessionDeleteDialog.open)studioSessionDeleteDialog.showModal();
+      requestAnimationFrame(()=>studioSessionDeleteCancel.focus({preventScroll:true}));
+    }
+    function confirmStudioSessionDelete() {
+      if(!studioSessionDeletePending)return false;
+      const result=canvasAgentDeleteStoredConversation(studioSessionDeletePending.canvasKey,studioSessionDeletePending.conversationId);
+      if(!result.deleted){
+        const key=result.reason==="busy"?"studioNavigatorDeleteSessionBusy":"studioNavigatorDeleteSessionFailed";
+        studioSessionDeleteDescription.textContent=t(key);
+        studioSessionDeleteConfirm.disabled=result.reason==="busy";
+        return false;
+      }
+      studioSessionDeleteDialog.close("deleted");
+      renderStudioAgentHistory();
+      return true;
+    }
     function renderStudioAgentHistory() {
       if (!studioAgentRecentList) return;
-      const query=studioNavigatorSearchQuery(),groups=canvasAgentStoredHistoryGroups().filter(group=>!group.canvasKey.startsWith("draft:")||group.canvasKey===state.canvasAgentCanvasKey).map(group=>{
+      releaseStudioNavigatorPreviewUrls(studioNavigatorAgentPreviewUrls);
+      const query=studioNavigatorSearchQuery(),groups=canvasAgentStoredHistoryGroups().filter(group=>!group.canvasKey.startsWith("draft:")).map(group=>{
         const name=studioNavigatorCanvasGroupName(group),conversations=query?group.conversations.filter(conversation=>`${name} ${conversation.title||t("canvasAgentHistoryUntitled")}`.toLocaleLowerCase(state.language==="zh"?"zh-CN":"en").includes(query)):group.conversations;
         return {...group,name,conversations};
       }).filter(group=>group.conversations.length).sort((a,b)=>b.updatedAt-a.updatedAt);
+      studioNavigatorQueueCanvasGroupSnapshots(groups);
       studioAgentRecentList.replaceChildren();
       if (!groups.length) {
         studioNavigatorEmpty(studioAgentRecentList, query ? "studioNavigatorAgentNoMatch" : "studioNavigatorAgentEmpty");
         return;
       }
       for (const group of groups) {
-        const section=document.createElement("section"),heading=document.createElement("div"),canvasIcon=document.createElement("span"),headingBody=document.createElement("span"),name=document.createElement("strong"),meta=document.createElement("small"),list=document.createElement("div"),identity=studioNavigatorCanvasIdentity(group.canvasKey),canvasCurrent=group.canvasKey===state.canvasAgentCanvasKey;
+        const section=document.createElement("section"),heading=document.createElement("div"),canvasPreview=studioNavigatorCanvasPreview(studioNavigatorCanvasGroupSnapshot(group),studioNavigatorAgentPreviewUrls),headingBody=document.createElement("span"),name=document.createElement("strong"),meta=document.createElement("small"),list=document.createElement("div"),identity=studioNavigatorCanvasIdentity(group.canvasKey),canvasCurrent=group.canvasKey===state.canvasAgentCanvasKey;
         section.className="studio-navigator-group";
         section.dataset.canvasKey=group.canvasKey;
         heading.className="studio-navigator-group-heading";
-        canvasIcon.className="studio-navigator-item-icon canvas";
         headingBody.className="studio-navigator-item-body";
         name.textContent=group.name;
         meta.textContent=[identity?snapshotLocationLabel(identity.location):t("studioNavigatorDraftCanvas"),t("studioNavigatorSessionCount").replace("{count}",String(group.conversations.length)),studioNavigatorMetaTime(group.updatedAt),canvasCurrent?t("canvasAgentHistoryCurrent"):""].filter(Boolean).join(" · ");
-        headingBody.append(name,meta);heading.append(canvasIcon,headingBody);
+        headingBody.append(name,meta);heading.append(canvasPreview,headingBody);
         list.className="studio-navigator-group-conversations";
         for (const conversation of group.conversations) {
-          const row=document.createElement("button"),icon=document.createElement("span"),body=document.createElement("span"),title=document.createElement("strong"),rowMeta=document.createElement("small"),current=canvasCurrent&&conversation.id===canvasAgent.currentConversation?.id,messageCount=conversation.items.filter(item=>item?.type==="message"&&["user","assistant"].includes(item.role)).length;
+          const entry=document.createElement("div"),row=document.createElement("button"),remove=document.createElement("button"),icon=document.createElement("span"),body=document.createElement("span"),title=document.createElement("strong"),rowMeta=document.createElement("small"),current=canvasCurrent&&conversation.id===canvasAgent.currentConversation?.id,messageCount=conversation.items.filter(item=>item?.type==="message"&&["user","assistant"].includes(item.role)).length,deleteLabel=t("studioNavigatorDeleteSession").replace("{name}",conversation.title||t("canvasAgentHistoryUntitled"));
+          entry.className="studio-navigator-conversation-entry";
           row.type="button";row.className="studio-navigator-item studio-navigator-conversation";row.dataset.conversationId=conversation.id;row.classList.toggle("current",current);
           if(current)row.setAttribute("aria-current","page");
           icon.className="studio-navigator-item-icon agent";
@@ -19281,26 +19794,29 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
           rowMeta.textContent=[t("studioNavigatorMessageCount").replace("{count}",String(messageCount)),studioNavigatorMetaTime(conversation.updatedAt),current?t("canvasAgentHistoryCurrent"):""].filter(Boolean).join(" · ");
           body.append(title,rowMeta);row.append(icon,body);
           row.addEventListener("click",()=>void openStudioConversation(group,conversation,row));
-          list.append(row);
+          remove.type="button";remove.className="studio-navigator-session-delete";remove.setAttribute("aria-label",deleteLabel);remove.title=deleteLabel;
+          remove.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"/></svg>';
+          remove.addEventListener("click",()=>openStudioSessionDeleteDialog(group,conversation));
+          entry.append(row,remove);list.append(entry);
         }
         section.append(heading,list);studioAgentRecentList.append(section);
       }
     }
-    function releaseStudioNavigatorPreviewUrls() {
-      for (const url of studioNavigatorPreviewUrls) URL.revokeObjectURL(url);
-      studioNavigatorPreviewUrls.clear();
+    function releaseStudioNavigatorPreviewUrls(urls) {
+      for (const url of urls) URL.revokeObjectURL(url);
+      urls.clear();
     }
-    function studioNavigatorCanvasPreview(item) {
+    function studioNavigatorCanvasPreview(item, urls = studioNavigatorCanvasPreviewUrls) {
       const preview = document.createElement("span"), image = document.createElement("img");
       preview.className = "studio-navigator-item-icon canvas";
       image.alt = "";
-      if (item.preview instanceof Blob) {
+      if (item?.preview instanceof Blob) {
         const url = URL.createObjectURL(item.preview);
-        studioNavigatorPreviewUrls.add(url);
+        urls.add(url);
         image.src = url;
         image.onload = image.onerror = () => {
           URL.revokeObjectURL(url);
-          studioNavigatorPreviewUrls.delete(url);
+          urls.delete(url);
         };
       }
       preview.append(image);
@@ -19308,7 +19824,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     }
     function renderStudioCanvasHistory() {
       if (!studioCanvasRecentList) return;
-      releaseStudioNavigatorPreviewUrls();
+      releaseStudioNavigatorPreviewUrls(studioNavigatorCanvasPreviewUrls);
       const location = state.snapshotLocation;
       if (snapshotListInProgress && snapshotItemsLocation !== location) {
         studioNavigatorEmpty(studioCanvasRecentList, "studioNavigatorCanvasLoading");
@@ -19391,6 +19907,64 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       const canvas = event.key === "ArrowRight" || event.key === "End";
       setStudioNavigatorTab(canvas ? "canvas" : "agent", { focus:true });
     }
+    function studioEdgeSwipeInteractiveTarget(target) {
+      return target instanceof Element && Boolean(target.closest("button, input, textarea, select, a, [contenteditable='true'], [role='button'], [role='separator']"));
+    }
+    function studioEdgeSwipeSide(event) {
+      if (studioEdgeSwipe || event.pointerType !== "touch" || event.isPrimary === false || state.viewMode || !studioNavigatorIsStudio() || studioEdgeSwipeInteractiveTarget(event.target)) return "";
+      const bounds = view.getBoundingClientRect(),
+        leftInset = event.clientX - bounds.left,
+        rightInset = bounds.right - event.clientX;
+      if (leftInset >= 0 && leftInset <= STUDIO_EDGE_SWIPE_START_PX && !studioNavigatorIsOpen()) return "left";
+      if (rightInset >= 0 && rightInset <= STUDIO_EDGE_SWIPE_START_PX && canvasAgentAvailable() && canvasAgentPanel.hidden && canvasAgentDockedPanel()) return "right";
+      return "";
+    }
+    function consumeStudioEdgeSwipe(event) {
+      if (event.cancelable) event.preventDefault();
+      event.stopImmediatePropagation();
+    }
+    function beginStudioEdgeSwipe(event) {
+      const side = studioEdgeSwipeSide(event);
+      if (!side) return;
+      consumeStudioEdgeSwipe(event);
+      studioEdgeSwipe = {
+        pointerId:event.pointerId,
+        side,
+        startX:event.clientX,
+        startY:event.clientY,
+        cancelled:false,
+        committed:false,
+      };
+      try { view.setPointerCapture(event.pointerId); }
+      catch {}
+    }
+    function moveStudioEdgeSwipe(event) {
+      const gesture = studioEdgeSwipe;
+      if (!gesture || gesture.pointerId !== event.pointerId) return;
+      consumeStudioEdgeSwipe(event);
+      if (gesture.cancelled || gesture.committed) return;
+      const deltaX = event.clientX - gesture.startX,
+        deltaY = Math.abs(event.clientY - gesture.startY),
+        inward = gesture.side === "left" ? deltaX : -deltaX;
+      if (inward < -STUDIO_EDGE_SWIPE_START_PX / 2 || deltaY > STUDIO_EDGE_SWIPE_CANCEL_PX && deltaY > Math.max(0, inward)) {
+        gesture.cancelled = true;
+        return;
+      }
+      if (inward < STUDIO_EDGE_SWIPE_COMMIT_PX || inward < deltaY * STUDIO_EDGE_SWIPE_DIRECTION_RATIO) return;
+      gesture.committed = true;
+      if (gesture.side === "left") setStudioNavigatorOpen(true, { focus:false });
+      else openCanvasAgent({ focus:false });
+    }
+    function finishStudioEdgeSwipe(event) {
+      const gesture = studioEdgeSwipe;
+      if (!gesture || gesture.pointerId !== event.pointerId) return;
+      consumeStudioEdgeSwipe(event);
+      studioEdgeSwipe = null;
+      if (view.hasPointerCapture?.(event.pointerId)) view.releasePointerCapture(event.pointerId);
+    }
+    function loseStudioEdgeSwipeCapture(event) {
+      if (studioEdgeSwipe?.pointerId === event.pointerId) studioEdgeSwipe = null;
+    }
 
     studioNavigatorToggle.addEventListener("click", () => setStudioNavigatorOpen(!studioNavigatorIsOpen(), { focus:!studioNavigatorIsOpen() && studioNavigatorIsCompact() }));
     studioNavigatorClose.addEventListener("click", () => setStudioNavigatorOpen(false));
@@ -19401,6 +19975,32 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     studioNavigatorAgentTab.addEventListener("keydown", handleStudioNavigatorTabKeydown);
     studioNavigatorCanvasTab.addEventListener("keydown", handleStudioNavigatorTabKeydown);
     studioNavigatorManage.addEventListener("click", () => studioNavigatorActiveTab === "canvas" ? openStudioCanvasHistoryManager() : openStudioAgentHistoryManager());
+    canvasDocumentName.addEventListener("click", beginCanvasDocumentRename);
+    canvasDocumentNameInput.addEventListener("input", () => canvasDocumentNameInput.setCustomValidity(""));
+    canvasDocumentNameInput.addEventListener("blur", () => void commitCanvasDocumentRename());
+    canvasDocumentNameInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        void commitCanvasDocumentRename();
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        finishCanvasDocumentRename({ focus:true });
+      }
+    });
+    studioSessionDeleteConfirm.addEventListener("click",confirmStudioSessionDelete);
+    studioSessionDeleteDialog.addEventListener("close",()=>{
+      studioSessionDeletePending=null;
+      studioSessionDeleteConfirm.disabled=false;
+    });
+    view.addEventListener("pointerdown", beginStudioEdgeSwipe, true);
+    view.addEventListener("pointermove", moveStudioEdgeSwipe, true);
+    view.addEventListener("pointerup", finishStudioEdgeSwipe, true);
+    view.addEventListener("pointercancel", finishStudioEdgeSwipe, true);
+    view.addEventListener("lostpointercapture", loseStudioEdgeSwipeCapture, true);
+    view.addEventListener("pointerdown", collapseStudioNavigatorForWorkspaceFocus, true);
+    view.addEventListener("focusin", collapseStudioNavigatorForWorkspaceFocus);
+    canvasAgentPanel.addEventListener("pointerdown", collapseStudioNavigatorForWorkspaceFocus, true);
+    canvasAgentPanel.addEventListener("focusin", collapseStudioNavigatorForWorkspaceFocus);
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape" && studioNavigatorIsCompact() && studioNavigatorIsOpen() && studioNavigator.contains(document.activeElement)) {
         event.preventDefault();
@@ -19427,11 +20027,31 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
 // Pointer and control bindings, portable snapshots, and application startup.
   const ERASER_TOOL_MENU_MS = 5000;
   let eraserToolMenuTimer = 0;
+  function canvasPenEraserActive(event) {
+    return event?.pointerType === "pen"
+      && (Number(event.button) === 5 || (Number(event.buttons) & 32) === 32);
+  }
+  function drawingPointerSamples(event) {
+    if (event?.pointerType !== "pen" || typeof event.getCoalescedEvents !== "function") return [event];
+    let samples = [];
+    try { samples = Array.from(event.getCoalescedEvents() || []); } catch {}
+    const events = [];
+    for (const sample of [...samples, event]) {
+      if (!sample || !Number.isFinite(sample.clientX) || !Number.isFinite(sample.clientY)) continue;
+      if (sample.pointerId != null && event.pointerId != null && sample.pointerId !== event.pointerId) continue;
+      const previous = events[events.length - 1];
+      if (previous
+        && previous.clientX === sample.clientX
+        && previous.clientY === sample.clientY
+        && previous.pressure === sample.pressure) continue;
+      events.push(sample);
+    }
+    return events.length ? events : [event];
+  }
   function updateCanvasPointerPreview(event) {
     const drawing = state.drawing,
-      next = state.mode === "eraser"
-        && event.pointerType !== "touch"
-        && (!drawing || drawing.erase && drawing.id === event.pointerId)
+      eraserPointer = drawing ? drawing.erase && drawing.id === event.pointerId : state.mode === "eraser",
+      next = eraserPointer && event.pointerType !== "touch"
         ? clientPoint(event)
         : null,
       preview = next && valid(next) ? next : null,
@@ -19485,7 +20105,6 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       state.viewModeNavigationLocked = state.navigationLocked;
       if (state.navigationLocked) setCanvasNavigationLocked(false);
       if (!document.querySelector("#canvasAgentPanel")?.hidden) closeCanvasAgent();
-      closeRadialMenu();
       document.activeElement?.blur?.();
       setCanvasCursor("grab");
       requestAnimationFrame(() => canvasViewCloseButton.focus({ preventScroll:true }));
@@ -19511,9 +20130,11 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     event.stopImmediatePropagation();
   }, true);
   function beginCanvasPointerAction(e, point) {
+    const options = arguments[2] || {};
+    const forceEraser = options.forceEraser === true;
     if (state.selectedAnimationId) acceptAnimationEdit();
     if (e.pointerType === "mouse" && e.button !== 0) return;
-    if (state.mode === "hand") {
+    if (!forceEraser && state.mode === "hand") {
       state.panGesture = {
         id: e.pointerId,
         last: { x: e.clientX, y: e.clientY },
@@ -19522,7 +20143,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       setNavigating(true);
       return;
     }
-    if (state.mode === "text" && e.pointerType === "touch") {
+    if (!forceEraser && state.mode === "text" && e.pointerType === "touch") {
       if (!valid(point)) {
         setStatusKey("outsideCanvas");
         return;
@@ -19530,7 +20151,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       state.textTap = { id: e.pointerId, startX: e.clientX, startY: e.clientY, point };
       return;
     }
-    if (state.mode === "text") {
+    if (!forceEraser && state.mode === "text") {
       if (!valid(point)) {
         setStatusKey("outsideCanvas");
         return;
@@ -19538,7 +20159,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       createTextEditor(point);
       return;
     }
-    if (state.mode === "area-eraser") {
+    if (!forceEraser && state.mode === "area-eraser") {
       if (!valid(point)) {
         setStatusKey("outsideCanvas");
         return;
@@ -19546,7 +20167,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       beginAreaEraseGesture(e, point);
       return;
     }
-    if (state.mode === "select" && e.pointerType !== "touch") {
+    if (!forceEraser && state.mode === "select" && e.pointerType !== "touch") {
       if (state.pending) {
         setStatusKey("pendingConfirm");
         return;
@@ -19576,7 +20197,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     clearTimeout(state.timer);
     state.timer = 0;
     hideWidgetRefineHint();
-    const erasing = state.mode === "eraser";
+    const erasing = forceEraser || state.mode === "eraser";
     if (erasing) clearWidgetRefineCandidate();
     else state.latestTypedInput = null;
     const cssSize = erasing ? state.eraser : pressureWidth(e),
@@ -19625,10 +20246,15 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       screen.setPointerCapture(e.pointerId);
     } catch {}
     calibrateScreenClientRatio(e, false);
-    const handPoint = state.mode === "hand" ? clientPoint(e) : null;
+    const penEraser = canvasPenEraserActive(e),
+      handPoint = !penEraser && state.mode === "hand" ? clientPoint(e) : null;
     beginCanvasWidgetGestureResetTap(e, handPoint);
     state.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (handPoint) beginHandObjectFocus(e, handPoint);
+    if (penEraser) {
+      beginCanvasPointerAction(e, clientPoint(e), { forceEraser:true });
+      return;
+    }
     if (e.pointerType === "touch") {
       const touchPoint = clientPoint(e),
         touchWidget = valid(touchPoint) ? widgetAtRefinePoint(touchPoint) : null;
@@ -19788,27 +20414,29 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       return;
     }
     if (!state.drawing || state.drawing.id !== e.pointerId) return;
-    const p = clientPoint(e),
-      a = state.drawing.last,
-      d = state.drawing,
-      cssSize = d.erase ? state.eraser : pressureWidth(e),
-      size = logicalWidth(cssSize);
+    const d = state.drawing;
     state.userRevision++;
-    stroke(a, p, d.erase, size, true);
-    d.last = p;
-    d.size = size;
+    for (const sample of (d.erase ? [e] : drawingPointerSamples(e))) {
+      const p = clientPoint(sample),
+        a = d.last,
+        cssSize = d.erase ? state.eraser : pressureWidth(sample),
+        size = logicalWidth(cssSize);
+      stroke(a, p, d.erase, size, true);
+      d.last = p;
+      d.size = size;
+      d.widthMin = Math.min(d.widthMin, cssSize);
+      d.widthMax = Math.max(d.widthMax, cssSize);
+      const x1 = Math.min(d.bbox.x, p.x),
+        y1 = Math.min(d.bbox.y, p.y),
+        x2 = Math.max(d.bbox.x + d.bbox.w, p.x),
+        y2 = Math.max(d.bbox.y + d.bbox.h, p.y);
+      d.bbox = { x: x1, y: y1, w: x2 - x1, h: y2 - y1 };
+    }
     d.points++;
     d.screenDistance += old ? Math.hypot(e.clientX - old.x, e.clientY - old.y) : 0;
-    if (d.points % 8 === 0) d.trail.push(p);
-    d.widthMin = Math.min(d.widthMin, cssSize);
-    d.widthMax = Math.max(d.widthMax, cssSize);
-    const x1 = Math.min(d.bbox.x, p.x),
-      y1 = Math.min(d.bbox.y, p.y),
-      x2 = Math.max(d.bbox.x + d.bbox.w, p.x),
-      y2 = Math.max(d.bbox.y + d.bbox.h, p.y);
-    d.bbox = { x: x1, y: y1, w: x2 - x1, h: y2 - y1 };
+    if (d.points % 8 === 0) d.trail.push(d.last);
     requestRender();
-    coords.textContent = `x ${Math.round(p.x)} · y ${Math.round(p.y)} · ${Math.round(state.scale * 100)}%`;
+    coords.textContent = `x ${Math.round(d.last.x)} · y ${Math.round(d.last.y)} · ${Math.round(state.scale * 100)}%`;
   });
   function end(e) {
     if (state.viewMode) {
@@ -19981,6 +20609,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     eraserToolMenu.hidden = false;
     eraserToolButton.setAttribute("aria-expanded", "true");
     updateEraserToolUI();
+    positionToolbarPopover("#eraserToolControl", "#eraserToolMenu", { align:"center", gap:6 });
+    requestAnimationFrame(positionOpenToolbarPopovers);
     if (focus) (state.eraserMode === "area-eraser" ? eraserAreaButton : eraserFreehandButton)?.focus({ preventScroll:true });
     eraserToolMenuTimer = setTimeout(() => hideEraserToolMenu(), ERASER_TOOL_MENU_MS);
   }
@@ -19999,8 +20629,24 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     if (!["eraser", "area-eraser"].includes(mode)) return;
     state.eraserMode = mode;
     updateEraserToolUI();
-    setCanvasMode(mode, { showHint:true });
+    selectCanvasToolMode(mode, { showHint:true });
     if (options.keepMenuOpen) showEraserToolMenu();
+  }
+  function syncCanvasModePresentation() {
+    const mode = state.mode,
+      eraserMode = ["eraser", "area-eraser"].includes(mode),
+      button = eraserMode ? eraserToolButton : document.querySelector(`[data-mode="${mode}"]`);
+    if (!button) return false;
+    document.body?.setAttribute("data-canvas-mode", mode);
+    if (typeof canvasAgentScheduleToolbarLayout === "function") canvasAgentScheduleToolbarLayout();
+    view.classList.toggle("hand-mode", mode === "hand");
+    document.querySelectorAll("[data-mode]").forEach((item) => {
+      item.classList.toggle("active", item === button);
+      item.setAttribute("aria-pressed", String(item === button));
+    });
+    updateEraserToolUI();
+    resetCanvasCursor();
+    return true;
   }
   function setCanvasMode(mode, options) {
     options ||= {};
@@ -20067,19 +20713,12 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       hideAutoDelayControl();
     }
     state.mode = mode;
-    document.body?.setAttribute("data-canvas-mode", mode);
     updateAutoControl();
     if (!["pen", "hand"].includes(mode)) updateWidgetRefinePointer(null);
     else refreshWidgetRefineHoverCandidate();
     if (mode !== "eraser") state.pointerPreview = null;
     if (mode !== "select") deselectAnimation();
-    view.classList.toggle("hand-mode", mode === "hand");
-    document.querySelectorAll("[data-mode]").forEach((item) => {
-      item.classList.toggle("active", item === button);
-      item.setAttribute("aria-pressed", String(item === button));
-    });
-    updateEraserToolUI();
-    resetCanvasCursor();
+    syncCanvasModePresentation();
     requestInteractionLayerRender();
     if (mode === "hand") setNavigating(true);
     if (mode === "hand" && options.showHint && !state.busy) {
@@ -20099,9 +20738,40 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       if (state.mode === mode && state.selection && !selectionAIBusy(state.selection)) commitSelection();
     });
   }
+  function canvasToolMode(mode) {
+    return ["hand", "pen", "select", "text", "eraser", "area-eraser"].includes(mode) ? mode : "";
+  }
+  function selectCanvasToolMode(mode, options) {
+    mode = canvasToolMode(mode);
+    if (!mode) return false;
+    const previous = canvasToolMode(state.mode);
+    setCanvasMode(mode, options);
+    if (state.mode !== mode) return false;
+    if (previous && previous !== mode) state.previousToolMode = previous;
+    return true;
+  }
+  function performCanvasPencilAction(action) {
+    if (state.viewMode || state.drawing || state.areaEraseGesture || state.selectionGesture) return false;
+    const current = canvasToolMode(state.mode) || "pen",
+      previous = canvasToolMode(state.previousToolMode);
+    if (action === "switch-previous") {
+      if (!previous || previous === current) return false;
+      return selectCanvasToolMode(previous, { showHint:true });
+    }
+    if (action !== "switch-eraser") return false;
+    const currentIsEraser = ["eraser", "area-eraser"].includes(current),
+      previousNonEraser = previous && !["eraser", "area-eraser"].includes(previous) ? previous : "pen",
+      target = currentIsEraser
+        ? previousNonEraser
+        : ["eraser", "area-eraser"].includes(state.eraserMode) ? state.eraserMode : "eraser";
+    return selectCanvasToolMode(target, { showHint:true });
+  }
+  window.addEventListener("penecho:pencil-action", (event) => {
+    performCanvasPencilAction(event.detail?.action);
+  });
   document.querySelectorAll("[data-mode]").forEach((button) => {
     if (button === eraserToolButton) return;
-    button.onclick = () => setCanvasMode(button.dataset.mode, { showHint:true });
+    button.onclick = () => selectCanvasToolMode(button.dataset.mode, { showHint:true });
   });
   eraserToolButton?.addEventListener("contextmenu", (event) => event.preventDefault());
   eraserToolButton?.addEventListener("click", () => selectEraserMode(state.eraserMode, { keepMenuOpen:true }));
@@ -20128,7 +20798,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     });
   }
   document.addEventListener("pointerdown", (event) => {
-    if (eraserToolMenu && !eraserToolMenu.hidden && !eraserToolControl?.contains(event.target)) hideEraserToolMenu();
+    if (eraserToolMenu && !eraserToolMenu.hidden && !eraserToolControl?.contains(event.target) && !eraserToolMenu.contains(event.target)) hideEraserToolMenu();
   });
   updateEraserToolUI();
   canvasViewButton.onclick = () => setCanvasViewMode(true);
@@ -20139,16 +20809,11 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     button.addEventListener("pointerdown", (event) => event.stopPropagation());
     button.addEventListener("click", (event) => event.stopPropagation());
   });
-  imagePlaceButton.onclick = () => acceptImageEdit({ showHint:true });
   imageMergeButton.onclick = () => {
     const item = selectedImage();
     if (item) mergeImage(item, { showHint:true });
   };
-  imageDeleteButton.onclick = () => {
-    const item = selectedImage();
-    if (item) deleteImage(item);
-  };
-  for (const button of [imagePlaceButton, imageMergeButton, imageDeleteButton]) {
+  for (const button of [imageMergeButton]) {
     button.addEventListener("pointerdown", (event) => {
       event.stopPropagation();
       refreshHandObjectToolbar();
@@ -20318,21 +20983,30 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   bindHandToolbarSurface(animationControls, "animation", selectedAnimation);
 
   document.querySelector("#penSize").oninput = (e) => {
-    state.pen = +e.target.value;
+    state.pen = clampPenWidth(Math.round(Number(e.target.value)));
+    e.target.value = String(state.pen);
     document.querySelector("#penSizeValue").textContent = `${state.pen} px`;
   };
   document.querySelector("#aiFont").onchange = (e) => {
     state.aiFont = e.target.value;
   };
+  function colorOrbitFor(control) {
+    const id = control?.querySelector(".color-orb-trigger")?.getAttribute("aria-controls");
+    return id ? document.getElementById(id) : null;
+  }
   function closeColorOrbs(except = null) {
     document.querySelectorAll("[data-color-control]").forEach((control) => {
       if (control === except) return;
       const trigger = control.querySelector(".color-orb-trigger"),
-        focusedInside = control.contains(document.activeElement) && document.activeElement !== trigger;
+        orbit = colorOrbitFor(control),
+        focusedInside = (control.contains(document.activeElement) || orbit?.contains(document.activeElement)) && document.activeElement !== trigger;
       control.classList.remove("open");
       trigger.setAttribute("aria-expanded", "false");
-      control.querySelector(".color-orbit").setAttribute("aria-hidden", "true");
-      control.querySelectorAll(".orbit-swatch").forEach((button) => button.setAttribute("tabindex", "-1"));
+      if (orbit) {
+        orbit.hidden = true;
+        orbit.setAttribute("aria-hidden", "true");
+        orbit.querySelectorAll(".orbit-swatch").forEach((button) => button.setAttribute("tabindex", "-1"));
+      }
       if (focusedInside) trigger.focus();
     });
   }
@@ -20346,10 +21020,15 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       closeColorOrbs(control);
       control.classList.toggle("open", open);
       trigger.setAttribute("aria-expanded", String(open));
+      orbit.hidden = !open;
       orbit.setAttribute("aria-hidden", String(!open));
-      control.querySelectorAll(".orbit-swatch").forEach((button) => button.setAttribute("tabindex", open ? "0" : "-1"));
+      orbit.querySelectorAll(".orbit-swatch").forEach((button) => button.setAttribute("tabindex", open ? "0" : "-1"));
+      if (open) {
+        positionToolbarPopover(`[data-color-control="${type}"]`, `#${orbit.id}`, { align:"center", gap:6 });
+        requestAnimationFrame(positionOpenToolbarPopovers);
+      }
     };
-    control.querySelectorAll(".orbit-swatch").forEach((button) => {
+    orbit.querySelectorAll(".orbit-swatch").forEach((button) => {
       button.onclick = (event) => {
         event.stopPropagation();
         const color = type === "ink" ? button.dataset.inkColor : button.dataset.aiColor;
@@ -20362,7 +21041,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
         else state.aiColor = color;
         trigger.classList.remove(...Object.values(COLOR_CLASS));
         trigger.classList.add(COLOR_CLASS[color]);
-        control.querySelectorAll(".orbit-swatch").forEach((item) => {
+        orbit.querySelectorAll(".orbit-swatch").forEach((item) => {
           const active = item === button;
           item.classList.toggle("active", active);
           item.setAttribute("aria-checked", String(active));
@@ -20490,9 +21169,11 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   });
   document.querySelector("#effortPopover").addEventListener("pointerdown", keepEffortControlOpen);
   document.querySelector("#autoDelayPopover").addEventListener("pointerdown", keepAutoDelayControlOpen);
+  document.querySelector(".toolbar").addEventListener("scroll", positionOpenToolbarPopovers, { passive:true });
+  window.addEventListener("resize", positionOpenToolbarPopovers);
   document.addEventListener("pointerdown", (event) => {
-    if (!document.querySelector("#autoControl").contains(event.target)) hideAutoDelayControl();
-    if (!document.querySelector("#effortControl").contains(event.target)) hideEffortControl();
+    if (!document.querySelector("#autoControl").contains(event.target) && !document.querySelector("#autoDelayPopover").contains(event.target)) hideAutoDelayControl();
+    if (!document.querySelector("#effortControl").contains(event.target) && !document.querySelector("#effortPopover").contains(event.target)) hideEffortControl();
   });
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") hideEffortControl();
@@ -20505,10 +21186,15 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       applyLanguage();
     };
   });
-  document.querySelector("#theme").onchange = (e) => applyTheme(e.target.value);
+  document.querySelectorAll(".studio-palette-option[data-studio-palette]").forEach((button) => {
+    button.addEventListener("click", () => applyStudioPalette(button.dataset.studioPalette));
+  });
+  document.querySelectorAll("[data-page-scale]").forEach((button) => {
+    button.addEventListener("click", () => applyPageScale(button.dataset.pageScale));
+  });
   document.querySelector("#gridToggle").onclick = () => {
     state.gridVisible = !state.gridVisible;
-    localStorage.setItem(state.theme === "research" ? "penecho-research-grid" : "penecho-grid", String(state.gridVisible));
+    localStorage.setItem("penecho-grid", String(state.gridVisible));
     updateGridButton();
     requestRender();
   };
@@ -20598,7 +21284,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     updateFullscreenButton();
     requestAnimationFrame(fit);
   });
-  document.querySelector("#debugBtn").onclick = (e) => {
+  const debugButton = document.querySelector("#debugBtn");
+  if (debugButton) debugButton.onclick = (e) => {
     const panel = document.querySelector("#debugPanel");
     panel.hidden = !panel.hidden;
     e.currentTarget.setAttribute("aria-expanded", String(!panel.hidden));
@@ -20650,98 +21337,23 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
             tiles.clear();
             state.inkBounds.clear();
             cancelPendingForRevision();
-            save();
+            saveUserCanvasChange();
             render();
           }
         } else invokeAIAction(a);
       }),
   );
-  embodiment.addEventListener("pointerenter", (e) => {
-    if (e.pointerType === "mouse" || e.pointerType === "pen") openRadialMenu();
-  });
-  embodiment.addEventListener("pointerleave", (e) => {
-    if (e.pointerType !== "mouse" && e.pointerType !== "pen") return;
-    if (!state.radialGesture) {
-      state.radialCloseTimer = setTimeout(closeRadialMenu, 2000);
-    }
-  });
-  aiOrb.addEventListener("pointerdown", (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (state.busy) {
-      stopActiveAIRequests();
-      return;
-    }
-    openRadialMenu();
-    state.radialGesture = { id: e.pointerId, moved: false, selected: null };
-    try {
-      aiOrb.setPointerCapture(e.pointerId);
-    } catch {}
-  });
-  aiOrb.addEventListener("pointermove", (e) => {
-    const gesture = state.radialGesture;
-    if (!gesture || gesture.id !== e.pointerId) return;
-    e.preventDefault();
-    e.stopPropagation();
-    const r = aiOrb.getBoundingClientRect(),
-      distance = Math.hypot(e.clientX - (r.left + r.width / 2), e.clientY - (r.top + r.height / 2));
-    if (distance > 12) gesture.moved = true;
-    gesture.selected = gesture.moved ? chooseRadialAction(e.clientX, e.clientY) : null;
-  });
-  function finishRadialGesture(e) {
-    const gesture = state.radialGesture;
-    if (!gesture || gesture.id !== e.pointerId) return;
-    e.preventDefault();
-    e.stopPropagation();
-    const selected = gesture.selected;
-    state.radialGesture = null;
-    state.radialSuppressClickUntil = performance.now() + 450;
-    if (selected) {
-      invokeAIAction(selected.dataset.aiAction);
-      closeRadialMenu();
-      return;
-    }
-    if (gesture.moved) {
-      closeRadialMenu();
-    }
-  }
-  aiOrb.addEventListener("pointerup", finishRadialGesture);
-  aiOrb.addEventListener("pointercancel", (e) => {
-    if (state.radialGesture?.id !== e.pointerId) return;
-    state.radialGesture = null;
-    state.radialSuppressClickUntil = performance.now() + 450;
-    closeRadialMenu();
-  });
+  embodiment.addEventListener("pointerenter", revealAIOrb);
+  embodiment.addEventListener("pointerleave", scheduleAIOrbIdle);
   aiOrb.addEventListener("click", (e) => {
     e.preventDefault();
     e.stopPropagation();
-    if (performance.now() < state.radialSuppressClickUntil) return;
+    revealAIOrb();
     if (state.busy) {
       stopActiveAIRequests();
       return;
     }
-    if (embodiment.classList.contains("menu-open")) closeRadialMenu();
-    else openRadialMenu();
-  });
-  document.querySelectorAll(".radial-action").forEach((button) => {
-    button.addEventListener("pointerenter", (e) => {
-      if (e.pointerType !== "mouse" && e.pointerType !== "pen") return;
-      clearTimeout(state.radialCloseTimer);
-      openRadialMenu();
-    });
-    button.addEventListener("pointerleave", (e) => {
-      if ((e.pointerType !== "mouse" && e.pointerType !== "pen") || state.radialGesture) return;
-      state.radialCloseTimer = setTimeout(closeRadialMenu, 2000);
-    });
-    button.addEventListener("pointerdown", (e) => {
-      e.stopPropagation();
-    });
-    button.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      invokeAIAction(button.dataset.aiAction);
-      closeRadialMenu();
-    });
+    invokeAIAction("auto");
   });
   tourBackButton.addEventListener("click", previousFeatureTourStep);
   tourNextButton.addEventListener("click", nextFeatureTourStep);
@@ -20758,6 +21370,11 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   settingsCloseButton.addEventListener("click", () => closeSettings());
   settingsBackdrop.addEventListener("pointerdown", () => closeSettings());
   settingsPanel.addEventListener("pointerdown", (event) => event.stopPropagation());
+  settingsPanel.addEventListener("click", (event) => {
+    const tab = event.target.closest("[data-settings-page-target]");
+    if (tab) selectSettingsPage(tab.dataset.settingsPageTarget);
+  });
+  settingsPanel.addEventListener("keydown", handleSettingsNavigationKeydown);
   settingsOpenApi?.addEventListener("click", () => openConfiguration("api"));
   settingsOpenSearch?.addEventListener("click", () => openConfiguration("search"));
   settingsOpenSystem?.addEventListener("click", () => openConfiguration("system"));
@@ -20916,12 +21533,6 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       document.querySelector("#historyBtn").focus();
       return;
     }
-    if (e.key === "Escape" && embodiment.classList.contains("menu-open")) {
-      state.radialGesture = null;
-      closeRadialMenu();
-      aiOrb.focus();
-      return;
-    }
     if (e.key === "Alt" && !state.drawing && !state.pending && !state.pendingWidget) setCanvasCursor("grab");
   });
   window.addEventListener("keyup", (e) => {
@@ -20933,7 +21544,6 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     else requestAnimationLayerRender();
   });
 
-  document.querySelectorAll(".radial-action").forEach((button) => button.setAttribute("tabindex", "-1"));
   window.PenEchoCommunityCanvas = Object.freeze({
     widgetArtifact:communityWidgetArtifact,
     canvasArtifact:communityCanvasArtifact,
@@ -20954,6 +21564,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   applyLanguage();
   setWidgetShadowEnabled(state.widgetShadowEnabled);
   applyTheme(state.theme);
+  applyStudioPalette(state.studioPalette);
+  applyPageScale(state.pageScale);
   resetCanvasCursor();
   loadPluginDocuments().catch(() => {});
   // The public viewer has no history UI and must never probe private/local

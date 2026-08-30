@@ -30,6 +30,7 @@ contextBridge.exposeInMainWorld("penechoDesktop", Object.freeze({
   readClipboardFile:() => ipcRenderer.invoke("penecho:read-clipboard-file"),
   readClipboardFiles:() => ipcRenderer.invoke("penecho:read-clipboard-files"),
   openProjectFile:projectId => ipcRenderer.invoke("penecho:open-project-file", projectId),
+  setPageScale:scale => ipcRenderer.invoke("penecho:set-page-scale", scale),
 }));
 
 function element(tag, className, value) {

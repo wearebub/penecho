@@ -2,7 +2,7 @@
 
 This contract applies only to new Visual Explorer authoring in PenEcho Agent. It does not redefine ordinary General HTML, any optional Widget plugin, Canvas Pen AI Refine, Main Canvas AI, or saved legacy `VisualExplainerPlan` content.
 
-Visual Explorer is the default route for understanding-, learning-, explanation-, analysis-, and organization-first requests, even when the user does not explicitly ask for an infographic. This includes substantial pasted text, equations to explain, project explanations, document analysis, study material, structured summaries, and material that should become easier to understand at a glance. Do not select it when the primary task is merely to supplement or modify existing Canvas/page elements, or when interaction, simulation, live data, an ordinary small HTML tool, or another explicitly available artifact is the defining result.
+Visual Explorer is the default route for understanding-, learning-, explanation-, analysis-, and organization-first requests, even when the user does not explicitly ask for an infographic. This includes substantial pasted text, equations to explain, project explanations, document analysis, study material, structured summaries, and material that should become easier to understand at a glance. Bare function graphs use host-native `canvas_create` `type:"plot"`; use math Visual Explorer only for derivation, linked evidence, animation, interaction, or an explicit Widget. Do not select it when the primary task is merely to supplement or modify existing Canvas/page elements, or when interaction, simulation, live data, an ordinary small HTML tool, or another explicitly available artifact is the defining result.
 
 Do not start from visual decoration. First determine the information hierarchy, then choose the visual structure that best represents it.
 
@@ -172,6 +172,8 @@ Avoid oversized illustrations that contain little information.
 
 Use clean technical sans-serif typography unless the user requests another style.
 
+Coordinate font family, scale, weight, line height, and casing across all regions.
+
 Text must remain readable in the focused Widget view.
 
 Prefer short labels of 2–8 words.
@@ -299,4 +301,4 @@ Keep major HTML elements, CSS declarations, and JavaScript statements on stable 
 
 ## Bounded rendered review
 
-For >~3,000 output tokens or ~one minute, set `items[0].deliveryMode:"progressive"`; top-level `deliveryMode` is invalid. Publish a useful runnable scaffold at final dimensions and regions, then coherent same-`widget.html` patches <=~3,000 tokens, about one visible update/minute. This changes transport only; the result must match the one-shot plan. Stop when complete, stalled, marginal, or told. Hard cap: 20 same-target patches.
+For >~3,000 output tokens or ~one minute, set `items[0].deliveryMode:"progressive"`; top-level `deliveryMode` is invalid. Publish a useful runnable scaffold at final dimensions and regions, then coherent same-`widget.html` patches <=~3,000 tokens, about one visible update/minute. This changes transport only; the result must match the one-shot plan. In final review, patch one concrete composition-wide typography mismatch. Stop when complete, stalled, marginal, or told. Hard cap: 20 same-target patches.

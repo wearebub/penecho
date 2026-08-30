@@ -14,6 +14,10 @@
     MAX_HISTORY = 30,
     DEFAULT_AUTO_DELAY = 5000,
     DEFAULT_AI_TIMEOUT = 260000,
+    PEN_STROKE_MIN = 1,
+    PEN_PRESSURE_TIP_RATIO = 0.25,
+    PEN_SIZE_MIN = 4,
+    PEN_SIZE_MAX = 8,
     screen = document.querySelector("#screen"),
     view = document.querySelector("#viewport"),
     canvasNavigationLock = document.querySelector("#canvasNavigationLock"),
@@ -77,7 +81,6 @@
     debugRequest = document.querySelector("#debugRequest"),
     embodiment = document.querySelector("#aiEmbodiment"),
     aiOrb = document.querySelector("#aiOrb"),
-    aiRadial = document.querySelector("#aiRadial"),
     selectionOverlayLayer = document.querySelector("#selectionOverlayLayer"),
     selectionToolbar = document.querySelector("#selectionToolbar"),
     selectionTypesetButton = document.querySelector("#selectionTypesetBtn"),
@@ -86,10 +89,9 @@
     imagePickerButton = document.querySelector("#imagePickerBtn"),
     clipboardCopyButton = document.querySelector("#clipboardCopyBtn"),
     imagePickerInput = document.querySelector("#imagePickerInput"),
+    imageSelectionMaterial = document.querySelector("#imageSelectionMaterial"),
     imageEditBar = document.querySelector("#imageEditBar"),
-    imagePlaceButton = document.querySelector("#imagePlaceBtn"),
     imageMergeButton = document.querySelector("#imageMergeBtn"),
-    imageDeleteButton = document.querySelector("#imageDeleteBtn"),
     textEditorLayer = document.querySelector("#textEditorLayer"),
     textInputHint = document.querySelector("#textInputHint"),
     tourMain = document.querySelector("main"),
@@ -186,6 +188,17 @@
     summonToggle = document.querySelector("#summonToggle"),
     settingsTourButton = document.querySelector("#settingsTourBtn"),
     settingsChangelogButton = document.querySelector("#settingsChangelogBtn");
+
+  function clampPenWidth(value) {
+    const width = Number(value);
+    if (!Number.isFinite(width)) return PEN_SIZE_MIN;
+    return Math.max(PEN_SIZE_MIN, Math.min(PEN_SIZE_MAX, width));
+  }
+  function clampStrokeWidth(value) {
+    const width = Number(value);
+    if (!Number.isFinite(width)) return PEN_SIZE_MIN;
+    return Math.max(PEN_STROKE_MIN, Math.min(PEN_SIZE_MAX, width));
+  }
   const ZH = window.PENECHO_LOCALES?.zh || {};
   const DRAW = window.PENECHO_DRAW;
   const SELECT = window.PENECHO_SELECTION;
@@ -284,18 +297,6 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       title: "PenEcho | Handwritten AI Canvas",
       language: "Language",
       hintPrefix: "Hint",
-      theme: "Theme",
-      themeArcane: "Arcane",
-      themeScifi: "Sci-fi",
-      themeResearch: "Research",
-      themeStudio: "Studio",
-      themeFocusArcane: "Favors interdisciplinary insight, intuitive analogy, and creative exploration",
-      themeFocusScifi: "Favors engineering, debugging, system design, and future technology",
-      themeFocusResearch: "Favors mathematical physics, rigorous derivation, teaching, and code verification",
-      themeFocusStudio: "Favors clean layout, concise structured answers, and practical next steps",
-      guideArcane: "Arcane knowledge crystal",
-      guideScifi: "Holographic analysis core",
-      guideResearch: "Einstein scientific mentor",
       guideStudio: "Studio assistant",
       boardTools: "Board tools",
       hand: "Hand tool: move canvas and objects",
@@ -404,9 +405,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       debug: "Debug",
       canvas: "Zoomable handwritten AI canvas",
       aiGuide: "AI knowledge guide",
-      openAIMenu: "Open AI action menu",
+      triggerAutoAI: "Run Auto AI now",
       stopAIRequest: "Stop current AI request",
-      aiActions: "AI actions",
       answer: "Answer",
       hint: "Hint",
       continue: "Continue",
@@ -431,8 +431,6 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       tourEffortBody: "AI Effort controls the reasoning depth used for each request. Higher levels suit difficult derivations and multi-step problems, but can take longer. Configured uses the default selected in your local setup.",
       tourHandTitle: "Move objects with the Hand tool",
       tourHandBody: "Choose Hand, then tap an image, animation, text box, or AI widget to reveal its controls. HTML widgets remain interactive; drag empty space to pan.",
-      tourStudioThemeTitle: "Try the new Studio theme",
-      tourStudioThemeBody: "Open Theme to switch the canvas's visual style and the AI's response emphasis. The new Studio theme uses a clean, focused interface and favors concise, well-structured, practical answers. You can switch themes at any time.",
       tourLassoTitle: "Work with exactly the content you select",
       tourLassoBody: "With a mouse or stylus, draw a closed loop around handwriting. Drag the selected region to move it; use the right edge, bottom edge, or lower-right corner to resize it. The selection toolbar can typeset handwriting, delete it, or cancel. Selection-scoped AI requests do not reference the rest of the canvas.",
       tourTextTitle: "Add editable text and formulas",
@@ -447,8 +445,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       tourShareCanvasBody: "Share opens a preview and publishing form for the current Canvas. After signing in, review its details before making it public in Echoes, then copy its link or share it as an image. Use Cloud instead for private saves.",
       tourCloudTitle: "Keep private work in PenEcho Cloud",
       tourCloudBody: "Open Cloud to sign in, save and reopen private versioned Canvases by project, and use favorite Canvases or Widgets from Echoes in your current Canvas.",
-      tourManualAITitle: "Ask AI for a specific kind of help",
-      tourManualAIBody: "Click the magic orb to open manual AI actions such as Answer, Hint, Continue, Explain, and Plot. Manual requests use the current canvas context—or only the lasso selection when one is active.",
+      tourManualAITitle: "Run Auto AI on demand",
+      tourManualAIBody: "Click the magic orb to run the same prompt used by Auto AI immediately. It uses the current canvas context—or only the lasso selection when one is active.",
       tourStatusTitle: "Follow every AI request and result",
       tourStatusBody: "This status indicator reports when AI is observing, writing, finished, delayed, or needs confirmation. When a multi-part draft is ready, nearby controls let you accept or discard the complete response.",
       tourCanvasTitle: "Navigate the large canvas",
@@ -464,6 +462,34 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       changelogEraserMemory: "PenEcho remembers whether you last chose the eraser or area eraser across canvases and reloads.",
       settingsTitle: "Settings",
       settingsClose: "Close settings",
+      settingsSubtitle: "Choose a category, then adjust its settings without leaving this window.",
+      settingsNavigation: "Settings categories",
+      settingsNavAppearance: "Appearance",
+      settingsNavConnections: "AI & connections",
+      settingsNavCanvas: "Canvas",
+      settingsNavAbout: "Help & about",
+      settingsAppearance: "Appearance",
+      settingsAppearanceHelp: "Studio stays consistent while its accent and supporting neutrals change together.",
+      settingsColorScheme: "Color scheme",
+      settingsColorSchemeHelp: "Eight restrained, professional Studio palettes.",
+      settingsInterfaceScale: "Interface scale",
+      settingsInterfaceScaleHelp: "Scale the application text and controls.",
+      studioPaletteIndigo: "Indigo",
+      studioPaletteIndigoHelp: "Creative and balanced",
+      studioPaletteGraphite: "Graphite",
+      studioPaletteGraphiteHelp: "Neutral and distraction-free",
+      studioPaletteCobalt: "Cobalt",
+      studioPaletteCobaltHelp: "Classic productivity blue",
+      studioPaletteAzure: "Azure",
+      studioPaletteAzureHelp: "Clear and open",
+      studioPaletteTeal: "Teal",
+      studioPaletteTealHelp: "Calm and technical",
+      studioPaletteForest: "Forest",
+      studioPaletteForestHelp: "Focused and grounded",
+      studioPaletteAmber: "Amber",
+      studioPaletteAmberHelp: "Warm and decisive",
+      studioPaletteBurgundy: "Burgundy",
+      studioPaletteBurgundyHelp: "Deep and editorial",
       settingsApiSection: "AI connection",
       settingsApiDescription: "Choose an API or an existing local CLI login.",
       settingsProvider: "AI provider",
@@ -622,6 +648,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       settingsDownloadMac: "Download for macOS",
       settingsDownloadWin: "Download for Windows",
       settingsGitHub: "GitHub repository",
+      summonUnderstanding: "Understanding this part of the canvas...",
       summonPhrase1: "I’m following the trail your pen left behind...",
       summonPhrase2: "Give me a moment—I’m fitting the pieces on the canvas together.",
       summonPhrase3: "This deserves another look. I’m still thinking with you.",
@@ -681,6 +708,12 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       studioNavigatorMessageCount: "{count} messages",
       studioNavigatorManageAgents: "Open Agent history",
       studioNavigatorManageCanvases: "Manage in Canvas history",
+      studioNavigatorDeleteSession: "Delete session “{name}”",
+      studioNavigatorDeleteSessionTitle: "Delete session?",
+      studioNavigatorDeleteSessionAction: "Delete",
+      studioNavigatorDeleteSessionConfirm: "“{name}” will be permanently deleted. This cannot be undone.",
+      studioNavigatorDeleteSessionBusy: "Stop the current Agent session before deleting it.",
+      studioNavigatorDeleteSessionFailed: "This session could not be deleted. Try again.",
       saveLocation: "Location",
       storageThisDevice: "Device",
       storagePenEchoServer: "Server",
@@ -704,6 +737,12 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       saveCanvas: "Save canvas",
       saveCurrentSnapshot: "Save",
       canvasUntitledName: "Untitled canvas",
+      canvasRename: "Rename",
+      canvasRenameCurrent: "Rename current canvas",
+      canvasRenameNamed: "Rename canvas “{name}”",
+      canvasNamePlaceholder: "Canvas name",
+      canvasNameRequired: "Enter a canvas name.",
+      canvasRenamed: "Canvas renamed",
       canvasSaveStateUnsaved: "Not saved",
       canvasSaveStateSaved: "Saved",
       canvasSaveStateEdited: "Edited",
@@ -734,6 +773,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       snapshotLibraryLoading: "Loading {location} canvases…",
       snapshotLibraryLoadingDetail: "The previous location is being replaced with verified items.",
       snapshotLibraryLoadFailed: "Could not load {location}. Select the location to try again.",
+      snapshotCloudCacheRefreshing: "Showing cached Cloud canvases while the latest version loads.",
+      snapshotCloudCacheLoadFailed: "Cloud is unavailable. Cached canvases remain visible; select Cloud to try again.",
       snapshotCloudSignInRequired: "Sign in to view Cloud canvases",
       snapshotCloudSignInHint: "Your Cloud projects and canvases appear here once you are signed in.",
       openPenEchoCloud: "Open PenEcho Cloud",
@@ -1044,14 +1085,15 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       canvasAgentReferences: "Referenced canvas objects",
       canvasAgentReferenceWidget: "Reference a Widget",
       canvasAgentReferenceWidgetTitle: "Pick a Widget to reference",
-      canvasAgentReferenceHelp: "Click a Widget on the canvas to add it automatically, or choose one below.",
-      canvasAgentReferenceSearch: "Filter Widgets, or click one on the canvas",
-      canvasAgentReferenceAdd: "Add",
+      canvasAgentReferenceHelp: "Choose one from the list, or click it directly on the canvas.",
+      canvasAgentReferenceSearch: "Search canvas Widgets",
+      canvasAgentReferenceAdd: "Reference",
       canvasAgentRemoveReference: "Remove reference",
       canvasAgentReferenceLimit: "You can reference up to 20 Widgets in one message.",
       canvasAgentReferenceEmpty: "There are no Widgets on this canvas yet.",
       canvasAgentReferenceNoMatch: "No matching Widgets.",
       canvasAgentReferencePickMiss: "No Widget there — click directly on a Widget or choose one from the list.",
+      canvasAgentReferenceCountOne: "1 Widget",
       canvasAgentReferenceCount: "{count} Widgets",
       canvasAgentMove: "Drag to move PenEcho Agent",
       canvasAgentAttach: "Attach files and images",
@@ -1254,7 +1296,11 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     zh: ZH,
   };
   const PLUGIN_STORAGE_KEY = "penecho-plugins",
-    SUPPORTED_THEMES = new Set(["arcane", "scifi", "research", "studio"]),
+    DEFAULT_THEME = "studio",
+    DEFAULT_STUDIO_PALETTE = "indigo",
+    REMOVED_THEMES = new Set(["arcane", "scifi", "research"]),
+    SUPPORTED_THEMES = new Set([DEFAULT_THEME]),
+    SUPPORTED_STUDIO_PALETTES = new Set(["indigo", "graphite", "cobalt", "azure", "teal", "forest", "amber", "burgundy"]),
     DIAGRAM_RUNTIME_VERSION = "penecho-diagram-source-v1",
     DIAGRAM_SOURCE_FORMATS = new Set(["mermaid", "dot", "bpmn-xml", "vega-lite", "geojson", "smiles", "cytoscape-json"]),
     BUILTIN_PLUGIN_DEFINITIONS = Object.freeze([]);
@@ -1268,7 +1314,13 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     pluginCatalogLoadPromise = null;
   let screenClientRatio = 1;
   function normalizeTheme(theme) {
-    return SUPPORTED_THEMES.has(theme) ? theme : "studio";
+    return SUPPORTED_THEMES.has(theme) ? theme : DEFAULT_THEME;
+  }
+  function normalizeStudioPalette(palette) {
+    return SUPPORTED_STUDIO_PALETTES.has(palette) ? palette : DEFAULT_STUDIO_PALETTE;
+  }
+  function normalizeStudioPaletteForTheme(theme, palette) {
+    return REMOVED_THEMES.has(theme) ? DEFAULT_STUDIO_PALETTE : normalizeStudioPalette(palette);
   }
   function storedPluginSettings() {
     let stored = {};
@@ -1287,8 +1339,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   const storedPrimaryLanguage = localStorage.getItem("penecho-language"),
     storedLegacyLanguage = localStorage.getItem("ghostboard-language"),
     storedTheme = localStorage.getItem("penecho-theme") || localStorage.getItem("ghostboard-theme"),
+    storedStudioPalette = localStorage.getItem("penecho-studio-palette"),
     storedGrid = localStorage.getItem("penecho-grid") ?? localStorage.getItem("ghostboard-grid"),
-    storedResearchGrid = localStorage.getItem("penecho-research-grid"),
     storedAutoEnabled = localStorage.getItem("penecho-auto-ai"),
     storedAutoDelayText = localStorage.getItem("penecho-auto-delay-ms"),
     storedSummonEnabled = localStorage.getItem("penecho-summon-enabled"),
@@ -1301,8 +1353,9 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     storedAutoDelay = storedAutoDelayText === null ? NaN : Number(storedAutoDelayText),
     initialLanguage = TOUR.resolveInitialLanguage(storedPrimaryLanguage, storedLegacyLanguage),
     initialTheme = normalizeTheme(storedTheme),
+    initialStudioPalette = normalizeStudioPaletteForTheme(storedTheme, storedStudioPalette),
+    initialPageScale = window.PenEchoPageScale?.current?.() || 0.9,
     initialGrid = storedGrid === null ? true : storedGrid === "true",
-    initialResearchGrid = storedResearchGrid === "true",
     configuredAutoDelay = Number(window.PENECHO_CONFIG?.autoAiDelayMs),
     configuredAiTimeout = Number(window.PENECHO_CONFIG?.aiRequestTimeoutMs),
     configuredAiEffort = String(window.PENECHO_CONFIG?.aiEffort || "").trim().toLowerCase(),
@@ -1360,6 +1413,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   const tiles = new Map(),
     state = {
       mode: "pen",
+      previousToolMode: "pen",
       eraserMode: initialEraserMode,
       scale: 0.1,
       panX: 0,
@@ -1489,6 +1543,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       snapshotLocation: initialSnapshotLocation,
       currentSnapshotId: null,
       currentSnapshotName: "",
+      currentSnapshotHasExplicitName: false,
+      currentCanvasSuggestedName: "",
       currentSnapshotLocation: null,
       currentSnapshotProjectId: null,
       currentSnapshotRevisionId: null,
@@ -1506,13 +1562,12 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       renderQueued: false,
       language: initialLanguage,
       theme: initialTheme,
-      gridVisible: initialTheme === "research" ? initialResearchGrid : initialGrid,
+      studioPalette: initialStudioPalette,
+      pageScale: initialPageScale,
+      gridVisible: initialGrid,
       paint: { paper: "#ead9ad", paperGrid: "#c8ae7155", outside: "#090814", border: "#7f693b" },
       navigationTimer: 0,
       aiOrbIdleTimer: 0,
-      radialGesture: null,
-      radialCloseTimer: 0,
-      radialSuppressClickUntil: 0,
       statusKey: "ready",
       aiProgressEvent: null,
       canvasHintKey: null,
@@ -1531,7 +1586,6 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     { id: "core-effort-v1", targets: ["#aiEffortButton"], titleKey: "tourEffortTitle", bodyKey: "tourEffortBody", placement: "bottom", radius: 8 },
     { id: "favorites-add-v1", targets: ["#craftsButton"], titleKey: "tourFavoritesTitle", bodyKey: "tourFavoritesBody", placement: "bottom", radius: 8 },
     { id: "hand-v1", targets: ["#handToolBtn"], titleKey: "tourHandTitle", bodyKey: "tourHandBody", placement: "bottom", radius: 7 },
-    { id: "studio-theme-v1", targets: ["#theme"], titleKey: "tourStudioThemeTitle", bodyKey: "tourStudioThemeBody", placement: "bottom", radius: 8 },
     { id: "core-lasso-v1", targets: ["#lassoToolBtn"], titleKey: "tourLassoTitle", bodyKey: "tourLassoBody", placement: "bottom", radius: 7 },
     { id: "core-text-v1", targets: ["#textToolBtn"], titleKey: "tourTextTitle", bodyKey: "tourTextBody", placement: "bottom", radius: 7 },
     { id: "core-image-v1", targets: ["#imagePickerBtn"], titleKey: "tourImageTitle", bodyKey: "tourImageBody", placement: "bottom", radius: 7 },
@@ -1684,113 +1738,12 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     t,
     getTransform: () => ({ scale: state.scale, panX: state.panX, panY: state.panY, width: view.clientWidth, height: view.clientHeight, dpr: devicePixelRatio || 1 }),
     getAiColor: () => state.aiColor,
+    getReducedMotion: () => Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches),
     styleFor: (element) => runtimeElementStyle(element, "summon-copy"),
   });
-  function summonBlockers() {
-    const visible = viewportRect(),
-      rects = [];
-    if (visible) {
-      for (const [k, c] of tiles) {
-        const [tx, ty] = k.split(",").map(Number),
-          tileBox = { x: tx * TILE, y: ty * TILE, w: TILE, h: TILE };
-        if (!intersection(tileBox, visible)) continue;
-        let ink = state.inkBounds.get(k);
-        if (ink === undefined) {
-          ink = c ? inkBox(c, Math.min(TILE, SIZE - tx * TILE), Math.min(TILE, SIZE - ty * TILE)) : null;
-          state.inkBounds.set(k, ink);
-        }
-        if (ink) rects.push({ x: tileBox.x + ink.x, y: tileBox.y + ink.y, w: ink.w, h: ink.h });
-      }
-    }
-    for (const widget of state.widgets) rects.push({ x: widget.x, y: widget.y, w: widget.w, h: widget.h });
-    if (state.pendingWidget) rects.push({ x:state.pendingWidget.x, y:state.pendingWidget.y, w:state.pendingWidget.w, h:state.pendingWidget.h });
-    for (const item of state.textBoxes) rects.push({ x:item.x, y:item.y, w:item.w, h:item.h });
-    for (const editor of state.textEditors.values()) {
-      const scale = Math.max(0.03, state.scale);
-      rects.push({ x: editor.x, y: editor.y, w: editor.widthCss / scale, h: editor.heightCss / scale });
-    }
-    for (const image of state.images)
-      if (Number.isFinite(image.x) && Number.isFinite(image.y)) rects.push({ x: image.x, y: image.y, w: image.logicalWidth || image.width || 0, h: image.logicalHeight || image.height || 0 });
-    for (const animation of state.animations)
-      if (Number.isFinite(animation.x)) rects.push({ x: animation.x, y: animation.y, w: animation.w, h: animation.h });
-    for (const item of state.pending?.items || [])
-      if (item && Number.isFinite(item.x)) rects.push({ x: item.x, y: item.y, w: item.layoutWidth || item.w || 0, h: item.layoutHeight || item.h || 0 });
-    return rects.filter((r) => r.w > 0 && r.h > 0);
-  }
-  function summonControlBlockers() {
-    const viewport = { x:0, y:0, w:view.clientWidth, h:view.clientHeight },
-      selectors = [
-        ".object-chrome-button",
-        ".animation-controls:not([hidden])",
-        ".image-edit-bar:not([hidden])",
-        ".selection-context-toolbar",
-        ".text-editor",
-        ".text-input-hint:not([hidden])",
-        ".ai-embodiment",
-        ".ai-embodiment.menu-open .radial-action",
-        "#tip",
-      ].join(","),
-      rects = [];
-    for (const element of view.querySelectorAll(selectors)) {
-      const style = getComputedStyle(element),
-        rect = canvasElementLayoutRect(element);
-      if (style.display === "none" || style.visibility === "hidden" || Number(style.opacity) <= 0.02
-        || rect.width <= 0 || rect.height <= 0) continue;
-      const padding = 8,
-        clipped = intersection({
-          x:rect.left - padding,
-          y:rect.top - padding,
-          w:rect.width + padding * 2,
-          h:rect.height + padding * 2,
-        }, viewport);
-      if (clipped) rects.push({ ...clipped, weight:4 });
-    }
-    return rects;
-  }
-  function summonScreenBlockers() {
-    const scale = Math.max(0.03, state.scale),
-      viewport = { x:0, y:0, w:view.clientWidth, h:view.clientHeight },
-      padding = 8,
-      rects = [];
-    for (const rect of summonBlockers()) {
-      const clipped = intersection({
-        x:rect.x * scale + state.panX - padding,
-        y:rect.y * scale + state.panY - padding,
-        w:rect.w * scale + padding * 2,
-        h:rect.h * scale + padding * 2,
-      }, viewport);
-      if (clipped) rects.push({ ...clipped, weight:1 });
-    }
-    return rects.concat(summonControlBlockers());
-  }
-  function summonPlacement() {
-    const width = view.clientWidth,
-      height = view.clientHeight,
-      scale = Math.max(0.03, state.scale);
-    if (width <= 0 || height <= 0 || !SUMMON?.chooseThinkingPlacement) return null;
-    const anchor = state.summonAnchor
-        ? {
-            x:state.summonAnchor.x * scale + state.panX,
-            y:state.summonAnchor.y * scale + state.panY,
-            w:state.summonAnchor.w * scale,
-            h:state.summonAnchor.h * scale,
-          }
-        : null,
-      placement = SUMMON.chooseThinkingPlacement({
-        width,
-        height,
-        anchor,
-        blockers:summonScreenBlockers(),
-      });
-    return {
-      x:(placement.x - state.panX) / scale,
-      y:(placement.y - state.panY) / scale,
-    };
-  }
   function showSummon() {
     if (!summonFX || !state.summonEnabled) return;
-    const spot = summonPlacement();
-    if (spot) summonFX.show(spot);
+    summonFX.show(state.summonAnchor);
   }
   function hideSummon() {
     summonFX?.hide();
@@ -1998,7 +1951,6 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     hideAutoDelayControl();
     hideEffortControl();
     hidePluginControl();
-    closeRadialMenu();
     featureTour.active = true;
     featureTour.steps = available;
     featureTour.index = 0;
@@ -2151,7 +2103,6 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     hideAutoDelayControl();
     hideEffortControl();
     hidePluginControl();
-    closeRadialMenu();
     const active = document.activeElement;
     changelog.restoreFocus = active?.isConnected && active !== document.body && !tourLayer.contains(active) ? active : settingsButton;
     changelog.active = true;
@@ -2196,7 +2147,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     return true;
   }
   if (configurationBody && canvasSettingsForm) configurationBody.append(canvasSettingsForm);
-  const settings = { open:false, restoreFocus:null, requestTrace:false, cli:{}, cliStatuses:{}, cliInspectionGeneration:0, currentProvider:"api", configurationMode:"", configurationRestoreFocus:null, connections:[], activeConnectionId:"default", connectionLimit:10, editingConnectionId:null, deepSeekSearchProvider:"deepseek-official", hasDeepSeekSearchApiKey:false, hasTavilyApiKey:false, searchTestResults:null, searchTestGeneration:0, searchTestBusy:false, fetchedApiModels:[], fetchingApiModels:false, connectionActionBusy:false };
+  const settings = { open:false, activePage:"appearance", restoreFocus:null, requestTrace:false, cli:{}, cliStatuses:{}, cliInspectionGeneration:0, currentProvider:"api", configurationMode:"", configurationRestoreFocus:null, connections:[], activeConnectionId:"default", connectionLimit:10, editingConnectionId:null, deepSeekSearchProvider:"deepseek-official", hasDeepSeekSearchApiKey:false, hasTavilyApiKey:false, searchTestResults:null, searchTestGeneration:0, searchTestBusy:false, fetchedApiModels:[], fetchingApiModels:false, connectionActionBusy:false };
   function syncLocalConnectionSelection() {
     const selected = selectedAiConnectionId(), activeId = settings.connections.some(connection => connection.id === selected) ? selected : "default";
     if (activeId !== selected) localStorage.setItem(AI_CONNECTION_STORAGE_KEY, activeId);
@@ -2949,8 +2900,44 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     if (button.dataset.connectionEdit) fillConnectionEditor(connection);
     else if (window.confirm(t("settingsDeleteConfirm"))) void updateConnection("delete", connection.id);
   }
+  function selectSettingsPage(page, { focus = false } = {}) {
+    if (!settingsPanel) return false;
+    const tabs = [...settingsPanel.querySelectorAll("[data-settings-page-target]")],
+      pages = [...settingsPanel.querySelectorAll("[data-settings-page]")],
+      available = new Set(pages.map((node) => node.dataset.settingsPage)),
+      nextPage = available.has(page) ? page : "appearance",
+      pageChanged = settings.activePage !== nextPage;
+    settings.activePage = nextPage;
+    tabs.forEach((tab) => {
+      const selected = tab.dataset.settingsPageTarget === settings.activePage;
+      tab.classList.toggle("active", selected);
+      tab.setAttribute("aria-selected", String(selected));
+      tab.tabIndex = selected ? 0 : -1;
+      if (selected && focus) tab.focus({ preventScroll:true });
+    });
+    pages.forEach((node) => {
+      const selected = node.dataset.settingsPage === settings.activePage;
+      node.classList.toggle("active", selected);
+      node.hidden = !selected;
+      if (selected && pageChanged) node.scrollTop = 0;
+    });
+    return true;
+  }
+  function handleSettingsNavigationKeydown(event) {
+    const current = event.target.closest("[data-settings-page-target]");
+    if (!current || !["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return false;
+    const tabs = [...settingsPanel.querySelectorAll("[data-settings-page-target]")];
+    let index = tabs.indexOf(current);
+    if (event.key === "Home") index = 0;
+    else if (event.key === "End") index = tabs.length - 1;
+    else index = (index + (event.key === "ArrowDown" ? 1 : -1) + tabs.length) % tabs.length;
+    event.preventDefault();
+    selectSettingsPage(tabs[index]?.dataset.settingsPageTarget, { focus:true });
+    return true;
+  }
   function updateSettingsPanel() {
     if (!settingsPanel) return;
+    selectSettingsPage(settings.activePage);
     settingsAutoToggle.classList.toggle("on", state.auto);
     settingsAutoToggle.setAttribute("aria-checked", String(state.auto));
     settingsCanvasAgentAutoOpenToggle.classList.toggle("on", state.canvasAgentAutoOpen);
@@ -2970,7 +2957,6 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     hideAutoDelayControl();
     hideEffortControl();
     hidePluginControl();
-    closeRadialMenu();
     settings.open = true;
     settings.restoreFocus = document.activeElement?.isConnected && document.activeElement !== document.body ? document.activeElement : settingsButton;
     settingsLayer.hidden = false;
@@ -3037,15 +3023,46 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       settingsAutoToggle.setAttribute("aria-checked", String(state.auto));
     }
   }
+  function positionToolbarPopover(controlSelector, popoverSelector, options) {
+    options ||= {};
+    const control = document.querySelector(controlSelector),
+      popover = document.querySelector(popoverSelector),
+      host = document.querySelector(".topbar");
+    if (!control || !popover || !host || popover.hidden) return;
+    if (popover.parentElement !== host) host.append(popover);
+    const controlRect = control.getBoundingClientRect(),
+      hostRect = host.getBoundingClientRect(),
+      scaleX = host.offsetWidth > 0 && hostRect.width > 0 ? hostRect.width / host.offsetWidth : 1,
+      scaleY = host.offsetHeight > 0 && hostRect.height > 0 ? hostRect.height / host.offsetHeight : scaleX,
+      inset = 6,
+      controlLeft = (controlRect.left - hostRect.left) / scaleX,
+      controlWidth = controlRect.width / scaleX,
+      desiredLeft = options.align === "center" ? controlLeft + (controlWidth - popover.offsetWidth) / 2 : controlLeft,
+      maxLeft = Math.max(inset, host.offsetWidth - popover.offsetWidth - inset);
+    popover.classList.add("toolbar-anchored-popover");
+    popover.style.left = `${Math.max(inset, Math.min(desiredLeft, maxLeft))}px`;
+    popover.style.top = `${(controlRect.bottom - hostRect.top) / scaleY + (Number(options.gap) || 8)}px`;
+  }
+  function positionOpenToolbarPopovers() {
+    positionToolbarPopover("#autoControl", "#autoDelayPopover");
+    positionToolbarPopover("#effortControl", "#effortPopover");
+    positionToolbarPopover("#eraserToolControl", "#eraserToolMenu", { align:"center", gap:6 });
+    positionToolbarPopover('[data-color-control="ink"]', "#inkColorPopover", { align:"center", gap:6 });
+    positionToolbarPopover('[data-color-control="ai"]', "#aiColorPopover", { align:"center", gap:6 });
+  }
   function updateEffortControl() {
     if (!EFFORT_OPTIONS.includes(state.reasoningEffort)) state.reasoningEffort = "config";
     const control = document.querySelector("#effortControl"),
       button = document.querySelector("#aiEffortButton"),
       label = document.querySelector("#aiEffortLabel"),
+      fullLabel = label.querySelector(".effort-label-full"),
+      shortLabel = label.querySelector(".effort-label-short"),
       levelKey = { config:"effortConfigured", none:"effortNone", low:"effortLow", medium:"effortMedium", high:"effortHigh", max:"effortMaximum" }[state.reasoningEffort] || "effortConfigured",
       level = t({ config:"effortConfiguredShort", medium:"effortMediumShort" }[state.reasoningEffort] || levelKey),
+      shortLevel = t({ config:"effortConfiguredShort", medium:"effortMediumShort" }[state.reasoningEffort] || levelKey),
       text = t("reasoningEffortDisplay").replace("{level}", level);
-    label.textContent = text;
+    fullLabel.textContent = text;
+    shortLabel.textContent = shortLevel;
     button.setAttribute("aria-label", text);
     button.setAttribute("title", text);
     button.setAttribute("aria-expanded", String(!document.querySelector("#effortPopover").hidden));
@@ -3056,6 +3073,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       option.setAttribute("aria-selected", String(option.dataset.effort === state.reasoningEffort));
       option.classList.toggle("active", option.dataset.effort === state.reasoningEffort);
     });
+    if (typeof canvasAgentScheduleToolbarLayout === "function") canvasAgentScheduleToolbarLayout();
   }
   function hideAutoDelayControl() {
     clearTimeout(state.autoPopoverTimer);
@@ -3070,6 +3088,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   function showAutoDelayControl() {
     document.querySelector("#autoDelayPopover").hidden = false;
     document.querySelector("#auto").setAttribute("aria-expanded", "true");
+    positionToolbarPopover("#autoControl", "#autoDelayPopover");
+    requestAnimationFrame(positionOpenToolbarPopovers);
     keepAutoDelayControlOpen();
   }
   function hideEffortControl() {
@@ -3086,6 +3106,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     document.querySelector("#effortPopover").hidden = false;
     document.querySelector("#aiEffortButton").setAttribute("aria-expanded", "true");
     updateEffortControl();
+    positionToolbarPopover("#effortControl", "#effortPopover");
+    requestAnimationFrame(positionOpenToolbarPopovers);
     keepEffortControlOpen();
   }
   function pluginEnabled(pluginId) {
@@ -3912,6 +3934,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       paperGrid: css.getPropertyValue("--paper-grid").trim() || "#c8ae7155",
       outside: css.getPropertyValue("--outside").trim() || "#090814",
       border: css.getPropertyValue("--line").trim() || "#7f693b",
+      accent: css.getPropertyValue("--studio-accent").trim() || "#4f46e5",
     };
   }
   function applyLanguage() {
@@ -3927,7 +3950,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     updatePluginControl();
     updatePluginAuthoringUi();
     updateFullscreenButton();
-    updateThemeCopy();
+    updateAppearanceControls();
     updateEmbodimentLabel();
     updateGridButton();
     updateHistorySaveFeedbackLanguage();
@@ -3947,15 +3970,22 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     requestInteractionLayerRender();
     window.dispatchEvent(new CustomEvent("penecho:languagechange", { detail:{ language:state.language } }));
   }
-  function updateThemeCopy() {
-    const focus = t({ arcane: "themeFocusArcane", scifi: "themeFocusScifi", research: "themeFocusResearch", studio: "themeFocusStudio" }[state.theme]);
-    document.querySelector("#theme").setAttribute("title", focus);
-    document.querySelector("#theme").setAttribute("aria-description", focus);
+  function updateAppearanceControls() {
+    document.querySelectorAll(".studio-palette-option[data-studio-palette]").forEach((button) => {
+      const selected = button.dataset.studioPalette === state.studioPalette;
+      button.setAttribute("aria-checked", String(selected));
+      button.classList.toggle("selected", selected);
+    });
+    document.querySelectorAll("[data-page-scale]").forEach((button) => {
+      const selected = Math.abs(Number(button.dataset.pageScale) - state.pageScale) < 0.0001;
+      button.setAttribute("aria-checked", String(selected));
+      button.classList.toggle("selected", selected);
+    });
   }
   function updateEmbodimentLabel() {
-    const label = t({ arcane: "guideArcane", scifi: "guideScifi", research: "guideResearch", studio: "guideStudio" }[state.theme]);
+    const label = t("guideStudio");
     embodiment.setAttribute("aria-label", label);
-    const orbLabel = state.busy ? t("stopAIRequest") : t("openAIMenu");
+    const orbLabel = state.busy ? t("stopAIRequest") : t("triggerAutoAI");
     aiOrb.setAttribute("aria-label", orbLabel);
     aiOrb.setAttribute("title", orbLabel);
   }
@@ -3983,29 +4013,45 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     button.setAttribute("title", label);
   }
   function applyTheme(theme) {
+    const removedTheme = REMOVED_THEMES.has(theme),
+      studioPalette = normalizeStudioPaletteForTheme(theme, state.studioPalette),
+      studioPaletteChanged = studioPalette !== state.studioPalette;
     theme = normalizeTheme(theme);
     state.theme = theme;
+    state.studioPalette = studioPalette;
     document.body.dataset.theme = theme;
+    document.body.dataset.studioPalette = studioPalette;
     embodiment.dataset.theme = theme;
-    document.querySelector("#theme").value = theme;
     localStorage.setItem("penecho-theme", theme);
-    if (theme === "research") state.gridVisible = localStorage.getItem("penecho-research-grid") === "true";
-    else state.gridVisible = (localStorage.getItem("penecho-grid") ?? localStorage.getItem("ghostboard-grid")) !== "false";
-    updateThemeCopy();
+    if (removedTheme || studioPaletteChanged) {
+      localStorage.setItem("penecho-studio-palette", studioPalette);
+      updateAppearanceControls();
+    }
+    state.gridVisible = (localStorage.getItem("penecho-grid") ?? localStorage.getItem("ghostboard-grid")) !== "false";
     updateEmbodimentLabel();
     updateGridButton();
     syncStudioWorkbench(theme);
     updatePaint();
     requestRender();
   }
+  function applyStudioPalette(palette) {
+    state.studioPalette = normalizeStudioPalette(palette);
+    document.body.dataset.studioPalette = state.studioPalette;
+    localStorage.setItem("penecho-studio-palette", state.studioPalette);
+    updateAppearanceControls();
+    updatePaint();
+    requestRender();
+  }
+  function applyPageScale(scale) {
+    state.pageScale = window.PenEchoPageScale?.apply?.(scale) || 1;
+    updateAppearanceControls();
+    window.dispatchEvent(new Event("resize"));
+  }
   function setBusy(value) {
     state.busy = Boolean(value);
     embodiment.classList.toggle("working", state.busy);
     embodiment.setAttribute("aria-busy", String(state.busy));
-    aiOrb.setAttribute("aria-haspopup", state.busy ? "false" : "menu");
     if (state.busy) {
-      state.radialGesture = null;
-      closeRadialMenu();
       revealAIOrb();
       showSummon();
     } else {
@@ -4067,6 +4113,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   }
   function invokeAIAction(action) {
     cancelWidgetRefinement("manual-action");
+    clearTimeout(state.timer);
+    state.timer = 0;
     if (state.selection?.phase === "active") {
       const selection = state.selection,
         packed = buildSelectionTypesetRequest(selection);
@@ -4085,55 +4133,11 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   }
   function scheduleAIOrbIdle() {
     revealAIOrb();
-    if (state.busy || embodiment.classList.contains("menu-open")) return;
+    if (state.busy) return;
     state.aiOrbIdleTimer = setTimeout(() => {
       state.aiOrbIdleTimer = 0;
-      if (!state.busy && !state.radialGesture && !embodiment.classList.contains("menu-open")) embodiment.classList.add("idle-dim");
+      if (!state.busy) embodiment.classList.add("idle-dim");
     }, AI_ORB_IDLE_DELAY_MS);
-  }
-  function openRadialMenu() {
-    if (state.busy) return;
-    revealAIOrb();
-    clearTimeout(state.radialCloseTimer);
-    embodiment.classList.add("menu-open");
-    aiOrb.setAttribute("aria-expanded", "true");
-    aiRadial.setAttribute("aria-hidden", "false");
-    document.querySelectorAll(".radial-action").forEach((button) => button.setAttribute("tabindex", "0"));
-  }
-  function closeRadialMenu() {
-    if (state.radialGesture) return;
-    embodiment.classList.remove("menu-open");
-    aiOrb.setAttribute("aria-expanded", "false");
-    aiRadial.setAttribute("aria-hidden", "true");
-    document.querySelectorAll(".radial-action").forEach((button) => {
-      button.classList.remove("is-highlighted");
-      button.setAttribute("tabindex", "-1");
-    });
-    if (!state.busy) scheduleAIOrbIdle();
-  }
-  function chooseRadialAction(clientX, clientY) {
-    const orbRect = aiOrb.getBoundingClientRect(),
-      origin = { x: orbRect.left + orbRect.width / 2, y: orbRect.top + orbRect.height / 2 },
-      pointerDistance = Math.hypot(clientX - origin.x, clientY - origin.y);
-    let selected = null,
-      angleDistance = Infinity;
-    if (pointerDistance < 22) {
-      document.querySelectorAll(".radial-action").forEach((button) => button.classList.remove("is-highlighted"));
-      return null;
-    }
-    const pointerAngle = Math.atan2(clientY - origin.y, clientX - origin.x);
-    document.querySelectorAll(".radial-action").forEach((button) => {
-      const r = button.getBoundingClientRect(),
-        buttonAngle = Math.atan2(r.top + r.height / 2 - origin.y, r.left + r.width / 2 - origin.x),
-        next = Math.abs(Math.atan2(Math.sin(pointerAngle - buttonAngle), Math.cos(pointerAngle - buttonAngle)));
-      if (next < angleDistance) {
-        angleDistance = next;
-        selected = button;
-      }
-    });
-    if (angleDistance > 0.42) selected = null;
-    document.querySelectorAll(".radial-action").forEach((button) => button.classList.toggle("is-highlighted", button === selected));
-    return selected;
   }
   function debug(event, details = {}) {
     const item = document.createElement("li");

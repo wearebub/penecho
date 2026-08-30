@@ -219,7 +219,14 @@ test("PenEcho Agent activity is a removable user-only sibling outside capture an
   assert.match(css,/radial-gradient\(ellipse 48% 46%[\s\S]*?transparent 82%\)/,"the activity wash fades before its paint boundary");
   assert.doesNotMatch(source,/canvas-agent-activity-ring/,"the activity card has no rotating ellipse that can be paint-clipped");
   assert.doesNotMatch(css,/canvas-agent-activity-ring|canvas-agent-activity-orbit-reverse|@keyframes canvas-agent-activity-orbit\b/);
-  assert.match(css,/\.canvas-agent-activity-core\s*\{[\s\S]*?box-shadow:\s*0 8px 24px rgba\(15,23,42,\.08\)/,"the card shadow stays inside the contained activity box");
+  assert.match(css,/\.canvas-agent-activity\s*\{[\s\S]*?--canvas-agent-activity-accent:\s*var\(--studio-accent,[^)]+\)[\s\S]*?--canvas-agent-activity-surface:\s*color-mix\(in srgb, var\(--studio-agent-overlay,[\s\S]*?50%, var\(--studio-panel, #ffffff\)\)[\s\S]*?--canvas-agent-activity-surface-raised:\s*color-mix\(in srgb, var\(--studio-agent-overlay,[\s\S]*?25%, var\(--studio-panel-raised, #f8fafc\) 75%\)/,"the activity material derives from the side-panel overlay and stays only slightly clearer than the layered sidebars");
+  assert.match(css,/\.canvas-agent-activity-core\s*\{[\s\S]*?background:\s*rgba\(255,255,255,\.95\)[\s\S]*?background:\s*var\(--canvas-agent-activity-surface\)[\s\S]*?box-shadow:\s*0 8px 14px[\s\S]*?-webkit-backdrop-filter:\s*saturate\(1\.12\) blur\(28px\)[\s\S]*?backdrop-filter:\s*saturate\(1\.12\) blur\(28px\)/,"the activity card uses a dense bounded theme-aware frosted surface");
+  assert.match(css,/\[data-phase="search"\],[\s\S]*?\[data-phase="create"\],[\s\S]*?\[data-phase="edit"\][\s\S]*?--canvas-agent-activity-accent:\s*var\(--studio-accent,[^)]+\)/,"live request phases inherit the selected Studio accent");
+  assert.match(css,/\.canvas-agent-dialog-progress strong\s*\{[^}]*color:\s*var\(--studio-text, #1f2937\)/,"ordinary dialog steps use the theme text color");
+  assert.match(css,/\.canvas-agent-dialog-progress > i\s*\{[^}]*background:\s*var\(--studio-muted, #64748b\)/,"ordinary dialog step markers stay neutral");
+  assert.match(css,/\.canvas-agent-message\.assistant\.canvas-agent-public-progress \.canvas-agent-message-body\s*\{[^}]*color:\s*var\(--studio-text, #1f2937\)[^}]*border-color:\s*var\(--studio-line, #d8dbe2\)[^}]*background:\s*var\(--studio-panel-raised, #f8fafc\)/,"public progress copy uses neutral theme colors");
+  assert.doesNotMatch(css,/\.canvas-agent-dialog-progress\[data-phase=/,"dialog step colors do not vary by phase");
+  assert.match(read("public/style.css"),/\.canvas-agent-tool\.running \.canvas-agent-tool-head\s*\{\s*color:\s*var\(--studio-text, #1f2937\);\s*\}[\s\S]*?\.canvas-agent-tool\.error \.canvas-agent-tool-head\s*\{\s*color:\s*#b91c1c;/,"running actions stay neutral while failed actions remain red");
   assert.match(css,/visibility 0s linear \.72s/);
   assert.match(css,/\.canvas-agent-activity:not\(\.is-visible\) \.canvas-agent-activity-kicker > i \{ animation-play-state:\s*paused/);
   assert.match(css,/\.canvas-agent-activity\.is-visible\s*\{[\s\S]*?opacity:\s*1;[\s\S]*?visibility:\s*visible/);

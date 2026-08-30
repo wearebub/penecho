@@ -27,14 +27,16 @@ test("Cloud Center exposes concise Projects, Favorites, and Echoes navigation", 
   assert.doesNotMatch(cloud, /el\("h3", \{ text:cloudT\("favorites"\) \}\)/);
   assert.match(cloud, /favoriteCanvasesHint:"收藏中的公开画布"/);
   assert.doesNotMatch(cloud, /favoriteCanvasesHint:"Favorites 中/);
-  assert.match(css, /\.cloud-section-tabs \{[^}]*grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/);
+  assert.match(css, /\.cloud-section-tabs \{[^}]*display: grid/);
+  assert.match(css, /@media \(max-width: 820px\)[\s\S]*?\.cloud-section-tabs \{[^}]*grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/);
   assert.match(css, /\.cloud-favorite-filters/);
   assert.match(css, /\.cloud-workspace > \.penecho-cloud-panel \{[^}]*background: transparent[^}]*border: 0[^}]*padding: 0/);
 
   assert.match(cloud, /localHostControlsAvailable = window\.PENECHO_CONFIG\?\.runtime !== "cloud"/);
   assert.match(cloud, /layout\.classList\.toggle\("remote-cloud-runtime", !localHostControlsAvailable\)/);
   assert.match(cloud, /cloud-local-controls/);
-  assert.match(css, /\.penecho-cloud-layout\.remote-cloud-runtime/);
+  assert.match(cloud, /class:"cloud-navigation"/);
+  assert.match(cloud, /layout\.replaceChildren\(navigation, workspace\)/);
   assert.match(cloud, /x-penecho-session/);
   assert.match(cloud, /\/api\/cloud\/library/);
   assert.match(cloud, /\/api\/cloud\/favorites\/feed\?/);
@@ -76,8 +78,7 @@ test("Cloud Center exposes concise Projects, Favorites, and Echoes navigation", 
   assert.match(cloud, /Boolean\(state\.status\?\.device\?\.connected\)/);
   assert.match(cloud, /if \(previouslySignedIn !== accountSignedIn\(\)\)/);
   assert.match(main, /desktopApp=process\.env\.PENECHO_DESKTOP_APP==="true"/);
-  assert.match(css, /\.cloud-section-tabs \{[^}]*height: 2\.25rem/);
-  assert.match(css, /\.cloud-section-tab \{[^}]*height: 1\.875rem[^}]*min-height: 1\.875rem/);
+  assert.match(css, /\.cloud-section-tab \{[^}]*min-height: 2\.25rem/);
   assert.match(css, /@media \(pointer: coarse\)[\s\S]*?\.cloud-section-tab[\s\S]*?min-height: 2\.75rem/);
   assert.match(css, /\.cloud-project-card/);
   assert.match(css, /\.cloud-project-create-form/);

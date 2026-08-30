@@ -202,6 +202,31 @@ async function createNativeHarness(overrides = {}) {
   };
 }
 
+test("Codex Native extracts an optional Canvas title from the same completed response",async t=>{
+  const harness=await createNativeHarness();
+  t.after(()=>harness.cleanup());
+  const session=await harness.connect(true),process=harness.processes[0],turnId="same-response-title-turn";
+  process.requestHandler=async(method,params)=>{
+    if(method!=="turn/start")return {};
+    setImmediate(()=>{
+      process.emitNotification("turn/started",{threadId:process.threadId,turn:{id:turnId}});
+      const answer="<penecho_canvas_title>画布结构优化方案</penecho_canvas_title>\n正常回答";
+      process.emitNotification("item/agentMessage/delta",{threadId:process.threadId,turnId,delta:answer});
+      process.emitNotification("item/completed",{threadId:process.threadId,turnId,item:{type:"agentMessage",text:answer}});
+      process.emitNotification("rawResponse/completed",{threadId:process.threadId,turnId,responseId:"same-response-title",usage:null});
+      process.emitNotification("turn/completed",{threadId:process.threadId,turn:{id:turnId,status:"completed",items:[{type:"agentMessage",text:answer}]}});
+    });
+    return {turn:{id:turnId}};
+  };
+  const result=await harness.host.submit(session,"请优化这张画布",false,[],{},null,[],true),turnRequest=process.requests.find(request=>request.method==="turn/start"),
+    events=harness.messages.filter(message=>message.type==="session_event").map(message=>message.payload);
+  assert.equal(result.output,"正常回答");
+  assert.ok(Object.values(turnRequest.params.additionalContext||{}).some(context=>String(context?.value||"").includes("<penecho_canvas_title>title</penecho_canvas_title>")));
+  assert.equal(events.some(event=>String(event.text||"").includes("penecho_canvas_title")),false);
+  assert.equal(events.find(event=>event.kind==="assistant_message")?.text,"正常回答");
+  assert.equal(events.find(event=>event.kind==="turn_end")?.canvasTitle,"画布结构优化方案");
+});
+
 test("Codex Native connects lazily, starts one strict app-server thread, and reuses it", async t => {
   const harness=await createNativeHarness();
   t.after(()=>harness.cleanup());
@@ -554,6 +579,44 @@ test("Codex Native startup is single-flight and a disposal race never resurrects
   assert.equal(process.closedCount,1);
   assert.equal(session.threadId,null);
   assert.equal(harness.host.sessions.size,0);
+});
+
+test("Codex Native freezes the initial Canvas snapshot before delayed CLI startup",async t=>{
+  const harness=await createNativeHarness({deferStart:true});
+  t.after(()=>harness.cleanup());
+  const session=await harness.connect(false),initialDigest={
+    revision:0,viewRevision:1,canvas:{width:20000,height:20000,contentBounds:null},viewport:{x:6000,y:7000,width:8000,height:5000},
+    selection:{objectIds:[],inkBounds:null},counts:{inkTiles:0,widgets:0,textBoxes:0,images:0},objects:[],
+  },modelReferences=[];
+  session.stateDigest=initialDigest;
+  harness.host.modelInput=async(_session,prompt,references)=>{
+    modelReferences.push(references);
+    return [{type:"text",text:prompt}];
+  };
+  const submitted=harness.host.submit(session,"keep the sent Canvas snapshot",false,[],{objectIds:[]},{digest:initialDigest,empty:true});
+  await waitFor(()=>harness.processes.length===1);
+  const process=harness.processes[0],fallbackHandler=process.requestHandler;
+  process.requestHandler=async(method,params)=>{
+    if(method!=="turn/start")return fallbackHandler(method,params);
+    const turnId="frozen-initial-state-turn";
+    setImmediate(()=>{
+      process.emitNotification("turn/started",{threadId:process.threadId,turn:{id:turnId}});
+      process.emitNotification("item/agentMessage/delta",{threadId:process.threadId,turnId,delta:"continued"});
+      process.emitNotification("turn/completed",{threadId:process.threadId,turn:{id:turnId,status:"completed",items:[]}});
+    });
+    return {turn:{id:turnId}};
+  };
+  session.stateDigest={
+    ...initialDigest,revision:1,viewRevision:2,canvas:{...initialDigest.canvas,contentBounds:{x:8000,y:8500,width:1200,height:700}},
+    counts:{...initialDigest.counts,widgets:1},objects:[{id:"later-widget",kind:"widget",box:{x:8000,y:8500,width:1200,height:700}}],
+  };
+  process.releaseStart();
+  assert.equal((await submitted).output,"continued");
+  assert.equal(modelReferences.length,1);
+  assert.equal(modelReferences[0].revision,0);
+  assert.equal(modelReferences[0].viewRevision,1);
+  assert.deepEqual(modelReferences[0].initialCanvasState.digest,initialDigest);
+  assert.equal(session.stateDigest.revision,1,"later Canvas changes remain available for subsequent tool validation");
 });
 
 test("Codex Native lazy settings are fingerprinted before a process is created", async t => {

@@ -2,7 +2,7 @@
 
 PenEcho Agent Visual Explorer creates one responsive, source-authored General HTML Widget for understanding-, organizing-, or planning-first work. It is an isolated PenEcho Agent extension: Main Canvas AI, Canvas Pen AI Refine, the shared General HTML contract, personal plugins, and existing General HTML behavior are unchanged.
 
-It is the PenEcho Agent default for substantial pasted text and requests to explain, learn, analyze, or organize equations, projects, documents, and other material, even when the user does not explicitly ask for an infographic. It yields to direct edits or supplements to existing Canvas/page elements and to requests whose defining result is interaction, simulation, live data, a small ordinary HTML tool, or another enabled artifact.
+It is the PenEcho Agent default for substantial pasted text and requests to explain, learn, analyze, or organize equations, projects, documents, and other material, even when the user does not explicitly ask for an infographic. A bare request to draw one or more function graphs instead uses the host-native `canvas_create` `type:"plot"` item; the mathematical Visual Explorer route is reserved for graphs that also need derivation, linked evidence, animation, interaction, or an explicitly requested Widget. Visual Explorer also yields to direct edits or supplements to existing Canvas/page elements and to requests whose defining result is interaction, simulation, live data, a small ordinary HTML tool, or another enabled artifact.
 
 ## Output contract
 
@@ -56,7 +56,8 @@ Scientific Visual Explorer extends the same General HTML artifact without changi
 
 | Goal | Route | Rendering responsibility |
 | --- | --- | --- |
-| Function concepts, derivatives, extrema, or geometric proof states | Visual Explorer with `math-2d` | Calibrated static-first SVG evidence plus Manim-Web explanatory rendering/motion by default when it is at least as clear |
+| Bare request for one or more function graphs | Native Canvas `plot` item | Host-calibrated direct renderer; no sampled Widget or hand-authored point list |
+| Function concepts, derivatives, extrema, or geometric proof states | Visual Explorer with `math-2d` | Width-based dense curves with adaptive curvature refinement, calibrated static-first SVG evidence, and Manim-Web explanatory rendering/motion by default when it is at least as clear |
 | Forces, motion, fields, or conservation explanations | Visual Explorer with `physics-2d` | Static-first boundary, vectors, trajectory, and state evidence plus Manim-Web explanatory rendering/motion by default when it is at least as clear |
 | 3-D surfaces, cameras, coordinate transforms, or morphs | Visual Explorer with `math-3d` | Static-first canonical 3-D evidence plus Manim-Web rendering/camera motion by default; bounded orbit/zoom interaction with visible instructions and Reset view when inspection helps |
 | Open-ended experiments whose controls continuously change data, simulation state, or the view | Custom HTML | Application-owned controls and simulation lifecycle |

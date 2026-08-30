@@ -557,6 +557,7 @@
   }
 
   let activeCloudOverlay = null;
+  let cloudDialogSequence = 0;
 
   function closeOverlay(overlay) {
     const restoreFocus = overlay?._restoreFocus;
@@ -569,13 +570,29 @@
     if (restoreFocus?.isConnected) restoreFocus.focus({ preventScroll:true });
   }
 
-  function dialogShell({ title, subtitle = "", share = false }) {
+  function dialogShell({ title, subtitle = "", share = false, variant = "" }) {
     const overlay = el("div", { class:"penecho-cloud-overlay" });
     overlay._restoreFocus = document.activeElement;
-    const dialog = el("section", { class:`penecho-cloud-dialog${share ? " share" : ""}`, role:"dialog", "aria-modal":"true", "aria-label":title });
+    const dialogId = ++cloudDialogSequence;
+    const titleId = `penecho-cloud-dialog-title-${dialogId}`;
+    const subtitleId = `penecho-cloud-dialog-subtitle-${dialogId}`;
+    const dialog = el("section", {
+      class:["penecho-cloud-dialog", share ? "share" : "", variant].filter(Boolean).join(" "),
+      role:"dialog",
+      "aria-modal":"true",
+      "aria-labelledby":titleId,
+      ...(subtitle ? { "aria-describedby":subtitleId } : {}),
+    });
     const close = el("button", { class:"cloud-dialog-close", type:"button", text:"×", "aria-label":cloudT("close"), onclick:() => closeOverlay(overlay) });
-    const heading = el("div", {}, [el("h2", { text:title }), subtitle ? el("p", { text:subtitle }) : null]);
-    dialog.append(el("header", {}, [heading, close]));
+    const heading = el("div", { class:"cloud-dialog-heading" }, [
+      el("h2", { id:titleId, text:title }),
+      subtitle ? el("p", { id:subtitleId, text:subtitle }) : null,
+    ]);
+    const identity = el("div", { class:"cloud-dialog-identity" }, [
+      el("span", { class:"cloud-dialog-mark", "aria-hidden":"true", text:"P" }),
+      heading,
+    ]);
+    dialog.append(el("header", { class:"cloud-dialog-titlebar" }, [identity, close]));
     const body = el("div", { class:"penecho-cloud-body" });
     dialog.append(body);
     overlay.append(dialog);
@@ -1192,7 +1209,7 @@
 
   async function openCloud() {
     cloudButton.setAttribute("aria-expanded", "true");
-    const shell = dialogShell({ title:"PenEcho Cloud", subtitle:cloudT("cloudSubtitle") });
+    const shell = dialogShell({ title:"PenEcho Cloud", subtitle:cloudT("cloudSubtitle"), variant:"cloud-center" });
     activeCloudOverlay = shell.overlay;
     const layout = el("div", { class:"penecho-cloud-layout" });
     shell.body.append(layout);
@@ -1248,14 +1265,14 @@
       sectionPanel.id = "cloud-section-panel";
       sectionPanel.setAttribute("role", "tabpanel");
       sectionPanel.setAttribute("aria-labelledby", `cloud-tab-${state.cloudSection}`);
-      workspace.append(sectionToolbar, sectionPanel);
+      workspace.append(sectionPanel);
+      const navigation = el("aside", { class:"cloud-navigation", "aria-label":cloudT("cloudArea") }, [sectionToolbar]);
       layout.classList.toggle("remote-cloud-runtime", !localHostControlsAvailable);
       if (localHostControlsAvailable) {
-        const accountColumn = el("aside", { class:"cloud-local-controls", "aria-label":cloudT("thisDevice") }, [accountPanel(render), devicePanel(render)]);
-        layout.replaceChildren(accountColumn, workspace);
-      } else {
-        layout.replaceChildren(workspace);
+        const accountColumn = el("div", { class:"cloud-local-controls", role:"group", "aria-label":cloudT("thisDevice") }, [accountPanel(render), devicePanel(render)]);
+        navigation.append(accountColumn);
       }
+      layout.replaceChildren(navigation, workspace);
     }
     shell.overlay._cloudRender = render;
     render();

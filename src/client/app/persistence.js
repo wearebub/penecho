@@ -23,9 +23,24 @@
     serverCanvasProjects = [],
     selectedServerProjectId = storedServerProjectId(),
     cloudCanvasProjects = [],
+    cloudHistoryCache = null,
     selectedCloudProjectId = storedCloudProjectId(),
     cloudHistorySignInRequired = false,
     pendingCanvasTransition = null;
+  function currentCanvasDisplayName() {
+    return state.currentCanvasSuggestedName || state.currentSnapshotName;
+  }
+  function currentCanvasNeedsAgentName() {
+    return !state.currentSnapshotHasExplicitName && !state.currentCanvasSuggestedName;
+  }
+  function applyCurrentCanvasGeneratedName(value) {
+    const name=String(value||"").replace(/\s+/g," ").trim().slice(0,48);
+    if(!name||!currentCanvasNeedsAgentName())return false;
+    state.currentCanvasSuggestedName=name;
+    window.PenEchoStudioNavigator?.updateDocument?.();
+    window.PenEchoStudioNavigator?.renderAgent?.();
+    return true;
+  }
   function validServerProjectSelection(projectId) {
     return projectId === SERVER_DEFAULT_PROJECT_ID || projectId === SERVER_ALL_PROJECTS_ID || /^project-[a-zA-Z0-9-]{8,64}$/.test(projectId || "");
   }
@@ -84,6 +99,22 @@
     // an unrelated request and must remain an ordinary recoverable error.
     return String(error?.code || "") === "cloud_sign_in_required";
   }
+  function cacheCloudHistory(items) {
+    cloudHistoryCache = {
+      items:Array.isArray(items) ? items.slice() : [],
+      projects:cloudCanvasProjects.slice(),
+    };
+  }
+  function restoreCloudHistoryCache() {
+    if (!cloudHistoryCache) return false;
+    snapshotItems = cloudHistoryCache.items.slice();
+    cloudCanvasProjects = cloudHistoryCache.projects.slice();
+    snapshotItemsLocation = "cloud";
+    return true;
+  }
+  function clearCloudHistoryCache() {
+    cloudHistoryCache = null;
+  }
   function updateSnapshotLocationUi() {
     const location = SNAPSHOT_LOCATIONS.has(state.snapshotLocation) ? state.snapshotLocation : "device",
       descriptionKey = location === "server" ? "storagePenEchoServerDescription" : location === "cloud" ? "storagePenEchoCloudDescription" : "storageThisDeviceDescription";
@@ -99,6 +130,7 @@
   function setSnapshotLocation(location, { refresh = true } = {}) {
     if (!SNAPSHOT_LOCATIONS.has(location) || state.snapshotLocation === location) {
       updateSnapshotLocationUi();
+      if (location === "cloud" && snapshotItemsLocation !== "cloud" && restoreCloudHistoryCache()) renderSnapshotList();
       return refresh ? refreshSnapshots() : Promise.resolve(false);
     }
     if (snapshotLoadInProgress) {
@@ -114,7 +146,8 @@
     else if (location === "server") serverCanvasProjects = [];
     updateSnapshotLocationUi();
     updateNewCanvasDialog();
-    renderSnapshotListLoading(location);
+    if (location === "cloud" && restoreCloudHistoryCache()) renderSnapshotList();
+    else renderSnapshotListLoading(location);
     if (!refresh) return Promise.resolve(true);
     const request = refreshSnapshots();
     request.catch((error) => {
@@ -188,7 +221,7 @@
     document.querySelectorAll('#historyProjectSelect, #historyProjectCreate, #historyProjectDelete, #historyName, #historySaveCurrent, #historySave').forEach((control) => (control.disabled = busy || cloudBlocked));
     const topSave = document.querySelector("#saveCanvasBtn");
     if (topSave) topSave.disabled = snapshotSaveInProgress || cloudBlocked;
-    document.querySelectorAll(".history-load, .history-delete, .history-move").forEach((control) => (control.disabled = busy));
+    document.querySelectorAll(".history-load, .history-delete, .history-move, .history-rename").forEach((control) => (control.disabled = busy));
     document.querySelectorAll(".history-card").forEach((card) => card.classList.toggle("loading", snapshotLoadInProgress && card.dataset.snapshotId === snapshotLoadingId));
     document.querySelectorAll(".history-load").forEach((button) => {
       const active = snapshotLoadInProgress && button.dataset.snapshotId === snapshotLoadingId;
@@ -244,7 +277,7 @@
     if (snapshotSaveInProgress) return;
     const overwriteId = state.currentSnapshotLocation === state.snapshotLocation ? state.currentSnapshotId : null,
       requestedName = document.querySelector("#historyName")?.value.trim(),
-      name = requestedName || (overwriteId ? state.currentSnapshotName : "");
+      name = requestedName || currentCanvasDisplayName();
     setHistorySaveBusy(true);
     showHistoryNoticeKey("snapshotSaving", "busy", 0);
     try {
@@ -256,6 +289,32 @@
       const message = `${t("snapshotError")}${error.message}`;
       setStatus(message);
       showHistoryNotice(message, "error", { duration:5000 });
+    } finally {
+      setHistorySaveBusy(false);
+    }
+  }
+  async function renameCurrentCanvasFromTitle(value) {
+    if (snapshotSaveInProgress) return false;
+    const name = String(value || "").trim().slice(0, 48),
+      location = state.currentSnapshotLocation || state.snapshotLocation,
+      overwriteId = state.currentSnapshotId && state.currentSnapshotLocation === location ? state.currentSnapshotId : null;
+    if (!name) throw Error(t("canvasNameRequired"));
+    if (name === state.currentSnapshotName) return true;
+    setHistorySaveBusy(true);
+    showHistoryNoticeKey("snapshotSaving", "busy", 0);
+    try {
+      const id = await saveSnapshot({ overwriteId, name, location });
+      if (!id) {
+        showHistoryNoticeKey(selectionAIBusy() ? selectionAIStatusKey() : "emptyCanvas", "info");
+        return false;
+      }
+      showHistoryNoticeKey("canvasRenamed", "success");
+      return true;
+    } catch (error) {
+      const message = `${t("snapshotError")}${error.message}`;
+      setStatus(message);
+      showHistoryNotice(message, "error", { duration:5000 });
+      return false;
     } finally {
       setHistorySaveBusy(false);
     }
@@ -544,22 +603,7 @@
     context.fillRect(0, 0, canvas.width, canvas.height);
     context.save();
     context.setTransform(scale, 0, 0, scale, -region.x * scale, -region.y * scale);
-    if (state.gridVisible) {
-      const right = region.x + region.w,
-        bottom = region.y + region.h;
-      context.strokeStyle = state.paint.paperGrid;
-      context.lineWidth = 1 / scale;
-      context.beginPath();
-      for (let x = Math.floor(region.x / 500) * 500; x <= right; x += 500) {
-        context.moveTo(x, region.y);
-        context.lineTo(x, bottom);
-      }
-      for (let y = Math.floor(region.y / 500) * 500; y <= bottom; y += 500) {
-        context.moveTo(region.x, y);
-        context.lineTo(right, y);
-      }
-      context.stroke();
-    }
+    if (state.gridVisible) drawCanvasLineGrid(context, region, scale);
     drawAnimationsToContext(context, region, captureTime);
     drawWidgetsToContext(context, region);
     drawImagesToContext(context, region);
@@ -906,6 +950,8 @@
       // metadata for rendering, but keep the editable storage identity empty.
       state.currentSnapshotId = null;
       state.currentSnapshotName = String(item.name || "").slice(0, 160);
+      state.currentSnapshotHasExplicitName = Boolean(state.currentSnapshotName.trim());
+      state.currentCanvasSuggestedName = "";
       state.currentSnapshotLocation = null;
       state.currentSnapshotProjectId = null;
       state.currentSnapshotRevisionId = null;
@@ -1046,7 +1092,7 @@
       images = storedImages(),
       tileEntries = await Promise.all([...tiles].map(async ([k, canvas]) => ({ k, blob: await canvasBlob(canvas) }))),
       preview = location === "cloud" ? await cloudSnapshotPreviewBlob() : await snapshotPreviewBlob(),
-      requestedName = String(name === null ? nameInput.value : name).trim().slice(0, 48),
+      requestedName = String(name === null ? nameInput.value || state.currentCanvasSuggestedName : name).trim().slice(0, 48),
       item = {
         version:2,
         id,
@@ -1090,6 +1136,8 @@
     nameInput.value = "";
     state.currentSnapshotId = storedId;
     state.currentSnapshotName = snapshotName(item);
+    state.currentSnapshotHasExplicitName = Boolean(String(item.name||"").trim());
+    state.currentCanvasSuggestedName = "";
     state.currentSnapshotLocation = location;
     state.currentSnapshotProjectId = item.projectId;
     state.currentSnapshotRevisionId = storedRevisionId;
@@ -1281,6 +1329,8 @@
       setCanvasNavigationLocked(item.view?.navigationLocked === true);
       state.currentSnapshotId = item.id;
       state.currentSnapshotName = snapshotName(item);
+      state.currentSnapshotHasExplicitName = Boolean(String(item.name||"").trim());
+      state.currentCanvasSuggestedName = "";
       state.currentSnapshotLocation = location;
       state.currentSnapshotProjectId = item.projectId || null;
       state.currentSnapshotRevisionId = location === "cloud" ? item.currentRevisionId || null : null;
@@ -1347,6 +1397,8 @@
     if (state.currentSnapshotId === id && state.currentSnapshotLocation === location) {
       state.currentSnapshotId = null;
       state.currentSnapshotName = "";
+      state.currentSnapshotHasExplicitName = false;
+      state.currentCanvasSuggestedName = "";
       state.currentSnapshotLocation = null;
       state.currentSnapshotProjectId = null;
       state.currentSnapshotRevisionId = null;
@@ -1365,7 +1417,7 @@
       description = document.querySelector("#newCanvasDialog > form > p:not(.current-snapshot)"),
       discard = document.querySelector("#newDiscard"),
       saveCopy = document.querySelector("#newSaveCopy"),
-      loading = Boolean(pendingCanvasTransition),
+      loading = pendingCanvasTransition?.type === "load",
       cloudBlocked = state.snapshotLocation === "cloud" && cloudHistorySignInRequired;
     if (!label || !overwrite) return;
     if (title) title.textContent = t(loading ? "loadCanvasTitle" : "newCanvasTitle");
@@ -1419,6 +1471,8 @@
     state.historyBefore.clear();
     state.currentSnapshotId = null;
     state.currentSnapshotName = "";
+    state.currentSnapshotHasExplicitName = false;
+    state.currentCanvasSuggestedName = "";
     state.currentSnapshotLocation = null;
     state.currentSnapshotProjectId = null;
     state.currentSnapshotRevisionId = null;
@@ -1447,16 +1501,7 @@
   }
   function openNewCanvasDialog() {
     window.PenEchoStudioNavigator?.cancelPendingConversation?.();
-    if (!canvasHasUnsavedChanges()) {
-      startBlankCanvas();
-      return;
-    }
-    pendingCanvasTransition = null;
-    const dialog = document.querySelector("#newCanvasDialog");
-    document.querySelector("#newSnapshotName").value = "";
-    setNewCanvasDialogBusy(false);
-    updateNewCanvasDialog();
-    if (!dialog.open) dialog.showModal();
+    return requestCanvasTransition({ type:"new" });
   }
   async function completeNewCanvas(saveMode) {
     const name = document.querySelector("#newSnapshotName").value;
@@ -1471,32 +1516,42 @@
       }
       const transition = pendingCanvasTransition;
       pendingCanvasTransition = null;
-      if (transition) {
+      if (transition?.type === "load") {
         const dialog = document.querySelector("#newCanvasDialog");
         if (dialog.open) dialog.close();
-        await loadSnapshot(transition.id, transition.location);
-      } else startBlankCanvas();
+      }
+      await performCanvasTransition(transition);
     } catch (error) {
       setStatus(`${t("snapshotError")}${error.message}`);
       setNewCanvasDialogBusy(false);
     }
   }
   function canvasHasUnsavedChanges() {
+    const nameChanged = Boolean(state.currentSnapshotId && state.currentCanvasSuggestedName);
+    if (!nameChanged && state.userRevision === state.snapshotSavedRevision) return false;
     const hasContent = tiles.size || state.images.length || state.textBoxes.length || state.preservedSnapshotAnimations.length || (pluginEnabled("animation") && state.animations.length) || visibleWidgets().length;
-    return Boolean(hasContent && (state.dirty || state.userRevision !== state.snapshotSavedRevision));
+    return Boolean(state.currentSnapshotId || hasContent);
   }
-  function confirmExternalCanvasOpen() {
-    return !canvasHasUnsavedChanges() || window.confirm(cloudHistoryCopy("confirmExternalOpen"));
+  function performCanvasTransition(transition) {
+    if (transition?.type === "load") return loadSnapshot(transition.id, transition.location);
+    startBlankCanvas();
+    return true;
   }
-  function requestLoadSnapshot(id, location = state.snapshotLocation) {
-    if (!canvasHasUnsavedChanges()) return loadSnapshot(id, location);
-    pendingCanvasTransition = { id, location };
+  function requestCanvasTransition(transition) {
+    if (!canvasHasUnsavedChanges()) return performCanvasTransition(transition);
+    pendingCanvasTransition = transition;
     const dialog = document.querySelector("#newCanvasDialog");
     document.querySelector("#newSnapshotName").value = "";
     setNewCanvasDialogBusy(false);
     updateNewCanvasDialog();
     if (!dialog.open) dialog.showModal();
     return Promise.resolve(false);
+  }
+  function confirmExternalCanvasOpen() {
+    return !canvasHasUnsavedChanges() || window.confirm(cloudHistoryCopy("confirmExternalOpen"));
+  }
+  function requestLoadSnapshot(id, location = state.snapshotLocation) {
+    return requestCanvasTransition({ type:"load", id, location });
   }
   async function openCloudProjectHistory(projectId = null) {
     if (projectId && validCloudProjectSelection(projectId)) rememberSelectedCloudProject(projectId);
@@ -1519,13 +1574,109 @@
   function discardCanvasTransition() {
     const transition = pendingCanvasTransition;
     pendingCanvasTransition = null;
-    if (!transition) return startBlankCanvas();
     const dialog = document.querySelector("#newCanvasDialog");
     if (dialog.open) dialog.close();
-    return loadSnapshot(transition.id, transition.location);
+    return performCanvasTransition(transition);
   }
   function snapshotName(item) {
     return item.name || new Intl.DateTimeFormat(state.language === "zh" ? "zh-CN" : "en", { dateStyle: "medium", timeStyle: "short" }).format(item.createdAt);
+  }
+  async function renameDeviceSnapshot(id, name) {
+    const db = await snapshotDb(),
+      transaction = db.transaction(SNAPSHOT_STORE, "readwrite"),
+      store = transaction.objectStore(SNAPSHOT_STORE),
+      item = await requestResult(store.get(id));
+    if (!item) throw Error(t("noCurrentSnapshot"));
+    item.name = name;
+    item.updatedAt = Date.now();
+    store.put(item);
+    await transactionDone(transaction);
+  }
+  async function renameSnapshot(id, location, value) {
+    const name = String(value || "").trim().slice(0, 48);
+    if (!name) throw Error(t("canvasNameRequired"));
+    if (historyBusy()) throw Error(t("snapshotSaving"));
+    setHistorySaveBusy(true);
+    try {
+      if (location === "device") await renameDeviceSnapshot(id, name);
+      else {
+        const response = await fetch(location === "cloud" ? `/api/cloud/canvases/${encodeURIComponent(id)}` : `/api/canvases/${encodeURIComponent(id)}`, {
+          method:"PATCH",
+          credentials:"same-origin",
+          headers:authenticatedApiHeaders({ "Content-Type":"application/json" }),
+          body:JSON.stringify({ name }),
+        });
+        await snapshotApiResponse(response);
+      }
+      if (state.currentSnapshotId === id && state.currentSnapshotLocation === location) {
+        state.currentSnapshotName = name;
+        state.currentSnapshotHasExplicitName = true;
+        state.currentCanvasSuggestedName = "";
+        canvasAgentCanvasDidPersist(location, id);
+        window.PenEchoStudioNavigator?.updateDocument?.();
+      }
+      await refreshSnapshots();
+      showHistoryNoticeKey("canvasRenamed", "success");
+      return true;
+    } finally {
+      setHistorySaveBusy(false);
+    }
+  }
+  function beginSnapshotRename(item, location, titleRow, title, renameButton) {
+    if (historyBusy()) return;
+    const form = document.createElement("form"), input = document.createElement("input"),
+      confirm = document.createElement("button"), cancel = document.createElement("button"),
+      originalName = snapshotName(item), restore = () => titleRow.replaceChildren(title, renameButton);
+    form.className = "history-rename-form";
+    form.setAttribute("aria-label", t("canvasRenameNamed").replace("{name}", originalName));
+    input.className = "history-rename-input";
+    input.type = "text";
+    input.maxLength = 48;
+    input.value = originalName;
+    input.setAttribute("aria-label", t("canvasNamePlaceholder"));
+    confirm.type = "submit";
+    confirm.textContent = "✓";
+    confirm.setAttribute("aria-label", t("saveCurrentSnapshot"));
+    cancel.type = "button";
+    cancel.textContent = "×";
+    cancel.setAttribute("aria-label", t("cancel"));
+    cancel.addEventListener("click", restore);
+    input.addEventListener("input", () => input.setCustomValidity(""));
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        restore();
+        renameButton.focus({ preventScroll:true });
+      }
+    });
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const name = input.value.trim().slice(0, 48);
+      if (!name) {
+        input.setCustomValidity(t("canvasNameRequired"));
+        input.reportValidity();
+        return;
+      }
+      if (name === originalName) {
+        restore();
+        renameButton.focus({ preventScroll:true });
+        return;
+      }
+      input.disabled = confirm.disabled = cancel.disabled = true;
+      try {
+        await renameSnapshot(item.id, location, name);
+      } catch (error) {
+        const message = `${t("snapshotError")}${error.message}`;
+        setStatus(message);
+        showHistoryNotice(message, "error", { duration:5000 });
+        input.disabled = confirm.disabled = cancel.disabled = false;
+        input.focus({ preventScroll:true });
+      }
+    });
+    form.append(input, confirm, cancel);
+    titleRow.replaceChildren(form);
+    input.focus({ preventScroll:true });
+    input.select();
   }
   function renderSnapshotListLoading(location = state.snapshotLocation) {
     const list = document.querySelector("#historyList");
@@ -1690,6 +1841,10 @@
         ? snapshotItems.filter((item) => item.projectId === selectedCloudProjectId)
         : snapshotItems;
   }
+  function renderStudioSnapshotLists() {
+    window.PenEchoStudioNavigator?.renderCanvases?.();
+    window.PenEchoStudioNavigator?.renderAgent?.();
+  }
   function renderSnapshotList() {
     const list = document.querySelector("#historyList"),
       location = state.snapshotLocation,
@@ -1711,7 +1866,7 @@
       empty.className = "history-empty";
       empty.textContent = t((location === "server" || location === "cloud") && snapshotItems.length ? "emptyProjectHistory" : location === "server" ? "emptyServerHistory" : location === "cloud" ? "emptyCloudHistory" : "emptyDeviceHistory");
       list.append(empty);
-      window.PenEchoStudioNavigator?.renderCanvases?.();
+      renderStudioSnapshotLists();
       return;
     }
     for (const item of items) {
@@ -1719,7 +1874,9 @@
         preview = document.createElement("div"),
         image = document.createElement("img"),
         meta = document.createElement("div"),
+        titleRow = document.createElement("div"),
         title = document.createElement("strong"),
+        rename = document.createElement("button"),
         detail = document.createElement("small"),
         actions = document.createElement("div"),
         load = document.createElement("button"),
@@ -1738,7 +1895,15 @@
       }
       preview.append(image);
       meta.className = "history-meta";
+      titleRow.className = "history-title-row";
       title.textContent = snapshotName(item);
+      rename.className = "history-rename";
+      rename.type = "button";
+      rename.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 20 4.4-1 10-10a2.1 2.1 0 0 0-3-3l-10 10L4 20Z"/><path d="m13.8 7.6 3 3"/></svg>';
+      rename.setAttribute("aria-label", t("canvasRenameNamed").replace("{name}", title.textContent));
+      rename.title = t("canvasRename");
+      rename.addEventListener("click", () => beginSnapshotRename(item, location, titleRow, title, rename));
+      titleRow.append(title, rename);
       const modified = new Intl.DateTimeFormat(state.language === "zh" ? "zh-CN" : "en", { dateStyle: "short", timeStyle: "short" }).format(item.updatedAt || item.createdAt);
       detail.textContent = t("snapshotModified").replace("{time}", modified);
       const stats = document.createElement("div"),
@@ -1762,7 +1927,7 @@
       remove.textContent = t("deleteSnapshot");
       remove.onclick = () => runSnapshotAction(() => deleteSnapshot(item.id, location));
       actions.append(load, remove);
-      meta.append(title, detail, stats, actions);
+      meta.append(titleRow, detail, stats, actions);
       if (location === "server" || location === "cloud") {
         const move = document.createElement("select");
         move.className = "history-move";
@@ -1782,12 +1947,13 @@
       card.append(preview, meta);
       list.append(card);
     }
-    window.PenEchoStudioNavigator?.renderCanvases?.();
+    renderStudioSnapshotLists();
   }
   async function refreshSnapshots() {
     const generation = ++snapshotListGeneration,
       location = state.snapshotLocation,
-      replacingLocation = snapshotItemsLocation !== location;
+      replacingLocation = snapshotItemsLocation !== location,
+      showingCloudCache = location === "cloud" && snapshotItemsLocation === "cloud" && Boolean(cloudHistoryCache);
     snapshotListInProgress = true;
     if (replacingLocation) {
       snapshotItems = [];
@@ -1796,7 +1962,7 @@
     }
     setHistoryActivity(
       t("snapshotLibraryLoading").replace("{location}", snapshotLocationLabel(location)),
-      t("snapshotLibraryLoadingDetail"),
+      t(showingCloudCache ? "snapshotCloudCacheRefreshing" : "snapshotLibraryLoadingDetail"),
       null,
     );
     updateHistoryReadControls();
@@ -1807,6 +1973,7 @@
       if (location === "cloud") cloudHistorySignInRequired = false;
       snapshotItems = items;
       snapshotItemsLocation = location;
+      if (location === "cloud") cacheCloudHistory(items);
       renderSnapshotList();
       hideHistoryActivity(260);
       return true;
@@ -1818,6 +1985,7 @@
           snapshotItems = [];
           snapshotItemsLocation = null;
           cloudCanvasProjects = [];
+          clearCloudHistoryCache();
           renderCloudHistorySignIn();
         } else if (replacingLocation) {
           snapshotItems = [];
@@ -1827,7 +1995,9 @@
         if (!authenticationRequired) {
           setHistoryActivity(
             t("snapshotLibraryLoading").replace("{location}", snapshotLocationLabel(location)),
-            t("snapshotLibraryLoadFailed").replace("{location}", snapshotLocationLabel(location)),
+            t(location === "cloud" && snapshotItemsLocation === "cloud" && cloudHistoryCache
+              ? "snapshotCloudCacheLoadFailed"
+              : "snapshotLibraryLoadFailed").replace("{location}", snapshotLocationLabel(location)),
             null,
             "error",
           );
@@ -2074,7 +2244,7 @@
     recomputeDirtyBounds();
     filterErasedDirtyHotspots(touchedTiles);
     const refineCandidate = relatchWidgetRefineCandidateFromDirty();
-    save();
+    saveUserCanvasChange();
     requestRender();
     if (state.dirty && state.autoEligible && !refineCandidate) schedule();
     setStatusKey(refineCandidate ? "widgetRefinePending" : state.pending?.items ? "batchDraftReady" : state.pending ? "draftReady" : "areaEraseDeleted");
@@ -2097,8 +2267,10 @@
     return true;
   }
   function pressureWidth(e) {
-    if (e.pointerType !== "pen" || !Number.isFinite(e.pressure) || e.pressure <= 0) return state.pen;
-    return Math.max(3, Math.min(16, state.pen * (0.72 + e.pressure * 0.7)));
+    if (e.pointerType !== "pen" || !Number.isFinite(e.pressure)) return state.pen;
+    const pressure = Math.max(0, Math.min(1, e.pressure)),
+      tip = Math.max(PEN_STROKE_MIN, state.pen * PEN_PRESSURE_TIP_RATIO);
+    return clampStrokeWidth(tip + (state.pen - tip) * Math.sqrt(pressure));
   }
   function logicalWidth(cssWidth) {
     const maximum = state.mode === "eraser" ? 1600 : 320;
@@ -2258,6 +2430,9 @@
     state.future = [];
     window.PenEchoStudioNavigator?.updateDocument?.();
     return entry;
+  }
+  function saveUserCanvasChange() {
+    return canvasAgentDidCommitUserCanvasChange(save());
   }
   function applyHistory(entry, side) {
     const changes = Array.isArray(entry) ? entry : entry?.tiles || [];
@@ -2515,7 +2690,7 @@
       blitSized(fragment.renderImage || fragment.image, target.x, target.y, target.w, target.h);
     }
     state.userRevision++;
-    save();
+    saveUserCanvasChange();
     resetCanvasCursor();
     render();
     setStatusKey("selectionCommitted");
@@ -2585,7 +2760,7 @@
     state.selectionGesture = null;
     state.userRevision++;
     preservePendingAfterSelectionDelete(selection, pending, selectionRequest);
-    save();
+    saveUserCanvasChange();
     resetCanvasCursor();
     render();
     setStatusKey("selectionDeleted");

@@ -37,7 +37,6 @@ test("feature tour follows the requested concise order with stable targets", () 
       "core-effort-v1",
       "favorites-add-v1",
       "hand-v1",
-      "studio-theme-v1",
       "core-lasso-v1",
       "core-text-v1",
       "core-image-v1",
@@ -51,7 +50,7 @@ test("feature tour follows the requested concise order with stable targets", () 
       "core-navigation-v1",
     ];
   for (let index = 1; index < ordered.length; index++) assert.ok(app.indexOf(ordered[index - 1]) < app.indexOf(ordered[index]));
-  for (const selector of ["#aiEffortButton", "#craftsButton", "#handToolBtn", "#theme", "#lassoToolBtn", "#textToolBtn", "#imagePickerBtn", "#fullscreenBtn", "#shareCanvasBtn", "#cloudAccountBtn", "#canvasAgentControl", "#canvasAgentPanel", "#aiOrb", "#aiStatusArea", "#viewport"])
+  for (const selector of ["#aiEffortButton", "#craftsButton", "#handToolBtn", "#lassoToolBtn", "#textToolBtn", "#imagePickerBtn", "#fullscreenBtn", "#shareCanvasBtn", "#cloudAccountBtn", "#canvasAgentControl", "#canvasAgentPanel", "#aiOrb", "#aiStatusArea", "#viewport"])
     assert.match(app, new RegExp(selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   assert.match(app, /canvas-agent-panel-v1[^\n]*preview: "canvas-agent-panel"/);
   assert.match(app, /openCanvasAgent\(\{ focus:false, connect:false, animate:false \}\)/);
@@ -105,7 +104,7 @@ test("feature tour persists seen ids, supports replay, and repositions accessibl
   assert.match(app, /addEventListener\("resize", handleFeatureTourViewportChange\)/);
   assert.match(app, /window\.visualViewport\?\.addEventListener/);
   assert.match(app, /new ResizeObserver\(scheduleFeatureTourPosition\)/);
-  assert.match(app, /function startFeatureTour\([\s\S]*?hideAutoDelayControl\(\);[\s\S]*?hideEffortControl\(\);[\s\S]*?hidePluginControl\(\);[\s\S]*?closeRadialMenu\(\);/);
+  assert.match(app, /function startFeatureTour\([\s\S]*?hideAutoDelayControl\(\);[\s\S]*?hideEffortControl\(\);[\s\S]*?hidePluginControl\(\);[\s\S]*?featureTour\.active = true/);
   assert.match(app, /requestAnimationFrame\(\(\) => requestAnimationFrame\(maybeStartOnboarding\)\)/);
   assert.match(css, /\.tour-layer\s*\{[^}]*position:\s*fixed;[^}]*z-index:\s*80;[^}]*inset:\s*0/);
   assert.match(css, /\.tour-layer\[hidden\]\s*\{\s*display:\s*none/);
@@ -120,6 +119,8 @@ test("feature tour persists seen ids, supports replay, and repositions accessibl
   assert.match(css, /\.tour-actions \.tour-primary\s*\{[^}]*color:\s*#fff;/);
   assert.match(css, /\.tour-actions \.tour-primary:hover\s*\{[^}]*color:\s*#fff;/);
   assert.match(css, /body\[data-theme="studio"\] \.tour-actions button:not\(\.tour-primary\):hover:not\(:disabled\)/);
+  assert.match(css, /body\[data-theme="studio"\] \.tour-card\s*\{[^}]*border-color:\s*var\(--studio-accent-border\)[^}]*background:\s*var\(--studio-panel\)/);
+  assert.match(css, /body\[data-theme="studio"\] \.tour-skip:hover\s*\{[^}]*color:\s*var\(--studio-text\)[^}]*background:\s*var\(--studio-accent-softer\)/);
   assert.doesNotMatch(css, /(?:^|\n)(?:body\[data-theme="studio"\] )?\.tour-actions button:hover:not\(:disabled\)/);
   assert.match(css, /@media \(max-width:\s*620px\)[\s\S]*?\.tour-card\s*\{[^}]*width:\s*calc\(var\(--tour-viewport-width, 100vw\) - 16px\)/);
   assert.match(css, /body\[data-theme="research"\] \.tour-actions \.tour-primary[^}]*color:\s*#fff8e9/);
@@ -193,8 +194,6 @@ test("feature tour copy is complete in English and Chinese", () => {
       "tourEffortBody",
       "tourHandTitle",
       "tourHandBody",
-      "tourStudioThemeTitle",
-      "tourStudioThemeBody",
       "tourLassoTitle",
       "tourLassoBody",
       "tourTextTitle",
@@ -228,7 +227,6 @@ test("feature tour copy is complete in English and Chinese", () => {
   assert.match(zh, /HTML 控件仍可直接交互/);
   assert.doesNotMatch(app, /tourAnimationPlugin/);
   assert.doesNotMatch(zh, /控制动态图讲解/);
-  assert.match(zh, /Studio 主题/);
   assert.match(zh, /不会参考画布其他部分/);
   assert.match(app, /tourFavoritesBody:[^\n]*Echoes favorites[^\n]*favorite Widget[^\n]*favorite Canvas/);
   assert.match(zh, /tourFavoritesBody:[^\n]*Echoes[^\n]*收藏组件[^\n]*收藏画布/);

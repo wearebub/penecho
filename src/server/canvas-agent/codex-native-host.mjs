@@ -30,6 +30,7 @@ import {
   loadCanvasAgentVisualSkills,
   normalizeResolvedWidgetCapabilities,
   normalizeCanvasAgentTurnFileIds,
+  parseCanvasTitleEnvelope,
   prepareCanvasAgentTurnFiles,
   projectSessionCapabilities,
   publicSessionProject,
@@ -762,6 +763,7 @@ export class CodexNativeHost {
       continuity:boundedText(continuity,80_500),
       documentReaderLoaded:true,
       databaseReaderLoaded:true,
+      canvasTitleRequested:false,
       threadId:null,
       process:null,
       startPromise:null,
@@ -1073,17 +1075,18 @@ export class CodexNativeHost {
   }
 
   hostReferencesFor(session, imageAttachments, references, initialCanvasState) {
-    const authoritativeObjects = new Map((Array.isArray(session.stateDigest?.objects) ? session.stateDigest.objects : []).map(object => [String(object?.id || ''), object]))
+    const turnDigest=initialCanvasState?.reference?.digest||session.stateDigest
+    const authoritativeObjects = new Map((Array.isArray(turnDigest?.objects) ? turnDigest.objects : []).map(object => [String(object?.id || ''), object]))
     const selectedIds = Array.isArray(references?.objectIds) ? references.objectIds.map(String).slice(0, 20) : []
     const region = references?.region && typeof references.region === 'object' ? {
       x:Number(references.region.x), y:Number(references.region.y), width:Number(references.region.width), height:Number(references.region.height),
     } : null
-    const canvasWidth = Number(session.stateDigest?.canvas?.width), canvasHeight = Number(session.stateDigest?.canvas?.height)
+    const canvasWidth = Number(turnDigest?.canvas?.width), canvasHeight = Number(turnDigest?.canvas?.height)
     const validRegion = region && Object.values(region).every(Number.isFinite) && region.x >= 0 && region.y >= 0 && region.width > 0 && region.height > 0
       && region.x + region.width <= canvasWidth && region.y + region.height <= canvasHeight ? region : null
     return {
-      revision:Number.isSafeInteger(session.stateDigest?.revision) ? session.stateDigest.revision : null,
-      viewRevision:Number.isSafeInteger(session.stateDigest?.viewRevision) ? session.stateDigest.viewRevision : null,
+      revision:Number.isSafeInteger(turnDigest?.revision) ? turnDigest.revision : null,
+      viewRevision:Number.isSafeInteger(turnDigest?.viewRevision) ? turnDigest.viewRevision : null,
       objects:selectedIds.map(id => authoritativeObjects.get(id)).filter(Boolean),
       ...(validRegion ? { region:validRegion } : {}),
       ...(initialCanvasState ? { initialCanvasState:initialCanvasState.reference } : {}),
@@ -1115,25 +1118,25 @@ export class CodexNativeHost {
     ]))
   }
 
-  async submit(session, text, steer = false, images = [], references = {}, initialState = null, fileIds = []) {
+  async submit(session, text, steer = false, images = [], references = {}, initialState = null, fileIds = [], canvasTitleNeeded = false) {
     if (!this.sessions.has(session?.id) || session.disposed) throw new Error('Codex Native PenEcho Agent session is closed.')
     if (session.interruptPromise) await session.interruptPromise
     if (!this.sessions.has(session?.id) || session.disposed) throw new Error('Codex Native PenEcho Agent session is closed.')
     const prompt = boundedText(text, 40_000).trim()
     if (!prompt) throw new Error('Enter a message for PenEcho Agent.')
     const normalizedFileIds=normalizeCanvasAgentTurnFileIds(fileIds,Array.isArray(images)?images.length:0)
-    if (steer) return this.runSteer(session, prompt, images, references, initialState, normalizedFileIds)
-    const operation = session.turnQueue.then(() => this.runSubmit(session, text, steer, images, references, initialState, normalizedFileIds))
+    if (steer) return this.runSteer(session, prompt, images, references, initialState, normalizedFileIds, canvasTitleNeeded)
+    const operation = session.turnQueue.then(() => this.runSubmit(session, text, steer, images, references, initialState, normalizedFileIds, canvasTitleNeeded))
     session.turnQueue = operation.catch(() => {})
     return operation
   }
 
-  async runSteer(session, prompt, images = [], references = {}, initialState = null, fileIds = []) {
+  async runSteer(session, prompt, images = [], references = {}, initialState = null, fileIds = [], canvasTitleNeeded = false) {
     const active = session.active
     if (!active || !active.turnId) throw new Error('No active Codex Native PenEcho Agent turn is available to steer.')
     if (!session.process?.alive || !session.threadId) throw new Error('Codex Native PenEcho Agent thread is unavailable.')
-    const imageAttachments = await this.admitUserImages(session, images)
     const initialCanvasState = await admitInitialCanvasState(session, this.attachments, initialState)
+    const imageAttachments = await this.admitUserImages(session, images)
     const preparedTurnFiles=await prepareCanvasAgentTurnFiles(session,this.resolveProject,fileIds,images.length), previousTurnFiles=Array.isArray(session.turnFiles)?session.turnFiles:[],
       addedTurnFiles=preparedTurnFiles.filter(file=>!previousTurnFiles.some(previous=>previous.id===file.id)), duplicateTurnFiles=preparedTurnFiles.filter(file=>previousTurnFiles.some(previous=>previous.id===file.id)),
       nextTurnFiles=[...previousTurnFiles,...addedTurnFiles]
@@ -1147,13 +1150,16 @@ export class CodexNativeHost {
     }
     const hostReferences = this.hostReferencesFor(session, imageAttachments, references, initialCanvasState)
     const previousCanvasTurnBudget = session.canvasTurnBudget, previousVisualExplainerBudget = session.visualExplainerBudget, previousVisualExplorerBudget = session.visualExplorerBudget,
-      previousWidgetPatchAttempts = session.widgetPatchAttempts, previousTurnReferences = session.turnReferences
+      previousWidgetPatchAttempts = session.widgetPatchAttempts, previousTurnReferences = session.turnReferences,previousCanvasTitleRequested=session.canvasTitleRequested,
+      previousActiveTitleRequested=active.titleRequested
     session.turnReferences = hostReferences
     session.canvasTurnBudget = freshCanvasAgentTurnBudget()
     session.visualExplainerBudget = freshVisualExplainerBudget()
     session.visualExplorerBudget = freshVisualExplorerBudget()
     if (initialCanvasState?.empty) session.visualExplorerBudget.authoritativeEmptyRevision = Number(initialCanvasState.reference?.digest?.revision)
     session.widgetPatchAttempts = new Map()
+    active.titleRequested ||= canvasTitleNeeded===true
+    session.canvasTitleRequested=active.titleRequested
     try {
       const input = await this.modelInput(session, prompt, hostReferences, [
         ...(initialCanvasState?.attachment ? [initialCanvasState.attachment] : []), ...imageAttachments,
@@ -1175,11 +1181,13 @@ export class CodexNativeHost {
       session.visualExplainerBudget = previousVisualExplainerBudget
       session.visualExplorerBudget = previousVisualExplorerBudget
       session.widgetPatchAttempts = previousWidgetPatchAttempts
+      session.canvasTitleRequested=previousCanvasTitleRequested
+      active.titleRequested=previousActiveTitleRequested
       throw error
     }
   }
 
-  async runSubmit(session, text, steer = false, images = [], references = {}, initialState = null, fileIds = []) {
+  async runSubmit(session, text, steer = false, images = [], references = {}, initialState = null, fileIds = [], canvasTitleNeeded = false) {
     if (!this.sessions.has(session?.id) || session.disposed) throw new Error('Codex Native PenEcho Agent session is closed.')
     const prompt = boundedText(text, 40_000).trim()
     if (!prompt) throw new Error('Enter a message for PenEcho Agent.')
@@ -1190,7 +1198,7 @@ export class CodexNativeHost {
       active = {
         turnId:null, text:'', usage:null, settled:false, callIds:new Set(), compactionEmitted:false, inputController, resolve, reject,
         rawDecisionCalls:[], rawDecisionBatches:new Map(), sealedDecisionBatches:[], rawBoundaryCount:0, pendingToolAdmissions:new Map(), responseTextStart:0,
-        completedResponseMessages:[],
+        completedResponseMessages:[],titleRequested:canvasTitleNeeded===true,canvasTitleCandidate:'',
         emitEnd:(reason, error = null) => {
           if (active.settled) return
           active.settled = true
@@ -1199,7 +1207,8 @@ export class CodexNativeHost {
           if (session.active === active) session.active = null
           const event = error
             ? { kind:'turn_end', turn:session.turnNumber, reason:{ kind:reason, error:{ code:'CODEX_NATIVE_FAILED', message:safeError(error) } } }
-            : { kind:'turn_end', turn:session.turnNumber, reason:{ kind:reason } }
+            : { kind:'turn_end', turn:session.turnNumber, reason:{ kind:reason },...(reason==='completed'&&active.titleRequested&&active.canvasTitleCandidate?{canvasTitle:active.canvasTitleCandidate}:{}) }
+          session.canvasTitleRequested=false
           session.backlog.push(event)
           if (session.backlog.length > MAX_BACKLOG) session.backlog.splice(0, session.backlog.length - MAX_BACKLOG)
           this.logConversation(session, 'event', event)
@@ -1217,12 +1226,13 @@ export class CodexNativeHost {
     })
     turnPromise.catch(() => {})
     session.active = active
+    session.canvasTitleRequested=active.titleRequested
     session.turnNumber += 1
     this.emitPublicEvent(session, { kind:'user_message', turn:session.turnNumber, text:redactPublicProjectValue(prompt, session) })
     this.emitPublicEvent(session, { kind:'turn_start', turn:session.turnNumber })
     this.send(session, 'agent_status', { status:'running' })
 
-    let previousCanvasTurnBudget, previousVisualExplainerBudget, previousVisualExplorerBudget, previousWidgetPatchAttempts, budgetsChanged = false, pendingTurnFiles=[]
+    let previousCanvasTurnBudget, previousVisualExplainerBudget, previousVisualExplorerBudget, previousWidgetPatchAttempts, budgetsChanged = false, pendingTurnFiles=[], initialCanvasState=null
     const assertActive = () => {
       if (session.disposed || session.active !== active || inputController.signal.aborted) {
         throw inputController.signal.reason instanceof Error
@@ -1231,6 +1241,9 @@ export class CodexNativeHost {
       }
     }
     try {
+      // Freeze the send-time Canvas before provider startup can allow later state_sync frames to replace the live digest.
+      initialCanvasState = await admitInitialCanvasState(session, this.attachments, initialState)
+      assertActive()
       await this.ensureStarted(session)
       assertActive()
       if (!session.process?.alive || !session.threadId) throw new Error('Codex Native PenEcho Agent thread is unavailable.')
@@ -1249,8 +1262,6 @@ export class CodexNativeHost {
         this.interruptFailedTurn(session, error).catch(() => {})
       }, { once:true })
       const imageAttachments = await this.admitUserImages(session, images)
-      assertActive()
-      const initialCanvasState = await admitInitialCanvasState(session, this.attachments, initialState)
       assertActive()
       pendingTurnFiles=await prepareCanvasAgentTurnFiles(session,this.resolveProject,fileIds,images.length)
       assertActive()
@@ -1421,11 +1432,17 @@ export class CodexNativeHost {
   }
 
   sealNativeAssistantResponse(session, active) {
-    const start=Math.min(active.responseTextStart,active.text.length),responseText=active.text.slice(start),messages=active.completedResponseMessages.splice(0)
+    const start=Math.min(active.responseTextStart,active.text.length),prefix=active.text.slice(0,start),responseText=active.text.slice(start),messages=active.completedResponseMessages.splice(0),
+      project=value=>{
+        if(!active.titleRequested)return String(value||'')
+        const parsed=parseCanvasTitleEnvelope(value,true)
+        if(parsed.matched&&parsed.title&&!active.canvasTitleCandidate)active.canvasTitleCandidate=parsed.title
+        return parsed.text
+      },visibleResponse=project(responseText),visibleMessages=messages.map(project).filter(Boolean)
+    active.text=`${prefix}${visibleResponse}`
     active.responseTextStart=active.text.length
-    if(!responseText)return
-    this.emitPublicEvent(session,{kind:'assistant_delta',turn:session.turnNumber,text:redactPublicProjectValue(responseText,session)})
-    for(const message of messages)this.emitPublicEvent(session,{kind:'assistant_message',turn:session.turnNumber,text:redactPublicProjectValue(message,session)})
+    if(visibleResponse)this.emitPublicEvent(session,{kind:'assistant_delta',turn:session.turnNumber,text:redactPublicProjectValue(visibleResponse,session)})
+    for(const message of visibleMessages)this.emitPublicEvent(session,{kind:'assistant_message',turn:session.turnNumber,text:redactPublicProjectValue(message,session)})
   }
 
   nativeToolMatch(batch, request, includeSettled = false) {

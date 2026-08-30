@@ -18,7 +18,7 @@ const { lanHosts, lanUrls } = require("./network-access.js");
 const { desktopConfigurationEnvironment } = require("./config-environment.js");
 const { issueNativePickerGrant } = require("../src/server/canvas-agent/native-picker-grants.js");
 const { CanvasAgentProjectStore } = require("../src/server/canvas-agent/project-store.js");
-const { CANVAS_PAGE_SCALE } = require("../public/page-scale.js");
+const { CANVAS_PAGE_SCALE, normalizeCanvasPageScale } = require("../public/page-scale.js");
 const pkg = require("../package.json");
 const DESKTOP_VERSION = pkg.config?.desktopVersion || pkg.version;
 
@@ -453,6 +453,12 @@ function registerIpc() {
   ipcMain.handle("penecho:update-download", event => fromCanvas(event) ? updateManager?.download() : false);
   ipcMain.handle("penecho:update-dismiss", event => fromCanvas(event) ? updateManager?.dismiss() : false);
   ipcMain.handle("penecho:update-install", event => fromCanvas(event) ? updateManager?.install() : false);
+  ipcMain.handle("penecho:set-page-scale", (event, value) => {
+    if (!fromCanvas(event) || !mainWindow || mainWindow.isDestroyed()) return { ok:false };
+    const scale = normalizeCanvasPageScale(value);
+    mainWindow.webContents.setZoomFactor(scale);
+    return { ok:true, scale };
+  });
   ipcMain.handle("penecho:get-settings", () => {
     const loaded = loadConfiguration();
     const settings = publicSettings(loaded.configuration, { version:DESKTOP_VERSION, hasSavedApiKey:Boolean(loaded.apiKey) }),

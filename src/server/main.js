@@ -326,6 +326,8 @@ const localAccessClientFailures = new Map();
 const localAccessVerificationClients = new Set();
 const activeLocalRequests = new Map();
 const CLI_RESOLUTION_TASKS = new Map();
+const CLI_RUNTIME_RESOLUTIONS = new Map();
+const CLI_RECOVERY_TASKS = new Map();
 let cloudConnector = null;
 
 function firstNonEmpty(...values) {
@@ -379,14 +381,99 @@ function setCliResolutionTask(provider, task) {
   tracked.then(forget, forget);
 }
 
+function cliProviderExecutable(provider) {
+  if (provider?.provider === "kimi-cli") return String(provider.kimi?.executable || "kimi").trim() || "kimi";
+  if (provider?.provider === "codex-cli") return String(provider.codex?.executable || "codex").trim() || "codex";
+  if (provider?.provider === "claude-cli") return String(provider.claude?.executable || "claude").trim() || "claude";
+  return "";
+}
+
+function cliRuntimeResolutionKey(provider) {
+  const executable = cliProviderExecutable(provider);
+  return provider?.local && executable ? `${provider.provider}\0${executable}` : "";
+}
+
+function cliProviderWithExecutable(provider, executable) {
+  const selected = String(executable || "").trim();
+  if (!provider?.local || !selected) return provider;
+  const key = provider.provider === "kimi-cli" ? "kimi" : provider.provider === "codex-cli" ? "codex" : provider.provider === "claude-cli" ? "claude" : "";
+  return key ? { ...provider, [key]:{ ...provider[key], executable:selected }, local:{ ...provider.local, executable:selected } } : provider;
+}
+
+function rememberCliRuntimeResolution(provider, executable) {
+  const key = cliRuntimeResolutionKey(provider), selected = String(executable || "").trim();
+  if (key && selected) CLI_RUNTIME_RESOLUTIONS.set(key, selected);
+}
+
+function forgetCliRuntimeResolution(provider) {
+  const key = cliRuntimeResolutionKey(provider);
+  if (key) CLI_RUNTIME_RESOLUTIONS.delete(key);
+}
+
 async function resolvedCliProvider(provider) {
   if (!provider?.local) return provider;
+  const runtimeExecutable = CLI_RUNTIME_RESOLUTIONS.get(cliRuntimeResolutionKey(provider));
+  if (runtimeExecutable) return cliProviderWithExecutable(provider, runtimeExecutable);
   const task = CLI_RESOLUTION_TASKS.get(provider.provider);
   if (!task) return provider;
   const result = await task.catch(() => null);
   if (!result?.ok || !result.executable) return provider;
-  const key = provider.provider === "kimi-cli" ? "kimi" : provider.provider === "codex-cli" ? "codex" : "claude";
-  return { ...provider, [key]:{ ...provider[key], executable:result.executable }, local:{ ...provider.local, executable:result.executable } };
+  rememberCliRuntimeResolution(provider, result.executable);
+  return cliProviderWithExecutable(provider, result.executable);
+}
+
+function cliExecutableUnavailable(error) {
+  const message = String(error?.message || "");
+  return ["ENOENT", "EACCES", "ENOEXEC"].includes(error?.code)
+    || /CLI was not found|CLI path is not a file|Windows batch wrappers are unsupported|spawn[^\r\n]*\b(?:ENOENT|EACCES|ENOEXEC)\b|no such file or directory|permission denied/i.test(message);
+}
+
+function cliRecoveryFailure(provider, status) {
+  const label = provider?.local?.label || "CLI";
+  const state = String(status?.state || "repair_required");
+  const message = state === "auth_required"
+    ? `${label} is not logged in. Run \`${provider?.local?.doctor || provider?.provider?.replace("-cli", "") || "codex"} login\` first.`
+    : state === "missing"
+      ? `${label} was not found.`
+      : `${label} could not pass its executable and login checks.`;
+  return Object.assign(new Error(message), { code:"PENECHO_CLI_RECOVERY_FAILED", cliState:state });
+}
+
+async function recoverDirectCliProvider(provider) {
+  const key = cliRuntimeResolutionKey(provider);
+  if (!key || provider.provider !== "codex-cli") throw cliRecoveryFailure(provider, { state:"missing" });
+  let task = CLI_RECOVERY_TASKS.get(key);
+  if (!task) {
+    task = (async () => {
+      const status = await inspectConnectionCli(provider.provider, { configuredPath:cliProviderExecutable(provider) });
+      if (status?.state !== "ready" || !status.executable) {
+        log({ type:"cli-auto-recovery-failed", provider:provider.provider, state:String(status?.state || "repair_required") });
+        throw cliRecoveryFailure(provider, status);
+      }
+      rememberCliRuntimeResolution(provider, status.executable);
+      log({ type:"cli-auto-recovery", provider:provider.provider, source:status.source || "discovered", version:String(status.version || "").slice(0, 120) });
+      return cliProviderWithExecutable(provider, status.executable);
+    })();
+    CLI_RECOVERY_TASKS.set(key, task);
+  }
+  try { return await task; }
+  finally { if (CLI_RECOVERY_TASKS.get(key) === task) CLI_RECOVERY_TASKS.delete(key); }
+}
+
+async function callCodexCliWithRecovery(provider, options) {
+  let selectedProvider = await resolvedCliProvider(provider);
+  try { return await callCodexCli({ ...selectedProvider.codex, ...options }); }
+  catch (error) {
+    if (!cliExecutableUnavailable(error) || options?.signal?.aborted) throw error;
+    forgetCliRuntimeResolution(provider);
+    try { selectedProvider = await recoverDirectCliProvider(provider); }
+    catch (recoveryError) {
+      if (recoveryError?.cliState && recoveryError.cliState !== "missing") throw recoveryError;
+      throw error;
+    }
+    if (options?.signal?.aborted) throw error;
+    return callCodexCli({ ...selectedProvider.codex, ...options });
+  }
 }
 
 function applyHotSearchConfiguration(updates) {
@@ -1413,6 +1500,19 @@ function moveSharedCanvas(id,projectId) {
   try{metadata=canonicalSharedCanvasMetadata(JSON.parse(fs.readFileSync(metadataFile,"utf8")),id)}catch{}
   if(!metadata)throw Object.assign(new Error("Canvas was not found."),{status:404});
   metadata.projectId=projectId;
+  atomicJsonWrite(metadataFile,metadata);
+  return metadata;
+}
+function renameSharedCanvas(id,value) {
+  const name=typeof value==="string"?value.trim().slice(0,48):"";
+  if(!name)throw Object.assign(new Error("Canvas name is required."),{status:400});
+  const metadataFile=canvasSnapshotPath(id,true);
+  if(!metadataFile)throw Object.assign(new Error("Invalid canvas id."),{status:400});
+  let metadata;
+  try{metadata=canonicalSharedCanvasMetadata(JSON.parse(fs.readFileSync(metadataFile,"utf8")),id)}catch{}
+  if(!metadata)throw Object.assign(new Error("Canvas was not found."),{status:404});
+  metadata.name=name;
+  metadata.updatedAt=Date.now();
   atomicJsonWrite(metadataFile,metadata);
   return metadata;
 }
@@ -2444,6 +2544,7 @@ function completeRequestTrace(trace, status, httpStatus, body=null, error=null) 
   });
 }
 async function callModel(modelInput, atlasImage, retryInstruction="", effort, externalSignal = null, provider = activeProviderSnapshot(), onProgress = null) {
+  const configuredProvider = provider;
   provider = await resolvedCliProvider(provider);
   const controller = new AbortController(), timeout = createActivityAwareTimeout(controller, provider.timeoutMs * reasoningEffortTimeoutMultiplier(effort)),
     streamActivity = () => { timeout.activity(); onProgress?.("activity"); };
@@ -2464,7 +2565,7 @@ async function callModel(modelInput, atlasImage, retryInstruction="", effort, ex
         const content = provider.provider === "kimi-cli"
           ? await callKimiCli({ ...provider.kimi, effort, prompt:kimiModelPrompt(text,literalTypeset,animationEnabled,pluginsEnabled), atlasImage, signal:controller.signal, onActivity:streamActivity })
           : provider.provider === "codex-cli"
-            ? await callCodexCli({ ...provider.codex, effort, prompt:codexModelPrompt(text,literalTypeset,animationEnabled,pluginsEnabled), atlasImage, signal:controller.signal, onProgress:localProgress, onActivity:streamActivity })
+            ? await callCodexCliWithRecovery(configuredProvider, { effort, prompt:codexModelPrompt(text,literalTypeset,animationEnabled,pluginsEnabled), atlasImage, signal:controller.signal, onProgress:localProgress, onActivity:streamActivity })
             : await callClaudeCli({ ...provider.claude, effort, systemPrompt:localCliSystemPrompt(literalTypeset,animationEnabled,pluginsEnabled), prompt:localCliRequestPrompt(text), atlasImage, signal:controller.signal, onProgress:localProgress, onActivity:streamActivity });
         if(!receivingStarted)localProgress("receiving");
         onProgress?.("validating");
@@ -2836,9 +2937,10 @@ function communityMetadataPrompt({kind,language,current,context},repair="") {
   return `${repair?`Correct the previous invalid response. ${short(repair,240)}\n\n`:""}Prepare ${requestedLanguage} metadata for this PenEcho ${kind}. The attached image is an automatically generated read-only screenshot of the exact item being shared. Preserve a useful existing draft when it is already accurate, and improve it when the image supports a clearer result.\n\n<draft-json>\n${JSON.stringify({current,context})}\n</draft-json>`;
 }
 async function requestCommunityMetadataModel(prompt,atlasImage,effort,signal,provider=activeProviderSnapshot(),onActivity=null) {
+  const configuredProvider=provider;
   provider=await resolvedCliProvider(provider);
   if(provider.provider==="kimi-cli")return callKimiCli({...provider.kimi,effort,prompt:`${COMMUNITY_METADATA_SYSTEM}\n\n${prompt}`,atlasImage,signal,onActivity});
-  if(provider.provider==="codex-cli")return callCodexCli({...provider.codex,effort,prompt:`${COMMUNITY_METADATA_SYSTEM}\n\n${prompt}`,atlasImage,signal,onActivity});
+  if(provider.provider==="codex-cli")return callCodexCliWithRecovery(configuredProvider,{effort,prompt:`${COMMUNITY_METADATA_SYSTEM}\n\n${prompt}`,atlasImage,signal,onActivity});
   if(provider.provider==="claude-cli")return callClaudeCli({...provider.claude,effort,systemPrompt:COMMUNITY_METADATA_SYSTEM,prompt,atlasImage,signal,onActivity});
   const response=await fetch(provider.api.endpoint,{signal,method:"POST",redirect:"error",...communityMetadataProviderRequest(provider.apiKey,provider.model,prompt,atlasImage,effort,provider.api,provider)});
   if(!response.ok){const responseText=await response.text(),error=new Error(`Model request failed (${response.status}): ${short(responseText,400)}`);error.status=response.status;throw error;}
@@ -2884,9 +2986,10 @@ function pluginBundleFromModel(content, currentStyles="") {
   throw validationError || new Error("Plugin output does not contain a valid bundle");
 }
 async function requestPluginAuthoringModel(prompt, effort, signal, provider = activeProviderSnapshot(), onActivity = null) {
+  const configuredProvider = provider;
   provider = await resolvedCliProvider(provider);
   if (provider.provider === "kimi-cli") return callKimiCli({ ...provider.kimi, effort, prompt:`${PLUGIN_AUTHORING_SYSTEM}\n\n${prompt}`, signal, onActivity });
-  if (provider.provider === "codex-cli") return callCodexCli({ ...provider.codex, effort, prompt:`${PLUGIN_AUTHORING_SYSTEM}\n\n${prompt}`, signal, onActivity });
+  if (provider.provider === "codex-cli") return callCodexCliWithRecovery(configuredProvider, { effort, prompt:`${PLUGIN_AUTHORING_SYSTEM}\n\n${prompt}`, signal, onActivity });
   if (provider.provider === "claude-cli") return callClaudeCli({ ...provider.claude, effort, systemPrompt:PLUGIN_AUTHORING_SYSTEM, prompt, signal, onActivity });
   const response = await fetch(provider.api.endpoint, { signal, method:"POST", redirect:"error", ...pluginAuthoringProviderRequest(provider.apiKey,provider.model,prompt,effort,provider.api,provider) });
   if (!response.ok) {
@@ -3611,6 +3714,11 @@ const server = http.createServer(async (req, res) => {
       if(req.method==="PUT"&&sharedCanvasMatch) {
         if(!isJsonRequest(req))return send(res,415,{error:"Canvas storage requires application/json."});
         return send(res,200,{canvas:saveSharedCanvas(await readJson(req,MAX_SHARED_CANVAS_BYTES),sharedCanvasMatch[1])});
+      }
+      if(req.method==="PATCH"&&sharedCanvasMatch) {
+        if(!isJsonRequest(req))return send(res,415,{error:"Canvas storage requires application/json."});
+        const input=await readJson(req,64*1024);
+        return send(res,200,{canvas:renameSharedCanvas(sharedCanvasMatch[1],input?.name)});
       }
       if(req.method==="DELETE"&&sharedCanvasMatch)return send(res,200,{canvas:deleteSharedCanvas(sharedCanvasMatch[1])});
       return send(res,405,{error:"Method Not Allowed"});

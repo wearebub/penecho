@@ -153,6 +153,10 @@ export const HARNESS_RUNTIME_PLUGIN_ALLOWLIST = Object.freeze([
   'agent-loop',
 ])
 const HARNESS_RUNTIME_PLUGIN_IDS = new Set(HARNESS_RUNTIME_PLUGIN_ALLOWLIST)
+const CANVAS_TITLE_OPEN = '<penecho_canvas_title>'
+const CANVAS_TITLE_CLOSE = '</penecho_canvas_title>'
+const CANVAS_TITLE_ENVELOPE_LIMIT = 160
+const CANVAS_TITLE_REQUEST_CONTEXT = `This Canvas has no saved title. Without a tool call, separate task, or extra model request, summarize the conversation's subject, grounded primarily in its initial user request, as a concise title in the user's language (2-8 words or 4-16 Chinese characters, maximum 48 characters). At the very beginning of the final assistant text only, emit exactly one line: <penecho_canvas_title>title</penecho_canvas_title>. Then continue the normal answer immediately. The host hides this line and applies it only after the turn completes. If no reliable title is available, omit the line; never delay, retry, or fail the answer for the title.`
 
 async function mountRuntimePlugin(ctx, id, plugin, config) {
   if (!HARNESS_RUNTIME_PLUGIN_IDS.has(id)) throw new Error(`PenEcho Agent refused non-allowlisted Harness plugin: ${id}`)
@@ -236,7 +240,7 @@ function widgetCapabilitiesContext(capabilities) {
   const privateRoutes=capabilities.privatePlugins.length
     ? ` Enabled user-owned private HTML routes are injected below and may be selected only by their exact plugin ids: ${capabilities.privatePlugins.map(plugin=>plugin.id).join(', ')}.`
     : ''
-  return `Widget routing: Visual Explorer is the default for understanding, learning, explanation, analysis, organization, substantial pasted text, equations, projects, and documents, even without an explicit request for an infographic. Do not choose it when the primary task is only to supplement or modify existing Canvas/page elements. Ordinary General HTML remains available for explicit HTML, interaction, simulation, live data, small browser tools, freeform overlays, or custom behavior; call load_widget_contract with route="general-html" before using that route. Never create Professional Diagrams; new Widgets use Visual Explorer or enabled HTML.${capabilities.professionalEnabled?' For an existing Professional only, load route="professional-diagrams" to read and patch it.':''}${privateRoutes}`
+  return `Follow the loaded Visual Explorer contract. General HTML requires route="general-html" and is only for HTML, interaction, simulation, live data, browser tools, overlays, or custom behavior. Never create Professional Diagrams.${capabilities.professionalEnabled?' For an existing Professional only, load route="professional-diagrams" to read and patch it.':''}${privateRoutes}`
 }
 
 export function publicWidgetCapabilities(capabilities) {
@@ -1730,6 +1734,49 @@ function messageText(message, { publicOnly = false } = {}) {
     : ''
 }
 
+export function parseCanvasTitleEnvelope(value, final = false) {
+  const text=String(value||'')
+  if(CANVAS_TITLE_OPEN.startsWith(text)&&text.length<CANVAS_TITLE_OPEN.length)return {matched:false,complete:false,title:'',text:''}
+  if(!text.startsWith(CANVAS_TITLE_OPEN))return {matched:false,complete:true,title:'',text}
+  const end=text.indexOf(CANVAS_TITLE_CLOSE,CANVAS_TITLE_OPEN.length)
+  if(end<0){
+    if(!final&&text.length<=CANVAS_TITLE_ENVELOPE_LIMIT)return {matched:false,complete:false,title:'',text:''}
+    return {matched:false,complete:true,title:'',text}
+  }
+  const title=text.slice(CANVAS_TITLE_OPEN.length,end).replace(/[\0-\x1f\x7f]+/g,' ').replace(/\s+/g,' ').trim().slice(0,48),
+    visibleText=text.slice(end+CANVAS_TITLE_CLOSE.length).replace(/^\r?\n/,'')
+  return {matched:true,complete:true,title,text:visibleText}
+}
+
+function canvasTitleStreamKey(data) {
+  return `${Number.isSafeInteger(data?.turn)?data.turn:'turn'}:${Number.isSafeInteger(data?.step)?data.step:'step'}`
+}
+
+function projectCanvasTitleChunk(session, data, value) {
+  const text=String(value||'')
+  if(!session?.canvasTitleRequested)return text
+  session.canvasTitleStreams ||= new Map()
+  const key=canvasTitleStreamKey(data),stream=session.canvasTitleStreams.get(key)||{buffer:'',decided:false}
+  if(stream.decided)return text
+  stream.buffer+=text
+  const parsed=parseCanvasTitleEnvelope(stream.buffer,false)
+  session.canvasTitleStreams.set(key,stream)
+  if(!parsed.complete)return ''
+  stream.decided=true
+  stream.buffer=''
+  if(parsed.matched&&parsed.title&&!session.canvasTitleCandidate)session.canvasTitleCandidate=parsed.title
+  return parsed.text
+}
+
+function projectCanvasTitleMessage(session, data, value) {
+  const text=String(value||'')
+  if(!session?.canvasTitleRequested)return text
+  const parsed=parseCanvasTitleEnvelope(text,true)
+  session.canvasTitleStreams?.delete(canvasTitleStreamKey(data))
+  if(parsed.matched&&parsed.title&&!session.canvasTitleCandidate)session.canvasTitleCandidate=parsed.title
+  return parsed.text
+}
+
 function parsedArguments(value) {
   try {
     const parsed = JSON.parse(value)
@@ -1746,16 +1793,18 @@ export function redactPublicProjectValue(value, session, depth = 0) {
   return Object.fromEntries(Object.entries(value).slice(0, 100).map(([key, item]) => [key, redactPublicProjectValue(item, session, depth + 1)]))
 }
 
-function publicSessionEvent(event, session) {
+export function publicSessionEvent(event, session) {
   const data = event?.data || {}
   if (event?.type === 'assistant/chunk' && data.chunk?.type === 'text-delta' && data.chunk.text) {
-    return { kind:'assistant_delta', turn:data.turn, step:data.step, text:redactRuntimePath(data.chunk.text, session) }
+    const text=projectCanvasTitleChunk(session,data,redactRuntimePath(data.chunk.text, session))
+    return text ? { kind:'assistant_delta', turn:data.turn, step:data.step, text } : null
   }
   if (event?.type === 'assistant/message') {
     const feedbackOnly=Array.isArray(data.message?.content) && data.message.content.some(block=>block?.type==='tool-call'&&block.name===CANVAS_DECISION_FEEDBACK_TOOL&&session?.decisionFeedbackCallIds?.has(String(block.id||'')))
       && !messageText(data.message)
     if(feedbackOnly)return null
-    return { kind:'assistant_message', turn:data.turn, step:data.step, text:redactRuntimePath(messageText(data.message), session), interrupted:Boolean(data.interrupted) }
+    const text=projectCanvasTitleMessage(session,data,redactRuntimePath(messageText(data.message), session))
+    return text ? { kind:'assistant_message', turn:data.turn, step:data.step, text, interrupted:Boolean(data.interrupted) } : null
   }
   if (event?.type === 'user/message' && data.source?.kind === 'user') {
     return { kind:'user_message', messageId:data.id, text:redactRuntimePath(messageText(data, { publicOnly:true }), session) }
@@ -1780,7 +1829,12 @@ function publicSessionEvent(event, session) {
     }
   }
   if (event?.type === 'turn/start') return { kind:'turn_start', turn:data.turn }
-  if (event?.type === 'turn/end') return { kind:'turn_end', turn:data.turn, reason:data.reason }
+  if (event?.type === 'turn/end') {
+    const projected={kind:'turn_end',turn:data.turn,reason:data.reason},completed=data.reason?.kind==='completed'
+    if(completed&&session?.canvasTitleRequested&&session.canvasTitleCandidate)projected.canvasTitle=session.canvasTitleCandidate
+    if(session){session.canvasTitleRequested=false;session.canvasTitleCandidate='';session.canvasTitleStreams?.clear()}
+    return projected
+  }
   if (event?.type === 'compaction/summary') return { kind:'compaction', mode:'summary' }
   if (event?.type === 'compaction/prune') return { kind:'compaction', mode:'tool-result-prune' }
   return null
@@ -3428,8 +3482,9 @@ export async function admitInitialCanvasState(session, attachments, value) {
   if (value === undefined || value === null) return null
   if (!value || typeof value !== 'object' || Array.isArray(value) || !value.digest) throw new Error('The initial Canvas state is invalid.')
   const digest=value.digest, current=session.stateDigest||{}, revision=Number(digest.revision), viewRevision=Number(digest.viewRevision)
+  // App chrome may change the synchronized viewport, but it cannot invalidate an already prepared user-turn snapshot.
   if (!Number.isSafeInteger(revision) || revision!==current.revision || revision!==digest.revision
-    || !Number.isSafeInteger(viewRevision) || viewRevision!==current.viewRevision || viewRevision!==digest.viewRevision) {
+    || !Number.isSafeInteger(viewRevision) || viewRevision!==digest.viewRevision) {
     throw new Error('The initial Canvas state does not match the synchronized Canvas revision.')
   }
   if (value.empty===true) {
@@ -3443,7 +3498,7 @@ export async function admitInitialCanvasState(session, attachments, value) {
         empty:true,
         scope:'start-of-user-turn',
         instruction:'This is the authoritative initial Canvas state for this user turn. The Canvas is empty, so no image is attached by design. Do not inspect or capture the unchanged starting state.',
-        digest:current,
+        digest,
       },
     }
   }
@@ -3451,7 +3506,7 @@ export async function admitInitialCanvasState(session, attachments, value) {
   const capture=value.capture, image=value.image, limits=canvasCaptureLimits({quality:'basic'}), width=Number(capture.width), height=Number(capture.height)
   if (capture.target!=='canvas' || capture.quality!=='basic' || capture.coordinates!=='none') throw new Error('The initial Canvas state must be one clean complete-Canvas overview.')
   if (Number(capture.revision)!==revision || Number(capture.viewRevision)!==viewRevision) throw new Error('The initial Canvas state does not match the synchronized Canvas revision.')
-  const actualRegion=capture.logicalRegion, expectedRegion=current.canvas?.contentBounds||current.viewport
+  const actualRegion=capture.logicalRegion, expectedRegion=digest.canvas?.contentBounds||digest.viewport
   if (!actualRegion || !expectedRegion || !['x','y','width','height'].every(key=>Number.isFinite(Number(actualRegion[key]))
     && Number.isFinite(Number(expectedRegion[key])) && Math.abs(Number(actualRegion[key])-Number(expectedRegion[key]))<0.01)) {
     throw new Error('The initial Canvas state does not cover the synchronized complete-Canvas region.')
@@ -3486,7 +3541,7 @@ export async function admitInitialCanvasState(session, attachments, value) {
       authoritative:true,
       scope:'start-of-user-turn',
       instruction:'This is the authoritative initial Canvas state for this user turn. Use it instead of querying the same unchanged starting state again.',
-      digest:current,
+      digest,
       capture:metadata,
     },
   }
@@ -3567,7 +3622,7 @@ function createCanvasTools(session, attachments) {
   })
   const create = defineCanvasTool(session, {
     name:'canvas_create',
-    description:`Atomically create Canvas items. Professional edit-only; Widgets use Visual Explorer or enabled HTML. Drawing: origin + parallel types/items, never strokes/points. Visual Explorer: one complete General HTML item with sourceFormat=${VISUAL_EXPLORER_SOURCE_FORMAT}, frameworkVersion=${VISUAL_EXPLORER_FRAMEWORK_VERSION}; progressive only at items[0].deliveryMode, never top-level. Empty Canvas: finite size and placement.mode="auto"; else exact geometry. Load Widget contracts; inspect/capture nonempty Canvas before placement.`,
+    description:`Atomically create Canvas items. Plain function graph: use host-native type="plot", never drawing points or a Widget. Professional edit-only; Widgets use Visual Explorer or enabled HTML. Drawing: origin + parallel types/items, never strokes/points. Visual Explorer: one complete General HTML item with sourceFormat=${VISUAL_EXPLORER_SOURCE_FORMAT}, frameworkVersion=${VISUAL_EXPLORER_FRAMEWORK_VERSION}; progressive only at items[0].deliveryMode, never top-level. Empty Canvas: finite size and placement.mode="auto"; else exact geometry. Load Widget contracts; inspect/capture nonempty Canvas before placement.`,
     parameters:{
       baseRevision:{ type:'integer', required:true },
       items:{ type:'array', required:true, items:createItemSchema(session) },
@@ -3966,6 +4021,11 @@ const PenEchoCanvasPlugin = {
       name:'penecho:web-search',
       order:21,
       text:() => `Internet Search is ${session.webSearch.enabled ? 'enabled' : 'disabled'} for this conversation. The composer toggle is authoritative. Direct public-URL reading through web_read is always available.`,
+    })
+    agentCtx.systemPrompt.context({
+      name:'penecho:title-request',
+      order:22,
+      text:() => session.canvasTitleRequested ? CANVAS_TITLE_REQUEST_CONTEXT : '',
     })
     agentCtx.tools.register(webReadTool(session))
     if(session.webSearch.enabled){
@@ -4379,6 +4439,9 @@ export class CanvasHarnessHost {
       projectSnapshotPath,
       documentReaderLoaded:false,
       databaseReaderLoaded:false,
+      canvasTitleRequested:false,
+      canvasTitleCandidate:'',
+      canvasTitleStreams:new Map(),
     }
     session.traceAsset = this.conversationTrace ? asset => this.traceConversationAsset(session,asset) : null
     session.tracePatchProtocol = this.conversationTrace ? record => this.tracePatchProtocol(session,record) : null
@@ -4651,11 +4714,12 @@ export class CanvasHarnessHost {
     return session.webSearch.enabled
   }
 
-  async submit(session, text, steer = false, images = [], references = {}, initialState = null, fileIds = []) {
+  async submit(session, text, steer = false, images = [], references = {}, initialState = null, fileIds = [], canvasTitleNeeded = false) {
     const prompt = boundedText(text, 40_000).trim()
     if (!prompt) throw new Error('Enter a message for PenEcho Agent.')
     if (!Array.isArray(images) || images.length > 5) throw new Error('PenEcho Agent accepts at most five images per message.')
     const normalizedFileIds=normalizeCanvasAgentTurnFileIds(fileIds,images.length)
+    const initialCanvasState=await admitInitialCanvasState(session,this.context.attachments,initialState)
     const imageAttachments = images.length ? await admitEncodedImages(this.context.attachments, images) : []
     if (this.conversationTrace) images.forEach((image,index)=>{
       const diagnostic=canvasAgentHandwritingAdmissionDiagnostic(image,imageAttachments[index])
@@ -4668,7 +4732,6 @@ export class CanvasHarnessHost {
       throw new Error('PenEcho Agent attachment capacity is exhausted. Start a new conversation before attaching more images.')
     }
     for (const attachment of imageAttachments) session.attachmentRefs.set(String(attachment.attachmentId), attachment)
-    const initialCanvasState=await admitInitialCanvasState(session,this.context.attachments,initialState)
     if (session.traceAsset) for (const attachment of imageAttachments) {
       const stored = await this.context.attachments.readImage(attachment)
       await session.traceAsset({
@@ -4677,17 +4740,18 @@ export class CanvasHarnessHost {
         cacheHit:false, reusedActiveImage:false, capture:{ name:attachment.name || '' },
       })
     }
-    const authoritativeObjects = new Map((Array.isArray(session.stateDigest?.objects) ? session.stateDigest.objects : []).map(object => [String(object?.id || ''), object]))
+    const turnDigest=initialCanvasState?.reference?.digest||session.stateDigest
+    const authoritativeObjects = new Map((Array.isArray(turnDigest?.objects) ? turnDigest.objects : []).map(object => [String(object?.id || ''), object]))
     const selectedIds = Array.isArray(references?.objectIds) ? references.objectIds.map(String).slice(0, 20) : []
     const region = references?.region && typeof references.region === 'object' ? {
       x:Number(references.region.x), y:Number(references.region.y), width:Number(references.region.width), height:Number(references.region.height),
     } : null
-    const canvasWidth = Number(session.stateDigest?.canvas?.width), canvasHeight = Number(session.stateDigest?.canvas?.height)
+    const canvasWidth = Number(turnDigest?.canvas?.width), canvasHeight = Number(turnDigest?.canvas?.height)
     const validRegion = region && Object.values(region).every(Number.isFinite) && region.x >= 0 && region.y >= 0 && region.width > 0 && region.height > 0
       && region.x + region.width <= canvasWidth && region.y + region.height <= canvasHeight ? region : null
     const hostReferences = {
-      revision:Number.isSafeInteger(session.stateDigest?.revision) ? session.stateDigest.revision : null,
-      viewRevision:Number.isSafeInteger(session.stateDigest?.viewRevision) ? session.stateDigest.viewRevision : null,
+      revision:Number.isSafeInteger(turnDigest?.revision) ? turnDigest.revision : null,
+      viewRevision:Number.isSafeInteger(turnDigest?.viewRevision) ? turnDigest.viewRevision : null,
       objects:selectedIds.map(id => authoritativeObjects.get(id)).filter(Boolean),
       ...(validRegion ? { region:validRegion } : {}),
       ...(initialCanvasState ? { initialCanvasState:initialCanvasState.reference } : {}),
@@ -4720,12 +4784,19 @@ export class CanvasHarnessHost {
     // Only an accepted actual user message opens fresh bounded review budgets.
     // Validation failures and rejected followups must leave the active turn intact.
     const previousCanvasTurnBudget=session.canvasTurnBudget, previousVisualExplainerBudget=session.visualExplainerBudget, previousVisualExplorerBudget=session.visualExplorerBudget,
-      previousWidgetPatchAttempts=session.widgetPatchAttempts
+      previousWidgetPatchAttempts=session.widgetPatchAttempts,previousCanvasTitleRequested=session.canvasTitleRequested,previousCanvasTitleCandidate=session.canvasTitleCandidate,
+      previousCanvasTitleStreams=session.canvasTitleStreams
     session.canvasTurnBudget=freshCanvasAgentTurnBudget()
     session.visualExplainerBudget=freshVisualExplainerBudget()
     session.visualExplorerBudget=freshVisualExplorerBudget()
     if (initialCanvasState?.empty) session.visualExplorerBudget.authoritativeEmptyRevision=Number(initialCanvasState.reference?.digest?.revision)
     session.widgetPatchAttempts=new Map()
+    if(steer)session.canvasTitleRequested ||= canvasTitleNeeded===true
+    else{
+      session.canvasTitleRequested=canvasTitleNeeded===true
+      session.canvasTitleCandidate=''
+      session.canvasTitleStreams=new Map()
+    }
     try {
       if (steer) session.handle.agent.steer(message)
       else session.handle.agent.followup(message)
@@ -4738,6 +4809,9 @@ export class CanvasHarnessHost {
       session.visualExplainerBudget=previousVisualExplainerBudget
       session.visualExplorerBudget=previousVisualExplorerBudget
       session.widgetPatchAttempts=previousWidgetPatchAttempts
+      session.canvasTitleRequested=previousCanvasTitleRequested
+      session.canvasTitleCandidate=previousCanvasTitleCandidate
+      session.canvasTitleStreams=previousCanvasTitleStreams
       throw error
     }
   }

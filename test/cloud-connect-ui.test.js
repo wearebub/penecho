@@ -1512,20 +1512,27 @@ test("Cloud Connect refreshes views by interaction and keeps background watchers
   assert.match(cloudScript, /if \(seq !== statusRequestSeq\) return state\.status;/);
 });
 
-test("Cloud Center uses compact desktop controls and restores 44px coarse-pointer targets", () => {
+test("Cloud Center uses a compact workbench shell and restores 44px coarse-pointer targets", () => {
+  assert.match(cloudScript, /variant:"cloud-center"/);
+  assert.match(cloudScript, /class:"cloud-navigation"/);
+  assert.match(cloudScript, /layout\.replaceChildren\(navigation, workspace\)/);
   assert.match(cloudCss, /\.penecho-cloud-dialog \.cloud-dialog-close\s*\{[^}]*flex:\s*0 0 2\.25rem[^}]*min-width:\s*2\.25rem/);
   assert.match(cloudCss, /\.penecho-cloud-panel p a\s*\{[^}]*min-height:\s*2\.25rem/);
   assert.match(cloudCss, /\.cloud-project-web-link\s*\{[^}]*min-height:\s*2\.25rem/);
   assert.match(cloudCss, /\.cloud-account-button\s*\{[^}]*min-height:\s*2\.25rem[^}]*min-width:\s*2\.25rem/);
-  assert.match(cloudCss, /\.cloud-section-tabs\s*\{[^}]*height:\s*2\.25rem/);
-  assert.match(cloudCss, /\.cloud-section-tab\s*\{[^}]*height:\s*1\.875rem[^}]*min-height:\s*1\.875rem/);
-  assert.match(cloudCss, /\.cloud-section-tab\.active\s*\{[^}]*background:\s*var\(--ai-accent-soft\)[^}]*border-color:\s*transparent[^}]*box-shadow:\s*none[^}]*color:\s*var\(--ai-accent\)/);
-  assert.match(cloudCss, /\.penecho-cloud-dialog \.cloud-section-tab:focus-visible\s*\{[^}]*box-shadow:\s*inset 0 -2px 0 var\(--ai-accent\)[^}]*outline:\s*none/);
-  assert.match(cloudCss, /\.cloud-favorite-filters\s*\{[^}]*height:\s*2\.25rem/);
-  assert.match(cloudCss, /\.cloud-favorite-filter\s*\{[^}]*height:\s*1\.875rem[^}]*min-height:\s*1\.875rem/);
-  assert.match(cloudCss, /\.cloud-favorite-filter\.active\s*\{[^}]*background:\s*var\(--ai-accent-soft\)[^}]*color:\s*var\(--ai-accent\)[^}]*font-weight:\s*700/);
-  assert.match(cloudCss, /\.cloud-compact-actions\s*\{[^}]*gap:\s*\.35rem[^}]*margin-top:\s*\.65rem/);
-  assert.match(cloudCss, /\.cloud-compact-actions \.cloud-button\s*\{[^}]*font-size:\s*\.66rem[^}]*min-height:\s*2rem[^}]*white-space:\s*nowrap/);
+  assert.match(cloudCss, /\.penecho-cloud-overlay\s*\{[^}]*background:\s*var\(--penecho-dialog-backdrop,[^}]*backdrop-filter:\s*var\(--penecho-dialog-backdrop-filter/);
+  assert.match(cloudCss, /\.penecho-cloud-dialog\s*\{[^}]*background:\s*var\(--penecho-dialog-surface,[^}]*backdrop-filter:\s*var\(--penecho-dialog-surface-filter/);
+  assert.match(cloudCss, /\.penecho-cloud-dialog\.cloud-center\s*\{[^}]*height:\s*min\(760px, calc\(100svh - 40px\)\)[^}]*max-width:\s*1120px/);
+  assert.match(cloudCss, /\.cloud-dialog-titlebar\s*\{[^}]*min-height:\s*3\.375rem/);
+  assert.match(cloudCss, /\.penecho-cloud-layout\s*\{[^}]*grid-template-columns:\s*15\.5rem minmax\(0, 1fr\)/);
+  assert.match(cloudCss, /\.cloud-navigation\s*\{[^}]*border-right:\s*1px solid var\(--ai-line\)[^}]*display:\s*flex/);
+  assert.match(cloudCss, /\.cloud-workspace > \.penecho-cloud-panel\s*\{[^}]*max-width:\s*51\.25rem/);
+  assert.match(cloudCss, /\.cloud-section-tab\s*\{[^}]*min-height:\s*2\.25rem/);
+  assert.match(cloudCss, /\.cloud-section-tab\.active\s*\{[^}]*background:\s*var\(--ai-surface\)[^}]*border-color:\s*var\(--ai-line\)[^}]*color:\s*var\(--ai-accent\)/);
+  assert.match(cloudCss, /\.cloud-favorite-filters\s*\{[^}]*background:\s*var\(--ai-well\)[^}]*border:\s*1px solid var\(--ai-line\)/);
+  assert.match(cloudCss, /\.cloud-favorite-filter\s*\{[^}]*min-height:\s*2rem/);
+  assert.match(cloudCss, /\.cloud-favorite-filter\.active\s*\{[^}]*background:\s*var\(--ai-surface\)[^}]*color:\s*var\(--ai-accent\)/);
+  assert.match(cloudCss, /\.cloud-compact-actions \.cloud-button\s*\{[^}]*min-height:\s*2rem[^}]*white-space:\s*nowrap/);
   assert.match(cloudCss, /\.cloud-project-picker select, \.cloud-project-create-form input\s*\{[^}]*height:\s*2\.25rem[^}]*min-height:\s*2\.25rem/);
   assert.match(cloudCss, /\.cloud-project-create > summary\s*\{[^}]*min-height:\s*2\.25rem/);
   assert.match(cloudCss, /\.cloud-field input, \.cloud-field select\s*\{[^}]*height:\s*2\.25rem[^}]*min-height:\s*2\.25rem/);
@@ -1534,6 +1541,8 @@ test("Cloud Center uses compact desktop controls and restores 44px coarse-pointe
 });
 
 test("Cloud Center exposes accessible loading, error, and focus-preservation contracts", () => {
+  assert.match(cloudScript, /"aria-labelledby":titleId/);
+  assert.match(cloudScript, /"aria-describedby":subtitleId/);
   assert.match(cloudScript, /class:"cloud-project-content", "aria-live":"polite", "aria-busy":"true"/);
   assert.match(cloudScript, /class:"cloud-library-list", "aria-live":"polite", "aria-busy":"true"/);
   assert.equal((cloudScript.match(/class:"cloud-message", role:"status"/g) || []).length, 3);
@@ -1545,14 +1554,18 @@ test("Cloud Center exposes accessible loading, error, and focus-preservation con
 
 test("Cloud Center keeps narrow layouts and theme contrast token-driven", () => {
   assert.match(cloudCss, /\.penecho-cloud-layout > \*, \.penecho-cloud-panel > \*, \.cloud-workspace > \*\s*\{\s*min-width:\s*0/);
-  assert.match(cloudCss, /@media \(max-width:\s*760px\)[\s\S]*?\.penecho-cloud-layout\s*\{\s*grid-template-columns:\s*1fr/);
-  assert.match(cloudCss, /@media \(max-width:\s*760px\)[\s\S]*?\.cloud-project-toolbar\s*\{[^}]*grid-template-columns:\s*1fr/);
+  assert.match(cloudCss, /@media \(max-width:\s*820px\)[\s\S]*?\.penecho-cloud-layout\s*\{[^}]*display:\s*block/);
+  assert.match(cloudCss, /@media \(max-width:\s*820px\)[\s\S]*?\.cloud-section-tabs\s*\{[^}]*grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\)/);
+  assert.match(cloudCss, /@media \(max-width:\s*820px\)[\s\S]*?\.cloud-project-toolbar\s*\{[^}]*grid-template-columns:\s*1fr/);
   assert.match(cloudCss, /\.cloud-field input, \.cloud-field select, \.cloud-field textarea\s*\{\s*max-width:\s*100%;\s*min-width:\s*0/);
   assert.match(cloudCss, /--cloud-link:\s*var\(--ai-accent\)/);
   assert.match(cloudCss, /\.cloud-canvas-open\s*\{\s*color:\s*var\(--cloud-link\)/);
   assert.match(cloudCss, /\.cloud-project-web-link\s*\{[^}]*color:\s*var\(--cloud-link\)/);
   assert.match(cloudCss, /\.cloud-button\.primary:hover:not\(:disabled\), \.cloud-button\.primary:focus-visible\s*\{[^}]*color:\s*var\(--ai-primary-ink\)/);
-  assert.match(cloudCss, /\.penecho-cloud-dialog\s*\{[^}]*color-scheme:\s*light[^}]*--ai-bg:\s*#ffffff/);
+  assert.match(cloudCss, /\.penecho-cloud-dialog\s*\{[^}]*color-scheme:\s*light[^}]*--ai-bg:\s*color-mix\(in srgb, var\(--studio-shell, #f2f3f5\) 76%, var\(--studio-panel, #ffffff\)\)[^}]*--ai-surface:\s*var\(--studio-panel, #ffffff\)[^}]*--ai-accent:\s*var\(--studio-accent, #4f46e5\)[^}]*--ai-primary:\s*var\(--studio-accent-strong, #4338ca\)/);
+  assert.match(cloudCss, /\.cloud-dialog-titlebar\s*\{[^}]*background:\s*color-mix\(in srgb, var\(--studio-titlebar, #f8f8f9\) 94%, transparent\)/);
+  assert.match(cloudCss, /\.cloud-share-canvas\s*\{\s*color:\s*var\(--studio-accent-strong, #4338ca\)/);
+  assert.match(cloudCss, /@media \(prefers-reduced-motion:\s*reduce\)[\s\S]*?animation:\s*none/);
   assert.doesNotMatch(cloudCss, /body\[data-theme="(?:studio|research|arcane|scifi)"\] \.penecho-cloud-dialog/);
 });
 

@@ -138,6 +138,21 @@ test("scientific Visual Explorer contracts make Manim-Web the default explanator
   }
 });
 
+test("math-2d function curves use width-based dense sampling and adaptive refinement", () => {
+  const document = readText("src/server/canvas-agent/visual-skills/math-2d.md");
+  assert.match(document, /not a low-count chart series[\s\S]*handful of hand-picked points[\s\S]*visible straight chords between sparse samples/);
+  assert.match(document, /max\(320, ceil\(width \* 1\.5\)\)[\s\S]*capped at 2400[\s\S]*authored SVG path data[\s\S]*midpoint differs from the chord midpoint by more than 0\.35 rendered CSS pixels[\s\S]*depth cap of 12[\s\S]*final retained vertices at 8192/);
+  assert.match(document, /Split the path at non-finite values, domain exclusions, asymptotes, or jumps[\s\S]*Never connect separate branches/);
+  assert.match(document, /do not use cosmetic spline smoothing through sparse points[\s\S]*move extrema, roots, or inflections/);
+  assert.match(document, /Math\.max\(320, Math\.min\(2400, Math\.ceil\(box\.width \* 1\.5\)\)\)[\s\S]*axes\.plot\(f, \{ xRange:\[-4, 5\], color:BLUE, numSamples \}\)/);
+});
+
+test("Visual Explorer coordinates typography across the design and checks it in the final render", () => {
+  const document = readText("src/server/canvas-agent/visual-explorer-contract.md");
+  assert.match(document, /Coordinate font family, scale, weight, line height, and casing across all regions/);
+  assert.match(document, /final review, patch one concrete composition-wide typography mismatch/);
+});
+
 test("math-3d contract provides bounded interactive camera exploration with visible controls", () => {
   const document = readText("src/server/canvas-agent/visual-skills/math-3d.md");
   for (const requirement of [

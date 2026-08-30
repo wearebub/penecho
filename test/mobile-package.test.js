@@ -88,9 +88,11 @@ test("the shared Canvas already exposes the Apple Pencil input contract without 
   const persistence = fs.readFileSync(path.join(ROOT, "src/client/app/persistence.js"), "utf8");
   const bindings = fs.readFileSync(path.join(ROOT, "src/client/app/ui-bootstrap.js"), "utf8");
   assert.match(persistence, /e\.pointerType !== "pen"[\s\S]*?e\.pressure/);
-  assert.match(persistence, /state\.pen \* \(0\.72 \+ e\.pressure \* 0\.7\)/);
+  assert.match(persistence, /tip = Math\.max\(PEN_STROKE_MIN, state\.pen \* PEN_PRESSURE_TIP_RATIO\)[\s\S]*?Math\.sqrt\(pressure\)/);
   assert.match(bindings, /if \(e\.pointerType === "touch"\)[\s\S]*?state\.panGesture/);
   assert.match(bindings, /const cssSize = erasing \? state\.eraser : pressureWidth\(e\)/);
+  assert.match(bindings, /function drawingPointerSamples\(event\)[\s\S]*?event\?\.pointerType !== "pen"[\s\S]*?event\.getCoalescedEvents\(\)/);
+  assert.match(bindings, /d\.erase \? \[e\] : drawingPointerSamples\(e\)/);
 });
 
 test("release workflow builds and publishes the Android APK", () => {

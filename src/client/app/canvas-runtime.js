@@ -82,6 +82,14 @@
   function textBoxBox(item) {
     return { x:item.x, y:item.y, w:item.w, h:item.h };
   }
+  function textImageContentInset(image) {
+    const x = Number(image?.contentInsetX),
+      y = Number(image?.contentInsetY);
+    return {
+      x:Number.isFinite(x) ? x : 2,
+      y:Number.isFinite(y) ? y : 2,
+    };
+  }
   function textBoxHistoryRecord(item) {
     return {
       id:item.id,
@@ -685,7 +693,7 @@
     let refineCandidate = null;
     if (edit?.changed) {
       state.userRevision++;
-      save();
+      saveUserCanvasChange();
     } else if (edit) state.imageHistoryBefore = null;
     if (edit && state.dirtyImageIds.has(edit.id)) {
       recomputeDirtyBounds();
@@ -816,7 +824,7 @@
       state.imageGesture = null;
     }
     state.userRevision++;
-    save();
+    saveUserCanvasChange();
     if (edited) finishManualImageHandMode();
     if (state.mode !== "hand") schedule();
     requestRender();
@@ -859,8 +867,8 @@
     recomputeDirtyBounds();
     if (edited) finishManualImageHandMode();
     state.autoEligible = true;
+    saveUserCanvasChange();
     if (state.mode !== "hand") schedule();
-    save();
     requestRender();
     setStatusKey("imageMerged");
     if (options.showHint) showHandStatusHint("image-merged", ["handImageMergedHint", "handAutoAIManual"]);
@@ -949,10 +957,11 @@
       recomputeDirtyBounds();
       state.autoEligible = true;
       state.userRevision++;
-      save();
+      saveUserCanvasChange();
       requestRender();
       enterManualImageHandMode();
       beginImageEdit(item);
+      showHandObjectToolbar("image", item);
       setStatusKey("imageAdded");
     } catch (error) {
       setStatusKey(error?.statusKey || "imageImportFailed");
@@ -971,6 +980,29 @@
   function visibleWidgets(region = null) {
     if (!widgetRuntimeEnabled()) return [];
     return state.widgets.filter((widget) => !widget.hiddenForReplacement && pluginEnabled(widget.pluginId) && pluginManifests.has(widget.pluginId) && (!region || intersection(widgetBox(widget), region)));
+  }
+  function syncWidgetLayerOrder() {
+    let stackIndex = 1;
+    for (const widget of state.widgets) {
+      if (widget.styleRule?.style) widget.styleRule.style.zIndex = String(stackIndex);
+      stackIndex++;
+    }
+    if (state.pendingWidget?.styleRule?.style) state.pendingWidget.styleRule.style.zIndex = String(stackIndex);
+  }
+  function setWidgetStackIndex(widget, nextIndex) {
+    const currentIndex = state.widgets.indexOf(widget);
+    if (currentIndex < 0 || !Number.isInteger(nextIndex)) return false;
+    nextIndex = Math.max(0, Math.min(state.widgets.length - 1, nextIndex));
+    if (currentIndex === nextIndex) return false;
+    state.widgets.splice(currentIndex, 1);
+    state.widgets.splice(nextIndex, 0, widget);
+    syncWidgetLayerOrder();
+    return true;
+  }
+  function bringHtmlWidgetToFront(widget) {
+    if (widget?.widgetType !== "html_widget" || !setWidgetStackIndex(widget, state.widgets.length - 1)) return false;
+    if (state.widgetEdit?.id === widget.id) state.widgetEdit.changed = true;
+    return true;
   }
   function capturableWidgets(region = null) {
     const widgets = visibleWidgets(region),
@@ -1168,7 +1200,7 @@
     }
     state.userRevision++;
     state.autoEligible = false;
-    save();
+    saveUserCanvasChange();
     requestRender();
     return { id:widget.id, title:widget.title };
   }
@@ -1217,7 +1249,12 @@
     frame.referrerPolicy = "no-referrer";
     frame.src = widgetHostUrl(manifest);
     frame.addEventListener("load", () => {
-      if (widget.frame === frame) probeWidgetHost(widget);
+      if (widget.frame !== frame) return;
+      widget.initialized = false;
+      widget.hostReady = false;
+      widget.hostStateKey = null;
+      widget.hostReadyPromise = new Promise((resolve) => (widget.resolveHostReady = resolve));
+      probeWidgetHost(widget);
     });
     frame.addEventListener("pointerenter", (event) => {
       if (state.mode !== "hand" || event.pointerType === "touch") return;
@@ -1239,6 +1276,7 @@
     widget.hostReadyPromise = new Promise((resolve) => (widget.resolveHostReady = resolve));
     widget.hostStateKey = null;
     addWidgetStyleRule(widget);
+    syncWidgetLayerOrder();
     positionWidget(widget);
   }
   function unmountWidget(widget) {
@@ -1337,9 +1375,10 @@
     }, widget.hostOrigin || location.origin);
   }
   function sendWidgetHostState(widget, scaleX = state.scale * widget.w / widget.contentW, scaleY = state.scale * widget.h / widget.contentH, force = false) {
+    const selected = widget.pending === true || (state.widgetEdit?.id === widget.id && state.selectedWidgetId === widget.id);
+    widget.shell?.classList.toggle("is-selected", selected);
     if (!widget.frame?.contentWindow || !widget.hostReady || !Number.isFinite(scaleX) || scaleX <= 0 || !Number.isFinite(scaleY) || scaleY <= 0) return;
-    const selected = widget.pending === true || (state.widgetEdit?.id === widget.id && state.selectedWidgetId === widget.id),
-      active = widget.renderActive !== false,
+    const active = widget.renderActive !== false,
       key = `${selected ? 1 : 0}:${active ? 1 : 0}:${state.navigationLocked ? 1 : 0}:${scaleX.toFixed(6)}:${scaleY.toFixed(6)}`;
     if (!force && widget.hostStateKey === key) return;
     widget.hostStateKey = key;
@@ -1535,7 +1574,7 @@
     if (state.widgetEdit) acceptWidgetEdit();
     recordWidgetsBefore();
     state.selectedWidgetId = widget.id;
-    state.widgetEdit = { id:widget.id, before:widgetLayout(widget), changed:false };
+    state.widgetEdit = { id:widget.id, before:widgetLayout(widget), beforeIndex:state.widgets.indexOf(widget), changed:false };
     syncWidgetHostStates();
     requestInteractionLayerRender();
     return true;
@@ -1549,7 +1588,7 @@
     state.selectedWidgetId = null;
     if (edit?.changed) {
       state.userRevision++;
-      save();
+      saveUserCanvasChange();
     } else if (edit) state.widgetHistoryBefore = null;
     syncWidgetHostStates();
     requestInteractionLayerRender();
@@ -1563,6 +1602,7 @@
     if (edit) clearHandToolbarTarget("widget", edit.id);
     if (widget) {
       Object.assign(widget, edit.before);
+      setWidgetStackIndex(widget, edit.beforeIndex);
       positionWidget(widget);
     }
     state.widgetHistoryBefore = null;
@@ -1642,7 +1682,10 @@
     if (!result?.widget) return false;
     if (result.hit === "accept") return (result.pending ? acceptPendingWidget({ showHint:true }) : acceptWidgetEdit({ showHint:true })) || true;
     if (result.hit === "cancel") return (result.pending ? rejectPendingWidget() : deleteWidget(result.widget)) || true;
-    if (!result.pending) beginWidgetEdit(result.widget);
+    if (!result.pending) {
+      beginWidgetEdit(result.widget);
+      bringHtmlWidgetToFront(result.widget);
+    }
     state.widgetGesture = {
       id:event.pointerId,
       widget:result.widget,
@@ -1808,6 +1851,7 @@
     if (!pending && (!state.widgets.includes(widget) || !beginWidgetEdit(widget))) return false;
     const viewportPoint = widgetHostViewportPoint(widget, message);
     if (!viewportPoint) return false;
+    if (!pending) bringHtmlWidgetToFront(widget);
     state.widgetGesture = {
       id:widgetHostPointerId(widget, message.pointerId),
       hostPointerId:message.pointerId,
@@ -1860,7 +1904,7 @@
       state.widgetGesture = null;
     }
     state.userRevision++;
-    save();
+    saveUserCanvasChange();
     requestInteractionLayerRender();
     setStatusKey("widgetDeleted");
     return true;
@@ -2144,7 +2188,7 @@
     hideAnimationControls();
     if (edit?.changed) {
       state.userRevision++;
-      save();
+      saveUserCanvasChange();
     } else if (edit) state.animationHistoryBefore = null;
     requestAnimationLayerRender();
     requestInteractionLayerRender();
@@ -2209,7 +2253,7 @@
     state.animationEdit = null;
     hideAnimationControls();
     state.userRevision++;
-    save();
+    saveUserCanvasChange();
     requestAnimationLayerRender();
     requestInteractionLayerRender();
     setStatusKey("animationDeleted");
@@ -2595,6 +2639,27 @@
       y = (height / 2 - state.panY) / state.scale;
     coords.textContent = `x ${Math.round(x)} · y ${Math.round(y)} · ${Math.round(state.scale * 100)}%`;
   }
+  function drawCanvasLineGrid(context, region, renderScale) {
+    if (!region || region.w <= 0 || region.h <= 0) return;
+    const scale = Math.max(0.03, Number(renderScale) || 1),
+      step = 500,
+      right = region.x + region.w,
+      bottom = region.y + region.h;
+    context.save();
+    context.strokeStyle = state.paint.paperGrid;
+    context.lineWidth = 0.5 / scale;
+    context.beginPath();
+    for (let x = Math.floor(region.x / step) * step; x <= right; x += step) {
+      context.moveTo(x, region.y);
+      context.lineTo(x, bottom);
+    }
+    for (let y = Math.floor(region.y / step) * step; y <= bottom; y += step) {
+      context.moveTo(region.x, y);
+      context.lineTo(right, y);
+    }
+    context.stroke();
+    context.restore();
+  }
   function render() {
     const d = devicePixelRatio || 1,
       metrics = canvasViewportMetrics(),
@@ -2616,20 +2681,7 @@
     ctx.beginPath();
     ctx.rect(0, 0, SIZE, SIZE);
     ctx.clip();
-    if (state.gridVisible) {
-      ctx.strokeStyle = state.paint.paperGrid;
-      ctx.lineWidth = 1 / state.scale;
-      ctx.beginPath();
-      for (let x = Math.floor(l / 500) * 500; x < rr; x += 500) {
-        ctx.moveTo(x, t);
-        ctx.lineTo(x, b);
-      }
-      for (let y = Math.floor(t / 500) * 500; y < b; y += 500) {
-        ctx.moveTo(l, y);
-        ctx.lineTo(rr, y);
-      }
-      ctx.stroke();
-    }
+    if (state.gridVisible) drawCanvasLineGrid(ctx, { x:l, y:t, w:rr - l, h:b - t }, state.scale);
     ctx.restore();
     ctx.strokeStyle = state.paint.border;
     ctx.lineWidth = 2 / state.scale;
@@ -2818,7 +2870,8 @@
       unit = 1 / state.scale,
       handle = 14 * unit;
     context.save();
-    context.strokeStyle = widget.pending ? "#72b7e5" : "#2679b8";
+    context.strokeStyle = state.paint.accent || "#4f46e5";
+    context.globalAlpha = widget.pending ? .72 : 1;
     context.lineWidth = 2 * unit;
     if (widget.pending) {
       context.setLineDash([7 * unit, 6 * unit]);
@@ -2837,11 +2890,14 @@
   function positionImageEditBar() {
     const item = state.imageEdit ? selectedImage() : null;
     if (!item) {
+      imageSelectionMaterial.hidden = true;
       imageEditBar.classList.remove("hand-toolbar-hiding");
       if (!imageEditBar.hidden) imageEditBar.hidden = true;
       return;
     }
-    imageEditBar.classList.toggle("hand-toolbar-hiding", Boolean(handToolbarRecord({ kind:"image", id:item.id })?.hiding));
+    const hiding = Boolean(handToolbarRecord({ kind:"image", id:item.id })?.hiding);
+    imageEditBar.classList.toggle("hand-toolbar-hiding", hiding);
+    if (imageSelectionMaterial.hidden) imageSelectionMaterial.hidden = false;
     if (imageEditBar.hidden) imageEditBar.hidden = false;
     const { width:viewportWidth, height:viewportHeight } = canvasViewportMetrics(),
       box = imageBox(item),
@@ -2849,10 +2905,15 @@
       top = state.panY + box.y * state.scale,
       width = box.w * state.scale,
       height = box.h * state.scale,
+      materialStyle = runtimeElementStyle(imageSelectionMaterial, "canvas-image-selection"),
       barWidth = imageEditBar.offsetWidth || 200,
-      barHeight = imageEditBar.offsetHeight || 210,
+      barHeight = imageEditBar.offsetHeight || 52,
       gap = 12,
       style = runtimeElementStyle(imageEditBar, "image-edit-bar");
+    materialStyle?.setProperty("--image-selection-x", `${left.toFixed(1)}px`);
+    materialStyle?.setProperty("--image-selection-y", `${top.toFixed(1)}px`);
+    materialStyle?.setProperty("--image-selection-width", `${width.toFixed(1)}px`);
+    materialStyle?.setProperty("--image-selection-height", `${height.toFixed(1)}px`);
     let x = left + width + gap;
     if (x + barWidth > viewportWidth - 8) x = left - barWidth - gap;
     if (x < 8) x = Math.max(8, Math.min(viewportWidth - barWidth - 8, left + width / 2 - barWidth / 2));
@@ -3333,7 +3394,7 @@
         box,
         widget,
         widgetTool:true,
-        widgetToolPlacement:options.widgetCoreMoveKey && options.widgetCoreAcceptKey ? "move-right-or-accept" : "right-middle",
+        widgetToolPlacement:"inside-top",
         widgetCoreMoveKey:options.widgetCoreMoveKey || "",
         widgetCoreAcceptKey:options.widgetCoreAcceptKey || "",
         widgetToolGroup,
@@ -3368,26 +3429,16 @@
       chromeGap = 7;
     if (viewportWidth <= 0 || viewportHeight <= 0 || right < -8 || bottom < -8 || screenBox.left > viewportWidth + 8 || screenBox.top > viewportHeight + 8) return null;
     const clampX = (value) => Math.max(6, Math.min(Math.max(6, viewportWidth - width - 6), value)),
-      clampY = (value) => Math.max(6, Math.min(Math.max(6, viewportHeight - height - 6), value)),
-      obstacles = [...(globalThis.document?.querySelectorAll?.(".top-row, .toolbar, .animation-controls:not([hidden]), .image-edit-bar:not([hidden]), .selection-context-toolbar, .text-editor, .ai-embodiment, .canvas-agent-control, .object-chrome-button") || [])]
-        .filter(element => element.dataset.objectChromeKey !== ignoreKey && (!spec?.widgetToolGroup || element.dataset.widgetToolGroup !== spec.widgetToolGroup))
-        .map(element => {
-          const rect = canvasElementLayoutRect(element);
-          return { x:rect.left, y:rect.top, w:rect.width, h:rect.height };
-        }),
-      overlapsObstacle = position => obstacles.some(obstacle => position.x < obstacle.x + obstacle.w + 5 && position.x + position.w + 5 > obstacle.x && position.y < obstacle.y + obstacle.h + 5 && position.y + position.h + 5 > obstacle.y),
-      fits = (position, extraBottom = 0) => position.x >= 6 && position.y >= 6 && position.x + position.w <= viewportWidth - 6 && position.y + position.h + extraBottom <= viewportHeight - 6 && !overlapsObstacle(position),
-      fallbackPosition = (position, extraBottom = 0) => ({
-        ...position,
-        x:Math.max(6, Math.min(Math.max(6, viewportWidth - position.w - 6), position.x)),
-        y:Math.max(6, Math.min(Math.max(6, viewportHeight - position.h - extraBottom - 6), position.y)),
-      });
+      clampY = (value) => Math.max(6, Math.min(Math.max(6, viewportHeight - height - 6), value));
     if (spec?.widgetTool) {
       const horizontalWidth = spec.groupHorizontalWidth * controlScale,
         verticalWidth = spec.groupVerticalWidth * controlScale,
         verticalHeight = spec.groupVerticalHeight * controlScale,
-        hintSpace = spec.groupRefineCandidate && widgetRefineHintVisible(spec.groupRefineCandidate) ? 88 : 0,
-        gap = chromeGap * controlScale;
+        gap = chromeGap * controlScale,
+        inset = 8,
+        insideLeft = screenBox.left + inset,
+        insideRight = right - inset,
+        insideTop = screenBox.top + inset;
       if (spec.widgetCoreMoveKey && spec.widgetCoreAcceptKey) {
         const movePosition = knownPositions?.get?.(spec.widgetCoreMoveKey),
           acceptPosition = knownPositions?.get?.(spec.widgetCoreAcceptKey);
@@ -3404,17 +3455,17 @@
             h:height,
           },
           fitsBetweenCoreControls = Math.abs(movePosition.y - acceptPosition.y) <= 2
-            && preferred.x + preferred.w <= acceptPosition.x - gap
-            && fits(preferred, hintSpace),
+            && preferred.x >= insideLeft
+            && preferred.x + preferred.w <= acceptPosition.x - gap,
           belowAccept = {
             side:"accept",
             layout:"vertical",
-            x:acceptPosition.x + acceptWidth - verticalWidth,
+            x:Math.max(insideLeft, acceptPosition.x + acceptWidth - verticalWidth),
             y:acceptPosition.y + acceptHeight + gap,
             w:verticalWidth,
             h:verticalHeight,
           },
-          groupPosition = fitsBetweenCoreControls ? preferred : fallbackPosition(belowAccept, hintSpace),
+          groupPosition = fitsBetweenCoreControls ? preferred : belowAccept,
           vertical = groupPosition.layout === "vertical";
         return {
           x:groupPosition.x + (vertical ? groupPosition.w - width : spec.groupHorizontalOffset * controlScale),
@@ -3424,21 +3475,13 @@
           baseHeight,
         };
       }
-      const positions = [
-          { side:"right", layout:"vertical", x:right + gap, y:screenBox.top + screenBox.height / 2 - verticalHeight / 2, w:verticalWidth, h:verticalHeight },
-          { side:"right", layout:"vertical", x:right + gap, y:screenBox.top, w:verticalWidth, h:verticalHeight },
-          { side:"right", layout:"vertical", x:right + gap, y:bottom - verticalHeight, w:verticalWidth, h:verticalHeight },
-          { side:"bottom", layout:"horizontal", x:screenBox.left + screenBox.width / 2 - horizontalWidth / 2, y:bottom + gap, w:horizontalWidth, h:height },
-          { side:"top", layout:"horizontal", x:screenBox.left + screenBox.width / 2 - horizontalWidth / 2, y:screenBox.top - height - gap, w:horizontalWidth, h:height },
-          { side:"left", layout:"vertical", x:screenBox.left - verticalWidth - gap, y:screenBox.top + screenBox.height / 2 - verticalHeight / 2, w:verticalWidth, h:verticalHeight },
-          { side:"left", layout:"vertical", x:screenBox.left - verticalWidth - gap, y:screenBox.top, w:verticalWidth, h:verticalHeight },
-          { side:"left", layout:"vertical", x:screenBox.left - verticalWidth - gap, y:bottom - verticalHeight, w:verticalWidth, h:verticalHeight },
-        ],
-        groupPosition = positions.find(position => fits(position, hintSpace)) || fallbackPosition(positions[0], hintSpace);
-      const vertical = groupPosition.layout === "vertical",
-        alignRight = vertical && groupPosition.side === "left";
+      const horizontalFits = horizontalWidth <= Math.max(0, insideRight - insideLeft),
+        groupPosition = horizontalFits
+          ? { side:"inside-top", layout:"horizontal", x:insideRight - horizontalWidth, y:insideTop, w:horizontalWidth, h:height }
+          : { side:"inside-right", layout:"vertical", x:Math.max(insideLeft, insideRight - verticalWidth), y:insideTop, w:verticalWidth, h:verticalHeight },
+        vertical = groupPosition.layout === "vertical";
       return {
-        x:groupPosition.x + (vertical ? alignRight ? groupPosition.w - width : 0 : spec.groupHorizontalOffset * controlScale),
+        x:groupPosition.x + (vertical ? groupPosition.w - width : spec.groupHorizontalOffset * controlScale),
         y:groupPosition.y + (vertical ? spec.groupVerticalOffset * controlScale : 0),
         scale:controlScale,
         baseWidth,
@@ -3446,22 +3489,11 @@
       };
     }
     if (spec?.widgetCore) {
-      const topY = screenBox.top - height - chromeGap,
-        centerY = screenBox.top + screenBox.height / 2 - height / 2,
-        positions = kind === "move" ? [
-          { x:screenBox.left + screenBox.width / 2 - width / 2, y:topY, w:width, h:height },
-          { x:screenBox.left + screenBox.width / 2 - width / 2, y:bottom + chromeGap, w:width, h:height },
-        ] : kind === "cancel" ? [
-          { x:screenBox.left, y:topY, w:width, h:height },
-          { x:screenBox.left - width - chromeGap, y:centerY, w:width, h:height },
-          { x:screenBox.left, y:bottom + chromeGap, w:width, h:height },
-        ] : [
-          { x:right - width, y:topY, w:width, h:height },
-          { x:right + chromeGap, y:centerY, w:width, h:height },
-          { x:right - width, y:bottom + chromeGap, w:width, h:height },
-        ],
-        position = positions.find(candidate => fits(candidate)) || fallbackPosition(positions[0]);
-      return { x:position.x, y:position.y, scale:1, baseWidth, baseHeight };
+      const inset = 8,
+        x = kind === "move"
+          ? screenBox.left + screenBox.width / 2 - width / 2
+          : kind === "cancel" ? screenBox.left + inset : right - width - inset;
+      return { x, y:screenBox.top + inset, scale:1, baseWidth, baseHeight };
     }
     const above = screenBox.top - height - chromeGap,
       y = clampY(above >= 6 ? above : screenBox.top + chromeGap);
@@ -3611,7 +3643,7 @@
       state.dirtyTextBoxIds.add(gesture.item.id);
       recomputeDirtyBounds();
       state.autoEligible = true;
-      save();
+      saveUserCanvasChange();
       const refineCandidate = latchWidgetRefineCandidate(gesture.item, "text-box");
       if (state.auto && !refineCandidate) schedule(Math.max(1000, state.autoDelayMs));
       if (refineCandidate) setStatusKey("widgetRefinePending");
@@ -3747,7 +3779,13 @@
       if (record.kind === "text-box" && !state.textEditors.size) {
         specs.push({ key:`text-box:${handTarget.id}:move`, kind:"move", box:textBoxBox(handTarget), target:"text-box", object:handTarget, ...shared, priority:2 });
       } else if (record.kind === "image") {
-        specs.push({ key:`image:${handTarget.id}:move`, kind:"move", box:imageBox(handTarget), target:"image", object:handTarget, ...shared, priority:2 });
+        const box = imageBox(handTarget),
+          imageToolGroup = `image-${handTarget.id}-tools`;
+        specs.push({ key:`image:${handTarget.id}:move`, kind:"move", box, target:"image", object:handTarget, widgetCore:true, widgetToolGroup:imageToolGroup, ...shared, priority:2 });
+        if (record.expanded && state.handToolbarActiveKey === key && state.imageEdit?.id === handTarget.id) {
+          specs.push({ key:`image:${handTarget.id}:cancel`, kind:"cancel", label:t("imageDelete"), box, widgetCore:true, widgetToolGroup:imageToolGroup, activate:() => deleteImage(handTarget), ...shared, priority:3 });
+          specs.push({ key:`image:${handTarget.id}:accept`, kind:"accept", label:t("imagePlace"), box, widgetCore:true, widgetToolGroup:imageToolGroup, activate:() => acceptImageEdit({ showHint:true }), ...shared, priority:3 });
+        }
       } else if (record.kind === "animation") {
         const box = animationBox(handTarget);
         specs.push({ key:`animation:${handTarget.id}:move`, kind:"move", box, target:"animation", object:handTarget, ...shared, priority:2 });
@@ -3807,6 +3845,7 @@
         declaration = (button.penechoStyleRule || ensureObjectChromeStyleRule(button))?.["style"];
       button.penechoSpec = spec;
       button.classList.toggle("widget-tool", Boolean(spec.widgetTool));
+      button.classList.toggle("widget-chrome-control", Boolean(spec.widgetTool || spec.widgetCore));
       button.classList.toggle("icon-only", Boolean(spec.iconOnly));
       button.classList.toggle("solo-widget-tool", Boolean(spec.widgetTool && spec.groupItemCount === 1));
       button.classList.toggle("hand-toolbar-control", Boolean(spec.handToolbar));
@@ -3870,7 +3909,7 @@
   objectChromeLayer?.addEventListener("pointercancel", finishObjectChromeGesture);
   function drawPointerPreview(context) {
     const preview = state.pointerPreview;
-    if (!preview || state.mode !== "eraser" || !valid(preview)) return;
+    if (!preview || state.mode !== "eraser" && !state.drawing?.erase || !valid(preview)) return;
     const radius = logicalWidth(state.eraser) / 2,
       unit = 1 / state.scale;
     context.save();
@@ -4222,6 +4261,8 @@
         else declaration.removeProperty("--text-editor-preview-width");
         if (editor.previewLogicalHeight) declaration.setProperty("--text-editor-preview-height", `${editor.previewLogicalHeight}px`);
         else declaration.removeProperty("--text-editor-preview-height");
+        declaration.setProperty("--text-editor-preview-inset-x", `${editor.previewInsetX || 0}px`);
+        declaration.setProperty("--text-editor-preview-inset-y", `${editor.previewInsetY || 0}px`);
       }
       editor.element.classList.toggle("active", active);
     }
@@ -4360,13 +4401,48 @@
     editor.preview.removeAttribute("data-fallback");
     editor.previewLogicalWidth = 0;
     editor.previewLogicalHeight = 0;
+    editor.previewInsetX = 0;
+    editor.previewInsetY = 0;
+  }
+  function textEditorContentMetrics(editor) {
+    const body = editor?.body || editor?.element?.querySelector(".text-editor-body"),
+      editorRect = canvasElementLayoutRect(editor?.element),
+      bodyRect = canvasElementLayoutRect(body),
+      style = body && window.getComputedStyle ? window.getComputedStyle(body) : null,
+      paddingLeft = Number.parseFloat(style?.paddingLeft) || 10,
+      paddingRight = Number.parseFloat(style?.paddingRight) || 10,
+      paddingTop = Number.parseFloat(style?.paddingTop) || 10,
+      fallbackLeft = (body?.offsetLeft || 0) + paddingLeft,
+      fallbackTop = (body?.offsetTop || 40) + paddingTop,
+      fallbackWidth = Math.max(1, editor.widthCss - paddingLeft - paddingRight - 2);
+    if (!editorRect || !bodyRect) return { x:fallbackLeft, y:fallbackTop, width:fallbackWidth };
+    return {
+      x:bodyRect.left - editorRect.left + paddingLeft,
+      y:bodyRect.top - editorRect.top + paddingTop,
+      width:Math.max(1, bodyRect.width - paddingLeft - paddingRight),
+    };
+  }
+  function textBoxOriginFromEditor(editor, contentMetrics, contentInset, scale) {
+    const editorScale = Math.max(0.03, Number(scale) || 0);
+    return {
+      x:editor.x + contentMetrics.x / editorScale - contentInset.x,
+      y:editor.y + contentMetrics.y / editorScale - contentInset.y,
+    };
+  }
+  function textEditorOriginFromTextBox(item, contentMetrics, contentInset, scale) {
+    const editorScale = Math.max(0.03, Number(scale) || 0);
+    return {
+      x:item.x + contentInset.x - contentMetrics.x / editorScale,
+      y:item.y + contentInset.y - contentMetrics.y / editorScale,
+    };
   }
   async function renderTextEditorPreview(editor) {
     if (!editor || !editor.mixedMode || editor.committing || editor.cancelled || state.textEditors.get(editor.id) !== editor) return;
     const revision = ++editor.previewRevision,
       text = editor.textarea.value,
       fontCss = editor.fontCss,
-      maxWidth = Math.max(fontCss * 3, editor.widthCss - 16),
+      contentMetrics = textEditorContentMetrics(editor),
+      maxWidth = Math.max(fontCss * 3, contentMetrics.width),
       color = editor.color || state.inkColor;
     editor.preview.setAttribute("aria-busy", "true");
     let image,
@@ -4381,6 +4457,9 @@
     image.classList.add("text-editor-preview-canvas");
     editor.previewLogicalWidth = image.logicalWidth || image.width;
     editor.previewLogicalHeight = image.logicalHeight || image.height;
+    const previewInset = textImageContentInset(image);
+    editor.previewInsetX = previewInset.x;
+    editor.previewInsetY = previewInset.y;
     editor.preview.replaceChildren(image);
     editor.preview.toggleAttribute("data-fallback", fallback);
     editor.preview.setAttribute("aria-label", text || t("textPreview"));
@@ -4440,13 +4519,6 @@
     textHelpInvoker = null;
     if (invoker?.isConnected && !invoker.disabled) invoker.focus({ preventScroll: true });
   }
-  function textEditorContentOffset(editor) {
-    const body = editor?.body || editor?.element?.querySelector(".text-editor-body"),
-      left = body?.offsetLeft || 0,
-      top = body?.offsetTop || 36;
-    return { x: left + 8, y: top + 8 };
-  }
-
   async function confirmTextEditor(editor, options = null) {
     options ||= {};
     if (!editor) return;
@@ -4467,18 +4539,16 @@
       clearTimeout(state.timer);
       state.timer = 0;
       editor.element.querySelectorAll("button").forEach((button) => (button.disabled = true));
-      const contentOffset = textEditorContentOffset(editor),
+      const contentMetrics = textEditorContentMetrics(editor),
         editorScale = Math.max(0.03, state.scale);
-      editor.x += contentOffset.x / editorScale;
-      editor.y += contentOffset.y / editorScale;
       editor.mixedMode = true;
       const proposedFontSize = editor.fontCss / Math.max(0.03, state.scale);
       let fontSize = editor.sourceTextBoxId && !editor.resized ? editor.sourceFontSize : proposedFontSize,
-        proposedMaxWidth = Math.max(fontSize * 3, (editor.widthCss - 16) / Math.max(0.03, state.scale)),
+        proposedMaxWidth = Math.max(fontSize * 3, contentMetrics.width / editorScale),
         color = editor.color || state.inkColor;
       let maxWidth = editor.sourceTextBoxId && !editor.resized ? editor.sourceMaxWidth : proposedMaxWidth,
-        x = editor.sourceTextBoxId && !editor.moved ? editor.sourceX : editor.x,
-        y = editor.sourceTextBoxId && !editor.moved ? editor.sourceY : editor.y;
+        x,
+        y;
       const fitted = await fittedTextBoxContent(text, fontSize, color, maxWidth);
       if (editor.cancelled || state.textEditors.get(editor.id) !== editor) return;
       const image = fitted.image,
@@ -4487,6 +4557,11 @@
         height = fitted.height;
       fontSize = fitted.fontSize;
       maxWidth = fitted.maxWidth;
+      const contentInset = textImageContentInset(image),
+        alignedOrigin = textBoxOriginFromEditor(editor, contentMetrics, contentInset, editorScale),
+        preserveSourceOrigin = editor.sourceTextBoxId && !editor.moved && !editor.resized;
+      x = preserveSourceOrigin ? editor.sourceX : alignedOrigin.x;
+      y = preserveSourceOrigin ? editor.sourceY : alignedOrigin.y;
       x = Math.max(0, Math.min(SIZE - width, x));
       y = Math.max(0, Math.min(SIZE - height, y));
       const
@@ -4517,7 +4592,7 @@
       removeTextEditor(editor);
       blockCanvasInput(TEXT_INPUT_GUARD_MS);
       restoreTextEditorMode(editor);
-      save();
+      saveUserCanvasChange();
       render();
       setStatusKey(mixedFallback ? "textMixedModeError" : "ready");
       if (state.auto && !refineCandidate) schedule(Math.max(1000, state.autoDelayMs));
@@ -4560,7 +4635,7 @@
     if (deletedTextBox) {
       state.userRevision++;
       reconcileDirtyAfterTextBoxDeletion(deletedTextBox);
-      save();
+      saveUserCanvasChange();
     }
     render();
     setStatusKey("ready");
@@ -4587,6 +4662,8 @@
         previewTimer: 0,
         previewLogicalWidth: 0,
         previewLogicalHeight: 0,
+        previewInsetX: 0,
+        previewInsetY: 0,
         committing: false,
         cancelled: false,
         gesture: null,
@@ -4638,8 +4715,6 @@
     helpButton.textContent = "?";
     helpButton.setAttribute("aria-haspopup", "dialog");
     helpButton.setAttribute("aria-controls", "textHelpDialog");
-    acceptButton.textContent = "✓";
-    cancelButton.textContent = "×";
     header.append(title, helpButton, mixedModeButton, acceptButton, cancelButton);
     body.className = "text-editor-body";
     textarea.className = "text-editor-input";
@@ -4748,9 +4823,11 @@
       state.selectedTextBoxId = null;
       return false;
     }
-    const offset = textEditorContentOffset(editor);
-    editor.x -= offset.x / scale;
-    editor.y -= offset.y / scale;
+    const contentMetrics = textEditorContentMetrics(editor),
+      contentInset = textImageContentInset(item.image),
+      editorOrigin = textEditorOriginFromTextBox(item, contentMetrics, contentInset, scale);
+    editor.x = editorOrigin.x;
+    editor.y = editorOrigin.y;
     positionTextEditors();
     setStatusKey("ready");
     render();

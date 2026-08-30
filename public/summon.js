@@ -5,328 +5,182 @@
   else root.PENECHO_SUMMON = api;
 })(typeof globalThis === "object" ? globalThis : this, function () {
   const TAU = Math.PI * 2,
-    LOADER_TYPES = ["lemniscate", "rose", "superellipse", "golden-spiral", "deltoid"],
-    PHRASE_KEYS = Array.from({ length:12 }, (_, i) => `summonPhrase${i + 1}`),
-    TIP_KEYS = Array.from({ length:24 }, (_, i) => `summonTip${i + 1}`),
-    PHRASE_MS = 12000,
-    TIP_MS = 26000,
-    TEXT_INTERVALS = Object.freeze({ phrase:PHRASE_MS, tip:TIP_MS }),
     THINKING_LAYOUT = Object.freeze({
-      loaderRadius:32,
-      copyTop:52,
-      copyWidth:330,
-      copyHeight:82,
-      padding:12,
-      viewportMargin:14,
-      overlapEpsilon:1e-6,
+      viewportMargin:18,
+      minPadding:34,
+      maxPadding:76,
+      innerGap:22,
+      statusGap:16,
+      statusHeight:28,
+      statusWidth:360,
+      fallbackWidth:460,
+      fallbackHeight:220,
+      samples:96,
+      highlightFraction:0.14,
+      cycleSeconds:12,
+      fadeSeconds:0.32,
     });
 
+  function clamp(value, min, max) {
+    return Math.max(min, Math.min(max, value));
+  }
+
   function clamp01(value) {
-    return Math.max(0, Math.min(1, value));
+    return clamp(value, 0, 1);
   }
 
-  function mulberry32(seed) {
-    let value = seed >>> 0 || 1;
-    return () => {
-      value |= 0;
-      value = (value + 0x6d2b79f5) | 0;
-      let next = Math.imul(value ^ (value >>> 15), 1 | value);
-      next = (next + Math.imul(next ^ (next >>> 7), 61 | next)) ^ next;
-      return ((next ^ (next >>> 14)) >>> 0) / 4294967296;
-    };
+  function normalizeRegion(region) {
+    if (!region || ![region.x, region.y, region.w, region.h].every(Number.isFinite)
+      || region.w <= 0 || region.h <= 0) return null;
+    return { x:region.x, y:region.y, w:region.w, h:region.h };
   }
 
-  function pickLoaderType(random = Math.random, previous = "") {
-    const available = LOADER_TYPES.filter((type) => type !== previous),
-      value = clamp01(Number(random()) || 0),
-      index = Math.min(available.length - 1, Math.floor(value * available.length));
-    return available[index];
-  }
-
-  function pickDifferentIndex(random, length, previous) {
-    if (length <= 1) return 0;
-    let index = Math.min(length - 1, Math.floor(clamp01(Number(random()) || 0) * length));
-    if (index === previous) index = (index + 1) % length;
-    return index;
-  }
-
-  function normalizePoints(points) {
-    if (!points.length) return points;
-    let minX = Infinity,
-      minY = Infinity,
-      maxX = -Infinity,
-      maxY = -Infinity;
-    for (const point of points) {
-      minX = Math.min(minX, point.x);
-      minY = Math.min(minY, point.y);
-      maxX = Math.max(maxX, point.x);
-      maxY = Math.max(maxY, point.y);
-    }
-    const centerX = (minX + maxX) / 2,
-      centerY = (minY + maxY) / 2,
-      scale = 2 / Math.max(1e-6, maxX - minX, maxY - minY);
-    return points.map((point) => ({
-      x:(point.x - centerX) * scale,
-      y:(point.y - centerY) * scale,
-    }));
-  }
-
-  function buildLoaderData(type, seed) {
-    const random = mulberry32(seed);
+  function projectRegion(region, transform = {}) {
+    const normalized = normalizeRegion(region),
+      scale = Math.max(0.03, Number(transform.scale) || 1);
+    if (!normalized) return null;
     return {
-      hue:random() * 360,
-      phase:random() * TAU,
-      direction:random() < 0.5 ? -1 : 1,
+      x:normalized.x * scale + (Number(transform.panX) || 0),
+      y:normalized.y * scale + (Number(transform.panY) || 0),
+      w:normalized.w * scale,
+      h:normalized.h * scale,
     };
   }
 
-  function signedPower(value, power) {
-    return Math.sign(value) * Math.pow(Math.abs(value), power);
+  function fallbackRegion(width, height) {
+    const w = Math.min(THINKING_LAYOUT.fallbackWidth, Math.max(180, width * 0.52)),
+      h = Math.min(THINKING_LAYOUT.fallbackHeight, Math.max(110, height * 0.28));
+    return {
+      x:(width - w) / 2,
+      y:Math.max(THINKING_LAYOUT.viewportMargin, (height - h) * 0.42),
+      w,
+      h,
+    };
   }
 
-  function buildLoaderPoints(type, data, elapsed = 0) {
-    const points = [],
-      samples = type === "golden-spiral" ? 220 : 240;
-    for (let index = 0; index <= samples; index++) {
-      const progress = index / samples,
-        angle = progress * TAU;
-      if (type === "lemniscate") {
-        points.push({
-          x:Math.sin(angle),
-          y:Math.sin(angle) * Math.cos(angle) * 0.72,
-        });
-      } else if (type === "rose") {
-        const radius = Math.cos(3 * angle);
-        points.push({
-          x:Math.cos(angle) * radius,
-          y:Math.sin(angle) * radius,
-        });
-      } else if (type === "superellipse") {
-        const exponent = 2 / (3.1 + Math.sin(elapsed * 0.48 + data.phase) * 0.38);
-        points.push({
-          x:signedPower(Math.cos(angle), exponent),
-          y:signedPower(Math.sin(angle), exponent),
-        });
-      } else if (type === "golden-spiral") {
-        const spiralAngle = progress * Math.PI * 5,
-          radius = 0.105 * Math.exp(spiralAngle * 0.138);
-        points.push({
-          x:Math.cos(spiralAngle + data.phase) * radius,
-          y:Math.sin(spiralAngle + data.phase) * radius,
-        });
-      } else {
-        points.push({
-          x:2 * Math.cos(angle) + Math.cos(2 * angle),
-          y:2 * Math.sin(angle) - Math.sin(2 * angle),
-        });
-      }
+  function echoLayout(region, viewport = {}) {
+    const width = Math.max(1, Number(viewport.width) || 1),
+      height = Math.max(1, Number(viewport.height) || 1),
+      margin = Math.min(THINKING_LAYOUT.viewportMargin, width / 4, height / 4),
+      normalized = normalizeRegion(region),
+      intersects = normalized && normalized.x < width && normalized.y < height
+        && normalized.x + normalized.w > 0 && normalized.y + normalized.h > 0,
+      source = intersects ? normalized : fallbackRegion(width, height),
+      visible = {
+        x:clamp(source.x, margin, Math.max(margin, width - margin)),
+        y:clamp(source.y, margin, Math.max(margin, height - margin)),
+        w:0,
+        h:0,
+      };
+    visible.w = Math.max(1, clamp(source.x + source.w, margin, Math.max(margin, width - margin)) - visible.x);
+    visible.h = Math.max(1, clamp(source.y + source.h, margin, Math.max(margin, height - margin)) - visible.y);
+
+    const padding = clamp(Math.max(visible.w, visible.h) * 0.1, THINKING_LAYOUT.minPadding, THINKING_LAYOUT.maxPadding),
+      left = clamp(visible.x - padding, margin, Math.max(margin, width - margin - 1)),
+      top = clamp(visible.y - padding, margin, Math.max(margin, height - margin - 1)),
+      right = clamp(visible.x + visible.w + padding, left + 1, Math.max(left + 1, width - margin)),
+      bottom = clamp(visible.y + visible.h + padding, top + 1, Math.max(top + 1, height - margin)),
+      outer = { x:left, y:top, w:right - left, h:bottom - top },
+      innerInset = Math.min(THINKING_LAYOUT.innerGap, Math.max(7, Math.min(outer.w, outer.h) * 0.08)),
+      inner = {
+        x:outer.x + innerInset,
+        y:outer.y + innerInset,
+        w:Math.max(1, outer.w - innerInset * 2),
+        h:Math.max(1, outer.h - innerInset * 2),
+      },
+      below = outer.y + outer.h + THINKING_LAYOUT.statusGap,
+      above = outer.y - THINKING_LAYOUT.statusGap - THINKING_LAYOUT.statusHeight,
+      statusY = below + THINKING_LAYOUT.statusHeight <= height - margin
+        ? below
+        : above >= margin ? above : clamp(height - margin - THINKING_LAYOUT.statusHeight, margin, height),
+      statusWidth = Math.min(THINKING_LAYOUT.statusWidth, Math.max(1, width - margin * 2));
+    return {
+      source,
+      outer,
+      inner,
+      fallback:!intersects,
+      status:{
+        x:clamp(outer.x + outer.w / 2, margin + statusWidth / 2, Math.max(margin + statusWidth / 2, width - margin - statusWidth / 2)),
+        y:statusY,
+        w:statusWidth,
+      },
+    };
+  }
+
+  function buildEchoContour(rect, layer = "outer", samples = THINKING_LAYOUT.samples) {
+    const normalized = normalizeRegion(rect);
+    if (!normalized) return [];
+    const count = Math.max(24, Math.round(Number(samples) || THINKING_LAYOUT.samples)),
+      centerX = normalized.x + normalized.w / 2,
+      centerY = normalized.y + normalized.h / 2,
+      radiusX = normalized.w / 2,
+      radiusY = normalized.h / 2,
+      inner = layer === "inner",
+      phase = inner ? 1.46 : 0.38,
+      exponent = inner ? 3.75 : 4.15,
+      points = [];
+    for (let index = 0; index < count; index++) {
+      const angle = index / count * TAU,
+        cosine = Math.cos(angle),
+        sine = Math.sin(angle),
+        edgeDistance = Math.pow(
+          Math.pow(Math.abs(cosine) / Math.max(1, radiusX), exponent)
+            + Math.pow(Math.abs(sine) / Math.max(1, radiusY), exponent),
+          -1 / exponent,
+        ),
+        ripple = 1
+          + Math.sin(angle * 3 + phase) * (inner ? 0.018 : 0.027)
+          + Math.sin(angle * 5 - phase * 0.7) * (inner ? 0.011 : 0.016),
+        driftX = Math.sin(angle * 2 + phase) * Math.min(7, normalized.w * 0.012),
+        driftY = Math.sin(angle * 3 - phase) * Math.min(6, normalized.h * 0.018);
+      points.push({
+        x:centerX + cosine * edgeDistance * ripple + driftX,
+        y:centerY + sine * edgeDistance * ripple + driftY,
+      });
     }
-    return normalizePoints(points);
+    return points;
   }
 
-  function pathIsClosed(type) {
-    return type !== "golden-spiral";
-  }
-
-  function traceIndex(index, length, closed) {
-    if (closed) return ((index % length) + length) % length;
-    return index >= 0 && index < length ? index : -1;
-  }
-
-  function drawPolyline(ctx, points) {
+  function traceClosedPath(ctx, points) {
     if (points.length < 2) return;
     ctx.beginPath();
     ctx.moveTo(points[0].x, points[0].y);
     for (let index = 1; index < points.length; index++) ctx.lineTo(points[index].x, points[index].y);
+    ctx.closePath();
     ctx.stroke();
   }
 
-  function drawTrail(ctx, points, model, elapsed, fade, aiColor) {
-    if (points.length < 2) return;
-    const closed = pathIsClosed(model.type),
-      length = points.length,
-      trailLength = Math.floor(length * 0.22),
-      cycle = ((elapsed * 0.105 * model.data.direction + model.data.phase / TAU) % 1 + 1) % 1,
-      head = closed ? Math.floor(cycle * length) : Math.floor(cycle * (length + trailLength)),
-      colorDrift = Math.sin(elapsed * 0.24) * 4;
-
+  function drawContour(ctx, points, color, alpha, lineWidth) {
     ctx.save();
-    ctx.strokeStyle = aiColor;
-    ctx.globalAlpha = fade * 0.14;
-    ctx.lineWidth = 1.1;
+    ctx.strokeStyle = color;
+    ctx.globalAlpha = alpha;
+    ctx.lineWidth = lineWidth;
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
-    drawPolyline(ctx, points);
+    traceClosedPath(ctx, points);
     ctx.restore();
+  }
 
+  function drawHighlight(ctx, points, color, progress, fade) {
+    if (points.length < 2) return;
+    const length = Math.max(6, Math.round(points.length * THINKING_LAYOUT.highlightFraction)),
+      head = Math.floor(clamp01(progress) * points.length) % points.length;
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2.5;
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
-    ctx.lineWidth = 2.05;
-    for (let step = 1; step <= trailLength; step++) {
-      const previous = traceIndex(head - trailLength + step - 1, length, closed),
-        current = traceIndex(head - trailLength + step, length, closed);
-      if (previous < 0 || current < 0) continue;
-      const strength = step / trailLength,
-        hue = (model.data.hue + colorDrift + strength * 34) % 360;
-      ctx.strokeStyle = `hsla(${hue},76%,48%,${fade * (0.14 + strength * 0.78)})`;
+    for (let step = 0; step < length; step++) {
+      const index = (head - length + step + points.length) % points.length,
+        next = (index + 1) % points.length,
+        strength = Math.sin((step + 1) / (length + 1) * Math.PI);
+      ctx.globalAlpha = fade * (0.12 + strength * 0.82);
       ctx.beginPath();
-      ctx.moveTo(points[previous].x, points[previous].y);
-      ctx.lineTo(points[current].x, points[current].y);
+      ctx.moveTo(points[index].x, points[index].y);
+      ctx.lineTo(points[next].x, points[next].y);
       ctx.stroke();
     }
-
-    const headIndex = traceIndex(head, length, closed);
-    if (headIndex < 0) return;
-    const point = points[headIndex],
-      hue = (model.data.hue + colorDrift + 34) % 360;
-    ctx.fillStyle = `hsla(${hue},80%,45%,${fade * 0.96})`;
-    ctx.beginPath();
-    ctx.arc(point.x, point.y, 1.9, 0, TAU);
-    ctx.fill();
-  }
-
-  function thinkingFootprint(center, viewportWidth) {
-    const width = Math.max(0, Number(viewportWidth) || 0),
-      copyWidth = Math.max(0, Math.min(THINKING_LAYOUT.copyWidth, width - 36)),
-      copyHeight = THINKING_LAYOUT.copyHeight + Math.max(0, THINKING_LAYOUT.copyWidth - copyWidth) * 0.48,
-      halfWidth = Math.max(THINKING_LAYOUT.loaderRadius, copyWidth / 2),
-      left = center.x - halfWidth - THINKING_LAYOUT.padding,
-      top = center.y - THINKING_LAYOUT.loaderRadius - THINKING_LAYOUT.padding,
-      right = center.x + halfWidth + THINKING_LAYOUT.padding,
-      bottom = center.y + THINKING_LAYOUT.copyTop + copyHeight + THINKING_LAYOUT.padding;
-    return { x:left, y:top, w:right - left, h:bottom - top };
-  }
-
-  function chooseThinkingPlacement(options = {}) {
-    const width = Math.max(1, Number(options.width) || 1),
-      height = Math.max(1, Number(options.height) || 1),
-      template = thinkingFootprint({ x:0, y:0 }, width),
-      margin = Math.min(THINKING_LAYOUT.viewportMargin, width / 2, height / 2),
-      minX = margin - template.x,
-      maxX = width - margin - template.x - template.w,
-      minY = margin - template.y,
-      maxY = height - margin - template.y - template.h,
-      clampAxis = (value, min, max, fallback) => min <= max ? Math.max(min, Math.min(max, value)) : fallback,
-      clampCenter = (x, y) => ({
-        x:clampAxis(x, minX, maxX, width / 2),
-        y:clampAxis(y, minY, maxY, height / 2),
-      }),
-      blockers = (Array.isArray(options.blockers) ? options.blockers : [])
-        .filter((rect) => rect && Number.isFinite(rect.x) && Number.isFinite(rect.y)
-          && Number.isFinite(rect.w) && Number.isFinite(rect.h) && rect.w > 0 && rect.h > 0),
-      anchor = options.anchor && Number.isFinite(options.anchor.x) && Number.isFinite(options.anchor.y)
-        && Number.isFinite(options.anchor.w) && Number.isFinite(options.anchor.h)
-        ? options.anchor
-        : null,
-      candidates = [],
-      seen = new Set(),
-      addCandidate = (x, y) => {
-        const point = clampCenter(x, y),
-          key = `${Math.round(point.x * 10)},${Math.round(point.y * 10)}`;
-        if (seen.has(key)) return;
-        seen.add(key);
-        candidates.push(point);
-      },
-      overlapScore = (box) => {
-        let score = 0;
-        for (const blocker of blockers) {
-          const overlapWidth = Math.min(box.x + box.w, blocker.x + blocker.w) - Math.max(box.x, blocker.x),
-            overlapHeight = Math.min(box.y + box.h, blocker.y + blocker.h) - Math.max(box.y, blocker.y);
-          if (overlapWidth > THINKING_LAYOUT.overlapEpsilon && overlapHeight > THINKING_LAYOUT.overlapEpsilon)
-            score += overlapWidth * overlapHeight * Math.max(1, Number(blocker.weight) || 1);
-        }
-        return score;
-      },
-      emptyPlacement = () => {
-        const minLeft = margin,
-          maxLeft = width - margin - template.w,
-          minTop = margin,
-          maxTop = height - margin - template.h;
-        if (maxLeft < minLeft || maxTop < minTop) return null;
-        const preferred = anchor
-            ? { x:anchor.x + anchor.w / 2, y:anchor.y + anchor.h / 2 }
-            : { x:width / 2, y:height / 2 },
-          preferredLeft = preferred.x - template.w / 2,
-          boxCenterOffsetY = template.y + template.h / 2,
-          tops = [minTop];
-        for (const blocker of blockers) {
-          const top = blocker.y + blocker.h;
-          if (top >= minTop && top <= maxTop) tops.push(top);
-        }
-        tops.sort((a, b) => Math.abs(a + boxCenterOffsetY - preferred.y) - Math.abs(b + boxCenterOffsetY - preferred.y));
-        let bestEmpty = null,
-          bestDistance = Infinity;
-        for (const top of tops) {
-          const intervals = [];
-          for (const blocker of blockers) {
-            if (blocker.y >= top + template.h || blocker.y + blocker.h <= top) continue;
-            const start = blocker.x - template.w,
-              end = blocker.x + blocker.w;
-            if (end < minLeft || start > maxLeft) continue;
-            intervals.push({ start:Math.max(minLeft, start), end:Math.min(maxLeft, end) });
-          }
-          intervals.sort((a, b) => a.start - b.start || a.end - b.end);
-          const merged = [];
-          for (const interval of intervals) {
-            const previous = merged[merged.length - 1];
-            if (previous && interval.start < previous.end - THINKING_LAYOUT.overlapEpsilon) previous.end = Math.max(previous.end, interval.end);
-            else merged.push({ ...interval });
-          }
-          const gaps = [];
-          let cursor = minLeft;
-          for (const interval of merged) {
-            if (interval.start + THINKING_LAYOUT.overlapEpsilon >= cursor)
-              gaps.push({ start:cursor, end:Math.max(cursor, interval.start) });
-            cursor = Math.max(cursor, interval.end);
-          }
-          if (cursor <= maxLeft) gaps.push({ start:cursor, end:maxLeft });
-          for (const gap of gaps) {
-            const left = Math.max(gap.start, Math.min(gap.end, preferredLeft)),
-              point = { x:left - template.x, y:top - template.y },
-              box = thinkingFootprint(point, width);
-            if (overlapScore(box) !== 0) continue;
-            const dx = point.x - preferred.x,
-              dy = point.y - preferred.y,
-              distance = dx * dx + dy * dy;
-            if (distance < bestDistance) {
-              bestDistance = distance;
-              bestEmpty = { x:point.x, y:point.y, box, score:0 };
-            }
-          }
-        }
-        return bestEmpty;
-      };
-    if (anchor) {
-      const centerX = anchor.x + anchor.w / 2,
-        centerY = anchor.y + anchor.h / 2,
-        gap = 18;
-      addCandidate(anchor.x + anchor.w + gap - template.x, centerY);
-      addCandidate(centerX, anchor.y + anchor.h + gap - template.y);
-      addCandidate(anchor.x - gap - template.x - template.w, centerY);
-      addCandidate(centerX, anchor.y - gap - template.y - template.h);
-    }
-    addCandidate(width / 2, height / 2);
-    for (const y of [0.17, 0.38, 0.62, 0.83])
-      for (const x of [0.12, 0.31, 0.5, 0.69, 0.88]) addCandidate(width * x, height * y);
-    let best = candidates[0] || clampCenter(width / 2, height / 2),
-      bestBox = thinkingFootprint(best, width),
-      bestScore = overlapScore(bestBox);
-    for (let index = 1; index < candidates.length; index++) {
-      const candidate = candidates[index],
-        box = thinkingFootprint(candidate, width),
-        score = overlapScore(box);
-      if (score < bestScore) {
-        best = candidate;
-        bestBox = box;
-        bestScore = score;
-        if (score === 0) break;
-      }
-    }
-    if (bestScore > 0) {
-      const empty = emptyPlacement();
-      if (empty) return empty;
-    }
-    return { x:best.x, y:best.y, box:bestBox, score:bestScore };
+    ctx.restore();
   }
 
   function create(options) {
@@ -335,50 +189,23 @@
       textLayer = options.textLayer,
       t = options.t,
       getTransform = options.getTransform,
-      getAiColor = options.getAiColor || (() => "#2563eb"),
+      getAiColor = options.getAiColor || (() => "#526ff1"),
+      getReducedMotion = options.getReducedMotion || (() => false),
       styleFor = options.styleFor || (() => null);
     let model = null,
       rafId = 0,
       startTime = 0,
       hideAt = 0,
-      phraseTimer = 0,
-      tipTimer = 0,
-      phraseIndex = 0,
-      tipIndex = 0,
       copyEl = null,
       copyStyle = null,
-      captionEl = null,
-      hintEl = null,
-      lastType = "",
-      lastPhraseIndex = -1,
-      lastTipIndex = -1;
+      captionEl = null;
 
     function now() {
       return performance.now() / 1000;
     }
 
     function applyText() {
-      if (captionEl) captionEl.textContent = t(PHRASE_KEYS[phraseIndex % PHRASE_KEYS.length]);
-      if (hintEl) hintEl.textContent = t(TIP_KEYS[tipIndex % TIP_KEYS.length]);
-    }
-
-    function swapText(element, className) {
-      if (!element) return;
-      element.classList.remove(className);
-      void element.offsetWidth;
-      element.classList.add(className);
-    }
-
-    function rotatePhrase() {
-      phraseIndex = (phraseIndex + 1) % PHRASE_KEYS.length;
-      swapText(captionEl, "caption-swap");
-      applyText();
-    }
-
-    function rotateTip() {
-      tipIndex = (tipIndex + 1) % TIP_KEYS.length;
-      swapText(hintEl, "hint-swap");
-      applyText();
+      if (captionEl) captionEl.textContent = t("summonUnderstanding");
     }
 
     function buildText() {
@@ -388,48 +215,34 @@
       copyEl.className = "summon-copy";
       copyStyle = styleFor(copyEl);
       captionEl = document.createElement("div");
-      captionEl.className = "summon-caption caption-swap";
-      hintEl = document.createElement("div");
-      hintEl.className = "summon-hint hint-swap";
-      copyEl.append(captionEl, hintEl);
+      captionEl.className = "summon-caption";
+      copyEl.append(captionEl);
       textLayer.appendChild(copyEl);
       applyText();
     }
 
-    function placeText(screenX, screenY) {
+    function placeText(layout, fade, color) {
       if (!copyStyle) return;
-      copyStyle.left = `${screenX}px`;
-      copyStyle.top = `${screenY + THINKING_LAYOUT.copyTop}px`;
-    }
-
-    function drawLoader(elapsed, fade, screenX, screenY) {
-      const radius = (THINKING_LAYOUT.loaderRadius - 2) * (1 + Math.sin(elapsed * 0.68 + model.data.phase) * 0.018),
-        points = buildLoaderPoints(model.type, model.data, elapsed)
-          .map((point) => ({ x:point.x * radius, y:point.y * radius }));
-      ctx.save();
-      ctx.translate(screenX, screenY);
-      drawTrail(ctx, points, model, elapsed, fade, getAiColor());
-      ctx.restore();
+      copyStyle.setProperty("left", `${layout.status.x}px`);
+      copyStyle.setProperty("top", `${layout.status.y}px`);
+      copyStyle.setProperty("width", `${layout.status.w}px`);
+      copyStyle.setProperty("opacity", String(fade));
+      copyStyle.setProperty("--summon-accent", color);
     }
 
     function stop() {
       cancelAnimationFrame(rafId);
       rafId = 0;
-      clearInterval(phraseTimer);
-      clearInterval(tipTimer);
-      phraseTimer = 0;
-      tipTimer = 0;
       model = null;
       hideAt = 0;
       copyEl = null;
       copyStyle = null;
       captionEl = null;
-      hintEl = null;
       if (textLayer) textLayer.textContent = "";
       if (ctx && canvas) {
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        delete canvas.dataset.loaderType;
+        delete canvas.dataset.effect;
         canvas.hidden = true;
       }
     }
@@ -438,13 +251,13 @@
       if (!model) return;
       rafId = requestAnimationFrame(frame);
       const transform = getTransform(),
-        dpr = transform.dpr || 1,
+        dpr = Math.max(1, Number(transform.dpr) || 1),
         elapsed = now() - startTime,
-        screenX = model.anchor.x * transform.scale + transform.panX,
-        screenY = model.anchor.y * transform.scale + transform.panY;
+        layout = echoLayout(projectRegion(model.region, transform), transform),
+        color = getAiColor() || "#526ff1";
       let fade = 1;
       if (hideAt) {
-        fade = clamp01(1 - (now() - hideAt) / 0.36);
+        fade = clamp01(1 - (now() - hideAt) / THINKING_LAYOUT.fadeSeconds);
         if (fade <= 0) {
           stop();
           return;
@@ -457,34 +270,24 @@
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      drawLoader(elapsed, fade, screenX, screenY);
-      if (copyStyle) copyStyle.opacity = String(fade);
-      placeText(screenX, screenY);
+      const outer = buildEchoContour(layout.outer, "outer"),
+        inner = buildEchoContour(layout.inner, "inner"),
+        progress = getReducedMotion() ? 0.13 : (elapsed / THINKING_LAYOUT.cycleSeconds) % 1;
+      drawContour(ctx, outer, color, fade * 0.2, 1.15);
+      drawContour(ctx, inner, color, fade * 0.1, 0.9);
+      drawHighlight(ctx, outer, color, progress, fade);
+      placeText(layout, fade, color);
     }
 
-    function show(anchor) {
-      if (!ctx || !canvas || !textLayer || !anchor) return false;
+    function show(region) {
+      if (!ctx || !canvas || !textLayer) return false;
       stop();
-      const seed = ((Date.now() & 0xffffffff) ^ ((anchor.x * 2654435761) | 0) ^ ((anchor.y * 1597334677) | 0)) >>> 0,
-        random = mulberry32(seed),
-        type = pickLoaderType(random, lastType);
-      lastType = type;
-      model = {
-        anchor:{ x:anchor.x, y:anchor.y },
-        type,
-        data:buildLoaderData(type, seed),
-      };
-      phraseIndex = pickDifferentIndex(random, PHRASE_KEYS.length, lastPhraseIndex);
-      tipIndex = pickDifferentIndex(random, TIP_KEYS.length, lastTipIndex);
-      lastPhraseIndex = phraseIndex;
-      lastTipIndex = tipIndex;
+      model = { region:normalizeRegion(region) };
       buildText();
-      canvas.dataset.loaderType = type;
+      canvas.dataset.effect = "spatial-echo";
       canvas.hidden = false;
       startTime = now();
       hideAt = 0;
-      phraseTimer = setInterval(rotatePhrase, PHRASE_MS);
-      tipTimer = setInterval(rotateTip, TIP_MS);
       rafId = requestAnimationFrame(frame);
       return true;
     }
@@ -497,9 +300,9 @@
     return {
       show,
       hide,
-      refreshText: applyText,
+      refreshText:applyText,
       get type() {
-        return model?.type || lastType;
+        return model ? "spatial-echo" : "";
       },
       get active() {
         return Boolean(model);
@@ -508,15 +311,11 @@
   }
 
   return {
-    LOADER_TYPES,
-    TEXT_INTERVALS,
     THINKING_LAYOUT,
-    pickLoaderType,
-    pickDifferentIndex,
-    buildLoaderData,
-    buildLoaderPoints,
-    thinkingFootprint,
-    chooseThinkingPlacement,
+    normalizeRegion,
+    projectRegion,
+    echoLayout,
+    buildEchoContour,
     create,
   };
 });
