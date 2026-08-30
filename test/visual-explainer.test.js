@@ -120,8 +120,9 @@ test("PenEcho Agent frames a new Visual Explainer in the unobscured viewport bes
   const browser=read("src/client/app/canvas-agent-runtime.js"),frameSource=functionSource(browser,"canvasAgentFrameRegion"),framePlanSource=functionSource(browser,"canvasAgentFramePlan"),state={scale:.24,panX:0,panY:0},viewRect={left:0,top:0,width:1600,height:900},panelRect={left:1200,top:120,right:1580,bottom:880,width:380,height:760},calls={render:0,sync:0};
   const frame=vm.runInNewContext(`(() => { ${framePlanSource} return ${frameSource}; })()`,{
     SIZE:20000,state,
-    view:{getBoundingClientRect:()=>viewRect},
+    view:{clientWidth:viewRect.width,clientHeight:viewRect.height,getBoundingClientRect:()=>viewRect},
     canvasAgentPanel:{hidden:false,getBoundingClientRect:()=>panelRect},
+    canvasElementLayoutRect:()=>panelRect,
     requestRender:()=>calls.render++,canvasAgentViewFacts:()=>({viewport:{x:0,y:0,w:1,h:1}}),canvasAgentSyncState:()=>calls.sync++,
     canvasAgentExternalRect:region=>({x:region.x,y:region.y,width:region.w,height:region.h}),
   });

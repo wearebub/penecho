@@ -1560,6 +1560,45 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     element.classList.add(record.className);
     return record.style;
   }
+  function pageLayoutScale() {
+    const value = Number.parseFloat(window.getComputedStyle?.(document.documentElement)?.zoom);
+    return Number.isFinite(value) && value > 0 ? value : 1;
+  }
+  function pageLayoutRect(element) {
+    const rect = element?.getBoundingClientRect?.();
+    if (!rect) return null;
+    const scale = pageLayoutScale(), left = rect.left / scale, top = rect.top / scale,
+      width = rect.width / scale, height = rect.height / scale;
+    return { left, top, right:left + width, bottom:top + height, width, height };
+  }
+  function canvasViewportMetrics() {
+    const rect = view.getBoundingClientRect(),
+      width = Math.max(0, Number(view.clientWidth) || rect.width),
+      height = Math.max(0, Number(view.clientHeight) || rect.height),
+      clientScaleX = rect.width > 0 ? width / rect.width : 1,
+      clientScaleY = rect.height > 0 ? height / rect.height : 1;
+    return { rect, width, height, clientScaleX, clientScaleY };
+  }
+  function canvasClientPosition(clientX, clientY) {
+    const metrics = canvasViewportMetrics();
+    return {
+      x:(Number(clientX) - metrics.rect.left) * metrics.clientScaleX,
+      y:(Number(clientY) - metrics.rect.top) * metrics.clientScaleY,
+    };
+  }
+  function canvasClientDelta(dx, dy) {
+    const metrics = canvasViewportMetrics();
+    return { x:Number(dx) * metrics.clientScaleX, y:Number(dy) * metrics.clientScaleY };
+  }
+  function canvasElementLayoutRect(element) {
+    const rect = element?.getBoundingClientRect?.(), metrics = canvasViewportMetrics();
+    if (!rect) return null;
+    const left = (rect.left - metrics.rect.left) * metrics.clientScaleX,
+      top = (rect.top - metrics.rect.top) * metrics.clientScaleY,
+      width = rect.width * metrics.clientScaleX,
+      height = rect.height * metrics.clientScaleY;
+    return { left, top, right:left + width, bottom:top + height, width, height };
+  }
   const AI_NON_PROGRESS_STATUS_KEYS = new Set(["aiBusy", "aiDone", "aiNoVisibleResponse", "aiError", "aiCancelled", "aiCancelledForInput"]);
   const setStatus = (text, key = null) => {
     status.textContent = text;
@@ -1649,8 +1688,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     return rects.filter((r) => r.w > 0 && r.h > 0);
   }
   function summonControlBlockers() {
-    const viewRect = view.getBoundingClientRect(),
-      viewport = { x:0, y:0, w:view.clientWidth, h:view.clientHeight },
+    const viewport = { x:0, y:0, w:view.clientWidth, h:view.clientHeight },
       selectors = [
         ".object-chrome-button",
         ".animation-controls:not([hidden])",
@@ -1665,13 +1703,13 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       rects = [];
     for (const element of view.querySelectorAll(selectors)) {
       const style = getComputedStyle(element),
-        rect = element.getBoundingClientRect();
+        rect = canvasElementLayoutRect(element);
       if (style.display === "none" || style.visibility === "hidden" || Number(style.opacity) <= 0.02
         || rect.width <= 0 || rect.height <= 0) continue;
       const padding = 8,
         clipped = intersection({
-          x:rect.left - viewRect.left - padding,
-          y:rect.top - viewRect.top - padding,
+          x:rect.left - padding,
+          y:rect.top - padding,
           w:rect.width + padding * 2,
           h:rect.height + padding * 2,
         }, viewport);
@@ -1743,10 +1781,11 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     } catch {}
   }
   function featureTourViewport() {
-    const visual = window.visualViewport;
+    const visual = window.visualViewport,
+      scale = pageLayoutScale();
     return visual
-      ? { left: visual.offsetLeft, top: visual.offsetTop, width: visual.width, height: visual.height }
-      : { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight };
+      ? { left: visual.offsetLeft / scale, top: visual.offsetTop / scale, width: visual.width / scale, height: visual.height / scale }
+      : { left: 0, top: 0, width: window.innerWidth / scale, height: window.innerHeight / scale };
   }
   function featureTourElements(step) {
     return (step?.targets || [])
@@ -1759,7 +1798,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       });
   }
   function featureTourTargetRect(step, elements = featureTourElements(step)) {
-    return TOUR.unionRects(elements.map((element) => element.getBoundingClientRect()));
+    return TOUR.unionRects(elements.map(pageLayoutRect));
   }
   function featureTourStepAvailable(step) {
     if (step?.preview === "canvas-agent-panel") {
@@ -1856,7 +1895,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     highlightStyle?.setProperty("width", `${Math.max(2, Math.round(right - left))}px`);
     highlightStyle?.setProperty("height", `${Math.max(2, Math.round(bottom - top))}px`);
     highlightStyle?.setProperty("border-radius", `${step.radius ?? 10}px`);
-    const cardRect = tourCard.getBoundingClientRect(),
+    const cardRect = pageLayoutRect(tourCard),
       coachmarkMargin = viewport.width <= 620 ? 8 : 12,
       position = TOUR.placeCoachmark(target, { width: cardRect.width, height: cardRect.height }, viewport, step.placement, { margin: coachmarkMargin, gap: 15, arrowMargin: 23 });
     cardStyle?.setProperty("left", `${Math.round(position.x)}px`);

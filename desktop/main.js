@@ -18,6 +18,7 @@ const { lanHosts, lanUrls } = require("./network-access.js");
 const { desktopConfigurationEnvironment } = require("./config-environment.js");
 const { issueNativePickerGrant } = require("../src/server/canvas-agent/native-picker-grants.js");
 const { CanvasAgentProjectStore } = require("../src/server/canvas-agent/project-store.js");
+const { CANVAS_PAGE_SCALE } = require("../public/page-scale.js");
 const pkg = require("../package.json");
 const DESKTOP_VERSION = pkg.config?.desktopVersion || pkg.version;
 
@@ -209,7 +210,7 @@ function createMainWindow(url) {
     minWidth:820,
     minHeight:620,
     title:"PenEcho",
-    webPreferences:{ preload:CANVAS_PRELOAD },
+    webPreferences:{ preload:CANVAS_PRELOAD, zoomFactor:CANVAS_PAGE_SCALE },
   }));
   restrictNavigation(mainWindow, candidate => {
     try { return new URL(candidate).origin === origin; } catch { return false; }

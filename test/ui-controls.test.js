@@ -656,7 +656,7 @@ test("canvas navigation lock freezes only the outer view and leaves locked widge
   assert.match(css, /#viewport\.navigation-locked \.canvas-navigation-lock-hint\s*\{[^}]*visibility:\s*visible[^}]*opacity:\s*\.78/);
   assert.match(app, /NAVIGATION_HINT_VISIBLE_MS\s*=\s*10000/);
   assert.match(toggle, /state\.navigationLocked = Boolean\(locked\)[\s\S]*?view\.classList\.toggle\("navigation-locked"[\s\S]*?syncWidgetHostStates\(\)[\s\S]*?setNavigating\(true\)/);
-  assert.match(move, /if \(state\.navigationLocked\)[\s\S]*?return false[\s\S]*?state\.panX \+= dx/);
+  assert.match(move, /if \(state\.navigationLocked\)[\s\S]*?return false[\s\S]*?canvasClientDelta\(dx, dy\)[\s\S]*?state\.panX \+= delta\.x/);
   assert.match(zoom, /if \(state\.navigationLocked\)[\s\S]*?return false[\s\S]*?state\.scale = next/);
   assert.match(pinch, /if \(state\.navigationLocked\)[\s\S]*?return false[\s\S]*?state\.scale = next/);
   assert.match(hostState, /navigationLocked:state\.navigationLocked/);
@@ -1018,6 +1018,7 @@ test("new canvases open with a 0.8x initial viewport extent without overriding r
       viewerAutoFitCanvas:false,
       devicePixelRatio:1,
       view:{ getBoundingClientRect:() => ({ width:1200, height:800 }) },
+      canvasViewportMetrics:() => ({ width:1200, height:800 }),
       screen,
       animationLayer,
       placedContentLayer,
@@ -1051,6 +1052,8 @@ test("the public Viewer camera fits a Widget in phone portrait and landscape", (
     widgetBox:(item) => ({ x:item.x, y:item.y, w:item.w, h:item.h }),
     devicePixelRatio:1,
     view:{ getBoundingClientRect:() => rect },
+    canvasViewportMetrics:() => ({ width:rect.width, height:rect.height }),
+    pageLayoutRect:(element) => element?.getBoundingClientRect?.() || rect,
     document:{ querySelector:() => ({ getBoundingClientRect:() => ({ bottom:62 }) }) },
     screen,
     animationLayer,
@@ -1108,6 +1111,8 @@ test("the public Viewer camera fits every object in a restored Canvas", () => {
       unionLocalBounds,
       devicePixelRatio:1,
       view:{ getBoundingClientRect:() => rect },
+      canvasViewportMetrics:() => ({ width:rect.width, height:rect.height }),
+      pageLayoutRect:(element) => element?.getBoundingClientRect?.() || rect,
       document:{ querySelector:() => ({ getBoundingClientRect:() => ({ bottom:62 }) }) },
       screen,
       animationLayer,
@@ -1214,7 +1219,7 @@ test("animation frames do not rewrite unchanged control DOM", () => {
     animationPlayPause,
     performance:{now:()=>100},
     state:{animationControlsUntil:1000,panX:10,panY:20,scale:1},
-    view:{getBoundingClientRect:()=>({width:1000,height:700})},
+    canvasViewportMetrics:()=>({width:1000,height:700}),
     t:(key)=>key,
     runtimeElementStyle:()=>animationControls.style,
     acceptAnimationEdit:()=>{},

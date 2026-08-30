@@ -1678,6 +1678,45 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     element.classList.add(record.className);
     return record.style;
   }
+  function pageLayoutScale() {
+    const value = Number.parseFloat(window.getComputedStyle?.(document.documentElement)?.zoom);
+    return Number.isFinite(value) && value > 0 ? value : 1;
+  }
+  function pageLayoutRect(element) {
+    const rect = element?.getBoundingClientRect?.();
+    if (!rect) return null;
+    const scale = pageLayoutScale(), left = rect.left / scale, top = rect.top / scale,
+      width = rect.width / scale, height = rect.height / scale;
+    return { left, top, right:left + width, bottom:top + height, width, height };
+  }
+  function canvasViewportMetrics() {
+    const rect = view.getBoundingClientRect(),
+      width = Math.max(0, Number(view.clientWidth) || rect.width),
+      height = Math.max(0, Number(view.clientHeight) || rect.height),
+      clientScaleX = rect.width > 0 ? width / rect.width : 1,
+      clientScaleY = rect.height > 0 ? height / rect.height : 1;
+    return { rect, width, height, clientScaleX, clientScaleY };
+  }
+  function canvasClientPosition(clientX, clientY) {
+    const metrics = canvasViewportMetrics();
+    return {
+      x:(Number(clientX) - metrics.rect.left) * metrics.clientScaleX,
+      y:(Number(clientY) - metrics.rect.top) * metrics.clientScaleY,
+    };
+  }
+  function canvasClientDelta(dx, dy) {
+    const metrics = canvasViewportMetrics();
+    return { x:Number(dx) * metrics.clientScaleX, y:Number(dy) * metrics.clientScaleY };
+  }
+  function canvasElementLayoutRect(element) {
+    const rect = element?.getBoundingClientRect?.(), metrics = canvasViewportMetrics();
+    if (!rect) return null;
+    const left = (rect.left - metrics.rect.left) * metrics.clientScaleX,
+      top = (rect.top - metrics.rect.top) * metrics.clientScaleY,
+      width = rect.width * metrics.clientScaleX,
+      height = rect.height * metrics.clientScaleY;
+    return { left, top, right:left + width, bottom:top + height, width, height };
+  }
   const AI_NON_PROGRESS_STATUS_KEYS = new Set(["aiBusy", "aiDone", "aiNoVisibleResponse", "aiError", "aiCancelled", "aiCancelledForInput"]);
   const setStatus = (text, key = null) => {
     status.textContent = text;
@@ -1767,8 +1806,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     return rects.filter((r) => r.w > 0 && r.h > 0);
   }
   function summonControlBlockers() {
-    const viewRect = view.getBoundingClientRect(),
-      viewport = { x:0, y:0, w:view.clientWidth, h:view.clientHeight },
+    const viewport = { x:0, y:0, w:view.clientWidth, h:view.clientHeight },
       selectors = [
         ".object-chrome-button",
         ".animation-controls:not([hidden])",
@@ -1783,13 +1821,13 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       rects = [];
     for (const element of view.querySelectorAll(selectors)) {
       const style = getComputedStyle(element),
-        rect = element.getBoundingClientRect();
+        rect = canvasElementLayoutRect(element);
       if (style.display === "none" || style.visibility === "hidden" || Number(style.opacity) <= 0.02
         || rect.width <= 0 || rect.height <= 0) continue;
       const padding = 8,
         clipped = intersection({
-          x:rect.left - viewRect.left - padding,
-          y:rect.top - viewRect.top - padding,
+          x:rect.left - padding,
+          y:rect.top - padding,
           w:rect.width + padding * 2,
           h:rect.height + padding * 2,
         }, viewport);
@@ -1861,10 +1899,11 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     } catch {}
   }
   function featureTourViewport() {
-    const visual = window.visualViewport;
+    const visual = window.visualViewport,
+      scale = pageLayoutScale();
     return visual
-      ? { left: visual.offsetLeft, top: visual.offsetTop, width: visual.width, height: visual.height }
-      : { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight };
+      ? { left: visual.offsetLeft / scale, top: visual.offsetTop / scale, width: visual.width / scale, height: visual.height / scale }
+      : { left: 0, top: 0, width: window.innerWidth / scale, height: window.innerHeight / scale };
   }
   function featureTourElements(step) {
     return (step?.targets || [])
@@ -1877,7 +1916,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       });
   }
   function featureTourTargetRect(step, elements = featureTourElements(step)) {
-    return TOUR.unionRects(elements.map((element) => element.getBoundingClientRect()));
+    return TOUR.unionRects(elements.map(pageLayoutRect));
   }
   function featureTourStepAvailable(step) {
     if (step?.preview === "canvas-agent-panel") {
@@ -1974,7 +2013,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     highlightStyle?.setProperty("width", `${Math.max(2, Math.round(right - left))}px`);
     highlightStyle?.setProperty("height", `${Math.max(2, Math.round(bottom - top))}px`);
     highlightStyle?.setProperty("border-radius", `${step.radius ?? 10}px`);
-    const cardRect = tourCard.getBoundingClientRect(),
+    const cardRect = pageLayoutRect(tourCard),
       coachmarkMargin = viewport.width <= 620 ? 8 : 12,
       position = TOUR.placeCoachmark(target, { width: cardRect.width, height: cardRect.height }, viewport, step.placement, { margin: coachmarkMargin, gap: 15, arrowMargin: 23 });
     cardStyle?.setProperty("left", `${Math.round(position.x)}px`);
@@ -5065,9 +5104,9 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   }
   function importedImagePlacement(naturalW, naturalH) {
     const visible = viewportRect() || { x:0, y:0, w:SIZE, h:SIZE },
-      rect = view.getBoundingClientRect(),
-      maxW = Math.max(80, Math.min(6000, visible.w * 0.72, Math.max(240, rect.width * 0.52) / state.scale)),
-      maxH = Math.max(80, Math.min(6000, visible.h * 0.72, Math.max(200, rect.height * 0.52) / state.scale)),
+      { width, height } = canvasViewportMetrics(),
+      maxW = Math.max(80, Math.min(6000, visible.w * 0.72, Math.max(240, width * 0.52) / state.scale)),
+      maxH = Math.max(80, Math.min(6000, visible.h * 0.72, Math.max(200, height * 0.52) / state.scale)),
       scale = Math.min(maxW / naturalW, maxH / naturalH),
       w = Math.max(80, naturalW * scale),
       h = Math.max(80, naturalH * scale),
@@ -6506,7 +6545,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       if (target.kind === "confirmed") acceptAnimationEdit();
       return;
     }
-    const rect = view.getBoundingClientRect(),
+    const { width:viewportWidth, height:viewportHeight } = canvasViewportMetrics(),
       box = target.box,
       left = state.panX + box.x * state.scale,
       top = state.panY + box.y * state.scale,
@@ -6515,8 +6554,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       controlsHeight = animationControls.offsetHeight || 36,
       editControlsClearance = 28,
       controlsStyle = runtimeElementStyle(animationControls, "animation-controls"),
-      x = Math.max(8, Math.min(rect.width - controlsWidth - 8, left + width / 2 - controlsWidth / 2)),
-      y = top - controlsHeight - editControlsClearance >= 8 ? top - controlsHeight - editControlsClearance : Math.min(rect.height - controlsHeight - 8, top + box.h * state.scale + editControlsClearance),
+      x = Math.max(8, Math.min(viewportWidth - controlsWidth - 8, left + width / 2 - controlsWidth / 2)),
+      y = top - controlsHeight - editControlsClearance >= 8 ? top - controlsHeight - editControlsClearance : Math.min(viewportHeight - controlsHeight - 8, top + box.h * state.scale + editControlsClearance),
       nextX = Math.round(x) + "px",
       nextY = Math.round(y) + "px",
       nextLabel = t(target.playback.paused ? "animationPlay" : "animationPause");
@@ -6580,9 +6619,9 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   }
   function clearAnimationLayer() {
     const d = devicePixelRatio || 1,
-      rect = view.getBoundingClientRect();
+      { width, height } = canvasViewportMetrics();
     animationCtx.setTransform(d, 0, 0, d, 0, 0);
-    animationCtx.clearRect(0, 0, rect.width, rect.height);
+    animationCtx.clearRect(0, 0, width, height);
     state.animationScreenBoxes.clear();
     state.animationRenderedPlayheads.clear();
     state.animationFullRedraw = true;
@@ -6593,7 +6632,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       return;
     }
     const d = devicePixelRatio || 1,
-      rect = view.getBoundingClientRect(),
+      { width, height } = canvasViewportMetrics(),
+      rect = { width, height },
       visible = viewportRect(),
       animations = visibleAnimations(visible),
       currentBoxes = new Map(animations.map((animation) => [animation.id, animationScreenBox(animation)])),
@@ -6675,7 +6715,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       }
   }
   function fit() {
-    const r = view.getBoundingClientRect(),
+    const metrics = canvasViewportMetrics(),
+      r = { width:metrics.width, height:metrics.height },
       d = devicePixelRatio || 1;
     screen.width = Math.round(r.width * d);
     screen.height = Math.round(r.height * d);
@@ -6710,9 +6751,10 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       // top inset keeps it clear of the read-only action bar; every
       // ResizeObserver pass recomputes the frame for phones, tablets and
       // resized desktop windows without changing the content's aspect ratio.
-      const viewerBar = document.querySelector(".viewer-topbar")?.getBoundingClientRect(),
+      const viewerBar = pageLayoutRect(document.querySelector(".viewer-topbar")),
+        viewRect = pageLayoutRect(view),
         sideInset = Math.max(12, Math.min(40, r.width * .035)),
-        topInset = Math.max(64, Math.min(r.height * .4, viewerBar ? viewerBar.bottom - r.top + 12 : r.height * .09)),
+        topInset = Math.max(64, Math.min(r.height * .4, viewerBar && viewRect ? viewerBar.bottom - viewRect.top + 12 : r.height * .09)),
         bottomInset = Math.max(12, Math.min(32, r.height * .035)),
         availableWidth = Math.max(1, r.width - sideInset * 2),
         availableHeight = Math.max(1, r.height - topInset - bottomInset),
@@ -6739,7 +6781,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   }
   function renderPlacedContentLayer(region = null) {
     const d = devicePixelRatio || 1,
-      r = view.getBoundingClientRect(),
+      metrics = canvasViewportMetrics(),
+      r = { width:metrics.width, height:metrics.height },
       visible = region || {
         x:Math.max(0, -state.panX / state.scale),
         y:Math.max(0, -state.panY / state.scale),
@@ -6761,7 +6804,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   }
   function renderInkLayer(region = null) {
     const d = devicePixelRatio || 1,
-      r = view.getBoundingClientRect(),
+      metrics = canvasViewportMetrics(),
+      r = { width:metrics.width, height:metrics.height },
       visible = region || {
         x:Math.max(0, -state.panX / state.scale),
         y:Math.max(0, -state.panY / state.scale),
@@ -6782,14 +6826,15 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     inkCtx.restore();
   }
   function updateCoordinates() {
-    const r = view.getBoundingClientRect(),
-      x = (r.width / 2 - state.panX) / state.scale,
-      y = (r.height / 2 - state.panY) / state.scale;
+    const { width, height } = canvasViewportMetrics(),
+      x = (width / 2 - state.panX) / state.scale,
+      y = (height / 2 - state.panY) / state.scale;
     coords.textContent = `x ${Math.round(x)} · y ${Math.round(y)} · ${Math.round(state.scale * 100)}%`;
   }
   function render() {
     const d = devicePixelRatio || 1,
-      r = view.getBoundingClientRect();
+      metrics = canvasViewportMetrics(),
+      r = { width:metrics.width, height:metrics.height };
     ctx.setTransform(d, 0, 0, d, 0, 0);
     ctx.clearRect(0, 0, r.width, r.height);
     ctx.fillStyle = state.paint.outside;
@@ -7034,7 +7079,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     }
     imageEditBar.classList.toggle("hand-toolbar-hiding", Boolean(handToolbarRecord({ kind:"image", id:item.id })?.hiding));
     if (imageEditBar.hidden) imageEditBar.hidden = false;
-    const rect = view.getBoundingClientRect(),
+    const { width:viewportWidth, height:viewportHeight } = canvasViewportMetrics(),
       box = imageBox(item),
       left = state.panX + box.x * state.scale,
       top = state.panY + box.y * state.scale,
@@ -7045,9 +7090,9 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       gap = 12,
       style = runtimeElementStyle(imageEditBar, "image-edit-bar");
     let x = left + width + gap;
-    if (x + barWidth > rect.width - 8) x = left - barWidth - gap;
-    if (x < 8) x = Math.max(8, Math.min(rect.width - barWidth - 8, left + width / 2 - barWidth / 2));
-    const y = Math.max(8, Math.min(rect.height - barHeight - 8, top + height / 2 - barHeight / 2));
+    if (x + barWidth > viewportWidth - 8) x = left - barWidth - gap;
+    if (x < 8) x = Math.max(8, Math.min(viewportWidth - barWidth - 8, left + width / 2 - barWidth / 2));
+    const y = Math.max(8, Math.min(viewportHeight - barHeight - 8, top + height / 2 - barHeight / 2));
     style?.setProperty("--image-edit-bar-x", `${x.toFixed(1)}px`);
     style?.setProperty("--image-edit-bar-y", `${y.toFixed(1)}px`);
   }
@@ -7321,14 +7366,9 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   }
   function objectChromeAnchor(element) {
     if (!element?.getBoundingClientRect) return null;
-    const rect = element.getBoundingClientRect(),
-      viewRect = view.getBoundingClientRect?.() || {left:0,top:0},
-      anchor = {
-        x:rect.left - viewRect.left,
-        y:rect.top - viewRect.top,
-        width:rect.width,
-        height:rect.height,
-      };
+    const rect = canvasElementLayoutRect(element),
+      anchor = rect && { x:rect.left, y:rect.top, width:rect.width, height:rect.height };
+    if (!anchor) return null;
     return Object.values(anchor).every(Number.isFinite) && anchor.width > 0 && anchor.height > 0 ? anchor : null;
   }
   function beginWidgetRefineConfirmation(candidate, anchor = null) {
@@ -7565,12 +7605,11 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     if (viewportWidth <= 0 || viewportHeight <= 0 || right < -8 || bottom < -8 || screenBox.left > viewportWidth + 8 || screenBox.top > viewportHeight + 8) return null;
     const clampX = (value) => Math.max(6, Math.min(Math.max(6, viewportWidth - width - 6), value)),
       clampY = (value) => Math.max(6, Math.min(Math.max(6, viewportHeight - height - 6), value)),
-      viewRect = view.getBoundingClientRect?.() || {left:0,top:0},
       obstacles = [...(globalThis.document?.querySelectorAll?.(".top-row, .toolbar, .animation-controls:not([hidden]), .image-edit-bar:not([hidden]), .selection-context-toolbar, .text-editor, .ai-embodiment, .canvas-agent-control, .object-chrome-button") || [])]
         .filter(element => element.dataset.objectChromeKey !== ignoreKey && (!spec?.widgetToolGroup || element.dataset.widgetToolGroup !== spec.widgetToolGroup))
         .map(element => {
-          const rect = element.getBoundingClientRect();
-          return { x:rect.left - viewRect.left, y:rect.top - viewRect.top, w:rect.width, h:rect.height };
+          const rect = canvasElementLayoutRect(element);
+          return { x:rect.left, y:rect.top, w:rect.width, h:rect.height };
         }),
       overlapsObstacle = position => obstacles.some(obstacle => position.x < obstacle.x + obstacle.w + 5 && position.x + position.w + 5 > obstacle.x && position.y < obstacle.y + obstacle.h + 5 && position.y + position.h + 5 > obstacle.y),
       fits = (position, extraBottom = 0) => position.x >= 6 && position.y >= 6 && position.x + position.w <= viewportWidth - 6 && position.y + position.h + extraBottom <= viewportHeight - 6 && !overlapsObstacle(position),
@@ -7789,8 +7828,9 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     if (!gesture || gesture.id !== event.pointerId || !state.textBoxes.includes(gesture.item)) return false;
     const item = gesture.item,
       scale = Math.max(.03, state.scale),
-      x = Math.max(0, Math.min(SIZE - item.w, gesture.startX + (event.clientX - gesture.startClientX) / scale)),
-      y = Math.max(0, Math.min(SIZE - item.h, gesture.startY + (event.clientY - gesture.startClientY) / scale));
+      delta = canvasClientDelta(event.clientX - gesture.startClientX, event.clientY - gesture.startClientY),
+      x = Math.max(0, Math.min(SIZE - item.w, gesture.startX + delta.x / scale)),
+      y = Math.max(0, Math.min(SIZE - item.h, gesture.startY + delta.y / scale));
     if (x === item.x && y === item.y) return true;
     item.x = x;
     item.y = y;
@@ -8093,7 +8133,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   }
   function renderInteractionLayer() {
     const d = devicePixelRatio || 1,
-      r = view.getBoundingClientRect();
+      metrics = canvasViewportMetrics(),
+      r = { width:metrics.width, height:metrics.height };
     interactionCtx.setTransform(d, 0, 0, d, 0, 0);
     interactionCtx.clearRect(0, 0, r.width, r.height);
     interactionCtx.save();
@@ -8137,10 +8178,10 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     syncObjectChrome();
   }
   function clientPoint(e) {
-    const r = view.getBoundingClientRect();
+    const point = canvasClientPosition(e.clientX, e.clientY);
     return {
-      x: (e.clientX - r.left - state.panX) / state.scale,
-      y: (e.clientY - r.top - state.panY) / state.scale,
+      x: (point.x - state.panX) / state.scale,
+      y: (point.y - state.panY) / state.scale,
     };
   }
   function blockCanvasInput(duration = 1000) {
@@ -8349,8 +8390,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     return { left: editor.x * state.scale + state.panX, top: editor.y * state.scale + state.panY };
   }
   function textEditorViewportSize() {
-    const rect = view.getBoundingClientRect();
-    return { width: rect.width, height: rect.height };
+    const { width, height } = canvasViewportMetrics();
+    return { width, height };
   }
   function resizeTextEditorDimensions(gesture, hit, dx, dy, minWidth, minHeight, maxWidth, maxHeight) {
     const startWidth = gesture.startWidth,
@@ -8477,8 +8518,9 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   function updateTextEditorGesture(event, editor) {
     const gesture = editor.gesture;
     if (!gesture || gesture.id !== event.pointerId) return;
-    const dx = event.clientX - gesture.startClientX,
-      dy = event.clientY - gesture.startClientY,
+    const delta = canvasClientDelta(event.clientX - gesture.startClientX, event.clientY - gesture.startClientY),
+      dx = delta.x,
+      dy = delta.y,
       viewport = textEditorViewportSize();
     if (gesture.hit === "move") {
       editor.x = gesture.startX + dx / Math.max(0.03, state.scale);
@@ -8960,7 +9002,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   function beginTouchGesture() {
     if (state.navigationLocked || state.touches.size < 2) return;
     const ids = [...state.touches.keys()].slice(0, 2),
-      points = ids.map((id) => state.touches.get(id));
+      screenPoints = ids.map((id) => state.touches.get(id)),
+      points = screenPoints.map((point) => canvasClientPosition(point.x, point.y));
     state.touchGesture = {
       ids,
       center: {
@@ -8983,18 +9026,16 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     }
     const points = g.ids.map((id) => state.touches.get(id));
     if (points.some((p) => !p)) return false;
-    const center = {
-        x: (points[0].x + points[1].x) / 2,
-        y: (points[0].y + points[1].y) / 2,
-      },
-      distance = Math.max(1, Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y)),
-      r = view.getBoundingClientRect(),
+    const first = canvasClientPosition(points[0].x, points[0].y),
+      second = canvasClientPosition(points[1].x, points[1].y),
+      center = { x:(first.x + second.x) / 2, y:(first.y + second.y) / 2 },
+      distance = Math.max(1, Math.hypot(first.x - second.x, first.y - second.y)),
       next = Math.max(0.03, Math.min(2, (g.scale * distance) / g.distance)),
-      anchorX = (g.center.x - r.left - g.panX) / g.scale,
-      anchorY = (g.center.y - r.top - g.panY) / g.scale;
+      anchorX = (g.center.x - g.panX) / g.scale,
+      anchorY = (g.center.y - g.panY) / g.scale;
     state.scale = next;
-    state.panX = center.x - r.left - anchorX * next;
-    state.panY = center.y - r.top - anchorY * next;
+    state.panX = center.x - anchorX * next;
+    state.panY = center.y - anchorY * next;
     updateCoordinates();
     setNavigating(true);
     render();
@@ -9005,8 +9046,9 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       setNavigating(true);
       return false;
     }
-    state.panX += dx;
-    state.panY += dy;
+    const delta = canvasClientDelta(dx, dy);
+    state.panX += delta.x;
+    state.panY += delta.y;
     updateCoordinates();
     requestRender();
     return true;
@@ -9016,11 +9058,11 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       setNavigating(true);
       return false;
     }
-    const rect = view.getBoundingClientRect(),
+    const point = canvasClientPosition(clientX, clientY),
       factor = deltaY < 0 ? 1.12 : 0.89,
       next = Math.max(0.03, Math.min(2, state.scale * factor)),
-      px = clientX - rect.left,
-      py = clientY - rect.top;
+      px = point.x,
+      py = point.y;
     state.panX = px - ((px - state.panX) * next) / state.scale;
     state.panY = py - ((py - state.panY) * next) / state.scale;
     state.scale = next;
@@ -11737,7 +11779,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     selectionOverlayLayer.hidden = !active;
     selectionOverlayLayer.setAttribute("aria-hidden", String(!active));
     if (!active) return;
-    const viewport = view.getBoundingClientRect(),
+    const { width:viewportWidth, height:viewportHeight } = canvasViewportMetrics(),
       box = selection.box,
       toolbarStyle = runtimeElementStyle(selectionToolbar, "selection-toolbar"),
       selectionBusy = selectionAIBusy(selection),
@@ -11755,11 +11797,11 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       left = box.x * state.scale + state.panX,
       top = box.y * state.scale + state.panY,
       bottom = (box.y + box.h) * state.scale + state.panY,
-      maxX = Math.max(8, viewport.width - width - 8),
+      maxX = Math.max(8, viewportWidth - width - 8),
       x = Math.max(8, Math.min(maxX, left + (box.w * state.scale - width) / 2)),
       preferredY = top - height - 8,
       y = preferredY >= 8 ? preferredY : bottom + 8,
-      maxY = Math.max(8, viewport.height - height - 8);
+      maxY = Math.max(8, viewportHeight - height - 8);
     toolbarStyle?.setProperty("--selection-toolbar-x", `${x}px`);
     toolbarStyle?.setProperty("--selection-toolbar-y", `${Math.max(8, Math.min(maxY, y))}px`);
   }
@@ -12399,11 +12441,11 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     }
   }
   function viewportRect() {
-    const r = view.getBoundingClientRect(),
+    const { width, height } = canvasViewportMetrics(),
       x = Math.max(0, -state.panX / state.scale),
       y = Math.max(0, -state.panY / state.scale),
-      right = Math.min(SIZE, (r.width - state.panX) / state.scale),
-      bottom = Math.min(SIZE, (r.height - state.panY) / state.scale);
+      right = Math.min(SIZE, (width - state.panX) / state.scale),
+      bottom = Math.min(SIZE, (height - state.panY) / state.scale);
     return right > x && bottom > y ? { x, y, w: right - x, h: bottom - y } : null;
   }
   function visibleInkBounds(visible) {
@@ -16351,14 +16393,14 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     canvasAgentResetHeightClasses();
     canvasAgentPanel.classList.add(`canvas-agent-height-${step}`);
     canvasAgentSyncResizeHandleValues();
-    return canvasAgentPanel.getBoundingClientRect().height;
+    return canvasAgentPanel.offsetHeight;
   }
   function canvasAgentApplyPanelWidth(width) {
     const extent=Math.max(1,view.clientWidth), step=Math.max(0,Math.min(CANVAS_AGENT_SIZE_STEPS,Math.round((Number(width)||CANVAS_AGENT_WIDTH_MIN)/extent*CANVAS_AGENT_SIZE_STEPS)));
     canvasAgentResetWidthClasses();
     canvasAgentPanel.classList.add(`canvas-agent-width-${step}`);
     canvasAgentSyncResizeHandleValues();
-    return canvasAgentPanel.getBoundingClientRect().width;
+    return canvasAgentPanel.offsetWidth;
   }
   function canvasAgentMaximumPanelHeight() {
     return Math.max(CANVAS_AGENT_HEIGHT_MIN,view.clientHeight);
@@ -16367,7 +16409,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     return Math.max(CANVAS_AGENT_WIDTH_MIN,view.clientWidth-16);
   }
   function canvasAgentSyncResizeHandleValues() {
-    const rect=canvasAgentPanel.getBoundingClientRect(), height=Math.round(rect.height), width=Math.round(rect.width), maximumHeight=canvasAgentMaximumPanelHeight(), maximumWidth=canvasAgentMaximumPanelWidth();
+    const height=Math.round(canvasAgentPanel.offsetHeight), width=Math.round(canvasAgentPanel.offsetWidth), maximumHeight=canvasAgentMaximumPanelHeight(), maximumWidth=canvasAgentMaximumPanelWidth();
     for (const handle of [canvasAgentResizeTop,canvasAgentResizeBottom]) {
       handle.setAttribute("aria-valuemin",String(CANVAS_AGENT_HEIGHT_MIN));
       handle.setAttribute("aria-valuemax",String(maximumHeight));
@@ -16396,7 +16438,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     cancelAnimationFrame(canvasAgent.panelResizeFrame);
     canvasAgent.panelResizeFrame=0;
     if (canvasAgentPanel.hidden||canvasAgentCompactPanel()) return;
-    const rect=canvasAgentPanel.getBoundingClientRect(), height=Math.round(rect.height), width=Math.round(rect.width), maximumHeight=canvasAgentMaximumPanelHeight(), maximumWidth=canvasAgentMaximumPanelWidth();
+    const height=Math.round(canvasAgentPanel.offsetHeight), width=Math.round(canvasAgentPanel.offsetWidth), maximumHeight=canvasAgentMaximumPanelHeight(), maximumWidth=canvasAgentMaximumPanelWidth();
     try {
       if (height>=CANVAS_AGENT_HEIGHT_MIN) localStorage.setItem(CANVAS_AGENT_HEIGHT_KEY,height>=maximumHeight-1?"full":String(height));
       if (width>=CANVAS_AGENT_WIDTH_MIN) localStorage.setItem(CANVAS_AGENT_WIDTH_KEY,width>=maximumWidth-1?"full":String(width));
@@ -16408,24 +16450,24 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     canvasAgent.panelResizeFrame=requestAnimationFrame(canvasAgentSavePanelSize);
   }
   function canvasAgentResizeAnchor() {
-    const panelRect=canvasAgentPanel.getBoundingClientRect(), viewRect=view.getBoundingClientRect();
+    const panelRect=canvasElementLayoutRect(canvasAgentPanel);
     return {
-      left:panelRect.left-viewRect.left,
-      top:panelRect.top-viewRect.top,
-      right:panelRect.right-viewRect.left,
-      bottom:panelRect.bottom-viewRect.top,
+      left:panelRect.left,
+      top:panelRect.top,
+      right:panelRect.right,
+      bottom:panelRect.bottom,
     };
   }
   function canvasAgentResizePanelTo(edge,size,anchor=canvasAgentResizeAnchor()) {
     const vertical=edge==="top"||edge==="bottom", minimum=vertical?CANVAS_AGENT_HEIGHT_MIN:CANVAS_AGENT_WIDTH_MIN, globalMaximum=vertical?canvasAgentMaximumPanelHeight():canvasAgentMaximumPanelWidth();
-    if (canvasAgentCompactPanel()) return vertical?canvasAgentPanel.getBoundingClientRect().height:canvasAgentPanel.getBoundingClientRect().width;
+    if (canvasAgentCompactPanel()) return vertical?canvasAgentPanel.offsetHeight:canvasAgentPanel.offsetWidth;
     const available=vertical?(edge==="top"?anchor.bottom:view.clientHeight-anchor.top):(edge==="left"?anchor.right-8:view.clientWidth-anchor.left-8), forceFullHeight=vertical&&Number(size)>=globalMaximum-1, maximum=forceFullHeight?globalMaximum:Math.max(minimum,Math.min(globalMaximum,available)), target=Math.max(minimum,Math.min(maximum,Number(size)||minimum));
     if (vertical) canvasAgentApplyPanelHeight(target);
     else canvasAgentApplyPanelWidth(target);
-    const rect=canvasAgentPanel.getBoundingClientRect(), left=edge==="left"?anchor.right-rect.width:anchor.left, top=forceFullHeight?0:edge==="top"?anchor.bottom-rect.height:anchor.top;
+    const width=canvasAgentPanel.offsetWidth, height=canvasAgentPanel.offsetHeight, left=edge==="left"?anchor.right-width:anchor.left, top=forceFullHeight?0:edge==="top"?anchor.bottom-height:anchor.top;
     canvasAgentPositionPanel(left,top);
     canvasAgentSyncResizeHandleValues();
-    return vertical?rect.height:rect.width;
+    return vertical?height:width;
   }
   function canvasAgentPanelPointerCanManipulate(event) {
     if (event.pointerType==="touch") return false;
@@ -16434,8 +16476,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   }
   function canvasAgentBeginPanelResize(event) {
     if (canvasAgentCompactPanel()||!canvasAgentPanelPointerCanManipulate(event)) return;
-    const edge=event.currentTarget.dataset.edge, vertical=edge==="top"||edge==="bottom", rect=canvasAgentPanel.getBoundingClientRect();
-    canvasAgent.panelResize={pointerId:event.pointerId,edge,vertical,startCoordinate:vertical?event.clientY:event.clientX,startSize:vertical?rect.height:rect.width,anchor:canvasAgentResizeAnchor(),handle:event.currentTarget};
+    const edge=event.currentTarget.dataset.edge, vertical=edge==="top"||edge==="bottom", point=canvasClientPosition(event.clientX,event.clientY);
+    canvasAgent.panelResize={pointerId:event.pointerId,edge,vertical,startCoordinate:vertical?point.y:point.x,startSize:vertical?canvasAgentPanel.offsetHeight:canvasAgentPanel.offsetWidth,anchor:canvasAgentResizeAnchor(),handle:event.currentTarget};
     canvasAgentPanel.classList.add("resizing",`resizing-${edge}`);
     event.currentTarget.setPointerCapture?.(event.pointerId);
     event.preventDefault();
@@ -16444,7 +16486,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   function canvasAgentMovePanelResize(event) {
     const resize=canvasAgent.panelResize;
     if (resize?.pointerId!==event.pointerId) return;
-    const coordinate=resize.vertical?event.clientY:event.clientX, delta=coordinate-resize.startCoordinate, size=resize.startSize+(["top","left"].includes(resize.edge)?-delta:delta);
+    const point=canvasClientPosition(event.clientX,event.clientY), coordinate=resize.vertical?point.y:point.x, delta=coordinate-resize.startCoordinate, size=resize.startSize+(["top","left"].includes(resize.edge)?-delta:delta);
     canvasAgentResizePanelTo(resize.edge,size,resize.anchor);
     event.preventDefault();
   }
@@ -16459,7 +16501,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   }
   function canvasAgentKeyboardPanelResize(event) {
     if (canvasAgentCompactPanel()) return;
-    const edge=event.currentTarget.dataset.edge, vertical=edge==="top"||edge==="bottom", rect=canvasAgentPanel.getBoundingClientRect(), current=vertical?rect.height:rect.width, minimum=vertical?CANVAS_AGENT_HEIGHT_MIN:CANVAS_AGENT_WIDTH_MIN, maximum=vertical?canvasAgentMaximumPanelHeight():canvasAgentMaximumPanelWidth();
+    const edge=event.currentTarget.dataset.edge, vertical=edge==="top"||edge==="bottom", current=vertical?canvasAgentPanel.offsetHeight:canvasAgentPanel.offsetWidth, minimum=vertical?CANVAS_AGENT_HEIGHT_MIN:CANVAS_AGENT_WIDTH_MIN, maximum=vertical?canvasAgentMaximumPanelHeight():canvasAgentMaximumPanelWidth();
     let next=null;
     if (event.key==="Home") next=minimum;
     else if (event.key==="End") next=maximum;
@@ -16519,12 +16561,12 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   }
   function canvasAgentBeginPanelDrag(event) {
     if (canvasAgentCompactPanel() || !canvasAgentPanelPointerCanManipulate(event) || event.target.closest("button")) return;
-    const panelRect = canvasAgentPanel.getBoundingClientRect(), viewRect = view.getBoundingClientRect();
-    canvasAgentPositionPanel(panelRect.left-viewRect.left,panelRect.top-viewRect.top);
+    const panelRect = canvasElementLayoutRect(canvasAgentPanel), point=canvasClientPosition(event.clientX,event.clientY);
+    canvasAgentPositionPanel(panelRect.left,panelRect.top);
     canvasAgent.panelDrag = {
       pointerId:event.pointerId,
-      offsetX:event.clientX-panelRect.left,
-      offsetY:event.clientY-panelRect.top,
+      offsetX:point.x-panelRect.left,
+      offsetY:point.y-panelRect.top,
     };
     canvasAgentPanel.classList.add("dragging");
     canvasAgentHead.setPointerCapture?.(event.pointerId);
@@ -16532,8 +16574,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   }
   function canvasAgentMovePanel(event) {
     if (canvasAgent.panelDrag?.pointerId !== event.pointerId) return;
-    const viewRect = view.getBoundingClientRect();
-    canvasAgentPositionPanel(event.clientX-viewRect.left-canvasAgent.panelDrag.offsetX,event.clientY-viewRect.top-canvasAgent.panelDrag.offsetY);
+    const point=canvasClientPosition(event.clientX,event.clientY);
+    canvasAgentPositionPanel(point.x-canvasAgent.panelDrag.offsetX,point.y-canvasAgent.panelDrag.offsetY);
     event.preventDefault();
   }
   function canvasAgentFinishPanelDrag(event) {
@@ -18156,7 +18198,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       w=Math.max(1,Math.min(SIZE,width)),h=Math.max(1,Math.min(SIZE,height)), occupied=[...canvasAgentAllObjects().map(item=>canvasAgentInternalRect(item.box)),...nonObjectBounds,...reserved],
       clamp=(candidate)=>({x:Math.max(0,Math.min(SIZE-w,candidate.x)),y:Math.max(0,Math.min(SIZE-h,candidate.y)),w,h}),
       clear=(candidate)=>!occupied.some(box=>intersection({x:candidate.x-gap,y:candidate.y-gap,w:candidate.w+gap*2,h:candidate.h+gap*2},box));
-    if(!canvasAgentPanel.hidden){const panel=canvasAgentPanel.getBoundingClientRect(),viewRect=view.getBoundingClientRect(),panelLogical={x:(panel.left-viewRect.left-state.panX)/state.scale,y:(panel.top-viewRect.top-state.panY)/state.scale,w:panel.width/state.scale,h:panel.height/state.scale},blocked=intersection(panelLogical,visible);if(blocked)occupied.push(blocked);}
+    if(!canvasAgentPanel.hidden){const panel=canvasElementLayoutRect(canvasAgentPanel),panelLogical={x:(panel.left-state.panX)/state.scale,y:(panel.top-state.panY)/state.scale,w:panel.width/state.scale,h:panel.height/state.scale},blocked=intersection(panelLogical,visible);if(blocked)occupied.push(blocked);}
     if (placement?.mode === "absolute") return {...clamp({x:canvasAgentFinite(placement.x,"placement.x"),y:canvasAgentFinite(placement.y,"placement.y")}),placement:"absolute",crowded:false};
     if (placement?.mode === "relative") {
       const anchor=canvasAgentObject(String(placement.anchorObjectId || ""));
@@ -18418,9 +18460,9 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     return { ok:true, previousRevision:args.baseRevision, revision:state.userRevision, changeId, receipts:[{type:"patch_widget",status:"applied",objectId:record.id,contentHash:await canvasAgentHash(widgetEditContext(record,"agent"))}] };
   }
   function canvasAgentFramePlan(region,padding=80) {
-    const rect=view.getBoundingClientRect(),width=Math.max(0,rect.width),height=Math.max(0,rect.height),full={x:0,y:0,w:width,h:height},stages=[full],panelGap=12;
+    const width=Math.max(0,view.clientWidth),height=Math.max(0,view.clientHeight),full={x:0,y:0,w:width,h:height},stages=[full],panelGap=12;
     if(!canvasAgentPanel.hidden&&width>0&&height>0){
-      const panel=canvasAgentPanel.getBoundingClientRect(),left=Math.max(0,panel.left-rect.left-panelGap),top=Math.max(0,panel.top-rect.top-panelGap),right=Math.min(width,panel.right-rect.left+panelGap),bottom=Math.min(height,panel.bottom-rect.top+panelGap);
+      const panel=canvasElementLayoutRect(canvasAgentPanel),left=Math.max(0,panel.left-panelGap),top=Math.max(0,panel.top-panelGap),right=Math.min(width,panel.right+panelGap),bottom=Math.min(height,panel.bottom+panelGap);
       if(right>left&&bottom>top){
         const unobscured=[{x:0,y:0,w:left,h:height},{x:right,y:0,w:width-right,h:height},{x:0,y:0,w:width,h:top},{x:0,y:bottom,w:width,h:height-bottom}].filter(stage=>stage.w>0&&stage.h>0);
         if(unobscured.length)stages.splice(0,stages.length,...unobscured);
@@ -18525,7 +18567,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   }
   function canvasAgentAnimatePanel(opening,panelRect,onFinish=null) {
     const reduceMotion=window.matchMedia?.("(prefers-reduced-motion: reduce)").matches,
-      triggerRect=canvasAgentToggle.getBoundingClientRect();
+      triggerRect=pageLayoutRect(canvasAgentToggle);
     if (reduceMotion || typeof Element.prototype.animate !== "function" || !panelRect?.width || !panelRect?.height || !triggerRect.width || !triggerRect.height) {
       canvasAgentPanel.classList.remove("canvas-agent-motion-target");
       onFinish?.();
@@ -18583,7 +18625,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
         canvasAgentRestorePanelSize();
         canvasAgentRestorePanelPosition();
         canvasAgentResizeInput();
-        canvasAgentAnimatePanel(true,canvasAgentPanel.getBoundingClientRect(),focus?()=>
+        canvasAgentAnimatePanel(true,pageLayoutRect(canvasAgentPanel),focus?()=>
           (canvasAgent.inputMode==="ink"?canvasAgentInkCanvas:canvasAgentInput).focus():null);
       });
     }else{
@@ -18600,7 +18642,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   function closeCanvasAgent(options) {
     const focus=options?.focus!==false,animate=options?.animate!==false;
     canvasAgentCancelPanelMotion();
-    const panelRect=canvasAgentPanel.hidden?null:canvasAgentPanel.getBoundingClientRect();
+    const panelRect=canvasAgentPanel.hidden?null:pageLayoutRect(canvasAgentPanel);
     const dragPointerId = canvasAgent.panelDrag?.pointerId;
     const resize = canvasAgent.panelResize;
     canvasAgent.panelDrag = null;
@@ -19668,11 +19710,11 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     else imagePickerInput.value = "";
   });
   function clipboardTextEditorPoint() {
-    const rect = view.getBoundingClientRect(),
+    const metrics = canvasViewportMetrics(),
       scale = Math.max(0.03, state.scale),
-      width = Math.min(TEXT_EDITOR_DEFAULT_WIDTH, Math.max(TEXT_EDITOR_MIN_WIDTH, rect.width - 24)),
-      height = Math.min(TEXT_EDITOR_DEFAULT_HEIGHT, Math.max(TEXT_EDITOR_MIN_HEIGHT, rect.height - 24)),
-      center = clientPoint({ clientX:rect.left + rect.width / 2, clientY:rect.top + rect.height / 2 });
+      width = Math.min(TEXT_EDITOR_DEFAULT_WIDTH, Math.max(TEXT_EDITOR_MIN_WIDTH, metrics.width - 24)),
+      height = Math.min(TEXT_EDITOR_DEFAULT_HEIGHT, Math.max(TEXT_EDITOR_MIN_HEIGHT, metrics.height - 24)),
+      center = { x:(metrics.width / 2 - state.panX) / scale, y:(metrics.height / 2 - state.panY) / scale };
     return {
       x:Math.max(0, Math.min(SIZE - width / scale, center.x - width / scale / 2)),
       y:Math.max(0, Math.min(SIZE - height / scale, center.y - height / scale / 2)),

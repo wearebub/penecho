@@ -285,6 +285,8 @@ test("Viewer fit produces visible transforms for a multi-Widget Canvas", () => {
       inkLayer:{},
       interactionLayer:layer,
       devicePixelRatio:1,
+      canvasViewportMetrics:() => ({ rect, width:view.clientWidth, height:view.clientHeight, clientScaleX:1, clientScaleY:1 }),
+      pageLayoutRect:(element) => element === view ? rect : element.getBoundingClientRect(),
       visibleInkBounds:() => null,
       imageBounds:() => null,
       textBoxBounds:() => null,

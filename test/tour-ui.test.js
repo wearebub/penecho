@@ -134,7 +134,7 @@ test("1.1.7 changelog introduces PenEcho Agent visual productivity in a concise 
     app = read("public/app.js"),
     css = read("public/style.css"),
     zh = read("public/locales/zh.js"),
-    layer = html.match(/<div id="changelogLayer"[\s\S]*?<script src="\/api\/config\.js">/)?.[0] || "";
+    layer = html.match(/<div id="changelogLayer"[\s\S]*?<script src="remote-canvas\.js">/)?.[0] || "";
   assert.match(layer, /class="changelog-layer"[^>]*hidden[^>]*aria-hidden="true"/);
   assert.match(layer, /id="changelogDialog"[^>]*role="dialog"[^>]*aria-modal="true"[^>]*aria-labelledby="changelogTitle"/);
   assert.doesNotMatch(layer, /aria-describedby=/);

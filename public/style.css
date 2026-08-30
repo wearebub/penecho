@@ -45,6 +45,34 @@ body::before {
 }
 
 main { position: relative; display: flex; width: 100%; min-height: 100vh; min-height: 100dvh; flex-direction: column; max-width: none; margin: 0 auto; padding: 6px clamp(6px, 1.2vw, 16px); }
+@media (min-width: 701px) {
+  html.penecho-web-page-scale { zoom: var(--penecho-canvas-page-scale); }
+  html.penecho-web-page-scale body,
+  html.penecho-web-page-scale main {
+    min-height: var(--penecho-canvas-page-viewport-height);
+    min-height: var(--penecho-canvas-page-dynamic-height);
+  }
+  html.penecho-web-page-scale body.is-fullscreen main,
+  html.penecho-web-page-scale body.canvas-view-mode main {
+    height: var(--penecho-canvas-page-viewport-height);
+    height: var(--penecho-canvas-page-dynamic-height);
+  }
+  html.penecho-web-page-scale :is(
+    .plugin-modal-layer,
+    .history-backdrop,
+    .history-panel,
+    .tour-layer,
+    .changelog-layer,
+    .settings-layer,
+    .configuration-layer,
+    .penecho-cloud-overlay,
+    .remote-canvas-gate,
+    .viewer-status
+  ) {
+    min-height: var(--penecho-canvas-page-viewport-height);
+    min-height: var(--penecho-canvas-page-dynamic-height);
+  }
+}
 .topbar { display: grid; gap: 5px; min-width: 0; margin-bottom: 6px; }
 .top-row { display: flex; align-items: center; gap: 7px; min-width: 0; padding: 0; }
 .brand { display: flex; align-items: center; gap: 8px; min-width: 0; margin-right: auto; }

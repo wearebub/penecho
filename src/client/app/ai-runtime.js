@@ -496,11 +496,11 @@
     }
   }
   function viewportRect() {
-    const r = view.getBoundingClientRect(),
+    const { width, height } = canvasViewportMetrics(),
       x = Math.max(0, -state.panX / state.scale),
       y = Math.max(0, -state.panY / state.scale),
-      right = Math.min(SIZE, (r.width - state.panX) / state.scale),
-      bottom = Math.min(SIZE, (r.height - state.panY) / state.scale);
+      right = Math.min(SIZE, (width - state.panX) / state.scale),
+      bottom = Math.min(SIZE, (height - state.panY) / state.scale);
     return right > x && bottom > y ? { x, y, w: right - x, h: bottom - y } : null;
   }
   function visibleInkBounds(visible) {

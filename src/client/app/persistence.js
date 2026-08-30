@@ -2515,7 +2515,7 @@
     selectionOverlayLayer.hidden = !active;
     selectionOverlayLayer.setAttribute("aria-hidden", String(!active));
     if (!active) return;
-    const viewport = view.getBoundingClientRect(),
+    const { width:viewportWidth, height:viewportHeight } = canvasViewportMetrics(),
       box = selection.box,
       toolbarStyle = runtimeElementStyle(selectionToolbar, "selection-toolbar"),
       selectionBusy = selectionAIBusy(selection),
@@ -2533,11 +2533,11 @@
       left = box.x * state.scale + state.panX,
       top = box.y * state.scale + state.panY,
       bottom = (box.y + box.h) * state.scale + state.panY,
-      maxX = Math.max(8, viewport.width - width - 8),
+      maxX = Math.max(8, viewportWidth - width - 8),
       x = Math.max(8, Math.min(maxX, left + (box.w * state.scale - width) / 2)),
       preferredY = top - height - 8,
       y = preferredY >= 8 ? preferredY : bottom + 8,
-      maxY = Math.max(8, viewport.height - height - 8);
+      maxY = Math.max(8, viewportHeight - height - 8);
     toolbarStyle?.setProperty("--selection-toolbar-x", `${x}px`);
     toolbarStyle?.setProperty("--selection-toolbar-y", `${Math.max(8, Math.min(maxY, y))}px`);
   }

@@ -1572,14 +1572,14 @@
     canvasAgentResetHeightClasses();
     canvasAgentPanel.classList.add(`canvas-agent-height-${step}`);
     canvasAgentSyncResizeHandleValues();
-    return canvasAgentPanel.getBoundingClientRect().height;
+    return canvasAgentPanel.offsetHeight;
   }
   function canvasAgentApplyPanelWidth(width) {
     const extent=Math.max(1,view.clientWidth), step=Math.max(0,Math.min(CANVAS_AGENT_SIZE_STEPS,Math.round((Number(width)||CANVAS_AGENT_WIDTH_MIN)/extent*CANVAS_AGENT_SIZE_STEPS)));
     canvasAgentResetWidthClasses();
     canvasAgentPanel.classList.add(`canvas-agent-width-${step}`);
     canvasAgentSyncResizeHandleValues();
-    return canvasAgentPanel.getBoundingClientRect().width;
+    return canvasAgentPanel.offsetWidth;
   }
   function canvasAgentMaximumPanelHeight() {
     return Math.max(CANVAS_AGENT_HEIGHT_MIN,view.clientHeight);
@@ -1588,7 +1588,7 @@
     return Math.max(CANVAS_AGENT_WIDTH_MIN,view.clientWidth-16);
   }
   function canvasAgentSyncResizeHandleValues() {
-    const rect=canvasAgentPanel.getBoundingClientRect(), height=Math.round(rect.height), width=Math.round(rect.width), maximumHeight=canvasAgentMaximumPanelHeight(), maximumWidth=canvasAgentMaximumPanelWidth();
+    const height=Math.round(canvasAgentPanel.offsetHeight), width=Math.round(canvasAgentPanel.offsetWidth), maximumHeight=canvasAgentMaximumPanelHeight(), maximumWidth=canvasAgentMaximumPanelWidth();
     for (const handle of [canvasAgentResizeTop,canvasAgentResizeBottom]) {
       handle.setAttribute("aria-valuemin",String(CANVAS_AGENT_HEIGHT_MIN));
       handle.setAttribute("aria-valuemax",String(maximumHeight));
@@ -1617,7 +1617,7 @@
     cancelAnimationFrame(canvasAgent.panelResizeFrame);
     canvasAgent.panelResizeFrame=0;
     if (canvasAgentPanel.hidden||canvasAgentCompactPanel()) return;
-    const rect=canvasAgentPanel.getBoundingClientRect(), height=Math.round(rect.height), width=Math.round(rect.width), maximumHeight=canvasAgentMaximumPanelHeight(), maximumWidth=canvasAgentMaximumPanelWidth();
+    const height=Math.round(canvasAgentPanel.offsetHeight), width=Math.round(canvasAgentPanel.offsetWidth), maximumHeight=canvasAgentMaximumPanelHeight(), maximumWidth=canvasAgentMaximumPanelWidth();
     try {
       if (height>=CANVAS_AGENT_HEIGHT_MIN) localStorage.setItem(CANVAS_AGENT_HEIGHT_KEY,height>=maximumHeight-1?"full":String(height));
       if (width>=CANVAS_AGENT_WIDTH_MIN) localStorage.setItem(CANVAS_AGENT_WIDTH_KEY,width>=maximumWidth-1?"full":String(width));
@@ -1629,24 +1629,24 @@
     canvasAgent.panelResizeFrame=requestAnimationFrame(canvasAgentSavePanelSize);
   }
   function canvasAgentResizeAnchor() {
-    const panelRect=canvasAgentPanel.getBoundingClientRect(), viewRect=view.getBoundingClientRect();
+    const panelRect=canvasElementLayoutRect(canvasAgentPanel);
     return {
-      left:panelRect.left-viewRect.left,
-      top:panelRect.top-viewRect.top,
-      right:panelRect.right-viewRect.left,
-      bottom:panelRect.bottom-viewRect.top,
+      left:panelRect.left,
+      top:panelRect.top,
+      right:panelRect.right,
+      bottom:panelRect.bottom,
     };
   }
   function canvasAgentResizePanelTo(edge,size,anchor=canvasAgentResizeAnchor()) {
     const vertical=edge==="top"||edge==="bottom", minimum=vertical?CANVAS_AGENT_HEIGHT_MIN:CANVAS_AGENT_WIDTH_MIN, globalMaximum=vertical?canvasAgentMaximumPanelHeight():canvasAgentMaximumPanelWidth();
-    if (canvasAgentCompactPanel()) return vertical?canvasAgentPanel.getBoundingClientRect().height:canvasAgentPanel.getBoundingClientRect().width;
+    if (canvasAgentCompactPanel()) return vertical?canvasAgentPanel.offsetHeight:canvasAgentPanel.offsetWidth;
     const available=vertical?(edge==="top"?anchor.bottom:view.clientHeight-anchor.top):(edge==="left"?anchor.right-8:view.clientWidth-anchor.left-8), forceFullHeight=vertical&&Number(size)>=globalMaximum-1, maximum=forceFullHeight?globalMaximum:Math.max(minimum,Math.min(globalMaximum,available)), target=Math.max(minimum,Math.min(maximum,Number(size)||minimum));
     if (vertical) canvasAgentApplyPanelHeight(target);
     else canvasAgentApplyPanelWidth(target);
-    const rect=canvasAgentPanel.getBoundingClientRect(), left=edge==="left"?anchor.right-rect.width:anchor.left, top=forceFullHeight?0:edge==="top"?anchor.bottom-rect.height:anchor.top;
+    const width=canvasAgentPanel.offsetWidth, height=canvasAgentPanel.offsetHeight, left=edge==="left"?anchor.right-width:anchor.left, top=forceFullHeight?0:edge==="top"?anchor.bottom-height:anchor.top;
     canvasAgentPositionPanel(left,top);
     canvasAgentSyncResizeHandleValues();
-    return vertical?rect.height:rect.width;
+    return vertical?height:width;
   }
   function canvasAgentPanelPointerCanManipulate(event) {
     if (event.pointerType==="touch") return false;
@@ -1655,8 +1655,8 @@
   }
   function canvasAgentBeginPanelResize(event) {
     if (canvasAgentCompactPanel()||!canvasAgentPanelPointerCanManipulate(event)) return;
-    const edge=event.currentTarget.dataset.edge, vertical=edge==="top"||edge==="bottom", rect=canvasAgentPanel.getBoundingClientRect();
-    canvasAgent.panelResize={pointerId:event.pointerId,edge,vertical,startCoordinate:vertical?event.clientY:event.clientX,startSize:vertical?rect.height:rect.width,anchor:canvasAgentResizeAnchor(),handle:event.currentTarget};
+    const edge=event.currentTarget.dataset.edge, vertical=edge==="top"||edge==="bottom", point=canvasClientPosition(event.clientX,event.clientY);
+    canvasAgent.panelResize={pointerId:event.pointerId,edge,vertical,startCoordinate:vertical?point.y:point.x,startSize:vertical?canvasAgentPanel.offsetHeight:canvasAgentPanel.offsetWidth,anchor:canvasAgentResizeAnchor(),handle:event.currentTarget};
     canvasAgentPanel.classList.add("resizing",`resizing-${edge}`);
     event.currentTarget.setPointerCapture?.(event.pointerId);
     event.preventDefault();
@@ -1665,7 +1665,7 @@
   function canvasAgentMovePanelResize(event) {
     const resize=canvasAgent.panelResize;
     if (resize?.pointerId!==event.pointerId) return;
-    const coordinate=resize.vertical?event.clientY:event.clientX, delta=coordinate-resize.startCoordinate, size=resize.startSize+(["top","left"].includes(resize.edge)?-delta:delta);
+    const point=canvasClientPosition(event.clientX,event.clientY), coordinate=resize.vertical?point.y:point.x, delta=coordinate-resize.startCoordinate, size=resize.startSize+(["top","left"].includes(resize.edge)?-delta:delta);
     canvasAgentResizePanelTo(resize.edge,size,resize.anchor);
     event.preventDefault();
   }
@@ -1680,7 +1680,7 @@
   }
   function canvasAgentKeyboardPanelResize(event) {
     if (canvasAgentCompactPanel()) return;
-    const edge=event.currentTarget.dataset.edge, vertical=edge==="top"||edge==="bottom", rect=canvasAgentPanel.getBoundingClientRect(), current=vertical?rect.height:rect.width, minimum=vertical?CANVAS_AGENT_HEIGHT_MIN:CANVAS_AGENT_WIDTH_MIN, maximum=vertical?canvasAgentMaximumPanelHeight():canvasAgentMaximumPanelWidth();
+    const edge=event.currentTarget.dataset.edge, vertical=edge==="top"||edge==="bottom", current=vertical?canvasAgentPanel.offsetHeight:canvasAgentPanel.offsetWidth, minimum=vertical?CANVAS_AGENT_HEIGHT_MIN:CANVAS_AGENT_WIDTH_MIN, maximum=vertical?canvasAgentMaximumPanelHeight():canvasAgentMaximumPanelWidth();
     let next=null;
     if (event.key==="Home") next=minimum;
     else if (event.key==="End") next=maximum;
@@ -1740,12 +1740,12 @@
   }
   function canvasAgentBeginPanelDrag(event) {
     if (canvasAgentCompactPanel() || !canvasAgentPanelPointerCanManipulate(event) || event.target.closest("button")) return;
-    const panelRect = canvasAgentPanel.getBoundingClientRect(), viewRect = view.getBoundingClientRect();
-    canvasAgentPositionPanel(panelRect.left-viewRect.left,panelRect.top-viewRect.top);
+    const panelRect = canvasElementLayoutRect(canvasAgentPanel), point=canvasClientPosition(event.clientX,event.clientY);
+    canvasAgentPositionPanel(panelRect.left,panelRect.top);
     canvasAgent.panelDrag = {
       pointerId:event.pointerId,
-      offsetX:event.clientX-panelRect.left,
-      offsetY:event.clientY-panelRect.top,
+      offsetX:point.x-panelRect.left,
+      offsetY:point.y-panelRect.top,
     };
     canvasAgentPanel.classList.add("dragging");
     canvasAgentHead.setPointerCapture?.(event.pointerId);
@@ -1753,8 +1753,8 @@
   }
   function canvasAgentMovePanel(event) {
     if (canvasAgent.panelDrag?.pointerId !== event.pointerId) return;
-    const viewRect = view.getBoundingClientRect();
-    canvasAgentPositionPanel(event.clientX-viewRect.left-canvasAgent.panelDrag.offsetX,event.clientY-viewRect.top-canvasAgent.panelDrag.offsetY);
+    const point=canvasClientPosition(event.clientX,event.clientY);
+    canvasAgentPositionPanel(point.x-canvasAgent.panelDrag.offsetX,point.y-canvasAgent.panelDrag.offsetY);
     event.preventDefault();
   }
   function canvasAgentFinishPanelDrag(event) {
@@ -3377,7 +3377,7 @@
       w=Math.max(1,Math.min(SIZE,width)),h=Math.max(1,Math.min(SIZE,height)), occupied=[...canvasAgentAllObjects().map(item=>canvasAgentInternalRect(item.box)),...nonObjectBounds,...reserved],
       clamp=(candidate)=>({x:Math.max(0,Math.min(SIZE-w,candidate.x)),y:Math.max(0,Math.min(SIZE-h,candidate.y)),w,h}),
       clear=(candidate)=>!occupied.some(box=>intersection({x:candidate.x-gap,y:candidate.y-gap,w:candidate.w+gap*2,h:candidate.h+gap*2},box));
-    if(!canvasAgentPanel.hidden){const panel=canvasAgentPanel.getBoundingClientRect(),viewRect=view.getBoundingClientRect(),panelLogical={x:(panel.left-viewRect.left-state.panX)/state.scale,y:(panel.top-viewRect.top-state.panY)/state.scale,w:panel.width/state.scale,h:panel.height/state.scale},blocked=intersection(panelLogical,visible);if(blocked)occupied.push(blocked);}
+    if(!canvasAgentPanel.hidden){const panel=canvasElementLayoutRect(canvasAgentPanel),panelLogical={x:(panel.left-state.panX)/state.scale,y:(panel.top-state.panY)/state.scale,w:panel.width/state.scale,h:panel.height/state.scale},blocked=intersection(panelLogical,visible);if(blocked)occupied.push(blocked);}
     if (placement?.mode === "absolute") return {...clamp({x:canvasAgentFinite(placement.x,"placement.x"),y:canvasAgentFinite(placement.y,"placement.y")}),placement:"absolute",crowded:false};
     if (placement?.mode === "relative") {
       const anchor=canvasAgentObject(String(placement.anchorObjectId || ""));
@@ -3639,9 +3639,9 @@
     return { ok:true, previousRevision:args.baseRevision, revision:state.userRevision, changeId, receipts:[{type:"patch_widget",status:"applied",objectId:record.id,contentHash:await canvasAgentHash(widgetEditContext(record,"agent"))}] };
   }
   function canvasAgentFramePlan(region,padding=80) {
-    const rect=view.getBoundingClientRect(),width=Math.max(0,rect.width),height=Math.max(0,rect.height),full={x:0,y:0,w:width,h:height},stages=[full],panelGap=12;
+    const width=Math.max(0,view.clientWidth),height=Math.max(0,view.clientHeight),full={x:0,y:0,w:width,h:height},stages=[full],panelGap=12;
     if(!canvasAgentPanel.hidden&&width>0&&height>0){
-      const panel=canvasAgentPanel.getBoundingClientRect(),left=Math.max(0,panel.left-rect.left-panelGap),top=Math.max(0,panel.top-rect.top-panelGap),right=Math.min(width,panel.right-rect.left+panelGap),bottom=Math.min(height,panel.bottom-rect.top+panelGap);
+      const panel=canvasElementLayoutRect(canvasAgentPanel),left=Math.max(0,panel.left-panelGap),top=Math.max(0,panel.top-panelGap),right=Math.min(width,panel.right+panelGap),bottom=Math.min(height,panel.bottom+panelGap);
       if(right>left&&bottom>top){
         const unobscured=[{x:0,y:0,w:left,h:height},{x:right,y:0,w:width-right,h:height},{x:0,y:0,w:width,h:top},{x:0,y:bottom,w:width,h:height-bottom}].filter(stage=>stage.w>0&&stage.h>0);
         if(unobscured.length)stages.splice(0,stages.length,...unobscured);
@@ -3746,7 +3746,7 @@
   }
   function canvasAgentAnimatePanel(opening,panelRect,onFinish=null) {
     const reduceMotion=window.matchMedia?.("(prefers-reduced-motion: reduce)").matches,
-      triggerRect=canvasAgentToggle.getBoundingClientRect();
+      triggerRect=pageLayoutRect(canvasAgentToggle);
     if (reduceMotion || typeof Element.prototype.animate !== "function" || !panelRect?.width || !panelRect?.height || !triggerRect.width || !triggerRect.height) {
       canvasAgentPanel.classList.remove("canvas-agent-motion-target");
       onFinish?.();
@@ -3804,7 +3804,7 @@
         canvasAgentRestorePanelSize();
         canvasAgentRestorePanelPosition();
         canvasAgentResizeInput();
-        canvasAgentAnimatePanel(true,canvasAgentPanel.getBoundingClientRect(),focus?()=>
+        canvasAgentAnimatePanel(true,pageLayoutRect(canvasAgentPanel),focus?()=>
           (canvasAgent.inputMode==="ink"?canvasAgentInkCanvas:canvasAgentInput).focus():null);
       });
     }else{
@@ -3821,7 +3821,7 @@
   function closeCanvasAgent(options) {
     const focus=options?.focus!==false,animate=options?.animate!==false;
     canvasAgentCancelPanelMotion();
-    const panelRect=canvasAgentPanel.hidden?null:canvasAgentPanel.getBoundingClientRect();
+    const panelRect=canvasAgentPanel.hidden?null:pageLayoutRect(canvasAgentPanel);
     const dragPointerId = canvasAgent.panelDrag?.pointerId;
     const resize = canvasAgent.panelResize;
     canvasAgent.panelDrag = null;

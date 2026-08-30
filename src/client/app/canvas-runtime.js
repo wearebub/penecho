@@ -868,9 +868,9 @@
   }
   function importedImagePlacement(naturalW, naturalH) {
     const visible = viewportRect() || { x:0, y:0, w:SIZE, h:SIZE },
-      rect = view.getBoundingClientRect(),
-      maxW = Math.max(80, Math.min(6000, visible.w * 0.72, Math.max(240, rect.width * 0.52) / state.scale)),
-      maxH = Math.max(80, Math.min(6000, visible.h * 0.72, Math.max(200, rect.height * 0.52) / state.scale)),
+      { width, height } = canvasViewportMetrics(),
+      maxW = Math.max(80, Math.min(6000, visible.w * 0.72, Math.max(240, width * 0.52) / state.scale)),
+      maxH = Math.max(80, Math.min(6000, visible.h * 0.72, Math.max(200, height * 0.52) / state.scale)),
       scale = Math.min(maxW / naturalW, maxH / naturalH),
       w = Math.max(80, naturalW * scale),
       h = Math.max(80, naturalH * scale),
@@ -2309,7 +2309,7 @@
       if (target.kind === "confirmed") acceptAnimationEdit();
       return;
     }
-    const rect = view.getBoundingClientRect(),
+    const { width:viewportWidth, height:viewportHeight } = canvasViewportMetrics(),
       box = target.box,
       left = state.panX + box.x * state.scale,
       top = state.panY + box.y * state.scale,
@@ -2318,8 +2318,8 @@
       controlsHeight = animationControls.offsetHeight || 36,
       editControlsClearance = 28,
       controlsStyle = runtimeElementStyle(animationControls, "animation-controls"),
-      x = Math.max(8, Math.min(rect.width - controlsWidth - 8, left + width / 2 - controlsWidth / 2)),
-      y = top - controlsHeight - editControlsClearance >= 8 ? top - controlsHeight - editControlsClearance : Math.min(rect.height - controlsHeight - 8, top + box.h * state.scale + editControlsClearance),
+      x = Math.max(8, Math.min(viewportWidth - controlsWidth - 8, left + width / 2 - controlsWidth / 2)),
+      y = top - controlsHeight - editControlsClearance >= 8 ? top - controlsHeight - editControlsClearance : Math.min(viewportHeight - controlsHeight - 8, top + box.h * state.scale + editControlsClearance),
       nextX = Math.round(x) + "px",
       nextY = Math.round(y) + "px",
       nextLabel = t(target.playback.paused ? "animationPlay" : "animationPause");
@@ -2383,9 +2383,9 @@
   }
   function clearAnimationLayer() {
     const d = devicePixelRatio || 1,
-      rect = view.getBoundingClientRect();
+      { width, height } = canvasViewportMetrics();
     animationCtx.setTransform(d, 0, 0, d, 0, 0);
-    animationCtx.clearRect(0, 0, rect.width, rect.height);
+    animationCtx.clearRect(0, 0, width, height);
     state.animationScreenBoxes.clear();
     state.animationRenderedPlayheads.clear();
     state.animationFullRedraw = true;
@@ -2396,7 +2396,8 @@
       return;
     }
     const d = devicePixelRatio || 1,
-      rect = view.getBoundingClientRect(),
+      { width, height } = canvasViewportMetrics(),
+      rect = { width, height },
       visible = viewportRect(),
       animations = visibleAnimations(visible),
       currentBoxes = new Map(animations.map((animation) => [animation.id, animationScreenBox(animation)])),
@@ -2478,7 +2479,8 @@
       }
   }
   function fit() {
-    const r = view.getBoundingClientRect(),
+    const metrics = canvasViewportMetrics(),
+      r = { width:metrics.width, height:metrics.height },
       d = devicePixelRatio || 1;
     screen.width = Math.round(r.width * d);
     screen.height = Math.round(r.height * d);
@@ -2513,9 +2515,10 @@
       // top inset keeps it clear of the read-only action bar; every
       // ResizeObserver pass recomputes the frame for phones, tablets and
       // resized desktop windows without changing the content's aspect ratio.
-      const viewerBar = document.querySelector(".viewer-topbar")?.getBoundingClientRect(),
+      const viewerBar = pageLayoutRect(document.querySelector(".viewer-topbar")),
+        viewRect = pageLayoutRect(view),
         sideInset = Math.max(12, Math.min(40, r.width * .035)),
-        topInset = Math.max(64, Math.min(r.height * .4, viewerBar ? viewerBar.bottom - r.top + 12 : r.height * .09)),
+        topInset = Math.max(64, Math.min(r.height * .4, viewerBar && viewRect ? viewerBar.bottom - viewRect.top + 12 : r.height * .09)),
         bottomInset = Math.max(12, Math.min(32, r.height * .035)),
         availableWidth = Math.max(1, r.width - sideInset * 2),
         availableHeight = Math.max(1, r.height - topInset - bottomInset),
@@ -2542,7 +2545,8 @@
   }
   function renderPlacedContentLayer(region = null) {
     const d = devicePixelRatio || 1,
-      r = view.getBoundingClientRect(),
+      metrics = canvasViewportMetrics(),
+      r = { width:metrics.width, height:metrics.height },
       visible = region || {
         x:Math.max(0, -state.panX / state.scale),
         y:Math.max(0, -state.panY / state.scale),
@@ -2564,7 +2568,8 @@
   }
   function renderInkLayer(region = null) {
     const d = devicePixelRatio || 1,
-      r = view.getBoundingClientRect(),
+      metrics = canvasViewportMetrics(),
+      r = { width:metrics.width, height:metrics.height },
       visible = region || {
         x:Math.max(0, -state.panX / state.scale),
         y:Math.max(0, -state.panY / state.scale),
@@ -2585,14 +2590,15 @@
     inkCtx.restore();
   }
   function updateCoordinates() {
-    const r = view.getBoundingClientRect(),
-      x = (r.width / 2 - state.panX) / state.scale,
-      y = (r.height / 2 - state.panY) / state.scale;
+    const { width, height } = canvasViewportMetrics(),
+      x = (width / 2 - state.panX) / state.scale,
+      y = (height / 2 - state.panY) / state.scale;
     coords.textContent = `x ${Math.round(x)} · y ${Math.round(y)} · ${Math.round(state.scale * 100)}%`;
   }
   function render() {
     const d = devicePixelRatio || 1,
-      r = view.getBoundingClientRect();
+      metrics = canvasViewportMetrics(),
+      r = { width:metrics.width, height:metrics.height };
     ctx.setTransform(d, 0, 0, d, 0, 0);
     ctx.clearRect(0, 0, r.width, r.height);
     ctx.fillStyle = state.paint.outside;
@@ -2837,7 +2843,7 @@
     }
     imageEditBar.classList.toggle("hand-toolbar-hiding", Boolean(handToolbarRecord({ kind:"image", id:item.id })?.hiding));
     if (imageEditBar.hidden) imageEditBar.hidden = false;
-    const rect = view.getBoundingClientRect(),
+    const { width:viewportWidth, height:viewportHeight } = canvasViewportMetrics(),
       box = imageBox(item),
       left = state.panX + box.x * state.scale,
       top = state.panY + box.y * state.scale,
@@ -2848,9 +2854,9 @@
       gap = 12,
       style = runtimeElementStyle(imageEditBar, "image-edit-bar");
     let x = left + width + gap;
-    if (x + barWidth > rect.width - 8) x = left - barWidth - gap;
-    if (x < 8) x = Math.max(8, Math.min(rect.width - barWidth - 8, left + width / 2 - barWidth / 2));
-    const y = Math.max(8, Math.min(rect.height - barHeight - 8, top + height / 2 - barHeight / 2));
+    if (x + barWidth > viewportWidth - 8) x = left - barWidth - gap;
+    if (x < 8) x = Math.max(8, Math.min(viewportWidth - barWidth - 8, left + width / 2 - barWidth / 2));
+    const y = Math.max(8, Math.min(viewportHeight - barHeight - 8, top + height / 2 - barHeight / 2));
     style?.setProperty("--image-edit-bar-x", `${x.toFixed(1)}px`);
     style?.setProperty("--image-edit-bar-y", `${y.toFixed(1)}px`);
   }
@@ -3124,14 +3130,9 @@
   }
   function objectChromeAnchor(element) {
     if (!element?.getBoundingClientRect) return null;
-    const rect = element.getBoundingClientRect(),
-      viewRect = view.getBoundingClientRect?.() || {left:0,top:0},
-      anchor = {
-        x:rect.left - viewRect.left,
-        y:rect.top - viewRect.top,
-        width:rect.width,
-        height:rect.height,
-      };
+    const rect = canvasElementLayoutRect(element),
+      anchor = rect && { x:rect.left, y:rect.top, width:rect.width, height:rect.height };
+    if (!anchor) return null;
     return Object.values(anchor).every(Number.isFinite) && anchor.width > 0 && anchor.height > 0 ? anchor : null;
   }
   function beginWidgetRefineConfirmation(candidate, anchor = null) {
@@ -3368,12 +3369,11 @@
     if (viewportWidth <= 0 || viewportHeight <= 0 || right < -8 || bottom < -8 || screenBox.left > viewportWidth + 8 || screenBox.top > viewportHeight + 8) return null;
     const clampX = (value) => Math.max(6, Math.min(Math.max(6, viewportWidth - width - 6), value)),
       clampY = (value) => Math.max(6, Math.min(Math.max(6, viewportHeight - height - 6), value)),
-      viewRect = view.getBoundingClientRect?.() || {left:0,top:0},
       obstacles = [...(globalThis.document?.querySelectorAll?.(".top-row, .toolbar, .animation-controls:not([hidden]), .image-edit-bar:not([hidden]), .selection-context-toolbar, .text-editor, .ai-embodiment, .canvas-agent-control, .object-chrome-button") || [])]
         .filter(element => element.dataset.objectChromeKey !== ignoreKey && (!spec?.widgetToolGroup || element.dataset.widgetToolGroup !== spec.widgetToolGroup))
         .map(element => {
-          const rect = element.getBoundingClientRect();
-          return { x:rect.left - viewRect.left, y:rect.top - viewRect.top, w:rect.width, h:rect.height };
+          const rect = canvasElementLayoutRect(element);
+          return { x:rect.left, y:rect.top, w:rect.width, h:rect.height };
         }),
       overlapsObstacle = position => obstacles.some(obstacle => position.x < obstacle.x + obstacle.w + 5 && position.x + position.w + 5 > obstacle.x && position.y < obstacle.y + obstacle.h + 5 && position.y + position.h + 5 > obstacle.y),
       fits = (position, extraBottom = 0) => position.x >= 6 && position.y >= 6 && position.x + position.w <= viewportWidth - 6 && position.y + position.h + extraBottom <= viewportHeight - 6 && !overlapsObstacle(position),
@@ -3592,8 +3592,9 @@
     if (!gesture || gesture.id !== event.pointerId || !state.textBoxes.includes(gesture.item)) return false;
     const item = gesture.item,
       scale = Math.max(.03, state.scale),
-      x = Math.max(0, Math.min(SIZE - item.w, gesture.startX + (event.clientX - gesture.startClientX) / scale)),
-      y = Math.max(0, Math.min(SIZE - item.h, gesture.startY + (event.clientY - gesture.startClientY) / scale));
+      delta = canvasClientDelta(event.clientX - gesture.startClientX, event.clientY - gesture.startClientY),
+      x = Math.max(0, Math.min(SIZE - item.w, gesture.startX + delta.x / scale)),
+      y = Math.max(0, Math.min(SIZE - item.h, gesture.startY + delta.y / scale));
     if (x === item.x && y === item.y) return true;
     item.x = x;
     item.y = y;
@@ -3896,7 +3897,8 @@
   }
   function renderInteractionLayer() {
     const d = devicePixelRatio || 1,
-      r = view.getBoundingClientRect();
+      metrics = canvasViewportMetrics(),
+      r = { width:metrics.width, height:metrics.height };
     interactionCtx.setTransform(d, 0, 0, d, 0, 0);
     interactionCtx.clearRect(0, 0, r.width, r.height);
     interactionCtx.save();
@@ -3940,10 +3942,10 @@
     syncObjectChrome();
   }
   function clientPoint(e) {
-    const r = view.getBoundingClientRect();
+    const point = canvasClientPosition(e.clientX, e.clientY);
     return {
-      x: (e.clientX - r.left - state.panX) / state.scale,
-      y: (e.clientY - r.top - state.panY) / state.scale,
+      x: (point.x - state.panX) / state.scale,
+      y: (point.y - state.panY) / state.scale,
     };
   }
   function blockCanvasInput(duration = 1000) {
@@ -4152,8 +4154,8 @@
     return { left: editor.x * state.scale + state.panX, top: editor.y * state.scale + state.panY };
   }
   function textEditorViewportSize() {
-    const rect = view.getBoundingClientRect();
-    return { width: rect.width, height: rect.height };
+    const { width, height } = canvasViewportMetrics();
+    return { width, height };
   }
   function resizeTextEditorDimensions(gesture, hit, dx, dy, minWidth, minHeight, maxWidth, maxHeight) {
     const startWidth = gesture.startWidth,
@@ -4280,8 +4282,9 @@
   function updateTextEditorGesture(event, editor) {
     const gesture = editor.gesture;
     if (!gesture || gesture.id !== event.pointerId) return;
-    const dx = event.clientX - gesture.startClientX,
-      dy = event.clientY - gesture.startClientY,
+    const delta = canvasClientDelta(event.clientX - gesture.startClientX, event.clientY - gesture.startClientY),
+      dx = delta.x,
+      dy = delta.y,
       viewport = textEditorViewportSize();
     if (gesture.hit === "move") {
       editor.x = gesture.startX + dx / Math.max(0.03, state.scale);
@@ -4763,7 +4766,8 @@
   function beginTouchGesture() {
     if (state.navigationLocked || state.touches.size < 2) return;
     const ids = [...state.touches.keys()].slice(0, 2),
-      points = ids.map((id) => state.touches.get(id));
+      screenPoints = ids.map((id) => state.touches.get(id)),
+      points = screenPoints.map((point) => canvasClientPosition(point.x, point.y));
     state.touchGesture = {
       ids,
       center: {
@@ -4786,18 +4790,16 @@
     }
     const points = g.ids.map((id) => state.touches.get(id));
     if (points.some((p) => !p)) return false;
-    const center = {
-        x: (points[0].x + points[1].x) / 2,
-        y: (points[0].y + points[1].y) / 2,
-      },
-      distance = Math.max(1, Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y)),
-      r = view.getBoundingClientRect(),
+    const first = canvasClientPosition(points[0].x, points[0].y),
+      second = canvasClientPosition(points[1].x, points[1].y),
+      center = { x:(first.x + second.x) / 2, y:(first.y + second.y) / 2 },
+      distance = Math.max(1, Math.hypot(first.x - second.x, first.y - second.y)),
       next = Math.max(0.03, Math.min(2, (g.scale * distance) / g.distance)),
-      anchorX = (g.center.x - r.left - g.panX) / g.scale,
-      anchorY = (g.center.y - r.top - g.panY) / g.scale;
+      anchorX = (g.center.x - g.panX) / g.scale,
+      anchorY = (g.center.y - g.panY) / g.scale;
     state.scale = next;
-    state.panX = center.x - r.left - anchorX * next;
-    state.panY = center.y - r.top - anchorY * next;
+    state.panX = center.x - anchorX * next;
+    state.panY = center.y - anchorY * next;
     updateCoordinates();
     setNavigating(true);
     render();
@@ -4808,8 +4810,9 @@
       setNavigating(true);
       return false;
     }
-    state.panX += dx;
-    state.panY += dy;
+    const delta = canvasClientDelta(dx, dy);
+    state.panX += delta.x;
+    state.panY += delta.y;
     updateCoordinates();
     requestRender();
     return true;
@@ -4819,11 +4822,11 @@
       setNavigating(true);
       return false;
     }
-    const rect = view.getBoundingClientRect(),
+    const point = canvasClientPosition(clientX, clientY),
       factor = deltaY < 0 ? 1.12 : 0.89,
       next = Math.max(0.03, Math.min(2, state.scale * factor)),
-      px = clientX - rect.left,
-      py = clientY - rect.top;
+      px = point.x,
+      py = point.y;
     state.panX = px - ((px - state.panX) * next) / state.scale;
     state.panY = py - ((py - state.panY) * next) / state.scale;
     state.scale = next;

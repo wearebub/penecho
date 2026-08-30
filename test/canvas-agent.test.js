@@ -3003,7 +3003,7 @@ test("PenEcho Agent UI and browser Facade support local and Cloud runtimes and a
   assert.doesNotMatch(source,/canvasAgentSize|canvasAgentCyclePanelHeight/);
   assert.match(source,/\[canvasAgentResizeTop,canvasAgentResizeBottom,canvasAgentResizeLeft,canvasAgentResizeRight\][\s\S]*?pointerdown[\s\S]*?canvasAgentBeginPanelResize[\s\S]*?keydown[\s\S]*?canvasAgentKeyboardPanelResize/);
   assert.match(functionSource(source,"canvasAgentMovePanelResize"),/\["top","left"\]\.includes\(resize\.edge\)\?-delta:delta/);
-  assert.match(functionSource(source,"canvasAgentResizePanelTo"),/edge==="left"\?anchor\.right-rect\.width:anchor\.left/);
+  assert.match(functionSource(source,"canvasAgentResizePanelTo"),/edge==="left"\?anchor\.right-width:anchor\.left/);
   assert.match(source,/CANVAS_AGENT_WIDTH_KEY = "penecho-canvas-agent-width-v1"/);
   assert.match(css,/\.canvas-agent-panel\s*\{[^}]*right: 18px;[^}]*bottom: 18px;[^}]*background: rgba\(255, 255, 255, \.97\)/s);
   assert.match(css,/\.canvas-agent-panel\s*\{[^}]*z-index: 42/);
@@ -3096,8 +3096,8 @@ test("PenEcho Agent focus and active turns suppress Auto AI while submitted turn
   assert.match(agent,/canvasAgentPanel\.addEventListener\("focusin",canvasAgentPauseAutomaticAI\)/);
   assert.match(agent,/canvasAgentPanel\.addEventListener\("focusout",\(\)=>queueMicrotask\(canvasAgentResumeAutomaticAI\)\)/);
   assert.match(functionSource(agent,"canvasAgentSyncTriggerState"),/\(canvasAgent\.requestPending \|\| canvasAgent\.running\) && canvasAgentPanel\.hidden[\s\S]*classList\.toggle\("is-busy",busy\)[\s\S]*aria-busy/);
-  assert.match(functionSource(agent,"canvasAgentAnimatePanel"),/canvasAgentToggle\.getBoundingClientRect\(\)[\s\S]*document\.body\.append\(proxy\)[\s\S]*proxy\.animate/);
-  assert.match(functionSource(agent,"closeCanvasAgent"),/getBoundingClientRect\(\)[\s\S]*canvasAgentPanel\.hidden = true[\s\S]*canvasAgentSyncTriggerState\(\)[\s\S]*canvasAgentAnimatePanel\(false,panelRect\)/);
+  assert.match(functionSource(agent,"canvasAgentAnimatePanel"),/pageLayoutRect\(canvasAgentToggle\)[\s\S]*document\.body\.append\(proxy\)[\s\S]*proxy\.animate/);
+  assert.match(functionSource(agent,"closeCanvasAgent"),/pageLayoutRect\(canvasAgentPanel\)[\s\S]*canvasAgentPanel\.hidden = true[\s\S]*canvasAgentSyncTriggerState\(\)[\s\S]*canvasAgentAnimatePanel\(false,panelRect\)/);
   assert.match(agent,/let requestSent = false;[\s\S]*canvasAgentInput\.disabled = true[\s\S]*canvasAgentBeginRequest\(\)/);
   assert.match(agent,/canvasAgentSendRequest\(canvasAgent\.running \? "steer" : "user_turn"/);
 });
@@ -3235,7 +3235,8 @@ test("PenEcho Agent plans the nearest clear Widget slot outside a crowded viewpo
       canvasAgentExternalRect:rect=>rect?{x:rect.x,y:rect.y,width:rect.w,height:rect.h}:null,
       canvasAgentContentBounds:()=>existing,intersection:(a,b)=>a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y,
       visibleInkBounds:()=>null,animationBounds:()=>null,
-      canvasAgentPanel:{hidden:false,getBoundingClientRect:()=>panelRect},view:{getBoundingClientRect:()=>viewRect},
+      canvasAgentPanel:{hidden:false,getBoundingClientRect:()=>panelRect},view:{clientWidth:viewRect.width,clientHeight:viewRect.height},
+      canvasElementLayoutRect:()=>({left:panelRect.left-viewRect.left,top:panelRect.top-viewRect.top,right:panelRect.right-viewRect.left,bottom:panelRect.bottom-viewRect.top,width:panelRect.width,height:panelRect.height}),
       canvasAgentFinite:value=>Number(value),canvasAgentObject:()=>null,canvasAgentBox:()=>null,
       CANVAS_AGENT_COMFORT_BODY_PX:15,CANVAS_AGENT_PREFERRED_BODY_MIN_PX:11,CANVAS_AGENT_COMPACT_TEXT_MIN_PX:8,
     },planner=vm.runInNewContext(`(() => { ${functionSource(source,"canvasAgentPlacementBox")} ${functionSource(source,"canvasAgentFramePlan")} ${functionSource(source,"canvasAgentPlanWidget")} return canvasAgentPlanWidget; })()`,context),proposal=planner({width:700,height:500,bodyPx:18,captionPx:14,titlePx:48,placement:{mode:"auto",gap:40}}),box={x:proposal.proposed.box.x,y:proposal.proposed.box.y,w:proposal.proposed.box.width,h:proposal.proposed.box.height};
