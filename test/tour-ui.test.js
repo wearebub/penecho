@@ -165,7 +165,7 @@ test("1.1.7 changelog introduces PenEcho Agent visual productivity in a concise 
   assert.match(app, /changelogAgentContinuity:[^\n]*same conversation[^\n]*request-round limit/);
   assert.match(app, /changelogAgentMath:[^\n]*explicit continuation[^\n]*TeX/);
   assert.match(app, /changelogEraserMemory:[^\n]*eraser or area eraser/);
-  assert.match(zh, /changelogCanvasAgentResearch:[^\n]*画布下方[^\n]*结构化视觉成果/);
+  assert.match(zh, /changelogCanvasAgentResearch:[^\n]*画布右下角[^\n]*结构化视觉成果/);
   assert.match(zh, /changelogCanvasAgentWorkspace:[^\n]*Visual Explorer[^\n]*减少工具切换与返工/);
   assert.match(zh, /changelogAgentContinuity:[^\n]*保持同一会话[^\n]*轮次上限/);
   assert.match(zh, /changelogAgentMath:[^\n]*续读位置[^\n]*TeX/);
@@ -238,6 +238,6 @@ test("feature tour copy is complete in English and Chinese", () => {
   assert.match(zh, /tourCloudBody:[^\n]*私密画布[^\n]*收藏的画布或组件/);
   assert.match(zh, /请求进度|正在观察/);
   assert.match(zh, /双指.*缩放/);
-  assert.match(zh, /tourCanvasAgentLauncherBody:[^\n]*画布下方[^\n]*多步骤/);
+  assert.match(zh, /tourCanvasAgentLauncherBody:[^\n]*画布右下角[^\n]*多步骤/);
   assert.match(zh, /tourCanvasAgentPanelBody:[^\n]*右下角[^\n]*只读文件夹项目/);
 });

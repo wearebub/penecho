@@ -29,6 +29,7 @@
     hideEraserToolMenu();
     document.body.classList.toggle("canvas-view-mode", enabled);
     view.classList.toggle("view-mode", enabled);
+    window.PenEchoStudioNavigator?.syncCanvasView?.(enabled);
     canvasViewButton.setAttribute("aria-pressed", String(enabled));
     canvasViewActions.hidden = !enabled;
     const inactiveSurfaces = view.querySelectorAll([
@@ -640,6 +641,7 @@
       hideAutoDelayControl();
     }
     state.mode = mode;
+    document.body?.setAttribute("data-canvas-mode", mode);
     updateAutoControl();
     if (!["pen", "hand"].includes(mode)) updateWidgetRefinePointer(null);
     else refreshWidgetRefineHoverCandidate();
@@ -1142,6 +1144,7 @@
   });
   document.querySelector("#newCanvasClose").onclick = () => {
     pendingCanvasTransition = null;
+    window.PenEchoStudioNavigator?.cancelPendingConversation?.();
     document.querySelector("#newCanvasDialog").close("cancel");
   };
   document.querySelector("#textHelpClose").onclick = closeTextHelp;
@@ -1151,7 +1154,10 @@
   document.querySelector("#newOverwrite").onclick = () => completeNewCanvas("overwrite");
   document.querySelector("#newCanvasDialog").addEventListener("cancel", (event) => {
     if (event.currentTarget.dataset.busy === "true") event.preventDefault();
-    else pendingCanvasTransition = null;
+    else {
+      pendingCanvasTransition = null;
+      window.PenEchoStudioNavigator?.cancelPendingConversation?.();
+    }
   });
   document.querySelector("#historyName").addEventListener("keydown", (event) => {
     if (event.key === "Enter") saveCurrentCanvas();

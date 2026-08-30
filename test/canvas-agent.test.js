@@ -2993,7 +2993,7 @@ test("PenEcho Agent UI and browser Facade support local and Cloud runtimes and a
   assert.match(source,/attachmentCount:attachments\.length/);
   assert.doesNotMatch(functionSource(source,"canvasAgentNormalizeHistoryItem"),/dataUrl|wire/);
   assert.match(persistence,/canvasAgentCanvasDidPersist\(location, storedId\)/);
-  assert.match(functionSource(persistence,"loadSnapshot"),/canvasAgentCanvasDidChange\(\{ id:item\.id, location \},\{clearProject:true\}\)/);
+  assert.match(functionSource(persistence,"loadSnapshot"),/wantsConversationForCanvas\?\.\(\{ id:item\.id, location \}\)[\s\S]*?canvasAgentCanvasDidChange\(\{ id:item\.id, location \},\{clearProject:true,deferConversationStart:restoreStudioConversation\}\)/);
   assert.match(functionSource(persistence,"startBlankCanvas"),/canvasAgentCanvasDidChange\(null,\{clearProject:true\}\)/);
   assert.match(functionSource(source,"canvasAgentCanvasDidChange"),/clearProject[\s\S]*projectSelectionRevision\+\+[\s\S]*projectId=""[\s\S]*projectHistoryLoaded=true[\s\S]*localStorage\.removeItem\(CANVAS_AGENT_PROJECT_KEY\)[\s\S]*canvasAgentRenderProjects\(\)[\s\S]*canvasAgentHideProjectPopover\(\)/);
   assert.match(functionSource(source,"canvasAgentCanvasDidChange"),/if \(state\.canvasAgentAutoOpen && canvasAgentPanel\.hidden\) openCanvasAgent\(\{focus:false\}\)/);
@@ -3021,11 +3021,12 @@ test("PenEcho Agent UI and browser Facade support local and Cloud runtimes and a
   assert.doesNotMatch(css,/\.canvas-agent-panel\.resizing \.canvas-agent-resize-edge::after/);
   const viewportStart = html.indexOf('<section id="viewport"'), viewportEnd = html.indexOf('<section id="debugPanel"'),
     footerStart = html.lastIndexOf("<footer>", html.indexOf('id="coords"')), footerEnd = html.indexOf("</footer>", footerStart), footer = html.slice(footerStart, footerEnd);
-  assert.ok(!html.slice(viewportStart, viewportEnd).includes('id="canvasAgentControl"'));
-  assert.ok(footer.indexOf('id="coords"') < footer.indexOf('id="canvasAgentControl"') && footer.indexOf('id="canvasAgentControl"') < footer.indexOf('id="canvasHint"'));
-  assert.match(css,/main > footer\s*\{[^}]*display: grid;[^}]*grid-template-columns: minmax\(0, 1fr\) auto minmax\(0, 1fr\)/);
-  assert.match(css,/\.canvas-agent-control\s*\{[^}]*position: relative;[^}]*justify-self: center/s);
-  assert.doesNotMatch(css,/\.canvas-agent-control\s*\{[^}]*position: absolute/s);
+  assert.ok(html.slice(viewportStart, viewportEnd).includes('id="canvasAgentControl"'));
+  assert.ok(footer.indexOf('id="coords"') < footer.indexOf('id="canvasHint"') && !footer.includes('id="canvasAgentControl"'));
+  assert.match(css,/main > footer\s*\{[^}]*display: grid;[^}]*grid-template-columns: minmax\(0, 1fr\) minmax\(0, 1fr\)/);
+  assert.match(css,/\.canvas-agent-control\s*\{[^}]*position: absolute;[^}]*right: max\(16px, env\(safe-area-inset-right\)\);[^}]*bottom: max\(18px, calc\(env\(safe-area-inset-bottom\) \+ 12px\)\)/s);
+  assert.match(css,/@media \(pointer: coarse\)\s*\{[\s\S]*?\.canvas-agent-control\s*\{[^}]*height: 46px;[^}]*min-height: 46px[\s\S]*?\.canvas-agent-trigger\s*\{[^}]*min-height: 44px/);
+  assert.match(css,/body\[data-theme="studio"\] #tip,[\s\S]*?canvas-navigation-lock-hint\s*\{[^}]*right: 142px/);
   assert.match(css,/\.canvas-agent-trigger\[aria-expanded="true"\]\s*\{[^}]*color: var\(--gold-bright\)/);
   assert.match(css,/body\[data-theme="studio"\] \.canvas-agent-trigger\[aria-expanded="true"\]\s*\{[^}]*color: #4f46e5/);
   assert.match(css,/\.canvas-agent-control\.is-busy::after\s*\{[^}]*height: 2px;[^}]*canvas-agent-trigger-busy/s);

@@ -466,7 +466,7 @@ test("contextual footer hints persist, settle from blue, and follow widget and t
   assert.match(zh, /pluginPreview:\s*"预览"/);
   assert.doesNotMatch(showHint, /setTimeout|hidden\s*=\s*true/);
   assert.match(showHint, /Array\.isArray\(keys\)[\s\S]*?candidates\.filter\(\(key\) => key !== state\.canvasHintKey\)[\s\S]*?Math\.random\(\)/);
-  assert.match(css, /\.canvas-hint\s*\{[^}]*grid-column:\s*3[^}]*min-width:\s*0[^}]*max-width:\s*none[^}]*overflow:\s*hidden[^}]*justify-self:\s*end[^}]*text-overflow:\s*ellipsis[^}]*white-space:\s*nowrap/);
+  assert.match(css, /\.canvas-hint\s*\{[^}]*grid-column:\s*2[^}]*min-width:\s*0[^}]*max-width:\s*none[^}]*overflow:\s*hidden[^}]*justify-self:\s*end[^}]*text-overflow:\s*ellipsis[^}]*white-space:\s*nowrap/);
   assert.match(css, /\.canvas-hint\.is-new\s*\{[^}]*animation:\s*canvasHintSettle 10s/);
   assert.match(css, /@keyframes canvasHintSettle\s*\{[\s\S]*?#2f80ed[\s\S]*?var\(--muted\)/);
   assert.match(startWidget, /widget\.widgetType === "html_widget"[\s\S]*?showCanvasHint\(\["canvasHintWidgetAdded", "canvasHintWidgetAddedAlt", "canvasHintRefineInPlace", "canvasHintAIAddsOnly"\]\)/);
@@ -2025,6 +2025,106 @@ test("Studio theme is wired through initialization, localization, and snapshots"
   assert.doesNotMatch(zh, /\btagline(?:Arcane|Scifi|Research|Studio)?\s*:/);
   assert.match(css, /body\[data-theme="studio"\]\s*\{/);
   assert.match(css, /body\[data-theme="studio"\]\.is-fullscreen\s+#viewport\s*\{[^}]*height:\s*100%[^}]*min-height:\s*0/);
+});
+
+test("Studio uses workbench chrome, contextual pen properties, and a docked Agent inspector", () => {
+  const html = read("public/index.html"), css = read("public/style.css"), core = read("src/client/app/core.js"), bootstrap = read("src/client/app/ui-bootstrap.js"), agent = read("src/client/app/canvas-agent-runtime.js");
+  assert.match(html, /<body\b[^>]*data-theme="studio"[^>]*data-canvas-mode="pen"/);
+  assert.match(html, /id="penToolProperties"[^>]*class="tool-properties pen-tool-properties"[\s\S]*?id="penSize"[\s\S]*?data-color-control="ink"[\s\S]*?data-color-control="ai"/);
+  assert.match(html, /id="canvasAgentHome"[^>]*hidden[\s\S]*?id="canvasAgentPanel"[^>]*hidden[^>]*inert/);
+  assert.match(functionSource(bootstrap, "setCanvasMode"), /document\.body\?\.setAttribute\("data-canvas-mode", mode\)/);
+  assert.match(functionSource(core, "applyTheme"), /syncStudioWorkbench\(theme\)/);
+  assert.match(functionSource(agent, "syncStudioWorkbench"), /theme === "studio"[\s\S]*?min-width: 1101px[\s\S]*?canvasAgentFrame\.append\(canvasAgentPanel\)[\s\S]*?canvasAgentHome\.after\(canvasAgentPanel\)/);
+  assert.match(functionSource(agent, "canvasAgentBeginPanelDrag"), /canvasAgentDockedPanel\(\)/);
+  assert.match(functionSource(agent, "canvasAgentKeyboardPanelResize"), /canvasAgentFrame\.clientWidth\/CANVAS_AGENT_SIZE_STEPS/);
+  assert.match(css, /body\[data-theme="studio"\] \.top-row\s*\{[^}]*min-height:\s*52px[^}]*border-bottom:/);
+  assert.match(css, /body\[data-theme="studio"\] \.toolbar\s*\{[^}]*min-height:\s*42px[^}]*overflow-x:\s*auto[^}]*border-bottom:/);
+  assert.match(css, /body\[data-theme="studio"\]\[data-canvas-mode="pen"\] \.pen-tool-properties\s*\{[^}]*display:\s*inline-flex/);
+  assert.match(css, /body\[data-theme="studio"\] main > footer\s*\{[^}]*min-height:\s*26px[^}]*border-top:/);
+  assert.match(css, /@media \(min-width: 1101px\)[\s\S]*?studio-agent-docked \.canvas-agent-panel\s*\{[\s\S]*?flex:\s*0 0 var\(--studio-agent-width\)[\s\S]*?border-radius:\s*0/);
+  assert.match(css, /studio-agent-docked:not\(\.canvas-agent-open\) \.canvas-agent-panel\s*\{[^}]*width:\s*0[^}]*flex-basis:\s*0[^}]*translateX\(28px\)/);
+  assert.match(css, /html\.penecho-web-page-scale body\[data-theme="studio"\] main\s*\{[^}]*--penecho-canvas-page-dynamic-height/);
+});
+
+test("Studio title bar exposes document identity, explicit save state, and a blank-canvas next step", () => {
+  const html = read("public/index.html"), css = read("public/style.css"), navigator = read("src/client/app/studio-navigator.js"),
+    persistence = read("src/client/app/persistence.js"), core = read("src/client/app/core.js"), zh = read("public/locales/zh.js");
+  const brand = html.indexOf('class="brand"'), navigatorToggle = html.indexOf('id="studioNavigatorToggle"'), documentMeta = html.indexOf('id="canvasDocumentMeta"'), status = html.indexOf('id="aiStatusArea"');
+  assert.ok(brand < navigatorToggle && navigatorToggle < documentMeta && documentMeta < status,"brand, navigator, document, and global status follow the workbench reading order");
+  assert.match(html, /id="canvasDocumentMeta"[\s\S]*?id="canvasDocumentName"[\s\S]*?id="canvasDocumentSaveState"[^>]*data-state="unsaved"[\s\S]*?id="saveCanvasBtn"/);
+  assert.doesNotMatch(html, /id="canvasFileActions"[\s\S]*?id="saveCanvasBtn"[\s\S]*?<\/span>/);
+  assert.match(html, /id="canvasWelcome"[^>]*hidden[\s\S]*?canvasWelcomeKicker[\s\S]*?canvasWelcomeTitle[\s\S]*?canvasWelcomeBody/);
+  assert.match(css, /body\[data-theme="studio"\] \.sigil\s*\{[^}]*background:\s*transparent[^}]*box-shadow:\s*none/);
+  assert.match(css, /body\[data-theme="studio"\] \.sigil img\s*\{[^}]*filter:\s*none/);
+  assert.match(css, /\.canvas-document-save-state\[data-state="saved"\][\s\S]*?\.canvas-document-save-state\[data-state="edited"\][\s\S]*?\.canvas-document-save-state\[data-state="saving"\]/);
+  assert.match(css, /body\[data-theme="studio"\] \.canvas-welcome\s*\{[^}]*top:\s*50%[^}]*left:\s*50%[^}]*pointer-events:\s*none/);
+  const updateDocument = functionSource(navigator, "updateStudioDocumentState");
+  assert.match(updateDocument, /currentSnapshotName \|\| t\("canvasUntitledName"\)/);
+  assert.match(updateDocument, /snapshotSaveInProgress \? "saving" : !saved \? "unsaved" : edited \? "edited" : "saved"/);
+  assert.match(updateDocument, /canvasWelcome\.hidden = !active \|\| state\.viewMode \|\| studioCanvasHasContent\(\)/);
+  assert.match(functionSource(persistence, "save"), /PenEchoStudioNavigator\?\.updateDocument/);
+  assert.match(persistence, /async function saveSnapshot\([\s\S]*?setStatusKey\(overwriteId \? "snapshotOverwritten" : "snapshotSaved"\);[\s\S]*?PenEchoStudioNavigator\?\.updateDocument/);
+  assert.match(persistence, /async function loadSnapshot\([\s\S]*?state\.currentSnapshotName = snapshotName\(item\);[\s\S]*?PenEchoStudioNavigator\?\.updateDocument/);
+  assert.match(functionSource(persistence, "startBlankCanvas"), /PenEchoStudioNavigator\?\.updateDocument/);
+  for (const key of ["canvasUntitledName", "canvasSaveStateUnsaved", "canvasSaveStateSaved", "canvasSaveStateEdited", "canvasSaveStateSaving", "canvasWelcomeKicker", "canvasWelcomeTitle", "canvasWelcomeBody"]) {
+    assert.match(core, new RegExp(`\\b${key}:\\s*"`));
+    assert.match(zh, new RegExp(`\\b${key}:\\s*"`));
+  }
+});
+
+test("Studio navigator groups recent Agent sessions by canvas and opens the bound canvas first", () => {
+  const html = read("public/index.html"), css = read("public/style.css"), navigator = read("src/client/app/studio-navigator.js"),
+    persistence = read("src/client/app/persistence.js"), agent = read("src/client/app/canvas-agent-runtime.js"),
+    build = read("scripts/build-client.js"), app = read("public/app.js"), zh = read("public/locales/zh.js");
+  assert.match(html, /id="studioNavigatorToggle"[^>]*aria-controls="studioNavigator"/);
+  assert.match(html, /id="studioNavigator"[^>]*aria-labelledby="studioNavigatorTitle"[\s\S]*?id="studioNavigatorAgentPanel"[\s\S]*?id="studioNavigatorCanvasPanel"/);
+  assert.match(html, /id="studioNavigatorSearch"[^>]*type="search"/);
+  assert.match(build, /src\/client\/app\/studio-navigator\.js/);
+  assert.match(navigator, /canvasAgentStoredHistoryGroups\(\)[\s\S]*?sort\(\(a,b\)=>b\.updatedAt-a\.updatedAt\)/);
+  assert.match(navigator, /className="studio-navigator-group"[\s\S]*?className="studio-navigator-group-conversations"/);
+  assert.match(functionSource(navigator, "openStudioConversation"), /requestLoadSnapshot\(identity\.id,identity\.location\)/);
+  assert.match(functionSource(navigator, "openStudioConversationOnCurrentCanvas"), /canvasAgentHistoryForCanvas\(pending\.canvasKey\)[\s\S]*?openCanvasAgent\(\{focus:false,connect:false\}\)[\s\S]*?canvasAgentViewStoredConversation\(conversation\.id\)/);
+  assert.match(functionSource(navigator, "studioNavigatorCanvasDidLoad"), /openStudioConversationOnCurrentCanvas\(studioNavigatorPendingConversation\)/);
+  assert.match(navigator, /snapshotItemsForCurrentView\(\)[\s\S]*?requestLoadSnapshot\(item\.id, location\)/);
+  assert.match(navigator, /openHistoryPanel\(\)/);
+  assert.match(functionSource(navigator, "updateStudioNavigatorSurfaceInert"), /studioNavigatorIsCompact\(\)[\s\S]*?view\.inert = true[\s\S]*?dataset\.studioNavigatorInert[\s\S]*?view\.inert = false/);
+  assert.doesNotMatch(navigator, /canvasAgentBeginLocalConversation|canvasAgentStartNewConversation/);
+  assert.match(persistence, /function snapshotItemsForCurrentView\(\)/);
+  assert.match(persistence, /wantsConversationForCanvas\?\.\(\{ id:item\.id, location \}\)[\s\S]*?deferConversationStart:restoreStudioConversation/);
+  assert.match(functionSource(agent, "canvasAgentCanvasDidChange"), /deferConversationStart[\s\S]*?!deferConversationStart&&/);
+  assert.match(agent, /function canvasAgentStoredHistoryGroups\(\)/);
+  assert.match(agent, /PenEchoStudioNavigator\?\.renderAgent/);
+  assert.match(css, /body\[data-theme="studio"\] \.studio-navigator\s*\{[^}]*width:\s*256px[^}]*flex:\s*0 0 256px/);
+  assert.match(css, /@media \(max-width: 1100px\)[\s\S]*?\.studio-navigator\s*\{[^}]*position:\s*absolute[^}]*z-index:\s*45/);
+  assert.match(css, /not\(\.studio-navigator-open\) \.studio-navigator\s*\{[^}]*transform:\s*translateX\(-100%\)/);
+  assert.match(css, /\.studio-navigator-group-conversations\s*\{[^}]*border-left:\s*1px solid/);
+  assert.match(css, /prefers-reduced-motion: reduce[\s\S]*?\.studio-navigator\s*\{\s*transition:\s*none/);
+  for (const key of ["studioNavigatorTitle", "studioNavigatorAgents", "studioNavigatorCanvases", "studioNavigatorManageCanvases", "studioNavigatorSessionCount", "studioNavigatorCanvasUnavailable"]) {
+    assert.match(app, new RegExp(`\\b${key}:\\s*"`));
+    assert.match(zh, new RegExp(`\\b${key}:\\s*"`));
+  }
+});
+
+test("stored Agent canvas groups and their conversations are newest first", () => {
+  const agent = read("src/client/app/canvas-agent-runtime.js"), context = {
+    CANVAS_AGENT_HISTORY_LIMIT:5,
+    canvasAgentReadHistoryStore:() => ({
+      version:1,
+      canvasMeta:{"device:older":{name:"Older",updatedAt:20},"device:newer":{name:"Newer",updatedAt:90}},
+      canvases:{
+        "device:older":[{id:"old",createdAt:10,updatedAt:20,title:"Old",items:[{}]}],
+        "device:newer":[{id:"second",createdAt:40,updatedAt:70,title:"Second",items:[{}]},{id:"first",createdAt:50,updatedAt:90,title:"First",items:[{}]}],
+      },
+    }),
+    canvasAgentNormalizeConversation:(value) => value,
+    canvasAgentHistoryText:(value,limit) => String(value||"").slice(0,limit),
+    result:null,
+  };
+  vm.runInNewContext(`${functionSource(agent,"canvasAgentStoredHistoryGroups")};result=canvasAgentStoredHistoryGroups();`,context);
+  const groups=JSON.parse(JSON.stringify(context.result));
+  assert.deepEqual(groups.map(group=>group.canvasKey),["device:newer","device:older"]);
+  assert.deepEqual(groups[0].conversations.map(conversation=>conversation.id),["first","second"]);
+  assert.equal(groups[0].name,"Newer");
 });
 
 test("the canvas fills the available browser viewport consistently across themes", () => {

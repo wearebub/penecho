@@ -50,7 +50,9 @@ test("PenEcho Agent keeps the Revise pencil seam inside its icon viewBox",()=>{
 });
 
 test("PenEcho Agent keeps its default introduction above the Try asking overlay",()=>{
-  assert.match(css,/\.canvas-agent-empty\s*\{[^}]*margin:\s*0 10px auto/);
+  assert.match(html,/class="canvas-agent-empty"[\s\S]*?class="canvas-agent-empty-icon"[\s\S]*?data-i18n="canvasAgentEmptyTitle"/);
+  assert.match(css,/\.canvas-agent-empty\s*\{[^}]*margin:\s*clamp\(22px, 11vh, 108px\) 8px auto[^}]*text-align:\s*left/);
+  assert.match(css,/\.canvas-agent-empty-icon\s*\{[^}]*width:\s*46px[^}]*background:\s*#ebeefe/);
 });
 
 test("PenEcho Agent keeps a fixed Try asking row between attachments and the composer",()=>{
@@ -70,22 +72,23 @@ test("PenEcho Agent keeps a fixed Try asking row between attachments and the com
   assert.equal(toggle.getAttribute("aria-expanded"),"false");
   assert.equal(toggle.getAttribute("aria-controls"),"canvasAgentPromptPopup");
   assert.match(css,/\.canvas-agent-prompt-suggestions\s*\{[^}]*position:\s*relative;[^}]*min-height:\s*34px;[^}]*flex:\s*0 0 auto;[^}]*overflow:\s*visible/);
-  assert.match(css,/\.canvas-agent-prompt-suggestions\s*\{[^}]*border:\s*1px solid #dde4ee;[^}]*border-radius:\s*12px;[^}]*background:\s*linear-gradient\(145deg, #fcfdff, #f7f9fc\);[^}]*box-shadow:\s*0 4px 14px rgba\(15,23,42,\.055\)/,"Try asking keeps its original light card appearance");
+  assert.match(toggle.innerHTML,/canvas-agent-prompt-toggle-copy[\s\S]*canvasAgentPromptDisclosureCopy/,"the disclosure shows Try asking and a localized More or Less label");
+  assert.match(css,/\.canvas-agent-prompt-suggestions\s*\{[^}]*border:\s*1px solid transparent;[^}]*background:\s*transparent;[^}]*box-shadow:\s*none/,"the collapsed disclosure stays quiet");
   assert.match(css,/\.canvas-agent-prompt-suggestions > header > button\s*\{[^}]*width:\s*100%;[^}]*justify-content:\s*space-between;[^}]*border:\s*0/,"the relocated disclosure never exposes a browser-default black border");
   assert.match(css,/\.canvas-agent-prompt-suggestions > header > button:hover,\s*\.canvas-agent-prompt-suggestions > header > button:active\s*\{[^}]*color:\s*#475569;[^}]*background:\s*transparent;[^}]*transform:\s*none/,"pointer interaction keeps the Try asking disclosure background neutral");
   assert.match(css,/\.canvas-agent-prompt-suggestions > header > button:focus-visible\s*\{[^}]*color:\s*#475569;[^}]*background:\s*transparent;[^}]*outline:\s*2px solid #cbd5e1;[^}]*outline-offset:\s*1px/,"keyboard focus uses a neutral gray outline instead of purple highlighting");
   assert.match(css,/\.canvas-agent-prompt-suggestions:not\(\[hidden\]\) \+ \.canvas-agent-composer\s*\{[^}]*padding-top:\s*5px/,"the prompt card stays close to the composer");
-  assert.match(css,/\.canvas-agent-prompt-popup\s*\{[^}]*position:\s*absolute;[^}]*z-index:\s*5;[^}]*bottom:\s*calc\(100% - 1px\);[^}]*max-height:\s*min\(390px, calc\(100cqh - 210px\)\);[^}]*overflow-y:\s*auto/);
-  assert.match(css,/\.canvas-agent-prompt-popup\s*\{[^}]*border:\s*1px solid #dde4ee;[^}]*border-bottom:\s*0;[^}]*border-radius:\s*12px 12px 0 0;[^}]*background:\s*linear-gradient\(145deg, #fcfdff, #f7f9fc\);[^}]*box-shadow:\s*none/,"the floating rows extend the header card with the same light border and white background");
+  assert.match(css,/\.canvas-agent-prompt-popup\s*\{[^}]*position:\s*absolute;[^}]*z-index:\s*5;[^}]*bottom:\s*calc\(100% - 1px\);[^}]*max-height:\s*min\(455px, calc\(100cqh - 205px\)\);[^}]*overflow-y:\s*auto/);
+  assert.match(css,/\.canvas-agent-prompt-popup\s*\{[^}]*border:\s*1px solid #e0e4eb;[^}]*border-bottom:\s*0;[^}]*border-radius:\s*12px 12px 0 0;[^}]*background:\s*#f8f9fc;[^}]*box-shadow:\s*none/,"the floating rows form one quiet suggestion surface");
   assert.match(css,/\.canvas-agent-prompt-suggestions\.prompt-rows-visible\s*\{[^}]*border-top-color:\s*transparent;[^}]*border-radius:\s*0 0 12px 12px;[^}]*box-shadow:\s*none;[^}]*filter:\s*drop-shadow/,"expanded rows and the fixed header read as one continuous card with a single unified shadow");
   assert.match(css,/\.canvas-agent-history-popover\s*\{[^}]*z-index:\s*6/,"PenEcho Agent popovers remain above prompt options");
   assert.match(css,/\.settings-layer\s*\{[^}]*z-index:\s*74/,"Settings remains above the PenEcho Agent panel and prompt options");
   assert.match(css,/\.canvas-agent-prompt-list\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/);
   assert.doesNotMatch(additionalRule,/position:|bottom:|max-height:|overflow|overscroll|scrollbar|border:|background:|box-shadow:/,"the floating prompt card must have one wheel-scroll owner");
-  assert.match(css,/\.canvas-agent-prompt-list > button\s*\{[^}]*height:\s*auto;[^}]*overflow:\s*hidden/);
+  assert.match(css,/\.canvas-agent-prompt-list > button\s*\{[^}]*height:\s*auto;[^}]*min-height:\s*76px;[^}]*border:\s*1px solid #dfe3ea;[^}]*border-radius:\s*12px;[^}]*background:\s*#ffffff/);
   assert.match(css,/\.canvas-agent-prompt-list\[hidden\]\s*\{\s*display:\s*none;/,"both the additional rows and the default three must honor hidden");
-  assert.match(css,/\.canvas-agent-prompt-copy\s*\{[^}]*overflow:\s*hidden;[^}]*-webkit-line-clamp:\s*2;[^}]*line-clamp:\s*2/);
-  assert.match(css,/\.canvas-agent-prompt-icon\s*\{/);
+  assert.match(css,/\.canvas-agent-prompt-copy\s*\{[^}]*display:\s*grid;[^}]*gap:\s*3px;[^}]*overflow:\s*hidden/);
+  assert.match(css,/\.canvas-agent-prompt-icon\s*\{[^}]*width:\s*34px;[^}]*height:\s*34px;[^}]*border-radius:\s*10px/);
   assert.match(css,/\.canvas-agent-prompt-copy strong\s*\{[^}]*font-weight:/);
 });
 
@@ -173,11 +176,11 @@ function interactiveScene(){
     input={value:"",disabled:false,events:0,focused:false,selection:null,dispatchEvent(event){this.events++;if(event.type==="input")sync();},focus(){this.focused=true;active.element=this;active.insideForm=true;active.insideSuggestions=false;},setSelectionRange(start,end){this.selection=[start,end];}},
     form={contains(node){return node===input||node===active.element&&active.insideForm;},submitted:false},
     suggestions={hidden:true,attributes:{},classList:{expanded:false,promptRowsVisible:false,toggle(name,value){if(name==="expanded")this.expanded=Boolean(value);if(name==="prompt-rows-visible")this.promptRowsVisible=Boolean(value);}},setAttribute(name,value){this.attributes[name]=String(value);},contains(node){return node===active.element&&active.insideSuggestions;}},
-    popup={hidden:true},makeList=()=>({hidden:false,children:[],replaceChildren(){this.children=[];},append(child){this.children.push(child);}}),additional=makeList(),primary=makeList(),toggle=node("button"),
+    popup={hidden:true},makeList=()=>({hidden:false,children:[],replaceChildren(){this.children=[];},append(child){this.children.push(child);}}),additional=makeList(),primary=makeList(),toggle=node("button"),disclosure=node("span"),
     hint={hidden:false},canvasAgent={inputMode:"text",inkPresent:false,attachments:[],references:[],currentConversation:{items:[]},requestPending:false,running:false,viewingHistoryId:"",pendingApproval:null,attachmentBusy:false,projectUploadBusy:false,promptSuggestionsExpanded:false,promptSuggestionsManual:false,promptSuggestionsCollapsedAll:false,promptSuggestionContextKey:"",promptSuggestions:[]},
-    panel={hidden:false},referencePicker={hidden:true},approval={hidden:true},translations={canvasAgentPromptHandwriting:"Polished prompt",canvasAgentPromptFocusEnhance:"Enhance",canvasAgentPromptMore:"Show",canvasAgentPromptLess:"Hide"};
+    panel={hidden:false},referencePicker={hidden:true},approval={hidden:true},translations={canvasAgentPromptHandwriting:"Polished prompt",canvasAgentPromptFocusEnhance:"Enhance",canvasAgentPromptMore:"Show",canvasAgentPromptLess:"Hide",canvasAgentPromptDisclosureMore:"More",canvasAgentPromptDisclosureLess:"Less"};
   const context={canvasAgentInput:input,canvasAgentInputHint:hint,canvasAgentPromptSuggestions:suggestions,canvasAgentPromptPopup:popup,canvasAgentAdditionalPromptList:additional,canvasAgentPrimaryPromptList:primary,
-    canvasAgentPromptToggle:toggle,canvasAgentPanel:panel,canvasAgentForm:form,canvasAgentReferencePicker:referencePicker,canvasAgentApproval:approval,document,canvasAgent,
+    canvasAgentPromptToggle:toggle,canvasAgentPromptDisclosureCopy:disclosure,canvasAgentPanel:panel,canvasAgentForm:form,canvasAgentReferencePicker:referencePicker,canvasAgentApproval:approval,document,canvasAgent,
     CANVAS_AGENT_PROMPT_ICON_PATHS:constants.iconPaths,t:key=>translations[key]||key,canvasAgentSyncInputHint(){},canvasAgentPromptSuggestionSet:()=>set,Event:class Event{constructor(type){this.type=type;}},
   };
   const hasDraft=vm.runInNewContext(`(()=>{${functionSource("canvasAgentPromptHasDraft")}return canvasAgentPromptHasDraft;})()`,context);
@@ -291,7 +294,7 @@ test("PenEcho Agent ships concise localized prompts and focus words for every in
       assert.equal(zh.length<=70,true,`Chinese ${key} should stay concise`);
     }
   }
-  for(const key of [...focusKeys,"canvasAgentPromptMore","canvasAgentPromptLess"]){assert.ok(translation(english,key));assert.ok(translation(chinese,key));}
+  for(const key of [...focusKeys,"canvasAgentPromptMore","canvasAgentPromptLess","canvasAgentPromptDisclosureMore","canvasAgentPromptDisclosureLess"]){assert.ok(translation(english,key));assert.ok(translation(chinese,key));}
   assert.equal(translation(english,"canvasAgentPromptHandwriting"),"Keep the current handwriting completely unchanged—do not edit, erase, or move it. Add a transparent explanatory layer over it; overlap is acceptable only if the original strokes remain clearly visible, and use annotations, connectors, links, graphics, or motion where appropriate to make the notes more vivid and intuitive.");
   assert.equal(translation(chinese,"canvasAgentPromptHandwriting"),"请保持当前手写笔迹完全不变：不修改、擦除或移动它；在其上添加一层背景透明的解释层，解释层可以适度覆盖但必须让原笔迹清晰透出，并在合适位置用标注、连线、链接、图形或动效让内容更生动直观。");
   assert.equal(translation(english,"canvasAgentPromptSequenceDiagramSource"),"Convert the current diagram into a sequence diagram and return editable diagram source code, such as Mermaid or PlantUML—not HTML.");

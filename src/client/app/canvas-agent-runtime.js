@@ -2,6 +2,8 @@
   const canvasAgentControl = document.querySelector("#canvasAgentControl"),
     canvasAgentToggle = document.querySelector("#canvasAgentToggle"),
     canvasAgentPanel = document.querySelector("#canvasAgentPanel"),
+    canvasAgentHome = document.querySelector("#canvasAgentHome"),
+    canvasAgentFrame = view.closest(".canvas-frame"),
     canvasAgentHead = document.querySelector("#canvasAgentHead"),
     canvasAgentClose = document.querySelector("#canvasAgentClose"),
     canvasAgentNew = document.querySelector("#canvasAgentNew"),
@@ -49,6 +51,7 @@
     canvasAgentInputHint = document.querySelector("#canvasAgentInputHint"),
     canvasAgentPromptSuggestions = document.querySelector("#canvasAgentPromptSuggestions"),
     canvasAgentPromptToggle = document.querySelector("#canvasAgentPromptToggle"),
+    canvasAgentPromptDisclosureCopy = document.querySelector("#canvasAgentPromptDisclosureCopy"),
     canvasAgentPromptPopup = document.querySelector("#canvasAgentPromptPopup"),
     canvasAgentAdditionalPromptList = document.querySelector("#canvasAgentAdditionalPromptList"),
     canvasAgentPrimaryPromptList = document.querySelector("#canvasAgentPrimaryPromptList"),
@@ -441,6 +444,7 @@
       canvasAgentPromptToggle.setAttribute("aria-label",label);
       canvasAgentPromptToggle.setAttribute("title",label);
     }
+    if(canvasAgentPromptDisclosureCopy)canvasAgentPromptDisclosureCopy.textContent=t(rowsVisible?"canvasAgentPromptDisclosureLess":"canvasAgentPromptDisclosureMore");
   }
   function canvasAgentCreatePromptIcon(iconName) {
     const svg=document.createElementNS("http://www.w3.org/2000/svg","svg");
@@ -1118,9 +1122,27 @@
   }
   function canvasAgentReadHistoryStore() {
     try {
-      const stored=JSON.parse(localStorage.getItem(CANVAS_AGENT_HISTORY_KEY)||"null"), canvases=stored?.version===1&&stored.canvases&&typeof stored.canvases==="object"&&!Array.isArray(stored.canvases)?stored.canvases:{};
-      return {version:1,canvases:{...canvases}};
-    } catch { return {version:1,canvases:{}}; }
+      const stored=JSON.parse(localStorage.getItem(CANVAS_AGENT_HISTORY_KEY)||"null"),
+        canvases=stored?.version===1&&stored.canvases&&typeof stored.canvases==="object"&&!Array.isArray(stored.canvases)?stored.canvases:{},
+        canvasMeta=stored?.version===1&&stored.canvasMeta&&typeof stored.canvasMeta==="object"&&!Array.isArray(stored.canvasMeta)?stored.canvasMeta:{};
+      return {version:1,canvases:{...canvases},canvasMeta:{...canvasMeta}};
+    } catch { return {version:1,canvases:{},canvasMeta:{}}; }
+  }
+  function canvasAgentRememberCanvasMeta(store,canvasKey,{name="",updatedAt=Date.now()}={}) {
+    const key=String(canvasKey||""),safeName=canvasAgentHistoryText(name,160).replace(/[\0-\x1f\x7f]/g,"").trim(),safeUpdatedAt=Number(updatedAt);
+    if(!key||key.startsWith("draft:"))return;
+    if(!store.canvasMeta||typeof store.canvasMeta!=="object"||Array.isArray(store.canvasMeta))store.canvasMeta={};
+    store.canvasMeta[key]={name:safeName,updatedAt:Number.isFinite(safeUpdatedAt)?safeUpdatedAt:Date.now()};
+  }
+  function canvasAgentStoredHistoryGroups() {
+    const store=canvasAgentReadHistoryStore(),groups=[];
+    for(const [canvasKey,value] of Object.entries(store.canvases)){
+      const conversations=(Array.isArray(value)?value:[]).map(canvasAgentNormalizeConversation).filter(conversation=>conversation?.items.length).sort((a,b)=>b.updatedAt-a.updatedAt).slice(0,CANVAS_AGENT_HISTORY_LIMIT);
+      if(!conversations.length)continue;
+      const meta=store.canvasMeta?.[canvasKey],updatedAt=Math.max(Number(meta?.updatedAt)||0,...conversations.map(conversation=>conversation.updatedAt));
+      groups.push({canvasKey,name:canvasAgentHistoryText(meta?.name,160).trim(),updatedAt,conversations});
+    }
+    return groups.sort((a,b)=>b.updatedAt-a.updatedAt);
   }
   function canvasAgentHistoryForCanvas(canvasKey = state.canvasAgentCanvasKey) {
     if(canvasAgent.projectId)return (canvasAgent.projectHistoryLoaded?canvasAgent.projectHistory:[]).map(canvasAgentNormalizeConversation).filter(conversation=>conversation?.items.length).sort((a,b)=>b.updatedAt-a.updatedAt).slice(0,CANVAS_AGENT_HISTORY_LIMIT);
@@ -1136,8 +1158,13 @@
       return true;
     }
     if (!key) return false;
-    if (normalized.length) store.canvases[key]=normalized;
-    else delete store.canvases[key];
+    if (normalized.length) {
+      store.canvases[key]=normalized;
+      if(key===state.canvasAgentCanvasKey)canvasAgentRememberCanvasMeta(store,key,{name:state.currentSnapshotName,updatedAt:normalized[0].updatedAt});
+    } else {
+      delete store.canvases[key];
+      if(store.canvasMeta)delete store.canvasMeta[key];
+    }
     try { localStorage.setItem(CANVAS_AGENT_HISTORY_KEY,JSON.stringify(store)); return true; }
     catch { return false; }
   }
@@ -1185,11 +1212,14 @@
       : canvasAgentConversationHistory(canvasAgent.currentConversation);
   }
   function canvasAgentRenderEmpty() {
-    const empty=document.createElement("div"), title=document.createElement("strong"), body=document.createElement("span");
+    const empty=document.createElement("div"), icon=document.createElement("span"), title=document.createElement("strong"), body=document.createElement("span");
     empty.className="canvas-agent-empty";
+    icon.className="canvas-agent-empty-icon";
+    icon.setAttribute("aria-hidden","true");
+    icon.innerHTML='<svg viewBox="0 0 24 24"><path d="M12 3.5 13.7 8.6a2 2 0 0 0 1.2 1.2l5.1 1.7-5.1 1.7a2 2 0 0 0-1.2 1.2L12 19.5l-1.7-5.1a2 2 0 0 0-1.2-1.2L4 11.5l5.1-1.7a2 2 0 0 0 1.2-1.2Z"/></svg>';
     title.textContent=t("canvasAgentEmptyTitle");
     body.textContent=t("canvasAgentEmptyBody");
-    empty.append(title,body);
+    empty.append(icon,title,body);
     canvasAgentTranscript.replaceChildren(empty);
   }
   function canvasAgentHistoryTime(value) {
@@ -1205,6 +1235,7 @@
       empty.className="canvas-agent-history-empty";
       empty.textContent=t("canvasAgentHistoryEmpty");
       canvasAgentHistoryList.append(empty);
+      window.PenEchoStudioNavigator?.renderAgent?.();
       return;
     }
     for (const conversation of histories) {
@@ -1220,6 +1251,7 @@
       button.addEventListener("click",()=>current?canvasAgentHideHistoryPopover():void canvasAgentViewStoredConversation(conversation.id));
       canvasAgentHistoryList.append(button);
     }
+    window.PenEchoStudioNavigator?.renderAgent?.();
   }
   function canvasAgentHideHistoryPopover() {
     canvasAgentHistoryPopover.hidden=true;
@@ -1365,7 +1397,7 @@
     return id&&location?`${location}:${id}`:`draft:${canvasClientId()}`;
   }
   function canvasAgentCanvasDidChange(identity = null,options = null) {
-    const clearProject=options?.clearProject===true;
+    const clearProject=options?.clearProject===true,deferConversationStart=options?.deferConversationStart===true;
     canvasAgentPersistCurrentConversation();
     if(clearProject){
       canvasAgent.projectSelectionRevision++;
@@ -1379,7 +1411,7 @@
     }
     state.canvasAgentCanvasKey=canvasAgentCanvasIdentity(identity||{});
     canvasAgentBeginLocalConversation({persistCurrent:false});
-    if (canvasAgent.socket?.readyState===WebSocket.OPEN||canvasAgent.connectPromise) {
+    if (!deferConversationStart&&(canvasAgent.socket?.readyState===WebSocket.OPEN||canvasAgent.connectPromise)) {
       void canvasAgentStartNewConversation(selectedAiConnectionId(),{resetProjection:false}).catch(error=>canvasAgentSetStatus(String(error?.message||error),"error"));
     } else canvasAgentDropSessionIdentity();
     canvasAgentSyncPromptSuggestions();
@@ -1388,12 +1420,17 @@
   function canvasAgentCanvasDidPersist(location,id) {
     if (!location||!id) return;
     const previousKey=state.canvasAgentCanvasKey, nextKey=canvasAgentCanvasIdentity({location,id});
-    if (previousKey===nextKey) return;
+    if (previousKey===nextKey) {
+      if(!canvasAgent.projectId)canvasAgentWriteHistoryForCanvas(nextKey,canvasAgentHistoryForCanvas(nextKey));
+      window.PenEchoStudioNavigator?.renderAgent?.();
+      return;
+    }
     if(canvasAgent.projectId){state.canvasAgentCanvasKey=nextKey;canvasAgentRenderHistoryList();return;}
     canvasAgentPersistCurrentConversation();
     const store=canvasAgentReadHistoryStore(), previous=(Array.isArray(store.canvases[previousKey])?store.canvases[previousKey]:[]).map(canvasAgentNormalizeConversation).filter(Boolean), next=(Array.isArray(store.canvases[nextKey])?store.canvases[nextKey]:[]).map(canvasAgentNormalizeConversation).filter(Boolean), merged=[];
     for (const conversation of [...previous,...next].sort((a,b)=>b.updatedAt-a.updatedAt)) if (conversation?.items.length&&!merged.some(item=>item.id===conversation.id)) merged.push(conversation);
-    if (previousKey?.startsWith("draft:")) delete store.canvases[previousKey];
+    if (previousKey?.startsWith("draft:")) {delete store.canvases[previousKey];delete store.canvasMeta?.[previousKey];}
+    canvasAgentRememberCanvasMeta(store,nextKey,{name:state.currentSnapshotName,updatedAt:merged[0]?.updatedAt});
     canvasAgentWriteHistoryForCanvas(nextKey,merged,store);
     state.canvasAgentCanvasKey=nextKey;
     canvasAgentRenderHistoryList();
@@ -1561,6 +1598,21 @@
   function canvasAgentCompactPanel() {
     return Boolean(window.matchMedia && window.matchMedia("(max-width: 700px)").matches);
   }
+  function canvasAgentDockedPanel() {
+    return document.body.classList.contains("studio-agent-docked") && canvasAgentPanel.parentElement === canvasAgentFrame;
+  }
+  function syncStudioWorkbench(theme = state.theme) {
+    const docked = theme === "studio" && Boolean(window.matchMedia?.("(min-width: 1101px)").matches);
+    document.body.classList.toggle("studio-agent-docked", docked);
+    if (docked && canvasAgentPanel.parentElement !== canvasAgentFrame) canvasAgentFrame.append(canvasAgentPanel);
+    else if (!docked && canvasAgentPanel.parentElement !== view) canvasAgentHome.after(canvasAgentPanel);
+    canvasAgentPanel.inert = canvasAgentPanel.hidden;
+    if (docked) {
+      canvasAgentResetPositionClasses();
+      canvasAgent.panelPosition = null;
+    }
+    window.PenEchoStudioNavigator?.syncTheme?.(theme);
+  }
   function canvasAgentResetHeightClasses() {
     for (const name of [...canvasAgentPanel.classList]) if (/^canvas-agent-height-\d+$/.test(name)) canvasAgentPanel.classList.remove(name);
   }
@@ -1575,7 +1627,7 @@
     return canvasAgentPanel.offsetHeight;
   }
   function canvasAgentApplyPanelWidth(width) {
-    const extent=Math.max(1,view.clientWidth), step=Math.max(0,Math.min(CANVAS_AGENT_SIZE_STEPS,Math.round((Number(width)||CANVAS_AGENT_WIDTH_MIN)/extent*CANVAS_AGENT_SIZE_STEPS)));
+    const extent=Math.max(1,canvasAgentDockedPanel()?canvasAgentFrame.clientWidth:view.clientWidth), step=Math.max(0,Math.min(CANVAS_AGENT_SIZE_STEPS,Math.round((Number(width)||CANVAS_AGENT_WIDTH_MIN)/extent*CANVAS_AGENT_SIZE_STEPS)));
     canvasAgentResetWidthClasses();
     canvasAgentPanel.classList.add(`canvas-agent-width-${step}`);
     canvasAgentSyncResizeHandleValues();
@@ -1585,6 +1637,7 @@
     return Math.max(CANVAS_AGENT_HEIGHT_MIN,view.clientHeight);
   }
   function canvasAgentMaximumPanelWidth() {
+    if (canvasAgentDockedPanel()) return Math.max(CANVAS_AGENT_WIDTH_MIN,Math.min(640,canvasAgentFrame.clientWidth-560));
     return Math.max(CANVAS_AGENT_WIDTH_MIN,view.clientWidth-16);
   }
   function canvasAgentSyncResizeHandleValues() {
@@ -1640,6 +1693,13 @@
   function canvasAgentResizePanelTo(edge,size,anchor=canvasAgentResizeAnchor()) {
     const vertical=edge==="top"||edge==="bottom", minimum=vertical?CANVAS_AGENT_HEIGHT_MIN:CANVAS_AGENT_WIDTH_MIN, globalMaximum=vertical?canvasAgentMaximumPanelHeight():canvasAgentMaximumPanelWidth();
     if (canvasAgentCompactPanel()) return vertical?canvasAgentPanel.offsetHeight:canvasAgentPanel.offsetWidth;
+    if (canvasAgentDockedPanel()) {
+      if (vertical || edge!=="left") return vertical?canvasAgentPanel.offsetHeight:canvasAgentPanel.offsetWidth;
+      const target=Math.max(minimum,Math.min(globalMaximum,Number(size)||minimum));
+      canvasAgentApplyPanelWidth(target);
+      canvasAgentSyncResizeHandleValues();
+      return canvasAgentPanel.offsetWidth;
+    }
     const available=vertical?(edge==="top"?anchor.bottom:view.clientHeight-anchor.top):(edge==="left"?anchor.right-8:view.clientWidth-anchor.left-8), forceFullHeight=vertical&&Number(size)>=globalMaximum-1, maximum=forceFullHeight?globalMaximum:Math.max(minimum,Math.min(globalMaximum,available)), target=Math.max(minimum,Math.min(maximum,Number(size)||minimum));
     if (vertical) canvasAgentApplyPanelHeight(target);
     else canvasAgentApplyPanelWidth(target);
@@ -1656,6 +1716,7 @@
   function canvasAgentBeginPanelResize(event) {
     if (canvasAgentCompactPanel()||!canvasAgentPanelPointerCanManipulate(event)) return;
     const edge=event.currentTarget.dataset.edge, vertical=edge==="top"||edge==="bottom", point=canvasClientPosition(event.clientX,event.clientY);
+    if (canvasAgentDockedPanel() && edge!=="left") return;
     canvasAgent.panelResize={pointerId:event.pointerId,edge,vertical,startCoordinate:vertical?point.y:point.x,startSize:vertical?canvasAgentPanel.offsetHeight:canvasAgentPanel.offsetWidth,anchor:canvasAgentResizeAnchor(),handle:event.currentTarget};
     canvasAgentPanel.classList.add("resizing",`resizing-${edge}`);
     event.currentTarget.setPointerCapture?.(event.pointerId);
@@ -1680,14 +1741,15 @@
   }
   function canvasAgentKeyboardPanelResize(event) {
     if (canvasAgentCompactPanel()) return;
-    const edge=event.currentTarget.dataset.edge, vertical=edge==="top"||edge==="bottom", current=vertical?canvasAgentPanel.offsetHeight:canvasAgentPanel.offsetWidth, minimum=vertical?CANVAS_AGENT_HEIGHT_MIN:CANVAS_AGENT_WIDTH_MIN, maximum=vertical?canvasAgentMaximumPanelHeight():canvasAgentMaximumPanelWidth();
+    const edge=event.currentTarget.dataset.edge, vertical=edge==="top"||edge==="bottom", current=vertical?canvasAgentPanel.offsetHeight:canvasAgentPanel.offsetWidth, minimum=vertical?CANVAS_AGENT_HEIGHT_MIN:CANVAS_AGENT_WIDTH_MIN, maximum=vertical?canvasAgentMaximumPanelHeight():canvasAgentMaximumPanelWidth(), keyStep=canvasAgentDockedPanel()&&!vertical?canvasAgentFrame.clientWidth/CANVAS_AGENT_SIZE_STEPS:CANVAS_AGENT_RESIZE_KEY_STEP;
+    if (canvasAgentDockedPanel() && edge!=="left") return;
     let next=null;
     if (event.key==="Home") next=minimum;
     else if (event.key==="End") next=maximum;
-    else if (vertical&&event.key==="ArrowUp") next=current+(edge==="top"?CANVAS_AGENT_RESIZE_KEY_STEP:-CANVAS_AGENT_RESIZE_KEY_STEP);
-    else if (vertical&&event.key==="ArrowDown") next=current+(edge==="bottom"?CANVAS_AGENT_RESIZE_KEY_STEP:-CANVAS_AGENT_RESIZE_KEY_STEP);
-    else if (!vertical&&event.key==="ArrowLeft") next=current+(edge==="left"?CANVAS_AGENT_RESIZE_KEY_STEP:-CANVAS_AGENT_RESIZE_KEY_STEP);
-    else if (!vertical&&event.key==="ArrowRight") next=current+(edge==="right"?CANVAS_AGENT_RESIZE_KEY_STEP:-CANVAS_AGENT_RESIZE_KEY_STEP);
+    else if (vertical&&event.key==="ArrowUp") next=current+(edge==="top"?keyStep:-keyStep);
+    else if (vertical&&event.key==="ArrowDown") next=current+(edge==="bottom"?keyStep:-keyStep);
+    else if (!vertical&&event.key==="ArrowLeft") next=current+(edge==="left"?keyStep:-keyStep);
+    else if (!vertical&&event.key==="ArrowRight") next=current+(edge==="right"?keyStep:-keyStep);
     if (next===null) return;
     event.preventDefault();
     canvasAgentResizePanelTo(edge,next);
@@ -1714,7 +1776,7 @@
     for (const name of [...canvasAgentPanel.classList]) if (name === "canvas-agent-positioned" || /^canvas-agent-position-[xy]-\d+$/.test(name)) canvasAgentPanel.classList.remove(name);
   }
   function canvasAgentRestorePanelPosition() {
-    if (canvasAgentPanel.hidden || canvasAgentCompactPanel()) {
+    if (canvasAgentPanel.hidden || canvasAgentCompactPanel() || canvasAgentDockedPanel()) {
       canvasAgentResetPositionClasses();
       canvasAgent.panelPosition = null;
       return;
@@ -1734,12 +1796,12 @@
     canvasAgentPositionPanel(minX+(maxX-minX)*Math.max(0,Math.min(1,saved.x)),minY+(maxY-minY)*Math.max(0,Math.min(1,saved.y)));
   }
   function canvasAgentSavePanelPosition() {
-    if (!canvasAgent.panelPosition) return;
+    if (canvasAgentDockedPanel() || !canvasAgent.panelPosition) return;
     const saved = { x:canvasAgent.panelPosition.xStep/20, y:canvasAgent.panelPosition.yStep/20 };
     try { localStorage.setItem(CANVAS_AGENT_POSITION_KEY,JSON.stringify(saved)); } catch {}
   }
   function canvasAgentBeginPanelDrag(event) {
-    if (canvasAgentCompactPanel() || !canvasAgentPanelPointerCanManipulate(event) || event.target.closest("button")) return;
+    if (canvasAgentCompactPanel() || canvasAgentDockedPanel() || !canvasAgentPanelPointerCanManipulate(event) || event.target.closest("button")) return;
     const panelRect = canvasElementLayoutRect(canvasAgentPanel), point=canvasClientPosition(event.clientX,event.clientY);
     canvasAgentPositionPanel(panelRect.left,panelRect.top);
     canvasAgent.panelDrag = {
@@ -3745,6 +3807,11 @@
     canvasAgentPanel.classList.remove("canvas-agent-motion-target");
   }
   function canvasAgentAnimatePanel(opening,panelRect,onFinish=null) {
+    if (canvasAgentDockedPanel()) {
+      canvasAgentPanel.classList.remove("canvas-agent-motion-target");
+      onFinish?.();
+      return;
+    }
     const reduceMotion=window.matchMedia?.("(prefers-reduced-motion: reduce)").matches,
       triggerRect=pageLayoutRect(canvasAgentToggle);
     if (reduceMotion || typeof Element.prototype.animate !== "function" || !panelRect?.width || !panelRect?.height || !triggerRect.width || !triggerRect.height) {
@@ -3791,13 +3858,15 @@
   function openCanvasAgent({focus=true}={}) {
     const options=arguments[0]||{},connect=options.connect!==false,animate=options.animate!==false;
     if (!canvasAgentAvailable()) return;
+    syncStudioWorkbench();
     canvasAgentCancelPanelMotion();
     canvasAgentPanel.hidden = false;
+    canvasAgentPanel.inert = false;
     canvasAgentPanel.setAttribute("aria-hidden","false");
     canvasAgentToggle.setAttribute("aria-expanded","true");
     document.body.classList.add("canvas-agent-open");
     canvasAgentSyncTriggerState();
-    if(animate){
+    if(animate&&!canvasAgentDockedPanel()){
       canvasAgentPanel.classList.add("canvas-agent-motion-target");
       canvasAgent.panelMotionFrame=requestAnimationFrame(()=>{
         canvasAgent.panelMotionFrame=0;
@@ -3821,6 +3890,7 @@
   function closeCanvasAgent(options) {
     const focus=options?.focus!==false,animate=options?.animate!==false;
     canvasAgentCancelPanelMotion();
+    const docked=canvasAgentDockedPanel();
     const panelRect=canvasAgentPanel.hidden?null:pageLayoutRect(canvasAgentPanel);
     const dragPointerId = canvasAgent.panelDrag?.pointerId;
     const resize = canvasAgent.panelResize;
@@ -3839,7 +3909,9 @@
     canvasAgentToggleReferencePicker(false);
     canvasAgentPersistCurrentConversation();
     if(focus)canvasAgentToggle.focus();
-    if(animate)canvasAgentAnimatePanel(false,panelRect);
+    else if(canvasAgentPanel.contains(document.activeElement))document.activeElement.blur();
+    canvasAgentPanel.inert = true;
+    if(animate&&!docked)canvasAgentAnimatePanel(false,panelRect);
   }
   canvasAgentToggle.hidden = !canvasAgentAvailable();
   canvasAgentToggle.addEventListener("click",()=>canvasAgentPanel.hidden ? openCanvasAgent() : closeCanvasAgent());
@@ -4105,7 +4177,7 @@
     new ResizeObserver(canvasAgentScheduleScrollToLatest).observe(canvasAgentTranscript);
   }
   canvasAgentResizeInput();
-  window.addEventListener("resize",()=>requestAnimationFrame(()=>{canvasAgentRestorePanelSize();canvasAgentRestorePanelPosition();}),{passive:true});
+  window.addEventListener("resize",()=>requestAnimationFrame(()=>{syncStudioWorkbench();canvasAgentRestorePanelSize();canvasAgentRestorePanelPosition();}),{passive:true});
   window.addEventListener("beforeunload",canvasAgentPersistCurrentConversation);
   canvasAgentUpdateSearchButton();
   canvasAgentRenderProjects();

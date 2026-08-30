@@ -219,6 +219,7 @@
       saveButton.classList.toggle("is-saving", busy);
       saveButton.setAttribute("aria-busy", String(busy));
     }
+    window.PenEchoStudioNavigator?.updateDocument?.();
     if (!busy) renderServerProjectUi();
     updateHistoryReadControls();
   }
@@ -1099,6 +1100,7 @@
     canvasAgentCanvasDidPersist(location, storedId);
     await refreshSnapshots();
     setStatusKey(overwriteId ? "snapshotOverwritten" : "snapshotSaved");
+    window.PenEchoStudioNavigator?.updateDocument?.();
     return storedId;
   }
   async function readDeviceSnapshot(id) {
@@ -1286,13 +1288,18 @@
       state.currentSnapshotManifestExtensions = snapshotExtensionObject(item.manifestExtensions);
       state.currentSnapshotPreservedAssets = snapshotPreservedAssets(item.preservedAssets);
       state.snapshotSavedRevision = state.userRevision;
-      canvasAgentCanvasDidChange({ id:item.id, location },{clearProject:true});
+      const restoreStudioConversation=window.PenEchoStudioNavigator?.wantsConversationForCanvas?.({ id:item.id, location })===true;
+      canvasAgentCanvasDidChange({ id:item.id, location },{clearProject:true,deferConversationStart:restoreStudioConversation});
+      window.PenEchoStudioNavigator?.canvasDidLoad?.({ id:item.id, location });
+      window.PenEchoStudioNavigator?.renderCanvases?.();
+      window.PenEchoStudioNavigator?.updateDocument?.();
       setHistoryActivity(t("snapshotLoading").replace("{name}", displayName), t("snapshotLoadApplying"), 100);
       render();
       closeHistoryPanel();
       setStatusKey("snapshotLoaded");
       return true;
     } catch (error) {
+      window.PenEchoStudioNavigator?.cancelPendingConversation?.();
       if (decodedTiles?.size) releaseSnapshotTileCanvases(decodedTiles);
       if (loadGeneration !== state.snapshotLoadGeneration) return false;
       const message = t("snapshotLoadFailed").replace("{message}", String(error?.message || error));
@@ -1348,6 +1355,7 @@
       state.currentSnapshotPreservedAssets = [];
     }
     await refreshSnapshots();
+    window.PenEchoStudioNavigator?.updateDocument?.();
     setStatusKey("snapshotDeleted");
   }
   function updateNewCanvasDialog() {
@@ -1418,6 +1426,8 @@
     state.currentSnapshotManifestExtensions = {};
     state.currentSnapshotPreservedAssets = [];
     canvasAgentCanvasDidChange(null,{clearProject:true});
+    window.PenEchoStudioNavigator?.renderCanvases?.();
+    window.PenEchoStudioNavigator?.updateDocument?.();
     state.viewInitialized = false;
     state.aiDraftReturnMode = null;
     state.pendingHistoryRestored = false;
@@ -1436,6 +1446,7 @@
     setStatusKey("newCanvasReady");
   }
   function openNewCanvasDialog() {
+    window.PenEchoStudioNavigator?.cancelPendingConversation?.();
     if (!canvasHasUnsavedChanges()) {
       startBlankCanvas();
       return;
@@ -1524,6 +1535,7 @@
     loading.setAttribute("role", "status");
     loading.textContent = t("snapshotLibraryLoading").replace("{location}", snapshotLocationLabel(location));
     list.replaceChildren(loading);
+    window.PenEchoStudioNavigator?.renderCanvases?.();
   }
   function renderSnapshotListError(location = state.snapshotLocation) {
     const list = document.querySelector("#historyList");
@@ -1533,6 +1545,7 @@
     error.setAttribute("role", "alert");
     error.textContent = t("snapshotLibraryLoadFailed").replace("{location}", snapshotLocationLabel(location));
     list.replaceChildren(error);
+    window.PenEchoStudioNavigator?.renderCanvases?.();
   }
   function renderCloudHistorySignIn() {
     const list = document.querySelector("#historyList");
@@ -1550,6 +1563,7 @@
     };
     empty.append(title, description, action);
     list.replaceChildren(empty);
+    window.PenEchoStudioNavigator?.renderCanvases?.();
   }
   function serverProjectName(project) {
     return project?.id === SERVER_DEFAULT_PROJECT_ID || project?.system || project?.systemKey === "uncategorized" ? t("canvasProjectUncategorized") : project?.name || t("canvasProjectUncategorized");
@@ -1668,14 +1682,18 @@
     await refreshSnapshots();
     showHistoryNoticeKey("canvasProjectMoved", "success");
   }
+  function snapshotItemsForCurrentView() {
+    const location = state.snapshotLocation;
+    return location === "server" && selectedServerProjectId !== SERVER_ALL_PROJECTS_ID
+      ? snapshotItems.filter((item) => (item.projectId || SERVER_DEFAULT_PROJECT_ID) === selectedServerProjectId)
+      : location === "cloud" && selectedCloudProjectId !== CLOUD_ALL_PROJECTS_ID
+        ? snapshotItems.filter((item) => item.projectId === selectedCloudProjectId)
+        : snapshotItems;
+  }
   function renderSnapshotList() {
     const list = document.querySelector("#historyList"),
       location = state.snapshotLocation,
-      items = location === "server" && selectedServerProjectId !== SERVER_ALL_PROJECTS_ID
-        ? snapshotItems.filter((item) => (item.projectId || SERVER_DEFAULT_PROJECT_ID) === selectedServerProjectId)
-        : location === "cloud" && selectedCloudProjectId !== CLOUD_ALL_PROJECTS_ID
-          ? snapshotItems.filter((item) => item.projectId === selectedCloudProjectId)
-        : snapshotItems;
+      items = snapshotItemsForCurrentView();
     if (!list) return;
     renderServerProjectUi();
     if (location === "cloud" && cloudHistorySignInRequired) {
@@ -1693,6 +1711,7 @@
       empty.className = "history-empty";
       empty.textContent = t((location === "server" || location === "cloud") && snapshotItems.length ? "emptyProjectHistory" : location === "server" ? "emptyServerHistory" : location === "cloud" ? "emptyCloudHistory" : "emptyDeviceHistory");
       list.append(empty);
+      window.PenEchoStudioNavigator?.renderCanvases?.();
       return;
     }
     for (const item of items) {
@@ -1763,6 +1782,7 @@
       card.append(preview, meta);
       list.append(card);
     }
+    window.PenEchoStudioNavigator?.renderCanvases?.();
   }
   async function refreshSnapshots() {
     const generation = ++snapshotListGeneration,
@@ -2236,6 +2256,7 @@
     state.textBoxHistoryBefore = null;
     if (state.history.length > MAX_HISTORY) state.history.shift();
     state.future = [];
+    window.PenEchoStudioNavigator?.updateDocument?.();
     return entry;
   }
   function applyHistory(entry, side) {
@@ -2258,6 +2279,7 @@
     clearSharpOverlays();
     requestAnimationLayerRender();
     render();
+    window.PenEchoStudioNavigator?.updateDocument?.();
   }
   function undo() {
     save();
