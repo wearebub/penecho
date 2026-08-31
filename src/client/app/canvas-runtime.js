@@ -273,6 +273,39 @@
   function recordImagesBefore() {
     if (!state.imageHistoryBefore) state.imageHistoryBefore = imageHistoryState();
   }
+  function syncCanvasObjectLayerOrder() {
+    const widgetInFront = state.frontCanvasObjectKind === "widget",
+      widgetStyle = runtimeElementStyle(widgetLayer, "widget-layer-stack"),
+      imageMaterialStyle = runtimeElementStyle(imageMaterialLayer, "image-material-layer-stack"),
+      imageStyle = runtimeElementStyle(placedContentLayer, "placed-content-layer-stack");
+    if (widgetStyle) widgetStyle.zIndex = widgetInFront ? "2" : "1";
+    if (imageMaterialStyle) imageMaterialStyle.zIndex = widgetInFront ? "1" : "2";
+    if (imageStyle) imageStyle.zIndex = widgetInFront ? "1" : "2";
+  }
+  function setCanvasObjectFrontKind(kind) {
+    if (!["image", "widget"].includes(kind) || state.frontCanvasObjectKind === kind) return false;
+    state.frontCanvasObjectKind = kind;
+    syncCanvasObjectLayerOrder();
+    return true;
+  }
+  function setImageStackIndex(item, nextIndex) {
+    const currentIndex = state.images.indexOf(item);
+    if (currentIndex < 0 || !Number.isInteger(nextIndex)) return false;
+    nextIndex = Math.max(0, Math.min(state.images.length - 1, nextIndex));
+    if (currentIndex === nextIndex) return false;
+    state.images.splice(currentIndex, 1);
+    state.images.splice(nextIndex, 0, item);
+    return true;
+  }
+  function bringImageToFront(item) {
+    if (!item || !state.images.includes(item)) return false;
+    const stackChanged = setImageStackIndex(item, state.images.length - 1),
+      layerChanged = setCanvasObjectFrontKind("image"),
+      changed = stackChanged || layerChanged;
+    if (changed && state.imageEdit?.id === item.id) state.imageEdit.changed = true;
+    if (changed) requestRender();
+    return changed;
+  }
   function restoreImages(items) {
     clearHandToolbarTargets("image");
     state.images = [];
@@ -553,17 +586,25 @@
     requestInteractionLayerRender();
     return true;
   }
+  function widgetAtPoint(point) {
+    const widgets = visibleWidgets();
+    for (let index = widgets.length - 1; index >= 0; index--) {
+      const widget = widgets[index], box = widgetBox(widget);
+      if (!widget.pending && point.x >= box.x && point.x <= box.x + box.w && point.y >= box.y && point.y <= box.y + box.h) return widget;
+    }
+    return null;
+  }
   function handObjectToolbarTargetAtPoint(point) {
     if (!point || !valid(point)) return null;
     const textBox = textBoxAtPoint(point);
     if (textBox) return { kind:"text-box", object:textBox };
-    const image = imageAtPoint(point);
-    if (image) return { kind:"image", object:image };
-    const widgets = visibleWidgets();
-    for (let index = widgets.length - 1; index >= 0; index--) {
-      const widget = widgets[index], box = widgetBox(widget);
-      if (!widget.pending && point.x >= box.x && point.x <= box.x + box.w && point.y >= box.y && point.y <= box.y + box.h) return { kind:"widget", object:widget };
-    }
+    const image = imageAtPoint(point),
+      widget = widgetAtPoint(point),
+      ordered = state.frontCanvasObjectKind === "widget"
+        ? [{ kind:"widget", object:widget }, { kind:"image", object:image }]
+        : [{ kind:"image", object:image }, { kind:"widget", object:widget }],
+      target = ordered.find(candidate => candidate.object);
+    if (target) return target;
     const animation = animationPointerHit(point)?.animation;
     if (animation) return { kind:"animation", object:animation };
     return null;
@@ -677,7 +718,13 @@
     if (state.imageEdit) acceptImageEdit({ restoreMode:false });
     recordImagesBefore();
     state.selectedImageId = item.id;
-    state.imageEdit = { id:item.id, before:imageLayout(item), changed:false };
+    state.imageEdit = {
+      id:item.id,
+      before:imageLayout(item),
+      beforeIndex:state.images.indexOf(item),
+      beforeFrontCanvasObjectKind:state.frontCanvasObjectKind,
+      changed:false,
+    };
     requestInteractionLayerRender();
     setStatusKey("imageSelected");
     return true;
@@ -711,7 +758,11 @@
     const edit = state.imageEdit,
       item = edit ? state.images.find((candidate) => candidate.id === edit.id) : null;
     if (edit) clearHandToolbarTarget("image", edit.id);
-    if (item) Object.assign(item, edit.before);
+    if (item) {
+      Object.assign(item, edit.before);
+      setImageStackIndex(item, edit.beforeIndex);
+      setCanvasObjectFrontKind(edit.beforeFrontCanvasObjectKind);
+    }
     state.imageHistoryBefore = null;
     state.imageGesture = null;
     state.imageEdit = null;
@@ -775,6 +826,7 @@
   function beginImageGesture(event, point, result) {
     if (!result?.image) return false;
     beginImageEdit(result.image);
+    bringImageToFront(result.image);
     state.imageGesture = {
       id:event.pointerId,
       image:result.image,
@@ -1000,9 +1052,12 @@
     return true;
   }
   function bringHtmlWidgetToFront(widget) {
-    if (widget?.widgetType !== "html_widget" || !setWidgetStackIndex(widget, state.widgets.length - 1)) return false;
-    if (state.widgetEdit?.id === widget.id) state.widgetEdit.changed = true;
-    return true;
+    if (widget?.widgetType !== "html_widget" || !state.widgets.includes(widget)) return false;
+    const stackChanged = setWidgetStackIndex(widget, state.widgets.length - 1),
+      layerChanged = setCanvasObjectFrontKind("widget"),
+      changed = stackChanged || layerChanged;
+    if (changed && state.widgetEdit?.id === widget.id) state.widgetEdit.changed = true;
+    return changed;
   }
   function capturableWidgets(region = null) {
     const widgets = visibleWidgets(region),
@@ -1574,7 +1629,13 @@
     if (state.widgetEdit) acceptWidgetEdit();
     recordWidgetsBefore();
     state.selectedWidgetId = widget.id;
-    state.widgetEdit = { id:widget.id, before:widgetLayout(widget), beforeIndex:state.widgets.indexOf(widget), changed:false };
+    state.widgetEdit = {
+      id:widget.id,
+      before:widgetLayout(widget),
+      beforeIndex:state.widgets.indexOf(widget),
+      beforeFrontCanvasObjectKind:state.frontCanvasObjectKind,
+      changed:false,
+    };
     syncWidgetHostStates();
     requestInteractionLayerRender();
     return true;
@@ -1603,6 +1664,7 @@
     if (widget) {
       Object.assign(widget, edit.before);
       setWidgetStackIndex(widget, edit.beforeIndex);
+      setCanvasObjectFrontKind(edit.beforeFrontCanvasObjectKind);
       positionWidget(widget);
     }
     state.widgetHistoryBefore = null;

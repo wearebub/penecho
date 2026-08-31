@@ -92,7 +92,7 @@ test("canvas file actions are in the top-right header and available in History",
   assert.match(functionSource(app, "startBlankCanvas"), /clearTextEditors\(\)/);
   assert.match(functionSource(app, "startBlankCanvas"), /state\.aiDraftReturnMode = null[\s\S]*?setCanvasNavigationLocked\(false\)[\s\S]*?setCanvasMode\("pen", \{/);
   assert.match(functionSource(app, "loadSnapshot"), /clearTextEditors\(\)/);
-  assert.match(functionSource(app, "renderSnapshotList"), /runSnapshotLoadAction\(load, \(\) => requestLoadSnapshot\(item\.id, location\)\)/);
+  assert.match(functionSource(app, "loadHistorySnapshot"), /runSnapshotLoadAction\(button, \(\) => requestLoadSnapshot\(item\.id, location\)\)/);
   assert.match(functionSource(app, "runSnapshotLoadAction"), /if \(button\.disabled\) return;[\s\S]*?button\.disabled = true[\s\S]*?await runSnapshotAction\(action\)[\s\S]*?button\.disabled = false/);
 });
 
@@ -1572,15 +1572,21 @@ test("live widgets use native canvas chrome, state-aware iframe gestures, and th
       widgetEdit:{ id:"html-a", changed:false },
     },
     stackMoves = [],
+    frontKinds = [],
     setWidgetStackIndex = vm.runInNewContext(`(${functionSource(app, "setWidgetStackIndex")})`, {
       state:widgetStackState,
       syncWidgetLayerOrder:() => stackMoves.push(widgetStackState.widgets.map(widget => widget.id)),
     }),
-    bringHtmlWidgetToFront = vm.runInNewContext(`(${functionSource(app, "bringHtmlWidgetToFront")})`, { state:widgetStackState, setWidgetStackIndex });
+    bringHtmlWidgetToFront = vm.runInNewContext(`(${functionSource(app, "bringHtmlWidgetToFront")})`, {
+      state:widgetStackState,
+      setWidgetStackIndex,
+      setCanvasObjectFrontKind:(kind) => (frontKinds.push(kind), true),
+    });
   assert.equal(bringHtmlWidgetToFront(widgetStackState.widgets[0]), true);
   assert.deepEqual(widgetStackState.widgets.map(widget => widget.id), ["diagram", "html-b", "html-a"]);
   assert.equal(widgetStackState.widgetEdit.changed, true);
   assert.deepEqual(stackMoves, [["diagram", "html-b", "html-a"]]);
+  assert.deepEqual(frontKinds, ["widget"]);
   assert.equal(bringHtmlWidgetToFront(widgetStackState.widgets[0]), false, "diagram widgets keep their existing stack order");
   const stackStyles = [{}, {}, {}],
     syncWidgetLayerOrder = vm.runInNewContext(`(${functionSource(app, "syncWidgetLayerOrder")})`, {
@@ -1596,14 +1602,13 @@ test("live widgets use native canvas chrome, state-aware iframe gestures, and th
   assert.match(functionSource(app, "mountWidget"), /frame\.addEventListener\("load"[\s\S]*?widget\.initialized = false[\s\S]*?widget\.hostReady = false[\s\S]*?widget\.hostReadyPromise = new Promise[\s\S]*?probeWidgetHost\(widget\)/);
   assert.match(functionSource(app, "beginWidgetGesture"), /beginWidgetEdit\(result\.widget\)[\s\S]*?bringHtmlWidgetToFront\(result\.widget\)/);
   assert.match(functionSource(app, "beginWidgetHostDrag"), /beginWidgetEdit\(widget\)[\s\S]*?bringHtmlWidgetToFront\(widget\)/);
-  assert.match(functionSource(app, "beginWidgetEdit"), /beforeIndex:state\.widgets\.indexOf\(widget\)/);
-  assert.match(functionSource(app, "cancelWidgetEdit"), /setWidgetStackIndex\(widget, edit\.beforeIndex\)/);
+  assert.match(functionSource(app, "beginWidgetEdit"), /beforeIndex:state\.widgets\.indexOf\(widget\)[\s\S]*?beforeFrontCanvasObjectKind:state\.frontCanvasObjectKind/);
+  assert.match(functionSource(app, "cancelWidgetEdit"), /setWidgetStackIndex\(widget, edit\.beforeIndex\)[\s\S]*?setCanvasObjectFrontKind\(edit\.beforeFrontCanvasObjectKind\)/);
   assert.match(functionSource(app, "updateWidgetHostDrag"), /widgetHostViewportPoint[\s\S]*?updateWidgetGesturePoint/);
   assert.match(functionSource(app, "finishWidgetHostDrag"), /finishWidgetGesture/);
   const handTarget = functionSource(app, "handObjectToolbarTargetAtPoint");
-  assert.ok(handTarget.indexOf("textBoxAtPoint(point)") < handTarget.indexOf("imageAtPoint(point)"));
-  assert.ok(handTarget.indexOf("imageAtPoint(point)") < handTarget.indexOf("visibleWidgets()"));
-  assert.ok(handTarget.indexOf("visibleWidgets()") < handTarget.indexOf("animationPointerHit(point)"));
+  assert.match(handTarget, /textBoxAtPoint\(point\)[\s\S]*?imageAtPoint\(point\)[\s\S]*?widgetAtPoint\(point\)[\s\S]*?frontCanvasObjectKind === "widget"[\s\S]*?ordered\.find/);
+  assert.ok(handTarget.indexOf("ordered.find") < handTarget.indexOf("animationPointerHit(point)"));
   assert.match(functionSource(app, "handObjectToolbarTargetFromWidgetMessage"), /widgetHostViewportPoint\(widget, message\)[\s\S]*?handObjectToolbarTargetAtPoint\(clientPoint[\s\S]*?kind:"widget"/);
   assert.match(functionSource(app, "beginWidgetHostTouch"), /beginWidgetOwnedHandGesture\(id\)[\s\S]*?handObjectToolbarTargetFromWidgetMessage\(widget, message\)[\s\S]*?focusHandObject\(target\.kind, target\.object, token\)[\s\S]*?handPointerFocusKeys\.set/);
   assert.doesNotMatch(functionSource(app, "beginWidgetHostTouch"), /state\.touches|beginTouchGesture|moveCanvas/);
@@ -1697,6 +1702,77 @@ test("live widgets use native canvas chrome, state-aware iframe gestures, and th
     assert.match(read("public/locales/zh.js"),new RegExp(`${key}:`));
   }
   assert.match(read("src/server/main.js"), /Keep user-facing text natively selectable and do not globally disable text selection/);
+});
+
+test("dragged images and HTML Widgets share the front Canvas layer", () => {
+  const app = read("public/app.js"),
+    imageA = { id:"image-a" },
+    imageB = { id:"image-b" },
+    imageState = {
+      images:[imageA, imageB],
+      imageEdit:{ id:imageA.id, changed:false },
+      frontCanvasObjectKind:"widget",
+    },
+    frontKinds = [],
+    renders = [],
+    setImageStackIndex = vm.runInNewContext(`(${functionSource(app, "setImageStackIndex")})`, { state:imageState }),
+    bringImageToFront = vm.runInNewContext(`(${functionSource(app, "bringImageToFront")})`, {
+      state:imageState,
+      setImageStackIndex,
+      setCanvasObjectFrontKind:(kind) => (frontKinds.push(kind), imageState.frontCanvasObjectKind = kind, true),
+      requestRender:() => renders.push("render"),
+    });
+  assert.equal(bringImageToFront(imageA), true);
+  assert.deepEqual(imageState.images.map(item => item.id), ["image-b", "image-a"]);
+  assert.deepEqual(frontKinds, ["image"]);
+  assert.equal(imageState.imageEdit.changed, true);
+  assert.deepEqual(renders, ["render"]);
+
+  const layerState = { frontCanvasObjectKind:"image" },
+    layerStyles = new Map(),
+    syncCanvasObjectLayerOrder = vm.runInNewContext(`(${functionSource(app, "syncCanvasObjectLayerOrder")})`, {
+      state:layerState,
+      widgetLayer:{},
+      imageMaterialLayer:{},
+      placedContentLayer:{},
+      runtimeElementStyle:(_element, key) => {
+        if (!layerStyles.has(key)) layerStyles.set(key, {});
+        return layerStyles.get(key);
+      },
+    });
+  syncCanvasObjectLayerOrder();
+  assert.deepEqual([
+    layerStyles.get("widget-layer-stack").zIndex,
+    layerStyles.get("image-material-layer-stack").zIndex,
+    layerStyles.get("placed-content-layer-stack").zIndex,
+  ], ["1", "2", "2"]);
+  layerState.frontCanvasObjectKind = "widget";
+  syncCanvasObjectLayerOrder();
+  assert.deepEqual([
+    layerStyles.get("widget-layer-stack").zIndex,
+    layerStyles.get("image-material-layer-stack").zIndex,
+    layerStyles.get("placed-content-layer-stack").zIndex,
+  ], ["2", "1", "1"]);
+
+  const hitState = { frontCanvasObjectKind:"widget" },
+    hitImage = { id:"image" },
+    hitWidget = { id:"widget" },
+    handObjectToolbarTargetAtPoint = vm.runInNewContext(`(${functionSource(app, "handObjectToolbarTargetAtPoint")})`, {
+      state:hitState,
+      valid:() => true,
+      textBoxAtPoint:() => null,
+      imageAtPoint:() => hitImage,
+      widgetAtPoint:() => hitWidget,
+      animationPointerHit:() => null,
+    });
+  assert.equal(handObjectToolbarTargetAtPoint({ x:1, y:1 }).object.id, "widget");
+  hitState.frontCanvasObjectKind = "image";
+  assert.equal(handObjectToolbarTargetAtPoint({ x:1, y:1 }).object.id, "image");
+
+  assert.match(functionSource(app, "beginImageGesture"), /beginImageEdit\(result\.image\)[\s\S]*?bringImageToFront\(result\.image\)/);
+  assert.match(functionSource(app, "beginImageEdit"), /beforeIndex:state\.images\.indexOf\(item\)[\s\S]*?beforeFrontCanvasObjectKind:state\.frontCanvasObjectKind/);
+  assert.match(functionSource(app, "cancelImageEdit"), /setImageStackIndex\(item, edit\.beforeIndex\)[\s\S]*?setCanvasObjectFrontKind\(edit\.beforeFrontCanvasObjectKind\)/);
+  assert.doesNotMatch(functionSource(app, "syncCanvasObjectLayerOrder"), /append|appendChild|insertBefore/, "layer changes must not reparent Widget iframes");
 });
 
 test("widget AI refinement is discoverable near ink and replaces only its locked target", () => {
@@ -2022,15 +2098,20 @@ test("object bodies cannot activate editing outside Hand and long-press selectio
 test("Save canvas exposes non-blocking progress and completion feedback", () => {
   const html = read("public/index.html"), app = read("public/app.js"), css = read("public/style.css"), zh = read("public/locales/zh.js"),
     saveCurrent = functionSource(app, "saveCurrentCanvas"),
+    saveCurrentItem = functionSource(app, "saveCurrentHistoryItem"),
+    closeSavePanel = functionSource(app, "closeHistorySavePanel"),
     finalize = functionSource(app, "finalizeCanvasForSnapshot");
   assert.match(html, /id="historyNotice"[^>]*role="status"[^>]*aria-live="polite"/);
   assert.match(app, /async function saveSnapshotFromHistory\(\)/);
   assert.match(app, /showHistoryNoticeKey\("snapshotSaving", "busy", 0\)/);
   assert.match(app, /selectionBusyKey = selectionAIStatusKey\(\)/);
   assert.match(app, /showHistoryNoticeKey\(id \? "snapshotSaved" : selectionBusy \? selectionBusyKey : "emptyCanvas"/);
-  assert.match(app, /historySaveCurrent"\)\.onclick = saveCurrentCanvas/);
-  assert.match(app, /historySave\"\)\.onclick = saveSnapshotFromHistory/);
-  assert.match(app, /if \(event\.key === "Enter"\) saveCurrentCanvas\(\)/);
+  assert.match(app, /historySaveCurrent"\)\.onclick = \(\) => \{[\s\S]*?closeHistorySavePanel\(\)[\s\S]*?saveCurrentCanvas\(\)/);
+  assert.match(app, /historySave\"\)\.onclick = \(\) => \{[\s\S]*?closeHistorySavePanel\(\)[\s\S]*?saveSnapshotFromHistory\(\)/);
+  assert.match(app, /historyName"\)\.addEventListener\("keydown"[\s\S]*?event\.key === "Enter"[\s\S]*?closeHistorySavePanel\(\)[\s\S]*?saveCurrentCanvas\(\)/);
+  assert.match(closeSavePanel, /panel\.open = false[\s\S]*?focusSummary/);
+  assert.match(app, /historySavePanel\.addEventListener\("focusout"[\s\S]*?!historySavePanel\.contains\(document\.activeElement\)[\s\S]*?closeHistorySavePanel\(\)/);
+  assert.match(app, /historySavePanel\.open[\s\S]*?!historySavePanel\.contains\(event\.target\)[\s\S]*?closeHistorySavePanel\(\)/);
   assert.match(app, /button\.disabled = busy/);
   assert.match(css, /\.history-notice\s*\{[^}]*pointer-events:\s*none/);
   assert.match(css, /#historySaveCurrent\.is-saving::before/);
@@ -2038,9 +2119,12 @@ test("Save canvas exposes non-blocking progress and completion feedback", () => 
   assert.match(html, /id="saveCanvasBtn"/);
   assert.match(html, /id="historySaveCurrent"[^>]*>Save<\/button>/);
   assert.match(html, /id="historySave"[^>]*>Save New<\/button>/);
-  assert.match(saveCurrent, /currentSnapshotLocation === state\.snapshotLocation \? state\.currentSnapshotId : null/);
+  assert.match(saveCurrent, /location = state\.currentSnapshotLocation \|\| state\.snapshotLocation/);
+  assert.match(saveCurrent, /currentSnapshotLocation === location \? state\.currentSnapshotId : null/);
   assert.match(saveCurrent, /requestedName = document\.querySelector\("#historyName"\)/);
-  assert.match(saveCurrent, /saveSnapshot\(\{ overwriteId, name, location:state\.snapshotLocation \}\)/);
+  assert.match(saveCurrent, /saveSnapshot\(\{ overwriteId, name, location \}\)/);
+  assert.match(saveCurrentItem, /item\.id !== state\.currentSnapshotId[\s\S]*?location !== state\.currentSnapshotLocation/);
+  assert.match(saveCurrentItem, /saveSnapshot\(\{ overwriteId:item\.id, name:currentCanvasDisplayName\(\) \|\| snapshotName\(item\), location \}\)/);
   assert.match(finalize, /state\.pendingWidget[\s\S]*?acceptPendingWidget\(\{ restoreMode:false \}\)/);
   assert.match(finalize, /state\.pending[\s\S]*?acceptPending\(\{ restoreMode:false \}\)/);
   assert.ok(finalize.indexOf("acceptPendingWidget") < finalize.indexOf("confirmTextEditor"));
@@ -2061,19 +2145,37 @@ test("Save canvas exposes non-blocking progress and completion feedback", () => 
 test("canvas history clearly separates device, server, and private cross-device Cloud storage", () => {
   const html = read("public/index.html"), app = read("public/app.js"), css = read("public/style.css"), zh = read("public/locales/zh.js");
   const closeHistory = functionSource(app, "closeHistoryPanel"), openHistory = functionSource(app, "openHistoryPanel");
-  assert.match(html, /id="historyPanel"[^>]*aria-hidden="true"[^>]*\sinert/);
+  assert.match(html, /id="historyPanel"[^>]*role="dialog"[^>]*aria-modal="true"[^>]*aria-hidden="true"[^>]*tabindex="-1"[^>]*\sinert/);
+  assert.match(html, /id="historySearch"[^>]*type="search"/);
+  assert.match(html, /class="history-library-browser"[\s\S]*?class="history-library-sidebar"[\s\S]*?<section class="history-library-main"/);
+  assert.match(html, /id="historyProjectNav"[^>]*class="history-project-nav"/);
+  assert.match(html, /id="historySort"[\s\S]*?value="modified"[\s\S]*?value="name"[\s\S]*?value="created"/);
+  assert.match(html, /id="historyViewList"[^>]*data-history-view="list"[\s\S]*?id="historyViewGrid"[^>]*data-history-view="grid"/);
+  assert.match(html, /class="history-toolbar"[\s\S]*?id="historyNewCanvas"[^>]*class="history-toolbar-action history-toolbar-new"/);
+  assert.match(html, /id="historyNewCanvas"[^>]*data-i18n-aria="historyNewCanvas"[^>]*aria-label="New Canvas"/);
+  assert.match(html, /id="historyProjectSelect"[^>]*data-i18n-aria="canvasProject"[^>]*aria-label="Project"/);
+  assert.match(html, /id="historyProjectDelete"[^>]*data-i18n-aria="canvasProjectDelete"[^>]*aria-label="Delete project"/);
+  assert.match(html, /id="historyStorageDescription"[^>]*class="history-content-guidance"/);
+  assert.match(html, /class="history-toolbar"[\s\S]*?id="historySavePanel"[^>]*class="history-toolbar-save"/);
+  assert.doesNotMatch(html, /class="history-footer"|id="historySelectionName"|id="historyCancel"|id="historyOpenCanvas"/);
+  assert.match(html, /id="historyList"[\s\S]*?id="historyGridActions"[^>]*class="history-grid-actions"[^>]*hidden[\s\S]*?id="historyGridSelectionName"[\s\S]*?id="historyGridLoad"[^>]*class="history-grid-load history-load"/);
+  assert.match(html, /id="historyDeleteDialog"[^>]*class="studio-session-delete-dialog history-delete-dialog"/);
   assert.doesNotMatch(html, /id="historyPanel"[\s\S]*?<span class="history-kicker">PenEcho<\/span>[\s\S]*?<div class="history-composer">/);
   assert.doesNotMatch(html, /data-i18n="historyDescription"/);
   assert.doesNotMatch(app, /historyDescription:/);
   assert.doesNotMatch(zh, /historyDescription:/);
   assert.match(css, /\.history-panel, \.new-canvas-dialog\s*\{[^}]*color-scheme:\s*light[^}]*--ai-bg:\s*var\(--studio-shell, #f2f3f5\)[^}]*--ai-surface:\s*var\(--studio-panel, #ffffff\)[^}]*--ai-accent:\s*var\(--studio-accent, #4f46e5\)/);
   assert.doesNotMatch(css, /body\[data-theme="(?:studio|research|arcane|scifi)"\] \.history-panel/);
-  assert.match(css, /\.history-panel\s*\{[^}]*top:\s*50%[^}]*left:\s*50%[^}]*width:\s*min\(680px, calc\(100vw - 64px\)\)[^}]*height:\s*auto[^}]*max-height:\s*min\(680px, calc\(100dvh - 64px\)\)[^}]*border-radius:\s*14px[^}]*background:\s*var\(--penecho-dialog-surface\)[^}]*box-shadow:\s*0 4px 8px[^}]*backdrop-filter:\s*var\(--penecho-dialog-surface-filter\)/);
+  assert.ok(css.includes("width: min(1080px, calc(100vw - 56px));"));
+  assert.ok(css.includes("height: min(720px, calc(100dvh - 56px));"));
+  assert.match(css, /\.history-library-browser\s*\{[^}]*grid-template-columns:\s*226px minmax\(0, 1fr\)/);
+  assert.match(css, /\.history-library-sidebar\s*\{[^}]*border-right:\s*1px solid var\(--ai-line\)/);
+  assert.match(css, /\.history-library-main\s*\{[^}]*grid-template-rows:\s*50px 74px 30px minmax\(0, 1fr\)/);
   assert.match(css, /\.history-panel\.open\s*\{[^}]*opacity:\s*1[^}]*translate\(-50%, -50%\) scale\(1\)[^}]*visibility:\s*visible/);
   assert.match(css, /html\.penecho-web-page-scale \.history-panel\s*\{[^}]*min-height:\s*0/);
-  assert.match(css, /\.history-list\s*\{[^}]*display:\s*block[^}]*max-height:\s*380px[^}]*overflow:\s*hidden auto[^}]*border-radius:\s*10px/);
-  assert.match(css, /\.history-card \+ \.history-card\s*\{[^}]*border-top:\s*1px solid/);
-  assert.doesNotMatch(css, /\.history-card\.current::before/);
+  assert.ok(css.includes(".history-list { min-width: 0; min-height: 0; margin: 0; padding: 0 8px 8px; overflow: hidden auto; border: 0; border-radius: 0;"));
+  assert.match(css, /\.history-card\.selected\s*\{[^}]*border-color:[^}]*var\(--ai-accent\)[^}]*background:/);
+  assert.match(css, /\.history-card \.history-card-select\s*\{[^}]*grid-template-columns:\s*minmax\(240px, 1fr\) 150px 136px/);
   assert.match(openHistory, /panel\.inert = false/);
   assert.match(closeHistory, /panel\.contains\(document\.activeElement\)[\s\S]*?button\.focus\(\{ preventScroll:true \}\)[\s\S]*?panel\.inert = true[\s\S]*?aria-hidden", "true"/);
   for (const name of ["historyStorageLocation", "newCanvasStorageLocation"]) {
@@ -2081,7 +2183,7 @@ test("canvas history clearly separates device, server, and private cross-device 
     assert.match(html, new RegExp(`name="${name}" value="server"`));
     assert.match(html, new RegExp(`name="${name}" value="cloud"`));
   }
-  for (const key of ["saveLocation", "storageThisDevice", "storagePenEchoServer", "storagePenEchoCloud", "storageThisDeviceDescription", "storagePenEchoServerDescription", "storagePenEchoCloudDescription", "cloudCanvasConflict"]) {
+  for (const key of ["saveLocation", "storageThisDevice", "storagePenEchoServer", "storagePenEchoCloud", "storageThisDeviceDescription", "storagePenEchoServerDescription", "storagePenEchoCloudDescription", "historyLibraryNavigation", "historyCanvasList", "historyLocations", "historyProjects", "historyAllCanvases", "historyCanvasCount", "historySortModified", "historyViewList", "historyViewGrid", "historyNewCanvas", "historyColumnCanvas", "historyColumnContents", "historyColumnModified", "cloudCanvasConflict"]) {
     assert.match(app, new RegExp(`${key}:`));
     assert.match(zh, new RegExp(`${key}:`));
   }
@@ -2107,6 +2209,29 @@ test("canvas history clearly separates device, server, and private cross-device 
   assert.match(functionSource(app, "renameSnapshot"), /method:"PATCH"[\s\S]*?canvasAgentCanvasDidPersist\(location, id\)[\s\S]*?refreshSnapshots\(\)/);
   assert.match(functionSource(app, "beginSnapshotRename"), /history-rename-form[\s\S]*?canvasNameRequired[\s\S]*?renameSnapshot\(item\.id, location, name\)/);
   assert.match(functionSource(app, "renderSnapshotList"), /history-title-row[\s\S]*?history-rename[\s\S]*?beginSnapshotRename/);
+  assert.match(functionSource(app, "renderServerProjectUi"), /historyProjectNav[\s\S]*?history-project-nav-item[\s\S]*?aria-current[\s\S]*?rememberSelectedCloudProject[\s\S]*?rememberSelectedServerProject/);
+  assert.match(functionSource(app, "renderServerProjectUi"), /projectProtected[\s\S]*?dataset\.projectProtected[\s\S]*?remove\.disabled = historyBusy\(\)/);
+  assert.match(functionSource(app, "updateHistoryReadControls"), /historyProjectDelete[\s\S]*?dataset\.projectProtected === "true"/);
+  assert.match(functionSource(app, "historySortItems"), /historySort[\s\S]*?localeCompare[\s\S]*?createdAt[\s\S]*?updatedAt/);
+  assert.match(functionSource(app, "updateHistoryLibrarySummary"), /historySectionTitle[\s\S]*?historyWindowSummary[\s\S]*?historyCanvasCount[\s\S]*?history-location-count/);
+  assert.match(functionSource(app, "updateHistoryLibrarySummary"), /snapshotItemsLocation === location[\s\S]*?snapshotLocationCountCache\.set\(location, scopedCount\)[\s\S]*?snapshotLocationCountCache\.get\(node\.dataset\.location\)/);
+  assert.match(functionSource(app, "setHistoryView"), /historyColumnHeader[\s\S]*?history-library-main[\s\S]*?classList\.toggle\("grid-view", grid\)[\s\S]*?header\.hidden = grid[\s\S]*?aria-pressed[\s\S]*?HISTORY_VIEW_STORAGE_KEY/);
+  const renderSnapshotList = functionSource(app, "renderSnapshotList");
+  assert.match(renderSnapshotList, /history-card-select[\s\S]*?aria-pressed[\s\S]*?history-identity[\s\S]*?history-stats[\s\S]*?history-modified/);
+  assert.match(renderSnapshotList, /history-current-label[\s\S]*?studioNavigatorCurrent/);
+  assert.match(renderSnapshotList, /isCurrent \? "history-item-save history-save-current" : "history-item-load history-load"[\s\S]*?saveCurrentHistoryItem[\s\S]*?loadHistorySnapshot[\s\S]*?card\.append\(selectButton, load, more, advancedActions\)/);
+  assert.match(css, /\.history-current-label\s*\{[^}]*position:\s*absolute[^}]*background:/);
+  assert.match(css, /\.history-list\.grid-view \.history-item-save\s*\{[^}]*top:\s*auto[^}]*right:\s*10px[^}]*bottom:\s*10px[^}]*height:\s*26px[^}]*padding:\s*0 8px[^}]*font-size:\s*12px/);
+  const updateHistorySelectionUi = functionSource(app, "updateHistorySelectionUi");
+  assert.match(updateHistorySelectionUi, /historyGridActions[\s\S]*?historyGridSelectionName[\s\S]*?historyGridLoad/);
+  assert.match(updateHistorySelectionUi, /selectedIsCurrent[\s\S]*?history-save-current[\s\S]*?saveCurrentHistoryItem[\s\S]*?loadHistorySnapshot/);
+  assert.match(app, /function selectHistorySnapshot[\s\S]*?grid-view[\s\S]*?historyGridSelectionActivated = true/);
+  assert.match(functionSource(app, "setHistoryView"), /historyGridSelectionActivated = false[\s\S]*?updateHistorySelectionUi\(\)/);
+  assert.match(functionSource(app, "closeHistoryRowActions"), /history-row-actions:not\(\[hidden\]\)[\s\S]*?aria-expanded", "false"/);
+  assert.match(app, /querySelector\("#historyPanel"\)\.addEventListener\("pointerdown"[\s\S]*?closest\("\.history-more, \.history-row-actions"\)[\s\S]*?closeHistoryRowActions\(\)/);
+  assert.match(functionSource(app, "ensureHistorySelection"), /state\.currentSnapshotId[\s\S]*?items\[0\]/);
+  assert.match(functionSource(app, "loadHistorySnapshot"), /button\.disabled[\s\S]*?requestLoadSnapshot\(item\.id, location\)/);
+  assert.match(app, /querySelector\("#historyNewCanvas"\)\.onclick[\s\S]*?closeHistoryPanel\(\)[\s\S]*?querySelector\("#newCanvasBtn"\)\?\.click\(\)/);
   assert.match(functionSource(app, "cloudSnapshotItems"), /\/api\/cloud\/library[\s\S]*?bundleVersion !== 2[\s\S]*?conflictPolicy !== "base-revision-required"/);
   assert.match(functionSource(app, "cacheCloudHistory"), /items\.slice\(\)[\s\S]*?cloudCanvasProjects\.slice\(\)/);
   assert.match(functionSource(app, "restoreCloudHistoryCache"), /snapshotItems = cloudHistoryCache\.items\.slice\(\)[\s\S]*?cloudCanvasProjects = cloudHistoryCache\.projects\.slice\(\)[\s\S]*?snapshotItemsLocation = "cloud"/);
@@ -2158,22 +2283,76 @@ test("canvas history clearly separates device, server, and private cross-device 
   assert.equal(hasUnsavedChanges({ tileCount:1 }), true, "content on a never-saved canvas must be protected");
   assert.equal(hasUnsavedChanges({ currentSnapshotId:"saved-canvas", userRevision:1, snapshotSavedRevision:1, tileCount:1, dirty:{ x:0, y:0, w:1, h:1 } }), false, "AI attention state alone is not an unsaved snapshot revision");
   assert.equal(hasUnsavedChanges({ currentSnapshotId:"saved-canvas", currentCanvasSuggestedName:"Suggested title", userRevision:1, snapshotSavedRevision:1 }), true, "an unsaved suggested name must remain protected");
-  assert.match(css, /\.history-card\s*\{[^}]*grid-template-columns:\s*112px/);
-  assert.match(css, /\.history-preview\s*\{[^}]*width:\s*112px[^}]*height:\s*80px[^}]*align-self:\s*start/);
-  assert.match(css, /\.history-save-row\s*\{[^}]*grid-template-columns:\s*minmax\(220px, 360px\) auto[^}]*justify-content:\s*start/);
-  assert.match(css, /\.history-projects\s*\{[^}]*display:\s*flex[^}]*gap:\s*8px/);
-  assert.match(css, /\.history-projects label\s*\{[^}]*width:\s*240px[^}]*letter-spacing:\s*normal[^}]*text-transform:\s*none/);
-  assert.match(css, /\.history-projects select\s*\{[^}]*width:\s*100%[^}]*max-width:\s*240px/);
-  assert.match(css, /\.history-meta\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) auto[^}]*grid-template-areas:\s*"title title" "detail detail" "stats stats" "actions project"/);
-  assert.match(css, /\.history-move\s*\{[^}]*width:\s*216px[^}]*grid-area:\s*project[^}]*justify-self:\s*end/);
-  assert.match(css, /\.snapshot-location-options\s*\{[^}]*grid-template-columns:\s*repeat\(3/);
+  assert.ok(css.includes("grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));"));
+  assert.match(css, /\.history-library-browser\s*\{[^}]*grid-template-columns:\s*226px minmax\(0, 1fr\)/);
+  assert.match(css, /\.history-list\.grid-view \.history-card\s*\{[^}]*min-height:\s*228px/);
+  assert.match(css, /\.history-list\.grid-view \.history-card-select\s*\{[^}]*min-height:\s*228px[^}]*padding:\s*10px 10px 44px/);
+  assert.match(css, /\.history-preview\s*\{[^}]*width:\s*84px[^}]*height:\s*58px[^}]*flex:\s*0 0 84px/);
+  assert.match(css, /\.history-row-actions\s*\{[^}]*position:\s*absolute[^}]*padding:\s*3px[^}]*background:\s*var\(--ai-surface\)/);
+  assert.match(css, /\.history-toolbar-save \.history-save-row\s*\{[^}]*position:\s*absolute[^}]*grid-template-columns:\s*minmax\(190px, 1fr\) auto/);
+  assert.match(css, /\.history-projects\s*\{[^}]*display:\s*flex[^}]*flex-direction:\s*column[^}]*gap:\s*0/);
+  assert.match(css, /\.history-project-nav-item\s*\{[^}]*min-height:\s*36px[^}]*border-radius:\s*7px/);
+  assert.match(css, /\.history-content-guidance\s*\{[^}]*max-width:\s*44ch[^}]*text-align:\s*right/);
+  assert.match(css, /\.history-move\s*\{[^}]*width:\s*min\(196px, 100%\)[^}]*height:\s*30px/);
+  assert.match(css, /\.history-sidebar-section \.snapshot-location-options\s*\{[^}]*grid-template-columns:\s*1fr/);
   assert.doesNotMatch(html, /class="history-kicker"/);
-  assert.match(css, /\.history-list-loading\s*\{[^}]*min-height:\s*44px[^}]*border:\s*0/);
-  assert.match(css, /\.history-empty\s*\{[^}]*padding:\s*12px[^}]*border:\s*0/);
-  assert.match(css, /\.history-projects \.history-project-delete\s*\{[^}]*color:\s*var\(--ai-faint\)[^}]*background:\s*transparent/);
+  assert.match(css, /\.history-list-loading, \.history-empty\s*\{[^}]*min-height:\s*100%[^}]*padding:\s*40px[^}]*border:\s*0/);
+  assert.match(css, /\.history-panel \.history-projects \.history-project-delete:hover:not\(:disabled\)\s*\{[^}]*color:\s*var\(--ai-danger\)[^}]*background:\s*transparent/);
+  assert.match(css, /\.history-projects \.history-project-delete:disabled\s*\{[^}]*visibility:\s*visible[^}]*opacity:\s*\.48/);
+  assert.match(css, /\.history-sidebar-section \.history-location-label\s*\{[^}]*flex:\s*1 1 auto[^}]*text-align:\s*left/);
+  assert.match(css, /@media \(max-width: 820px\)[\s\S]*?\.history-panel\s*\{[^}]*border-radius:\s*0[^}]*box-shadow:\s*none[^}]*backdrop-filter:\s*none/);
+  assert.match(css, /\.history-card \.history-item-load,[\s\S]*?\.history-card \.history-item-save\s*\{[^}]*height:\s*28px[^}]*color:\s*var\(--ai-ink\)[^}]*background:\s*transparent/);
+  assert.match(css, /\.history-panel \.history-row-actions \.history-delete\s*\{[^}]*color:\s*var\(--ai-danger\)[^}]*background:\s*transparent/);
+  assert.match(css, /\.history-panel \.history-row-actions button,[\s\S]*?\.history-row-actions select\s*\{[^}]*font:\s*500 13px\/1 var\(--ai-font\)/);
+  assert.match(css, /\.history-meta \.history-card-title\s*\{[^}]*font:\s*500 14px\/1\.3 var\(--ai-font\)/);
+  assert.match(css, /\.history-meta > small\s*\{[^}]*font:\s*400 12\.5px\/1\.4 var\(--ai-font\)/);
+  assert.match(css, /\.history-card \.history-item-load,[\s\S]*?\.history-card \.history-item-save\s*\{[^}]*font:\s*500 13px\/1 var\(--ai-font\)/);
+  assert.match(css, /\.history-card \.history-item-load:hover:not\(:disabled\),[\s\S]*?\.history-card \.history-item-save:hover:not\(:disabled\)\s*\{[^}]*background:\s*transparent/);
+  assert.match(css, /\.history-panel \.history-toolbar-action,[\s\S]*?\.history-toolbar-save > summary\s*\{[^}]*font:\s*500 13px\/1 var\(--ai-font\)[^}]*\}[\s\S]*?\.history-toolbar-save > summary\s*\{[^}]*font-weight:\s*500/);
+  assert.match(css, /\.history-panel \.history-toolbar-action\s*\{[^}]*border-color:\s*var\(--ai-line\)[^}]*background:\s*transparent/);
+  assert.match(css, /\.history-panel \.history-toolbar-action:hover:not\(:disabled\)\s*\{[^}]*background:\s*transparent/);
+  assert.match(css, /\.history-library-main\.grid-view\s*\{[^}]*grid-template-rows:\s*50px 74px minmax\(0, 1fr\)/);
+  assert.match(css, /\.history-more::after\s*\{[^}]*inset:\s*-3px/);
+  assert.match(css, /\.history-grid-actions\s*\{[^}]*justify-content:\s*space-between[^}]*border-top:\s*1px solid var\(--ai-line\)/);
+  assert.match(css, /\.history-panel \.history-grid-load\s*\{[^}]*height:\s*32px[^}]*border-radius:\s*6px[^}]*background:\s*var\(--ai-primary\)[^}]*font:\s*500 13px\/1 var\(--ai-font\)/);
+  assert.match(css, /\.history-list\.grid-view \.history-item-load\s*\{[^}]*display:\s*none/);
+  assert.match(css, /\.history-list\.grid-view \.history-row-actions\s*\{[^}]*width:\s*min\(180px,[^}]*align-items:\s*stretch[^}]*gap:\s*2px/);
+  assert.match(css, /\.history-list\.grid-view \.history-row-actions button,[\s\S]*?\.history-list\.grid-view \.history-move\s*\{[^}]*width:\s*100%[^}]*height:\s*32px[^}]*justify-content:\s*flex-start/);
+  assert.match(css, /\.history-toolbar-save > summary\s*\{[^}]*color:\s*var\(--ai-primary-ink\)[^}]*background:\s*var\(--ai-primary\)/);
+  assert.match(css, /\.history-toolbar-save\[open\] > summary\s*\{[^}]*background:\s*transparent/);
+  assert.match(css, /\.history-toolbar-save \.history-save-row input\s*\{[^}]*height:\s*32px[^}]*border-radius:\s*6px[^}]*background:\s*var\(--ai-surface\)[^}]*font:\s*400 13px\/1\.2 var\(--ai-font\)/);
+  assert.match(css, /\.history-toolbar-save #historySaveCurrent\s*\{[^}]*font-weight:\s*500[^}]*box-shadow:\s*none/);
+  assert.match(css, /\.history-view-switch button\[aria-pressed="true"\]\s*\{[^}]*box-shadow:\s*none/);
+  assert.match(css, /\.history-panel \.history-more\s*\{[^}]*background:\s*transparent[^}]*font-weight:\s*500/);
+  assert.match(css, /\.history-more:hover:not\(:disabled\),[\s\S]*?\.history-more\[aria-expanded="true"\]\s*\{[^}]*background:\s*transparent/);
+  assert.match(css, /\.new-canvas-actions button\s*\{[^}]*height:\s*32px[^}]*border-radius:\s*6px[^}]*background:\s*transparent[^}]*font:\s*500 13px\/1\.1 var\(--ai-font\)/);
+  assert.match(css, /\.new-canvas-actions \.new-canvas-primary\s*\{[^}]*font-weight:\s*500[^}]*box-shadow:\s*none/);
+  assert.match(css, /#newCanvasDialog \.new-canvas-actions button\s*\{[^}]*font:\s*500 13px\/1\.1 var\(--ai-font\)/);
+  assert.match(css, /#newCanvasDialog \.new-canvas-actions \.new-canvas-primary\s*\{[^}]*font-weight:\s*500/);
   assert.match(css, /\.new-canvas-fields\s*\{[^}]*display:\s*grid;[^}]*gap:\s*12px;[^}]*\}/);
+  assert.match(html, /class="new-canvas-save-fields"[\s\S]*?id="newCanvasProjectField"[\s\S]*?id="newSnapshotName"/);
+  assert.match(css, /\.new-canvas-save-fields\s*\{[^}]*grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\)[^}]*gap:\s*12px/);
+  assert.match(css, /\.new-canvas-dialog\s*\{[^}]*width:\s*min\(540px,[^}]*box-shadow:\s*0 8px 14px/);
+  assert.match(css, /#newCanvasDialog \.snapshot-location legend\s*\{[^}]*font:\s*500 13px\/1\.25 var\(--ai-font\)[^}]*letter-spacing:\s*normal[^}]*text-transform:\s*none/);
+  assert.match(css, /\.new-canvas-project, \.new-snapshot-name\s*\{[^}]*font:\s*500 13px\/1\.25 var\(--ai-font\)[^}]*letter-spacing:\s*normal[^}]*text-transform:\s*none/);
+  assert.match(css, /\.new-canvas-actions \.new-canvas-primary:active:not\(:disabled\)\s*\{[^}]*background:\s*var\(--ai-primary-active\)/);
+  assert.match(app, /newCanvasDescription:\s*"Save this canvas if needed\. Unaccepted AI drafts aren't included\."/);
+  assert.match(app, /newSnapshotName:\s*"Name"/);
+  assert.match(zh, /newCanvasDescription:\s*"需要时先保存当前画布；未确认的 AI 草稿不会保存。"/);
+  assert.match(zh, /newSnapshotName:\s*"名称"/);
   assert.match(css, /\.project-dialog\s*\{[^}]*width:\s*min\(336px,[^}]*border-radius:\s*12px/);
   assert.match(css, /\.history-rename-form\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) 36px 36px/);
+});
+
+test("text-entry focus stays on the rounded control surface without a nested rectangular outline", () => {
+  const css = read("public/style.css");
+  assert.ok(css.includes("button:focus-visible, select:focus-visible, a:focus-visible { outline: 2px solid #e3c87e; outline-offset: 2px; }"));
+  assert.ok(css.includes('body[data-theme="studio"] button:focus-visible, body[data-theme="studio"] select:focus-visible, body[data-theme="studio"] a:focus-visible { outline: 2px solid var(--studio-accent); outline-offset: 2px; }'));
+  assert.match(css, /\.history-search input\s*\{[^}]*outline:\s*0/);
+  assert.match(css, /\.studio-navigator-search input\s*\{[^}]*outline:\s*0/);
+  assert.match(css, /\.canvas-agent-reference-picker input\s*\{[^}]*outline:\s*0/);
+  assert.match(css, /\.plugin-editor-field textarea:focus, \.plugin-editor-field input:focus\s*\{[^}]*outline:\s*none[^}]*box-shadow:/);
+  assert.doesNotMatch(css, /(?:^|,)\s*(?:body\[data-theme="studio"\]\s+)?input:focus-visible\s*(?:,|\{)/m);
 });
 
 test("local snapshot database upgrades preserve existing canvas records", () => {
@@ -2204,7 +2383,7 @@ test("Cloud History distinguishes sign-in from failures and protects external Ca
   assert.match(openCloudCanvas, /requestLoadSnapshot\(canvasId, "cloud"\)/);
   assert.doesNotMatch(openCloudCanvas, /refreshSnapshots\(\)|window\.open|location\./);
   assert.match(css, /\.history-cloud-auth\s*\{/);
-  assert.match(css, /\.history-cloud-auth button\s*\{[^}]*min-height:\s*36px/);
+  assert.match(css, /\.history-panel \.history-cloud-auth button\s*\{[^}]*min-height:\s*32px[^}]*font:\s*500 13px\/1 var\(--ai-font\)/);
   assert.match(css, /\.history-cloud-auth button:hover:not\(:disabled\), \.history-cloud-auth button:focus-visible\s*\{[^}]*color:\s*var\(--ai-primary-ink\)[^}]*background:\s*var\(--ai-primary-hover\)/);
   assert.match(css, /#historyClose, \.new-canvas-close\s*\{[^}]*width:\s*36px[^}]*height:\s*36px[^}]*flex:\s*0 0 36px/);
   for (const selector of [
@@ -2213,9 +2392,9 @@ test("Cloud History distinguishes sign-in from failures and protects external Ca
     "history-projects button",
     "history-actions button",
     "history-move",
-    "new-canvas-project select, \\.new-snapshot-name input",
-    "new-canvas-actions button",
   ]) assert.match(css, new RegExp(`\\.${selector}\\s*\\{[^}]*min-height:\\s*36px`));
+  assert.match(css, /\.new-canvas-project select, \.new-snapshot-name input\s*\{[^}]*height:\s*32px[^}]*min-height:\s*32px/);
+  assert.match(css, /\.new-canvas-actions button\s*\{[^}]*height:\s*32px[^}]*min-height:\s*32px/);
   assert.match(css, /\.snapshot-location-options\s*\{[^}]*height:\s*36px/);
   assert.match(css, /\.snapshot-location-options span\s*\{[^}]*height:\s*30px[^}]*min-height:\s*30px/);
   assert.match(css, /#historySaveCurrent, #historySave\s*\{[^}]*height:\s*36px[^}]*min-height:\s*36px/);
@@ -2268,9 +2447,9 @@ test("Cloud History restores a session cache without sharing mutable list contai
   }));
 });
 
-test("New, Export, and Clear remain accessible Studio-aware icon buttons while Debug stays out of the toolbar", () => {
+test("New and Export remain accessible Studio-aware icon buttons while duplicate Clear and Debug stay out of the toolbar", () => {
   const html = read("public/index.html"), css = read("public/style.css");
-  for (const id of ["newCanvasBtn", "exportPngBtn", "clearCanvasBtn"]) {
+  for (const id of ["newCanvasBtn", "exportPngBtn"]) {
     const button = html.match(new RegExp(`<button[^>]*id="${id}"[\\s\\S]*?<\\/button>`))?.[0] || "";
     assert.match(button, /class="[^"]*icon-button[^"]*utility-icon[^"]*"/);
     assert.match(button, /data-i18n-aria=/);
@@ -2278,11 +2457,21 @@ test("New, Export, and Clear remain accessible Studio-aware icon buttons while D
     assert.match(button, /<svg /);
     assert.doesNotMatch(button, />\s*(New|Clear|Debug)\s*</);
   }
+  assert.doesNotMatch(html, /id="clearCanvasBtn"|data-action="clear"/);
   assert.doesNotMatch(html, /id="debugBtn"/);
   assert.doesNotMatch(html, /id="theme"|value="(?:arcane|scifi|research)"/);
   assert.equal((html.match(/class="studio-palette-option"/g) || []).length, 8);
   assert.match(css, /button\.utility-icon:not\(\.active\).*var\(--ink\)/);
   assert.match(css, /button\.utility-icon\.danger:not\(\.active\).*var\(--danger\)/);
+});
+
+test("Canvas grid toolbar icon uses four equal cells", () => {
+  const html = read("public/index.html"),
+    button = html.match(/<button[^>]*id="gridToggle"[\s\S]*?<\/button>/)?.[0] || "";
+  const cells = [...button.matchAll(/<rect x="(4|14)" y="(4|14)" width="6" height="6" rx="1"\/>/g)];
+  assert.equal(cells.length, 4);
+  assert.equal(new Set(cells.map((cell) => `${cell[1]},${cell[2]}`)).size, 4);
+  assert.doesNotMatch(button, /<path/);
 });
 
 test("Studio-only palettes are wired through initialization, localization, and snapshots", () => {
@@ -2330,7 +2519,7 @@ test("Studio palette propagates through every Canvas popup surface", () => {
   assert.match(css, /body\[data-theme="studio"\] \.tour-card\s*\{[^}]*border-color:\s*var\(--studio-accent-border\)[^}]*background:\s*var\(--studio-panel\)/);
   assert.match(css, /\.settings-panel, \.configuration-panel\s*\{[^}]*--ink:\s*var\(--studio-text,[^)]+\)[^}]*--gold-bright:\s*var\(--studio-accent-strong,[^)]+\)/);
   assert.match(css, /\.configuration-panel\s*\{[^}]*background:\s*var\(--penecho-dialog-surface\)[^}]*backdrop-filter:\s*var\(--penecho-dialog-surface-filter\)/);
-  assert.match(css, /\.crafts-modal\s*\{[^}]*--ink:\s*var\(--studio-text,[^)]+\)[^}]*--panel-raised:\s*var\(--studio-panel,[^)]+\)[^}]*background:\s*var\(--penecho-dialog-surface\)[^}]*backdrop-filter:\s*var\(--penecho-dialog-surface-filter\)/);
+  assert.match(css, /\.crafts-modal\s*\{[^}]*--ink:\s*var\(--studio-text,[^)]+\)[^}]*--panel-raised:\s*var\(--studio-panel,[^)]+\)[^}]*background:\s*color-mix\(in srgb, var\(--panel-raised\) 92%, transparent\)[^}]*backdrop-filter:\s*var\(--penecho-dialog-surface-filter\)/);
   assert.match(css, /body\[data-theme="studio"\] \.canvas-agent-project-dialog\s*\{[^}]*color:\s*var\(--studio-text\)[^}]*border-color:\s*var\(--studio-line\)[^}]*background:\s*var\(--penecho-dialog-surface\)/);
   assert.match(css, /body\[data-theme="studio"\] \.canvas-agent-prompt-popup\s*\{[^}]*border-color:\s*var\(--studio-line\)[^}]*background:\s*var\(--studio-panel-raised\)/);
   assert.match(css, /\.studio-session-delete-dialog\s*\{[^}]*color:\s*var\(--studio-text,[^)]+\)[^}]*background:\s*var\(--penecho-dialog-surface\)[^}]*backdrop-filter:\s*var\(--penecho-dialog-surface-filter\)/);
@@ -2352,8 +2541,8 @@ test("Settings is a centered frosted workbench with persistent navigation and sw
   }
   assert.ok(panel.indexOf('class="settings-navigation"') < panel.indexOf('class="settings-detail"'));
   assert.equal((panel.match(/class="studio-palette-option"/g) || []).length, 8);
-  assert.equal((panel.match(/data-page-scale=/g) || []).length, 6);
-  assert.match(panel, /data-page-scale="0\.9" aria-checked="false"/);
+  assert.equal((panel.match(/data-page-scale=/g) || []).length, 5);
+  assert.doesNotMatch(panel, /data-page-scale="0\.9"/);
   assert.match(panel, /data-page-scale="1" aria-checked="true"/);
   assert.match(css, /\.settings-panel\s*\{[^}]*top:\s*50%[^}]*left:\s*50%[^}]*background:\s*var\(--penecho-dialog-surface\)[^}]*backdrop-filter:\s*var\(--penecho-dialog-surface-filter\)/);
   assert.match(css, /\.settings-workbench\s*\{[^}]*grid-template-columns:\s*184px minmax\(0, 1fr\)/);
@@ -2501,7 +2690,8 @@ test("Studio title bar exposes document identity, explicit save state, and a bla
   assert.match(html, /class="canvas-welcome-kicker"[\s\S]*?<svg viewBox="0 0 24 12" aria-hidden="true"><path d="M1\.5 6h20M16\.5 1\.5 21 6l-4\.5 4\.5"\/>/);
   assert.match(css, /body\[data-theme="studio"\] \.canvas-frame\s*\{[^}]*--studio-agent-edge-shift:\s*0px[^}]*--studio-navigator-edge-shift:\s*0px/);
   assert.match(css, /studio-agent-docked\.canvas-agent-open \.canvas-frame\s*\{[^}]*--studio-agent-edge-shift:\s*calc\(var\(--studio-agent-width\) - 4px\)/);
-  assert.match(css, /studio-navigator-open \.canvas-frame\s*\{[^}]*--studio-navigator-edge-shift:\s*256px/);
+  assert.match(css, /studio-navigator-open \.canvas-frame\s*\{[^}]*--studio-navigator-edge-shift:\s*240px/);
+  assert.match(css, /studio-navigator-open\.studio-agent-docked\.canvas-agent-open \.canvas-frame\s*\{[^}]*--studio-agent-width:\s*336px/);
   assert.match(css, /body\[data-theme="studio"\] \.canvas-welcome\s*\{[^}]*inset:\s*var\(--studio-toolbar-height\) var\(--studio-agent-edge-shift\) 0 var\(--studio-navigator-edge-shift\)[^}]*align-content:\s*center[^}]*pointer-events:\s*none/);
   assert.match(css, /body\[data-theme="studio"\] \.canvas-welcome-kicker\s*\{[^}]*font:\s*650 2rem\/1\.05 "Bradley Hand", "Segoe Print", "Comic Sans MS", cursive[^}]*letter-spacing:\s*\.015em[^}]*transform:\s*rotate\(-2deg\)/);
   assert.doesNotMatch(css, /\.canvas-welcome-kicker::after/);
@@ -2530,48 +2720,50 @@ test("Studio navigator groups recent Agent sessions by canvas and opens the boun
     persistence = read("src/client/app/persistence.js"), agent = read("src/client/app/canvas-agent-runtime.js"),
     build = read("scripts/build-client.js"), app = read("public/app.js"), zh = read("public/locales/zh.js");
   assert.match(html, /id="studioNavigatorToggle"[^>]*aria-controls="studioNavigator"/);
-  assert.match(html, /id="studioNavigator"[^>]*aria-labelledby="studioNavigatorTitle"[\s\S]*?id="studioNavigatorAgentPanel"[\s\S]*?id="studioNavigatorCanvasPanel"/);
+  assert.match(html, /id="studioNavigator"[^>]*aria-labelledby="studioNavigatorTitle"[\s\S]*?id="studioNavigatorAllPanel"[\s\S]*?id="studioNavigatorAgentPanel"[\s\S]*?id="studioNavigatorCanvasPanel"/);
   assert.match(html, /id="studioNavigatorSearch"[^>]*type="search"/);
   assert.match(build, /src\/client\/app\/studio-navigator\.js/);
   assert.match(navigator, /let studioNavigatorOpenPreference = false/);
   assert.doesNotMatch(navigator, /STUDIO_NAVIGATOR_OPEN_KEY|penecho-studio-navigator-open/);
-  assert.match(navigator, /canvasAgentStoredHistoryGroups\(\)[\s\S]*?sort\(\(a,b\)=>b\.updatedAt-a\.updatedAt\)/);
+  assert.match(functionSource(navigator, "studioNavigatorWorkGroups"), /canvasAgentStoredHistoryGroups\(\)[\s\S]*?studioNavigatorSnapshots\(\)[\s\S]*?sort\(\(a,b\)=>Number\(b\.current\)-Number\(a\.current\)\|\|b\.updatedAt-a\.updatedAt\)/);
   assert.match(navigator, /className="studio-navigator-group"[\s\S]*?className="studio-navigator-group-conversations"/);
   assert.match(functionSource(navigator, "studioNavigatorCanvasGroupSnapshot"), /snapshotItemsLocation===identity\.location[\s\S]*?snapshotItems\.find\(candidate=>candidate\.id===identity\.id\)[\s\S]*?studioNavigatorCanvasGroupSnapshots\.set\(key,item\)/);
   assert.match(functionSource(navigator, "studioNavigatorLoadDraftSnapshot"), /await snapshotPreviewBlob\(\)[\s\S]*?request\.canvasKey===state\.canvasAgentCanvasKey[\s\S]*?studioNavigatorDraftSnapshot\.item=\{id:request\.canvasKey,preview\}/);
   assert.match(functionSource(navigator, "studioNavigatorQueueDraftSnapshot"), /canvasKey\.startsWith\("draft:"\)[\s\S]*?studioNavigatorLoadDraftSnapshot\(request\)/);
   assert.match(functionSource(navigator, "studioNavigatorQueueCanvasGroupSnapshots"), /snapshotListInProgress[\s\S]*?studioNavigatorCanvasGroupSnapshotLoads\.get\(location\)[\s\S]*?studioNavigatorLoadCanvasGroupSnapshots\(location,request\)/);
   assert.match(functionSource(navigator, "studioNavigatorLoadCanvasGroupSnapshots"), /await snapshotsAt\(location\)[\s\S]*?studioNavigatorCanvasGroupSnapshots\.set\(key,item\)[\s\S]*?renderStudioAgentHistory\(\)/);
-  const renderAgentHistory=functionSource(navigator, "renderStudioAgentHistory");
-  assert.match(renderAgentHistory, /canvasAgentStoredHistoryGroups\(\)\.filter\(group=>!group\.canvasKey\.startsWith\("draft:"\)\)/);
-  assert.doesNotMatch(renderAgentHistory, /startsWith\("draft:"\)\)\|\|group\.canvasKey===state\.canvasAgentCanvasKey/);
-  assert.match(renderAgentHistory, /releaseStudioNavigatorPreviewUrls\(studioNavigatorAgentPreviewUrls\)[\s\S]*?studioNavigatorQueueCanvasGroupSnapshots\(groups\)[\s\S]*?studioNavigatorCanvasPreview\(studioNavigatorCanvasGroupSnapshot\(group\),studioNavigatorAgentPreviewUrls\)[\s\S]*?heading\.append\(canvasPreview,headingBody\)/);
+  const renderAgentHistory=functionSource(navigator, "renderStudioAgentHistory"), renderWorkHistory=functionSource(navigator,"renderStudioWorkHistory");
+  assert.match(renderAgentHistory, /studioNavigatorWorkGroups\(\)[\s\S]*?conversations:query\?group\.conversations\.filter/);
+  assert.match(renderAgentHistory, /releaseStudioNavigatorPreviewUrls\(studioNavigatorAgentPreviewUrls\)[\s\S]*?studioNavigatorQueueCanvasGroupSnapshots\(groups\)[\s\S]*?studioNavigatorGroupSection\(group,\{previewUrls:studioNavigatorAgentPreviewUrls\}\)/);
+  assert.match(renderWorkHistory, /studioNavigatorWorkGroups\(\)[\s\S]*?studioNavigatorSectionLabel\("studioNavigatorCurrent"\)[\s\S]*?studioNavigatorSectionLabel\("studioNavigatorRecent"\)/);
   assert.match(functionSource(navigator, "studioNavigatorCanvasPreview"), /item\?\.preview instanceof Blob[\s\S]*?urls\.add\(url\)[\s\S]*?urls\.delete\(url\)/);
   assert.match(navigator, /className="studio-navigator-conversation-entry"[\s\S]*?className="studio-navigator-session-delete"/);
   assert.match(functionSource(navigator, "openStudioSessionDeleteDialog"), /studioSessionDeletePending=[\s\S]*?studioSessionDeleteDialog\.showModal\(\)[\s\S]*?studioSessionDeleteCancel\.focus/);
   assert.match(functionSource(navigator, "confirmStudioSessionDelete"), /canvasAgentDeleteStoredConversation\(studioSessionDeletePending\.canvasKey,studioSessionDeletePending\.conversationId\)/);
   assert.match(functionSource(navigator, "openStudioConversation"), /requestLoadSnapshot\(identity\.id,identity\.location\)/);
   assert.match(functionSource(navigator, "openStudioConversationOnCurrentCanvas"), /canvasAgentHistoryForCanvas\(pending\.canvasKey\)[\s\S]*?openCanvasAgent\(\{focus:false,connect:false\}\)[\s\S]*?canvasAgentViewStoredConversation\(conversation\.id\)/);
-  assert.match(functionSource(navigator, "collapseStudioNavigatorForWorkspaceFocus"), /studioNavigatorIsOpen\(\)[\s\S]*?setStudioNavigatorOpen\(false\)/);
+  assert.match(functionSource(navigator, "collapseStudioNavigatorForWorkspaceFocus"), /studioNavigatorIsCompact\(\)[\s\S]*?studioNavigatorIsOpen\(\)[\s\S]*?setStudioNavigatorOpen\(false\)/);
   assert.match(navigator, /view\.addEventListener\("pointerdown", collapseStudioNavigatorForWorkspaceFocus, true\)/);
   assert.match(navigator, /view\.addEventListener\("focusin", collapseStudioNavigatorForWorkspaceFocus\)/);
   assert.match(navigator, /canvasAgentPanel\.addEventListener\("pointerdown", collapseStudioNavigatorForWorkspaceFocus, true\)/);
   assert.match(navigator, /canvasAgentPanel\.addEventListener\("focusin", collapseStudioNavigatorForWorkspaceFocus\)/);
   assert.match(functionSource(navigator, "studioNavigatorCanvasDidLoad"), /openStudioConversationOnCurrentCanvas\(studioNavigatorPendingConversation\)/);
-  assert.match(navigator, /snapshotItemsForCurrentView\(\)[\s\S]*?requestLoadSnapshot\(item\.id, location\)/);
+  assert.match(functionSource(navigator,"renderStudioCanvasHistory"), /studioNavigatorSnapshots\(\)[\s\S]*?requestLoadSnapshot\(item\.id, item\.location\)/);
   assert.match(navigator, /openHistoryPanel\(\)/);
   assert.match(functionSource(navigator, "updateStudioNavigatorSurfaceInert"), /studioNavigatorIsCompact\(\)[\s\S]*?view\.inert = true[\s\S]*?dataset\.studioNavigatorInert[\s\S]*?view\.inert = false/);
+  assert.match(functionSource(navigator,"handleStudioNavigatorCompactChange"), /studioNavigatorIsOpen\(\)[\s\S]*?studioNavigatorIsCompact\(\)\)suspendStudioAgentForNavigator\(\)[\s\S]*?restoreStudioAgentAfterNavigator\(\)/);
+  assert.match(functionSource(navigator,"studioNavigatorAgentWillOpen"), /studioNavigatorIsCompact\(\)[\s\S]*?setStudioNavigatorOpen\(false,\{restoreAgent:false\}\)/);
   assert.doesNotMatch(navigator, /canvasAgentBeginLocalConversation|canvasAgentStartNewConversation/);
   assert.match(persistence, /function snapshotItemsForCurrentView\(\)/);
-  assert.match(functionSource(persistence, "renderStudioSnapshotLists"), /renderCanvases\?\.\(\)[\s\S]*?renderAgent\?\.\(\)/);
+  assert.match(functionSource(persistence, "renderStudioSnapshotLists"), /renderWork\?\.\(\)[\s\S]*?renderCanvases\?\.\(\)[\s\S]*?renderAgent\?\.\(\)/);
   assert.match(functionSource(persistence, "renderSnapshotList"), /renderStudioSnapshotLists\(\)[\s\S]*?renderStudioSnapshotLists\(\)/);
   assert.match(persistence, /wantsConversationForCanvas\?\.\(\{ id:item\.id, location \}\)[\s\S]*?deferConversationStart:restoreStudioConversation/);
   assert.match(functionSource(agent, "canvasAgentCanvasDidChange"), /deferConversationStart[\s\S]*?!deferConversationStart&&/);
   assert.match(agent, /function canvasAgentStoredHistoryGroups\(\)/);
   assert.match(agent, /PenEchoStudioNavigator\?\.renderAgent/);
-  assert.match(css, /body\[data-theme="studio"\] \.studio-navigator\s*\{[^}]*position:\s*absolute[^}]*inset:\s*var\(--studio-toolbar-height\) auto 0 0[^}]*width:\s*256px[^}]*flex:\s*0 0 auto[^}]*border-right:\s*0[^}]*background:\s*var\(--studio-glass\)[^}]*box-shadow:\s*4px 0 8px var\(--studio-chrome-shadow-color\)[^}]*backdrop-filter:\s*saturate\(1\.15\) blur\(20px\)/);
+  assert.match(css, /body\[data-theme="studio"\] \.studio-navigator\s*\{[^}]*position:\s*absolute[^}]*inset:\s*var\(--studio-toolbar-height\) auto 0 0[^}]*width:\s*240px[^}]*flex:\s*0 0 auto[^}]*border-right:\s*0[^}]*background:\s*var\(--studio-glass\)[^}]*box-shadow:\s*4px 0 8px var\(--studio-chrome-shadow-color\)[^}]*backdrop-filter:\s*saturate\(1\.15\) blur\(20px\)/);
   assert.match(css, /@media \(max-width: 1100px\)[\s\S]*?\.studio-navigator\s*\{[^}]*z-index:\s*45[^}]*box-shadow:\s*4px 0 8px var\(--studio-chrome-shadow-color\)/);
-  assert.match(css, /@media \(max-width: 1100px\)[\s\S]*?\.studio-navigator-scrim\s*\{[^}]*z-index:\s*44[^}]*background:\s*transparent/);
+  assert.match(css, /@media \(max-width: 1100px\)[\s\S]*?\.studio-navigator-scrim\s*\{[^}]*z-index:\s*44[^}]*background:\s*rgba\(20, 24, 34, \.16\)/);
   assert.match(css, /not\(\.studio-navigator-open\) \.studio-navigator\s*\{[^}]*transform:\s*translateX\(-100%\)/);
   assert.match(css, /\.studio-navigator-group-heading \.studio-navigator-item-icon\.canvas\s*\{[^}]*width:\s*40px[^}]*height:\s*28px[^}]*flex-basis:\s*40px/);
   assert.match(css, /\.studio-navigator-group-heading \.studio-navigator-item-icon\.canvas img\s*\{[^}]*object-fit:\s*contain/);
@@ -2580,7 +2772,7 @@ test("Studio navigator groups recent Agent sessions by canvas and opens the boun
   assert.match(css, /\.studio-navigator-conversation-entry:focus-within \.studio-navigator-session-delete\s*\{[^}]*opacity:\s*1[^}]*pointer-events:\s*auto/);
   assert.match(css, /\.studio-session-delete-dialog\s*\{[^}]*width:\s*min\(400px,[^}]*border-radius:\s*14px/);
   assert.match(css, /prefers-reduced-motion: reduce[\s\S]*?\.studio-navigator\s*\{\s*transition:\s*none/);
-  for (const key of ["studioNavigatorTitle", "studioNavigatorAgents", "studioNavigatorCanvases", "studioNavigatorManageCanvases", "studioNavigatorSessionCount", "studioNavigatorCanvasUnavailable", "studioNavigatorDeleteSession", "studioNavigatorDeleteSessionAction", "studioNavigatorDeleteSessionConfirm"]) {
+  for (const key of ["studioNavigatorTitle", "studioNavigatorAll", "studioNavigatorAgents", "studioNavigatorCanvases", "studioNavigatorCurrent", "studioNavigatorRecent", "studioNavigatorManageCanvases", "studioNavigatorSessionCount", "studioNavigatorCanvasUnavailable", "studioNavigatorDeleteSession", "studioNavigatorDeleteSessionAction", "studioNavigatorDeleteSessionConfirm"]) {
     assert.match(app, new RegExp(`\\b${key}:\\s*"`));
     assert.match(zh, new RegExp(`\\b${key}:\\s*"`));
   }

@@ -10,10 +10,13 @@
       studioNavigatorClose = document.querySelector("#studioNavigatorClose"),
       studioNavigatorScrim = document.querySelector("#studioNavigatorScrim"),
       studioNavigatorSearch = document.querySelector("#studioNavigatorSearch"),
+      studioNavigatorAllTab = document.querySelector("#studioNavigatorAllTab"),
       studioNavigatorAgentTab = document.querySelector("#studioNavigatorAgentTab"),
       studioNavigatorCanvasTab = document.querySelector("#studioNavigatorCanvasTab"),
+      studioNavigatorAllPanel = document.querySelector("#studioNavigatorAllPanel"),
       studioNavigatorAgentPanel = document.querySelector("#studioNavigatorAgentPanel"),
       studioNavigatorCanvasPanel = document.querySelector("#studioNavigatorCanvasPanel"),
+      studioWorkRecentList = document.querySelector("#studioWorkRecentList"),
       studioAgentRecentList = document.querySelector("#studioAgentRecentList"),
       studioCanvasRecentList = document.querySelector("#studioCanvasRecentList"),
       studioNavigatorManage = document.querySelector("#studioNavigatorManage"),
@@ -32,21 +35,28 @@
       studioNavigatorCompactMedia = window.matchMedia?.("(max-width: 1100px)");
     let studioNavigatorOpenPreference = false,
       studioNavigatorActiveTab = storedStudioNavigatorTab(),
+      studioNavigatorWorkPreviewUrls = new Set(),
       studioNavigatorAgentPreviewUrls = new Set(),
       studioNavigatorCanvasPreviewUrls = new Set(),
       studioNavigatorCanvasGroupSnapshots = new Map(),
       studioNavigatorCanvasGroupSnapshotLoads = new Map(),
       studioNavigatorCanvasGroupSnapshotRetryAt = new Map(),
       studioNavigatorDraftSnapshot = {canvasKey:"",revision:-1,item:null,request:null,retryAt:0},
+      studioNavigatorSourceStates = new Map(["device","server","cloud"].map((location)=>[location,{location,status:"idle",items:[],error:"",signIn:false,loadedAt:0,request:null}])),
       studioNavigatorPendingConversation = null,
+      studioNavigatorSuspendedAgent = false,
+      studioNavigatorRestoreAgentAfterManager = false,
       studioSessionDeletePending = null,
       canvasDocumentRenameActive = false,
       canvasDocumentRenameCommitting = false,
       studioEdgeSwipe = null;
 
     function storedStudioNavigatorTab() {
-      try { return localStorage.getItem(STUDIO_NAVIGATOR_TAB_KEY) === "canvas" ? "canvas" : "agent"; }
-      catch { return "agent"; }
+      try {
+        const stored=localStorage.getItem(STUDIO_NAVIGATOR_TAB_KEY);
+        return ["all","canvas","agent"].includes(stored)?stored:"all";
+      }
+      catch { return "all"; }
     }
     function studioNavigatorIsCompact() {
       return Boolean(studioNavigatorCompactMedia?.matches);
@@ -149,13 +159,30 @@
       studioNavigatorScrim.hidden = !(active && open && studioNavigatorIsCompact() && !state.viewMode);
       updateStudioNavigatorSurfaceInert();
     }
-    function setStudioNavigatorOpen(open, { focus = false } = {}) {
+    function suspendStudioAgentForNavigator() {
+      if (!studioNavigatorIsCompact() || canvasAgentPanel.hidden || !document.body.classList.contains("canvas-agent-open")) return false;
+      studioNavigatorSuspendedAgent = true;
+      closeCanvasAgent({ focus:false, animate:false });
+      return true;
+    }
+    function restoreStudioAgentAfterNavigator() {
+      if (!studioNavigatorSuspendedAgent) return false;
+      studioNavigatorSuspendedAgent = false;
+      openCanvasAgent({ focus:false, connect:false, animate:false });
+      return true;
+    }
+    function setStudioNavigatorOpen(open, { focus = false, restoreAgent = true } = {}) {
       studioNavigatorOpenPreference = Boolean(open);
+      if (open) suspendStudioAgentForNavigator();
       document.body.classList.toggle("studio-navigator-open", studioNavigatorIsStudio() && studioNavigatorOpenPreference);
       updateStudioNavigatorA11y();
-      if(open&&studioNavigatorIsStudio())(studioNavigatorActiveTab==="canvas"?renderStudioCanvasHistory:renderStudioAgentHistory)();
+      if(open&&studioNavigatorIsStudio()){
+        renderStudioNavigator();
+        void refreshStudioNavigatorSources();
+      }
       if (!open && studioNavigator.contains(document.activeElement)) studioNavigatorToggle.focus({ preventScroll:true });
       else if (open && focus) requestAnimationFrame(() => studioNavigatorSearch.focus({ preventScroll:true }));
+      if (!open && restoreAgent) restoreStudioAgentAfterNavigator();
     }
     function syncStudioNavigatorTheme(theme = state.theme) {
       const active = theme === "studio";
@@ -183,11 +210,86 @@
     function studioNavigatorMetaTime(value) {
       return canvasAgentHistoryTime(Number(value) || Date.now());
     }
+    function syncStudioNavigatorCurrentSource() {
+      const location=String(snapshotItemsLocation||"");
+      if(!studioNavigatorSourceStates.has(location))return;
+      const source=studioNavigatorSourceStates.get(location);
+      source.items=snapshotItems.slice();
+      source.status=snapshotListInProgress?"loading":"ready";
+      source.error="";
+      source.signIn=location==="cloud"&&cloudHistorySignInRequired;
+      source.loadedAt=Date.now();
+    }
+    async function refreshStudioNavigatorSource(location,{force=false}={}) {
+      const source=studioNavigatorSourceStates.get(location);
+      if(!source)return false;
+      syncStudioNavigatorCurrentSource();
+      if(source.request)return source.request;
+      if(!force&&source.status==="ready"&&Date.now()-source.loadedAt<30_000)return true;
+      source.status="loading";
+      source.error="";
+      source.signIn=false;
+      renderStudioWorkHistory();
+      renderStudioCanvasHistory();
+      const request=snapshotsAt(location).then((items)=>{
+        source.items=items.slice();
+        source.status="ready";
+        source.loadedAt=Date.now();
+        return true;
+      }).catch((error)=>{
+        source.status="error";
+        source.error=String(error?.message||error);
+        source.signIn=location==="cloud"&&cloudHistoryRequiresSignIn(error);
+        return false;
+      }).finally(()=>{
+        source.request=null;
+        renderStudioWorkHistory();
+        renderStudioCanvasHistory();
+        renderStudioAgentHistory();
+      });
+      source.request=request;
+      return request;
+    }
+    function refreshStudioNavigatorSources({force=false}={}) {
+      for(const location of studioNavigatorSourceStates.keys())void refreshStudioNavigatorSource(location,{force});
+    }
+    function studioNavigatorSnapshots() {
+      syncStudioNavigatorCurrentSource();
+      return [...studioNavigatorSourceStates.values()].flatMap((source)=>source.items.map((item)=>{
+        studioNavigatorCanvasGroupSnapshots.set(`${source.location}:${item.id}`,item);
+        return {...item,location:source.location};
+      }));
+    }
+    function renderStudioNavigatorSourceStates(list,query) {
+      if(query)return;
+      for(const source of studioNavigatorSourceStates.values()){
+        if(source.status!=="loading"&&source.status!=="error")continue;
+        const control=document.createElement("button"),label=document.createElement("strong"),detail=document.createElement("small");
+        control.type="button";
+        control.className="studio-navigator-source-state";
+        control.dataset.tone=source.signIn?"signin":source.status;
+        label.textContent=snapshotLocationLabel(source.location);
+        detail.textContent=source.signIn?t("snapshotCloudSignInRequired"):t(source.status==="loading"?"snapshotLibraryLoading":"snapshotLibraryLoadFailed").replace("{location}",snapshotLocationLabel(source.location));
+        control.append(label,detail);
+        if(source.signIn)control.addEventListener("click",()=>document.querySelector("#cloudAccountBtn")?.click());
+        else if(source.status==="error")control.addEventListener("click",()=>void refreshStudioNavigatorSource(source.location,{force:true}));
+        else control.disabled=true;
+        list.append(control);
+      }
+    }
+    function studioNavigatorConversationSummary(conversation) {
+      const item=[...(conversation?.items||[])].reverse().find((entry)=>entry?.type==="message"&&["user","assistant"].includes(entry.role)&&String(entry.text||"").trim());
+      return String(item?.text||"").replace(/\s+/g," ").trim().slice(0,96);
+    }
+    function studioNavigatorCurrentStateLabel() {
+      const saved=Boolean(state.currentSnapshotId),edited=saved&&(canvasHasUnsavedChanges()||Boolean(state.currentCanvasSuggestedName));
+      return t(snapshotSaveInProgress?"canvasSaveStateSaving":!saved?"canvasSaveStateUnsaved":edited?"canvasSaveStateEdited":"canvasSaveStateSaved");
+    }
     function closeStudioNavigatorAfterCompactAction() {
       if (studioNavigatorIsCompact()) setStudioNavigatorOpen(false);
     }
     function collapseStudioNavigatorForWorkspaceFocus() {
-      if (studioNavigatorIsOpen()) setStudioNavigatorOpen(false);
+      if (studioNavigatorIsCompact() && studioNavigatorIsOpen()) setStudioNavigatorOpen(false);
     }
     function studioNavigatorCanvasIdentity(canvasKey) {
       const match=/^(device|server|cloud):(.+)$/.exec(String(canvasKey||""));
@@ -220,7 +322,7 @@
         if(request===studioNavigatorDraftSnapshot.request)studioNavigatorDraftSnapshot.retryAt=Date.now()+30_000;
       }finally{
         if(request===studioNavigatorDraftSnapshot.request)studioNavigatorDraftSnapshot.request=null;
-        if(studioNavigatorIsStudio()&&studioNavigatorActiveTab==="agent")renderStudioAgentHistory();
+        if(studioNavigatorIsStudio())studioNavigatorActiveTab==="agent"?renderStudioAgentHistory():studioNavigatorActiveTab==="all"&&renderStudioWorkHistory();
       }
     }
     function studioNavigatorQueueDraftSnapshot(group) {
@@ -244,7 +346,7 @@
         for(const key of request.ids.values())studioNavigatorCanvasGroupSnapshotRetryAt.set(key,Date.now()+30_000);
       }finally{
         studioNavigatorCanvasGroupSnapshotLoads.delete(location);
-        if(studioNavigatorIsStudio()&&studioNavigatorActiveTab==="agent")renderStudioAgentHistory();
+        if(studioNavigatorIsStudio())studioNavigatorActiveTab==="agent"?renderStudioAgentHistory():studioNavigatorActiveTab==="all"&&renderStudioWorkHistory();
       }
     }
     function studioNavigatorQueueCanvasGroupSnapshots(groups) {
@@ -270,6 +372,83 @@
       const metadata=studioNavigatorCanvasGroupSnapshot(group);
       return group.name||(metadata?snapshotName(metadata):t("studioNavigatorUnknownCanvas"));
     }
+    function studioNavigatorWorkGroups() {
+      const histories=new Map(canvasAgentStoredHistoryGroups().map((group)=>[group.canvasKey,group])),groups=new Map();
+      for(const item of studioNavigatorSnapshots()){
+        const canvasKey=`${item.location}:${item.id}`,history=histories.get(canvasKey);
+        groups.set(canvasKey,{canvasKey,location:item.location,item,name:snapshotName(item),updatedAt:Math.max(Number(item.updatedAt||item.createdAt)||0,Number(history?.updatedAt)||0),conversations:history?.conversations||[]});
+        histories.delete(canvasKey);
+      }
+      for(const history of histories.values()){
+        if(history.canvasKey.startsWith("draft:")&&history.canvasKey!==state.canvasAgentCanvasKey)continue;
+        const identity=studioNavigatorCanvasIdentity(history.canvasKey),item=studioNavigatorCanvasGroupSnapshot(history);
+        groups.set(history.canvasKey,{...history,location:identity?.location||"",item,name:studioNavigatorCanvasGroupName(history)});
+      }
+      if(state.canvasAgentCanvasKey&&!groups.has(state.canvasAgentCanvasKey)){
+        const identity=studioNavigatorCanvasIdentity(state.canvasAgentCanvasKey),item=studioNavigatorCanvasGroupSnapshot({canvasKey:state.canvasAgentCanvasKey});
+        groups.set(state.canvasAgentCanvasKey,{canvasKey:state.canvasAgentCanvasKey,location:identity?.location||"",item,name:currentCanvasDisplayName()||t("canvasUntitledName"),updatedAt:Number(item?.updatedAt||item?.createdAt)||Date.now(),conversations:canvasAgentHistoryForCanvas(state.canvasAgentCanvasKey)});
+      }
+      return [...groups.values()].map((group)=>({...group,current:group.canvasKey===state.canvasAgentCanvasKey})).sort((a,b)=>Number(b.current)-Number(a.current)||b.updatedAt-a.updatedAt);
+    }
+    function studioNavigatorGroupMatches(group,query) {
+      if(!query)return true;
+      const haystack=[group.name,group.location?snapshotLocationLabel(group.location):"",...group.conversations.flatMap((conversation)=>[conversation.title,studioNavigatorConversationSummary(conversation)])].filter(Boolean).join(" ").toLocaleLowerCase(state.language==="zh"?"zh-CN":"en");
+      return haystack.includes(query);
+    }
+    function studioNavigatorSectionLabel(key) {
+      const label=document.createElement("h3");
+      label.className="studio-navigator-section-label";
+      label.textContent=t(key);
+      return label;
+    }
+    function studioNavigatorConversationEntry(group,conversation) {
+      const entry=document.createElement("div"),row=document.createElement("button"),remove=document.createElement("button"),icon=document.createElement("span"),body=document.createElement("span"),title=document.createElement("strong"),summary=document.createElement("span"),rowMeta=document.createElement("small"),current=group.current&&conversation.id===canvasAgent.currentConversation?.id,messageCount=conversation.items.filter((item)=>item?.type==="message"&&["user","assistant"].includes(item.role)).length,deleteLabel=t("studioNavigatorDeleteSession").replace("{name}",conversation.title||t("canvasAgentHistoryUntitled"));
+      entry.className="studio-navigator-conversation-entry";
+      row.type="button";row.className="studio-navigator-item studio-navigator-conversation";row.dataset.conversationId=conversation.id;row.classList.toggle("current",current);
+      if(current)row.setAttribute("aria-current","page");
+      icon.className="studio-navigator-item-icon agent";
+      icon.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5 13.7 8.6a2 2 0 0 0 1.2 1.2l5.1 1.7-5.1 1.7a2 2 0 0 0-1.2 1.2L12 19.5l-1.7-5.1a2 2 0 0 0-1.2-1.2L4 11.5l5.1-1.7a2 2 0 0 0 1.2-1.2Z"/></svg>';
+      body.className="studio-navigator-item-body";
+      title.textContent=conversation.title||t("canvasAgentHistoryUntitled");
+      summary.className="studio-navigator-item-summary";
+      summary.textContent=studioNavigatorConversationSummary(conversation);
+      summary.hidden=!summary.textContent||summary.textContent===title.textContent;
+      rowMeta.textContent=[t("studioNavigatorMessageCount").replace("{count}",String(messageCount)),studioNavigatorMetaTime(conversation.updatedAt),current?t("canvasAgentHistoryCurrent"):""].filter(Boolean).join(" · ");
+      body.append(title,summary,rowMeta);row.append(icon,body);
+      row.addEventListener("click",()=>void openStudioConversation(group,conversation,row));
+      remove.type="button";remove.className="studio-navigator-session-delete";remove.setAttribute("aria-label",deleteLabel);remove.title=deleteLabel;
+      remove.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"/></svg>';
+      remove.addEventListener("click",()=>openStudioSessionDeleteDialog(group,conversation));
+      entry.append(row,remove);
+      return entry;
+    }
+    function studioNavigatorGroupSection(group,{includeConversations=true,previewUrls=studioNavigatorWorkPreviewUrls}={}) {
+      const section=document.createElement("section"),heading=document.createElement("button"),canvasPreview=studioNavigatorCanvasPreview(group.item||studioNavigatorCanvasGroupSnapshot(group),previewUrls),headingBody=document.createElement("span"),name=document.createElement("strong"),meta=document.createElement("small"),identity=studioNavigatorCanvasIdentity(group.canvasKey);
+      section.className="studio-navigator-group";
+      section.dataset.canvasKey=group.canvasKey;
+      heading.type="button";
+      heading.className="studio-navigator-group-heading studio-navigator-canvas-heading";
+      heading.classList.toggle("current",group.current);
+      if(group.current)heading.setAttribute("aria-current","page");
+      headingBody.className="studio-navigator-item-body";
+      name.textContent=group.name;
+      meta.textContent=[group.current?studioNavigatorCurrentStateLabel():"",group.location?snapshotLocationLabel(group.location):t("studioNavigatorDraftCanvas"),studioNavigatorMetaTime(group.updatedAt),group.conversations.length?t("studioNavigatorSessionCount").replace("{count}",String(group.conversations.length)):""].filter(Boolean).join(" · ");
+      headingBody.append(name,meta);heading.append(canvasPreview,headingBody);
+      heading.addEventListener("click",()=>{
+        if(group.current){closeStudioNavigatorAfterCompactAction();return;}
+        if(!identity){setStatus(t("studioNavigatorCanvasUnavailable"));return;}
+        closeStudioNavigatorAfterCompactAction();
+        void runSnapshotLoadAction(heading,()=>requestLoadSnapshot(identity.id,identity.location));
+      });
+      section.append(heading);
+      if(includeConversations&&group.conversations.length){
+        const list=document.createElement("div");
+        list.className="studio-navigator-group-conversations";
+        for(const conversation of group.conversations)list.append(studioNavigatorConversationEntry(group,conversation));
+        section.append(list);
+      }
+      return section;
+    }
     async function openStudioConversationOnCurrentCanvas(pending) {
       if(!pending||pending.canvasKey!==state.canvasAgentCanvasKey)return false;
       studioNavigatorPendingConversation=null;
@@ -279,12 +458,14 @@
       if(!conversation){setStatus(t("studioNavigatorConversationUnavailable"));renderStudioAgentHistory();return false;}
       if(canvasAgentPanel.hidden)openCanvasAgent({focus:false,connect:false});
       await canvasAgentViewStoredConversation(conversation.id);
+      setStatus(t("studioNavigatorRestored").replace("{canvas}",pending.canvasName||currentCanvasDisplayName()||t("canvasUntitledName")).replace("{conversation}",pending.conversationName||conversation.title||t("canvasAgentHistoryUntitled")));
       renderStudioAgentHistory();
+      renderStudioWorkHistory();
       return true;
     }
     async function openStudioConversation(group,conversation,control) {
       closeStudioNavigatorAfterCompactAction();
-      const pending={canvasKey:group.canvasKey,conversationId:conversation.id};
+      const pending={canvasKey:group.canvasKey,conversationId:conversation.id,canvasName:group.name,conversationName:conversation.title||t("canvasAgentHistoryUntitled")};
       studioNavigatorPendingConversation=pending;
       studioNavigator.setAttribute("aria-busy","true");
       control.disabled=true;
@@ -344,49 +525,20 @@
       }
       studioSessionDeleteDialog.close("deleted");
       renderStudioAgentHistory();
+      renderStudioWorkHistory();
       return true;
     }
     function renderStudioAgentHistory() {
       if (!studioAgentRecentList) return;
       releaseStudioNavigatorPreviewUrls(studioNavigatorAgentPreviewUrls);
-      const query=studioNavigatorSearchQuery(),groups=canvasAgentStoredHistoryGroups().filter(group=>!group.canvasKey.startsWith("draft:")).map(group=>{
-        const name=studioNavigatorCanvasGroupName(group),conversations=query?group.conversations.filter(conversation=>`${name} ${conversation.title||t("canvasAgentHistoryUntitled")}`.toLocaleLowerCase(state.language==="zh"?"zh-CN":"en").includes(query)):group.conversations;
-        return {...group,name,conversations};
-      }).filter(group=>group.conversations.length).sort((a,b)=>b.updatedAt-a.updatedAt);
+      const query=studioNavigatorSearchQuery(),groups=studioNavigatorWorkGroups().map((group)=>({...group,conversations:query?group.conversations.filter((conversation)=>`${group.name} ${conversation.title||t("canvasAgentHistoryUntitled")} ${studioNavigatorConversationSummary(conversation)}`.toLocaleLowerCase(state.language==="zh"?"zh-CN":"en").includes(query)):group.conversations})).filter((group)=>group.conversations.length);
       studioNavigatorQueueCanvasGroupSnapshots(groups);
       studioAgentRecentList.replaceChildren();
       if (!groups.length) {
         studioNavigatorEmpty(studioAgentRecentList, query ? "studioNavigatorAgentNoMatch" : "studioNavigatorAgentEmpty");
         return;
       }
-      for (const group of groups) {
-        const section=document.createElement("section"),heading=document.createElement("div"),canvasPreview=studioNavigatorCanvasPreview(studioNavigatorCanvasGroupSnapshot(group),studioNavigatorAgentPreviewUrls),headingBody=document.createElement("span"),name=document.createElement("strong"),meta=document.createElement("small"),list=document.createElement("div"),identity=studioNavigatorCanvasIdentity(group.canvasKey),canvasCurrent=group.canvasKey===state.canvasAgentCanvasKey;
-        section.className="studio-navigator-group";
-        section.dataset.canvasKey=group.canvasKey;
-        heading.className="studio-navigator-group-heading";
-        headingBody.className="studio-navigator-item-body";
-        name.textContent=group.name;
-        meta.textContent=[identity?snapshotLocationLabel(identity.location):t("studioNavigatorDraftCanvas"),t("studioNavigatorSessionCount").replace("{count}",String(group.conversations.length)),studioNavigatorMetaTime(group.updatedAt),canvasCurrent?t("canvasAgentHistoryCurrent"):""].filter(Boolean).join(" · ");
-        headingBody.append(name,meta);heading.append(canvasPreview,headingBody);
-        list.className="studio-navigator-group-conversations";
-        for (const conversation of group.conversations) {
-          const entry=document.createElement("div"),row=document.createElement("button"),remove=document.createElement("button"),icon=document.createElement("span"),body=document.createElement("span"),title=document.createElement("strong"),rowMeta=document.createElement("small"),current=canvasCurrent&&conversation.id===canvasAgent.currentConversation?.id,messageCount=conversation.items.filter(item=>item?.type==="message"&&["user","assistant"].includes(item.role)).length,deleteLabel=t("studioNavigatorDeleteSession").replace("{name}",conversation.title||t("canvasAgentHistoryUntitled"));
-          entry.className="studio-navigator-conversation-entry";
-          row.type="button";row.className="studio-navigator-item studio-navigator-conversation";row.dataset.conversationId=conversation.id;row.classList.toggle("current",current);
-          if(current)row.setAttribute("aria-current","page");
-          icon.className="studio-navigator-item-icon agent";
-          icon.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5 13.7 8.6a2 2 0 0 0 1.2 1.2l5.1 1.7-5.1 1.7a2 2 0 0 0-1.2 1.2L12 19.5l-1.7-5.1a2 2 0 0 0-1.2-1.2L4 11.5l5.1-1.7a2 2 0 0 0 1.2-1.2Z"/></svg>';
-          body.className="studio-navigator-item-body";title.textContent=conversation.title||t("canvasAgentHistoryUntitled");
-          rowMeta.textContent=[t("studioNavigatorMessageCount").replace("{count}",String(messageCount)),studioNavigatorMetaTime(conversation.updatedAt),current?t("canvasAgentHistoryCurrent"):""].filter(Boolean).join(" · ");
-          body.append(title,rowMeta);row.append(icon,body);
-          row.addEventListener("click",()=>void openStudioConversation(group,conversation,row));
-          remove.type="button";remove.className="studio-navigator-session-delete";remove.setAttribute("aria-label",deleteLabel);remove.title=deleteLabel;
-          remove.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"/></svg>';
-          remove.addEventListener("click",()=>openStudioSessionDeleteDialog(group,conversation));
-          entry.append(row,remove);list.append(entry);
-        }
-        section.append(heading,list);studioAgentRecentList.append(section);
-      }
+      for (const group of groups) studioAgentRecentList.append(studioNavigatorGroupSection(group,{previewUrls:studioNavigatorAgentPreviewUrls}));
     }
     function releaseStudioNavigatorPreviewUrls(urls) {
       for (const url of urls) URL.revokeObjectURL(url);
@@ -408,29 +560,33 @@
       preview.append(image);
       return preview;
     }
+    function renderStudioWorkHistory() {
+      if (!studioWorkRecentList) return;
+      releaseStudioNavigatorPreviewUrls(studioNavigatorWorkPreviewUrls);
+      const query=studioNavigatorSearchQuery(),groups=studioNavigatorWorkGroups().filter((group)=>studioNavigatorGroupMatches(group,query));
+      studioNavigatorQueueCanvasGroupSnapshots(groups);
+      studioWorkRecentList.replaceChildren();
+      const current=groups.filter((group)=>group.current),recent=groups.filter((group)=>!group.current);
+      if(current.length){
+        studioWorkRecentList.append(studioNavigatorSectionLabel("studioNavigatorCurrent"));
+        for(const group of current)studioWorkRecentList.append(studioNavigatorGroupSection(group));
+      }
+      if(recent.length){
+        studioWorkRecentList.append(studioNavigatorSectionLabel("studioNavigatorRecent"));
+        for(const group of recent)studioWorkRecentList.append(studioNavigatorGroupSection(group));
+      }
+      renderStudioNavigatorSourceStates(studioWorkRecentList,query);
+      if(!studioWorkRecentList.childElementCount)studioNavigatorEmpty(studioWorkRecentList,query?"studioNavigatorNoMatch":"studioNavigatorEmpty");
+    }
     function renderStudioCanvasHistory() {
       if (!studioCanvasRecentList) return;
       releaseStudioNavigatorPreviewUrls(studioNavigatorCanvasPreviewUrls);
-      const location = state.snapshotLocation;
-      if (snapshotListInProgress && snapshotItemsLocation !== location) {
-        studioNavigatorEmpty(studioCanvasRecentList, "studioNavigatorCanvasLoading");
-        return;
-      }
-      if (snapshotItemsLocation !== location) {
-        studioNavigatorEmpty(studioCanvasRecentList, "studioNavigatorCanvasLoading");
-        return;
-      }
-      const items = snapshotItemsForCurrentView().slice().sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0)),
-        query = studioNavigatorSearchQuery(),
-        filtered = (query ? items.filter((item) => snapshotName(item).toLocaleLowerCase(state.language === "zh" ? "zh-CN" : "en").includes(query)) : items).slice(0, 7);
+      const items=studioNavigatorSnapshots().sort((a,b)=>(b.updatedAt||b.createdAt||0)-(a.updatedAt||a.createdAt||0)),query=studioNavigatorSearchQuery(),locale=state.language==="zh"?"zh-CN":"en",
+        filtered=query?items.filter((item)=>`${snapshotName(item)} ${snapshotLocationLabel(item.location)}`.toLocaleLowerCase(locale).includes(query)):items;
       studioCanvasRecentList.replaceChildren();
-      if (!filtered.length) {
-        studioNavigatorEmpty(studioCanvasRecentList, items.length ? "studioNavigatorCanvasNoMatch" : "studioNavigatorCanvasEmpty");
-        return;
-      }
       for (const item of filtered) {
         const row = document.createElement("button"), body = document.createElement("span"), title = document.createElement("strong"),
-          meta = document.createElement("small"), current = item.id === state.currentSnapshotId && location === state.currentSnapshotLocation;
+          meta = document.createElement("small"), current = item.id === state.currentSnapshotId && item.location === state.currentSnapshotLocation;
         row.type = "button";
         row.className = "studio-navigator-item";
         row.dataset.snapshotId = item.id;
@@ -438,60 +594,81 @@
         if (current) row.setAttribute("aria-current", "page");
         body.className = "studio-navigator-item-body";
         title.textContent = snapshotName(item);
-        meta.textContent = [snapshotLocationLabel(location), studioNavigatorMetaTime(item.updatedAt || item.createdAt), current ? t("canvasAgentHistoryCurrent") : ""].filter(Boolean).join(" · ");
+        meta.textContent = [snapshotLocationLabel(item.location), studioNavigatorMetaTime(item.updatedAt || item.createdAt), current ? t("canvasAgentHistoryCurrent") : ""].filter(Boolean).join(" · ");
         body.append(title, meta);
         row.append(studioNavigatorCanvasPreview(item), body);
         row.addEventListener("click", () => {
           closeStudioNavigatorAfterCompactAction();
-          void runSnapshotLoadAction(row, () => requestLoadSnapshot(item.id, location));
+          void runSnapshotLoadAction(row, () => requestLoadSnapshot(item.id, item.location));
         });
         studioCanvasRecentList.append(row);
       }
+      renderStudioNavigatorSourceStates(studioCanvasRecentList,query);
+      if(!studioCanvasRecentList.childElementCount)studioNavigatorEmpty(studioCanvasRecentList,items.length?"studioNavigatorCanvasNoMatch":"studioNavigatorCanvasEmpty");
     }
     function setStudioNavigatorTab(tab, { focus = false, persist = true } = {}) {
-      studioNavigatorActiveTab = tab === "canvas" ? "canvas" : "agent";
-      const canvasActive = studioNavigatorActiveTab === "canvas";
-      studioNavigatorAgentTab.setAttribute("aria-selected", String(!canvasActive));
-      studioNavigatorCanvasTab.setAttribute("aria-selected", String(canvasActive));
-      studioNavigatorAgentTab.tabIndex = canvasActive ? -1 : 0;
-      studioNavigatorCanvasTab.tabIndex = canvasActive ? 0 : -1;
-      studioNavigatorAgentPanel.hidden = canvasActive;
-      studioNavigatorCanvasPanel.hidden = !canvasActive;
-      const manageKey = canvasActive ? "studioNavigatorManageCanvases" : "studioNavigatorManageAgents";
-      studioNavigatorManage.querySelector("span").dataset.i18n = manageKey;
-      studioNavigatorManage.querySelector("span").textContent = t(manageKey);
+      studioNavigatorActiveTab=["all","canvas","agent"].includes(tab)?tab:"all";
+      const tabs={all:studioNavigatorAllTab,canvas:studioNavigatorCanvasTab,agent:studioNavigatorAgentTab},panels={all:studioNavigatorAllPanel,canvas:studioNavigatorCanvasPanel,agent:studioNavigatorAgentPanel};
+      for(const [key,control] of Object.entries(tabs)){
+        const active=key===studioNavigatorActiveTab;
+        control.setAttribute("aria-selected",String(active));
+        control.tabIndex=active?0:-1;
+        panels[key].hidden=!active;
+      }
       if (persist) {
         try { localStorage.setItem(STUDIO_NAVIGATOR_TAB_KEY, studioNavigatorActiveTab); }
         catch {}
       }
-      if (canvasActive) renderStudioCanvasHistory();
-      else renderStudioAgentHistory();
-      if (focus) (canvasActive ? studioNavigatorCanvasTab : studioNavigatorAgentTab).focus({ preventScroll:true });
+      if(studioNavigatorActiveTab==="canvas")renderStudioCanvasHistory();
+      else if(studioNavigatorActiveTab==="agent")renderStudioAgentHistory();
+      else renderStudioWorkHistory();
+      if(focus)tabs[studioNavigatorActiveTab].focus({preventScroll:true});
     }
     function renderStudioNavigator() {
+      renderStudioWorkHistory();
       renderStudioAgentHistory();
       renderStudioCanvasHistory();
       setStudioNavigatorTab(studioNavigatorActiveTab, { persist:false });
       updateStudioNavigatorA11y();
       updateStudioDocumentState();
     }
-    function openStudioAgentHistoryManager() {
-      closeStudioNavigatorAfterCompactAction();
-      if (canvasAgentPanel.hidden) openCanvasAgent({ focus:false });
-      requestAnimationFrame(() => {
-        if (canvasAgentHistoryPopover.hidden) canvasAgentHistory.click();
-        canvasAgentHistory.focus({ preventScroll:true });
-      });
-    }
     function openStudioCanvasHistoryManager() {
-      closeStudioNavigatorAfterCompactAction();
       openHistoryPanel();
     }
     function handleStudioNavigatorTabKeydown(event) {
       if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
       event.preventDefault();
-      const canvas = event.key === "ArrowRight" || event.key === "End";
-      setStudioNavigatorTab(canvas ? "canvas" : "agent", { focus:true });
+      const order=["all","canvas","agent"],current=order.indexOf(studioNavigatorActiveTab),index=event.key==="Home"?0:event.key==="End"?order.length-1:event.key==="ArrowRight"?(current+1)%order.length:(current+order.length-1)%order.length;
+      setStudioNavigatorTab(order[index],{focus:true});
+    }
+    function historyManagerWillOpen() {
+      studioNavigatorRestoreAgentAfterManager=false;
+      if(!studioNavigatorIsCompact())return;
+      if(studioNavigatorIsOpen()){
+        studioNavigatorRestoreAgentAfterManager=studioNavigatorSuspendedAgent;
+        setStudioNavigatorOpen(false,{restoreAgent:false});
+      }else if(!canvasAgentPanel.hidden&&document.body.classList.contains("canvas-agent-open")){
+        studioNavigatorRestoreAgentAfterManager=true;
+        closeCanvasAgent({focus:false,animate:false});
+      }
+    }
+    function historyManagerDidClose() {
+      if(!studioNavigatorRestoreAgentAfterManager)return;
+      studioNavigatorRestoreAgentAfterManager=false;
+      studioNavigatorSuspendedAgent=false;
+      openCanvasAgent({focus:false,connect:false,animate:false});
+    }
+    function studioNavigatorAgentWillOpen() {
+      if(!studioNavigatorIsCompact()||!studioNavigatorIsOpen())return;
+      studioNavigatorSuspendedAgent=false;
+      setStudioNavigatorOpen(false,{restoreAgent:false});
+    }
+    function handleStudioNavigatorCompactChange() {
+      if(studioNavigatorIsOpen()){
+        if(studioNavigatorIsCompact())suspendStudioAgentForNavigator();
+        else restoreStudioAgentAfterNavigator();
+      }
+      updateStudioNavigatorA11y();
     }
     function studioEdgeSwipeInteractiveTarget(target) {
       return target instanceof Element && Boolean(target.closest("button, input, textarea, select, a, [contenteditable='true'], [role='button'], [role='separator']"));
@@ -555,12 +732,14 @@
     studioNavigatorToggle.addEventListener("click", () => setStudioNavigatorOpen(!studioNavigatorIsOpen(), { focus:!studioNavigatorIsOpen() && studioNavigatorIsCompact() }));
     studioNavigatorClose.addEventListener("click", () => setStudioNavigatorOpen(false));
     studioNavigatorScrim.addEventListener("click", () => setStudioNavigatorOpen(false));
-    studioNavigatorSearch.addEventListener("input", () => studioNavigatorActiveTab === "canvas" ? renderStudioCanvasHistory() : renderStudioAgentHistory());
+    studioNavigatorSearch.addEventListener("input", () => studioNavigatorActiveTab === "canvas" ? renderStudioCanvasHistory() : studioNavigatorActiveTab === "agent" ? renderStudioAgentHistory() : renderStudioWorkHistory());
+    studioNavigatorAllTab.addEventListener("click", () => setStudioNavigatorTab("all"));
     studioNavigatorAgentTab.addEventListener("click", () => setStudioNavigatorTab("agent"));
     studioNavigatorCanvasTab.addEventListener("click", () => setStudioNavigatorTab("canvas"));
+    studioNavigatorAllTab.addEventListener("keydown", handleStudioNavigatorTabKeydown);
     studioNavigatorAgentTab.addEventListener("keydown", handleStudioNavigatorTabKeydown);
     studioNavigatorCanvasTab.addEventListener("keydown", handleStudioNavigatorTabKeydown);
-    studioNavigatorManage.addEventListener("click", () => studioNavigatorActiveTab === "canvas" ? openStudioCanvasHistoryManager() : openStudioAgentHistoryManager());
+    studioNavigatorManage.addEventListener("click", openStudioCanvasHistoryManager);
     canvasDocumentName.addEventListener("click", beginCanvasDocumentRename);
     canvasDocumentNameInput.addEventListener("input", () => canvasDocumentNameInput.setCustomValidity(""));
     canvasDocumentNameInput.addEventListener("blur", () => void commitCanvasDocumentRename());
@@ -593,16 +772,22 @@
         setStudioNavigatorOpen(false);
       }
     });
-    studioNavigatorCompactMedia?.addEventListener?.("change", updateStudioNavigatorA11y);
+    studioNavigatorCompactMedia?.addEventListener?.("change", handleStudioNavigatorCompactChange);
     window.addEventListener("penecho:languagechange", renderStudioNavigator);
     window.PenEchoStudioNavigator = Object.freeze({
       render:renderStudioNavigator,
-      renderAgent:renderStudioAgentHistory,
+      renderWork:renderStudioWorkHistory,
+      renderAgent:()=>{renderStudioAgentHistory();renderStudioWorkHistory();},
       renderCanvases:renderStudioCanvasHistory,
       updateDocument:updateStudioDocumentState,
       canvasDidLoad:studioNavigatorCanvasDidLoad,
       wantsConversationForCanvas:wantsStudioConversationForCanvas,
       cancelPendingConversation:cancelStudioPendingConversation,
+      open:(tab="all")=>{setStudioNavigatorTab(tab);setStudioNavigatorOpen(true,{focus:studioNavigatorIsCompact()});},
+      refreshSource:refreshStudioNavigatorSource,
+      historyManagerWillOpen,
+      historyManagerDidClose,
+      agentWillOpen:studioNavigatorAgentWillOpen,
       setOpen:setStudioNavigatorOpen,
       syncCanvasView:setStudioNavigatorCanvasView,
       syncTheme:syncStudioNavigatorTheme,

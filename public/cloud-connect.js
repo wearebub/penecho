@@ -788,7 +788,7 @@
   }
 
   function accountPanel(render) {
-    const panel = el("section", { class:"penecho-cloud-panel" });
+    const panel = el("section", { class:"penecho-cloud-panel cloud-account-panel" });
     panel.append(el("h3", { text:cloudT("cloudAccount") }));
     if (accountSignedIn()) {
       const account = state.status.account || {};
@@ -840,11 +840,15 @@
   }
 
   function devicePanel(render) {
-    const panel = el("section", { class:"penecho-cloud-panel" });
+    const panel = el("section", { class:"penecho-cloud-panel cloud-device-panel" });
     panel.append(el("h3", { text:cloudT("linkThisDevice") }));
     const device = state.status.device || {};
     if (device.configured) {
-      panel.append(el("p", { text:`${device.name || cloudT("thisDevice")} · ${device.connected ? cloudT("connected") : device.enabled ? cloudT("connecting") : cloudT("paused")}` }));
+      panel.append(el("p", {
+        class:"cloud-device-state",
+        "data-state":device.connected ? "connected" : device.enabled ? "connecting" : "paused",
+        text:`${device.name || cloudT("thisDevice")} · ${device.connected ? cloudT("connected") : device.enabled ? cloudT("connecting") : cloudT("paused")}`,
+      }));
       const actions = el("div", { class:"cloud-button-row cloud-compact-actions" });
       actions.append(el("button", { class:"cloud-button", type:"button", text:device.enabled ? cloudT("pauseLink") : cloudT("enableLink"), onclick:async () => action(render, async () => {
         await api(`/api/cloud/device/${device.enabled ? "disable" : "enable"}`, { method:"POST", body:"{}" });
@@ -966,6 +970,10 @@
         el("progress", { class:"cloud-storage-track", max:String(Math.max(1, limit)), value:String(Math.min(used, Math.max(1, limit))), "aria-label":cloudT("storageUsed") }),
         el("small", { text:cloudT("storageHelp") }),
       ]);
+      const pageHeader = el("header", { class:"cloud-content-heading cloud-project-page-header" }, [
+        el("h3", { text:cloudT("cloudProjects") }),
+        storage,
+      ]);
       const project = selectedProject(projects);
       const selector = el("select", { "aria-label":cloudT("currentProject"), onchange:(event) => {
         rememberProject(event.currentTarget.value);
@@ -990,11 +998,11 @@
         el("summary", { class:"cloud-button", text:cloudT("newProject") }),
         el("div", { class:"cloud-project-create-form" }, [createName, createButton]),
       );
-      const commandBar = el("div", { class:"cloud-project-toolbar" }, [
-        picker,
+      const projectActions = el("div", { class:"cloud-project-actions" }, [
         project ? el("button", { class:"cloud-button primary", type:"button", text:cloudT("saveCurrentHere"), onclick:() => openProjectHistory(project.id) }) : null,
         createDetails,
       ]);
+      const commandBar = el("div", { class:"cloud-project-toolbar" }, [picker, projectActions]);
       const card = el("article", { class:"cloud-project-card" });
       if (project) {
         const projectCanvases = canvases.filter((canvas) => canvas.projectId === project.id);
@@ -1021,7 +1029,7 @@
         card.append(list);
       }
       const projectArea = project ? card : el("div", { class:"cloud-empty", text:cloudT("noProjects") });
-      content.replaceChildren(storage, commandBar, projectArea, el("a", { class:"cloud-project-web-link", href:new URL("/dashboard.html#projects", `${cloudOrigin()}/`).toString(), target:"_blank", rel:"noopener", text:cloudT("manageWeb") }));
+      content.replaceChildren(pageHeader, commandBar, projectArea, el("a", { class:"cloud-project-web-link", href:new URL("/dashboard.html#projects", `${cloudOrigin()}/`).toString(), target:"_blank", rel:"noopener", text:cloudT("manageWeb") }));
     }
     async function load() {
       const requestId = ++state.projectRequestId;
@@ -1060,7 +1068,7 @@
   }
 
   function favoriteCanvasRow(item, owner) {
-    const open = el("button", { class:"cloud-button primary", type:"button", text:cloudT("openCanvasHere"), onclick:async () => {
+    const open = el("button", { class:"cloud-button cloud-row-action", type:"button", text:cloudT("openCanvasHere"), onclick:async () => {
       if (state.busy) return;
       state.busy = true;
       open.disabled = true;
@@ -1091,7 +1099,7 @@
   function favoriteWidgetRow(merged, owner) {
     const community = merged.sources.find((source) => source.type === "community")?.entry || null;
     const source = community || merged.sources.find((entry) => entry.type === "cloud")?.entry || merged.sources[0]?.entry || {};
-    const add = el("button", { class:"cloud-button primary", type:"button", text:cloudT("addToCanvas"), onclick:async () => {
+    const add = el("button", { class:"cloud-button cloud-row-action", type:"button", text:cloudT("addToCanvas"), onclick:async () => {
       if (state.busy) return;
       state.busy = true;
       add.disabled = true;
@@ -1122,7 +1130,10 @@
 
   function cloudFavoritesPanel(setRefreshing) {
     const panel = el("section", { class:"penecho-cloud-panel cloud-favorites-panel" });
-    panel.append(el("p", { class:"cloud-favorites-hint", text:cloudT("favoritesHint") }));
+    panel.append(el("header", { class:"cloud-content-heading" }, [
+      el("h3", { text:cloudT("favorites") }),
+      el("p", { class:"cloud-favorites-hint", text:cloudT("favoritesHint") }),
+    ]));
     if (!accountSignedIn()) {
       panel.append(cloudSignInEmpty("signInFavorites"));
       return panel;
@@ -1266,12 +1277,11 @@
       sectionPanel.setAttribute("role", "tabpanel");
       sectionPanel.setAttribute("aria-labelledby", `cloud-tab-${state.cloudSection}`);
       workspace.append(sectionPanel);
-      const navigation = el("aside", { class:"cloud-navigation", "aria-label":cloudT("cloudArea") }, [sectionToolbar]);
+      const navigation = el("aside", { class:"cloud-navigation", "aria-label":cloudT("cloudArea") });
       layout.classList.toggle("remote-cloud-runtime", !localHostControlsAvailable);
       if (localHostControlsAvailable) {
-        const accountColumn = el("div", { class:"cloud-local-controls", role:"group", "aria-label":cloudT("thisDevice") }, [accountPanel(render), devicePanel(render)]);
-        navigation.append(accountColumn);
-      }
+        navigation.append(accountPanel(render), sectionToolbar, devicePanel(render));
+      } else navigation.append(sectionToolbar);
       layout.replaceChildren(navigation, workspace);
     }
     shell.overlay._cloudRender = render;
@@ -1559,17 +1569,26 @@
   const craftsPopover = document.getElementById("craftsPopover");
   const craftsClose = document.getElementById("craftsClose");
   const craftsList = document.getElementById("craftsList");
+  const craftsCount = document.getElementById("craftsCount");
   const craftsRefreshStatus = document.getElementById("craftsRefreshStatus");
   const craftsFilters = document.getElementById("craftsFilters");
+  const craftsViewSwitch = document.getElementById("craftsViewSwitch");
+  const craftsEchoesLink = document.getElementById("craftsEchoesLink");
   const craftFilterOptions = [
     { kind:"all", button:document.getElementById("craftsFilterAll"), label:"all", fallback:"All" },
     { kind:"widget", button:document.getElementById("craftsFilterWidgets"), label:"widgets", fallback:"Widgets" },
     { kind:"canvas", button:document.getElementById("craftsFilterCanvases"), label:"canvases", fallback:"Canvases" },
   ].filter((option) => option.button);
+  const craftViewOptions = [
+    { view:"list", button:document.getElementById("craftsViewList"), label:"savedListView", fallback:"List view" },
+    { view:"grid", button:document.getElementById("craftsViewGrid"), label:"savedGridView", fallback:"Grid view" },
+  ].filter((option) => option.button);
   let craftsPager = null;
   let craftsObserver = null;
   let craftsRefreshGeneration = 0;
   let selectedCraftKind = "all";
+  let selectedCraftView = "list";
+  let craftsRestoreFocus = null;
   const savedT = (key, fallback) => {
     const translated = window.PenEchoI18n?.t?.(key);
     if (translated && translated !== key) return translated;
@@ -1579,7 +1598,8 @@
   function updateCraftFilterTabs() {
     for (const option of craftFilterOptions) {
       const selected = option.kind === selectedCraftKind;
-      option.button.textContent = savedT(option.label, option.fallback);
+      const label = option.button.querySelector?.("[data-crafts-filter-label]");
+      if (label) label.textContent = savedT(option.label, option.fallback);
       option.button.classList.toggle("active", selected);
       option.button.setAttribute("aria-selected", String(selected));
       option.button.setAttribute("tabindex", selected ? "0" : "-1");
@@ -1587,7 +1607,29 @@
   }
 
   function filteredFavoriteCrafts(entries) {
-    return selectedCraftKind === "all" ? entries : entries.filter((entry) => entry.kind === selectedCraftKind);
+    return entries.filter((entry) => selectedCraftKind === "all" || entry.kind === selectedCraftKind);
+  }
+
+  function updateCraftView() {
+    const grid = selectedCraftView === "grid";
+    craftsList?.classList.toggle("is-grid", grid);
+    if (craftsList) craftsList.dataset.view = selectedCraftView;
+    for (const option of craftViewOptions) {
+      const selected = option.view === selectedCraftView;
+      const label = savedT(option.label, option.fallback);
+      option.button.classList.toggle("active", selected);
+      option.button.setAttribute("aria-pressed", String(selected));
+      option.button.setAttribute("aria-label", label);
+      option.button.title = label;
+    }
+    craftsViewSwitch?.setAttribute("aria-label", savedT("savedView", "View"));
+  }
+
+  function updateCraftsEchoesLink() {
+    if (!craftsEchoesLink) return;
+    craftsEchoesLink.setAttribute("href", new URL("/community.html", `${cloudOrigin()}/`).toString());
+    const label = craftsEchoesLink.querySelector?.(".crafts-echoes-label");
+    if (label) label.textContent = savedT("browseEchoes", "Browse Echoes");
   }
 
   function selectCraftKind(kind, focus = false) {
@@ -1611,22 +1653,38 @@
     selectCraftKind(craftFilterOptions[next].kind, true);
   });
 
+  for (const option of craftViewOptions) option.button.addEventListener("click", () => {
+    selectedCraftView = option.view;
+    updateCraftView();
+  });
+
   function setCraftsOpen(open) {
     if (!craftsPopover) return;
+    const wasOpen = !craftsPopover.hidden;
+    if (open && !wasOpen) craftsRestoreFocus = document.activeElement || craftsButton;
     craftsPopover.hidden = !open;
     craftsPopover.setAttribute("aria-hidden", String(!open));
     craftsButton?.setAttribute("aria-expanded", String(open));
-    if (open) document.body.classList.add("plugin-open");
+    if (open) {
+      document.body.classList.add("plugin-open");
+      if (!wasOpen) craftFilterOptions.find((option) => option.kind === selectedCraftKind)?.button.focus();
+    }
     else {
       document.body.classList.remove("plugin-open");
       craftsObserver?.disconnect();
       craftsObserver = null;
+      if (wasOpen) {
+        const restore = craftsRestoreFocus;
+        craftsRestoreFocus = null;
+        restore?.focus?.();
+      }
     }
   }
 
   function setCraftsRefreshing(refreshing) {
     if (!craftsRefreshStatus) return;
     craftsRefreshStatus.hidden = !refreshing;
+    craftsList?.setAttribute("aria-busy", String(refreshing));
     const copy = craftsRefreshStatus.lastElementChild;
     if (copy) copy.textContent = savedT("savedRefreshing", "Refreshing…");
   }
@@ -1911,9 +1969,10 @@
   function craftsSourceBadge(sources) {
     const badge = document.createElement("span");
     badge.className = "crafts-source";
-    const cloud = sources.includes("cloud") || sources.includes("community");
-    if (cloud && sources.includes("local")) { badge.textContent = savedT("savedSourceSynced", "☁ + local"); badge.title = savedT("savedSourceCloudTitle", "On PenEcho Cloud and this device"); }
-    else if (cloud) { badge.textContent = sources.includes("community") ? savedT("savedSourceCommunity", "☁ community") : savedT("savedSourceCloud", "☁ cloud"); badge.title = savedT("savedSourceCloudTitle", "On PenEcho Cloud"); }
+    const types = sources.map((source) => source.type), local = types.includes("local"),
+      cloud = types.includes("cloud") || types.includes("community") || sources.some((source) => source.type === "local" && source.entry?.cloudId);
+    if (cloud && local) { badge.textContent = savedT("savedSourceSynced", "Cloud + local"); badge.title = savedT("savedSourceSyncedTitle", "On PenEcho Cloud and this device"); }
+    else if (cloud) { badge.textContent = types.includes("community") ? savedT("savedSourceCommunity", "Cloud community") : savedT("savedSourceCloud", "Cloud"); badge.title = savedT("savedSourceCloudTitle", "On PenEcho Cloud"); }
     else { badge.textContent = savedT("savedSourceLocal", "local"); badge.title = savedT("savedSourceLocalTitle", "On this device only — it uploads to PenEcho Cloud once you sign in"); }
     return badge;
   }
@@ -1959,23 +2018,38 @@
     const row = document.createElement("div");
     row.className = "crafts-row";
     const source = merged.sources[0].entry;
+    const media = document.createElement("span");
+    media.className = "crafts-thumb-wrap";
     const thumb = document.createElement("img");
     thumb.className = "crafts-thumb";
     thumb.alt = "";
     thumb.loading = "lazy";
     const community = merged.sources.find((entry) => entry.type === "community")?.entry || null,
       url = thumbnailDataUrl(source, community?.id || null);
-    if (url) { thumb.src = url; thumb.addEventListener("error", () => thumb.replaceWith(craftsFallbackThumb(merged.kind))); }
-    else thumb.replaceWith(craftsFallbackThumb(merged.kind));
+    if (url) { thumb.src = url; thumb.addEventListener("error", () => thumb.replaceWith(craftsFallbackThumb(merged.kind))); media.append(thumb); }
+    else media.append(craftsFallbackThumb(merged.kind));
+    const kindBadge = document.createElement("span");
+    kindBadge.className = `crafts-kind-badge ${merged.kind}`;
+    kindBadge.textContent = savedT(merged.kind === "canvas" ? "savedCanvas" : "savedWidget", merged.kind === "canvas" ? "Canvas" : "Widget");
+    media.append(kindBadge);
     const copy = document.createElement("div");
     copy.className = "crafts-copy";
     const title = document.createElement("b");
     const isCanvas = merged.kind === "canvas";
     title.textContent = source.name || savedT(isCanvas ? "untitledCanvas" : "untitledWidget", cloudT(isCanvas ? "untitledCanvas" : "untitledWidget"));
-    const byline = document.createElement("small");
-    byline.textContent = source.description || source.artifact?.widget?.title || savedT(isCanvas ? "savedCanvas" : "savedWidget", isCanvas ? "Canvas" : "Widget");
-    byline.append(document.createElement("br"), craftsSourceBadge(merged.sources.map((entry) => entry.type === "community" ? "community" : entry.type)));
-    copy.append(title, byline);
+    title.title = title.textContent;
+    const detail = String(source.description || source.artifact?.widget?.title || "").trim();
+    const meta = document.createElement("div");
+    meta.className = "crafts-meta";
+    meta.append(craftsSourceBadge(merged.sources));
+    copy.append(title);
+    if (detail && detail !== title.textContent) {
+      const byline = document.createElement("small");
+      byline.textContent = detail;
+      byline.title = detail;
+      copy.append(byline);
+    }
+    copy.append(meta);
     const actions = document.createElement("div");
     actions.className = "crafts-actions";
     const add = document.createElement("button");
@@ -2004,7 +2078,7 @@
       removeFromCache(merged.key);
     });
     actions.append(add, remove);
-    row.append(thumb, copy, actions);
+    row.append(media, copy, actions);
     return row;
   }
 
@@ -2012,6 +2086,7 @@
     craftsObserver?.disconnect();
     craftsObserver = null;
     const visibleEntries = filteredFavoriteCrafts(entries);
+    if (craftsCount) craftsCount.textContent = savedT("savedCount", "{count} favorites").replace("{count}", String(visibleEntries.length));
     const rows = [];
     if (!visibleEntries.length && craftsPager?.loading) {
       rows.push(el("p", { class:"crafts-empty", text:savedT("savedLoading", "Loading favorites…") }));
@@ -2077,6 +2152,8 @@
     craftsPager = favoritePagerForKind(selectedCraftKind);
     setCraftsOpen(true);
     updateCraftFilterTabs();
+    updateCraftView();
+    updateCraftsEchoesLink();
     if (favoritePagerEntries(craftsPager).length) renderCraftsList(favoritePagerEntries(craftsPager));
     else craftsList.replaceChildren(el("p", { class:"crafts-empty", text:savedT("savedLoading", "Loading favorites…") }));
     void refreshCraftsList({ reset:true });
@@ -2085,7 +2162,26 @@
   craftsButton?.addEventListener("click", openCrafts);
   craftsClose?.addEventListener("click", () => setCraftsOpen(false));
   craftsPopover?.addEventListener("mousedown", (event) => { if (event.target === craftsPopover) setCraftsOpen(false); });
-  document.addEventListener("keydown", (event) => { if (event.key === "Escape" && !craftsPopover?.hidden) setCraftsOpen(false); });
+  document.addEventListener("keydown", (event) => {
+    if (craftsPopover?.hidden) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      setCraftsOpen(false);
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const dialog = craftsPopover.querySelector?.(".crafts-modal");
+    if (!dialog) return;
+    const focusable = focusableElements(dialog);
+    if (!focusable.length) {
+      event.preventDefault();
+      dialog.focus();
+      return;
+    }
+    const first = focusable[0], last = focusable.at(-1);
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  });
   window.addEventListener("penecho:languagechange", () => {
     updateCloudButton();
     const overlay = document.querySelector(".penecho-cloud-overlay");

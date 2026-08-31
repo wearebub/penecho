@@ -10,6 +10,7 @@ const MIXED_TEXT = require("../public/mixed-text.js");
 
 const ROOT=path.resolve(__dirname,"..");
 const source=fs.readFileSync(path.join(ROOT,"src/client/app/canvas-agent-runtime.js"),"utf8");
+const css=fs.readFileSync(path.join(ROOT,"public/style.css"),"utf8");
 function functionSource(name){
   let start=source.indexOf(`function ${name}(`);
   assert.notEqual(start,-1,`missing function ${name}`);
@@ -44,6 +45,15 @@ function messageAppender(document,clipboardWrites){
     setTimeout:()=>0,clearTimeout:()=>{},
   });
 }
+
+test("PenEcho Agent final replies use the quiet workbench typography hierarchy",()=>{
+  assert.match(css,/\.canvas-agent-message\.assistant:not\(\.error\):not\(\.canvas-agent-public-progress\)\s*\{[\s\S]*?width:\s*min\(100%, 68ch\);[\s\S]*?max-width:\s*100%;/);
+  assert.match(css,/\.canvas-agent-message-body\.is-markdown strong\s*\{[^}]*font-weight:\s*500;/);
+  assert.match(css,/\.canvas-agent-message-body\.is-markdown \.canvas-agent-markdown-heading\s*\{[^}]*font-size:\s*\.875rem;[^}]*font-weight:\s*600;/);
+  assert.match(css,/\.canvas-agent-message-body\.is-markdown blockquote\s*\{[^}]*border-inline-start:\s*1px solid #cbd5e1;[^}]*background:\s*transparent;/);
+  assert.match(css,/\.canvas-agent-message\.interrupted \.canvas-agent-message-body\s*\{[^}]*opacity:\s*1;/);
+  assert.doesNotMatch(css,/\.canvas-agent-message\.interrupted \.canvas-agent-message-body\s*\{[^}]*opacity:\s*\.68;/);
+});
 
 test("PenEcho Agent final messages render safe compact Markdown while user and streaming text stay literal",()=>{
   const {document}=parseHTML("<!doctype html><html><body><div id=body></div></body></html>"),body=document.querySelector("#body"),render=renderer(document);

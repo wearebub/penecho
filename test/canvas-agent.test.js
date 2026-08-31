@@ -3036,6 +3036,8 @@ test("PenEcho Agent UI and browser Facade support local and Cloud runtimes and a
   assert.match(functionSource(source,"canvasAgentReferencedIds"),/canvasAgent\.references[\s\S]*canvasAgentSelectionIds\(\)/);
   assert.match(source,/canvasAgentReferenceSearch\.addEventListener\("input"[\s\S]*canvasAgentRenderReferencePicker/);
   assert.match(functionSource(source,"canvasAgentRenderReferencePicker"),/canvas-agent-reference-item-icon[\s\S]*canvas-agent-reference-item-label[\s\S]*classList\.toggle\("has-message"[\s\S]*classList\.toggle\("is-message"[\s\S]*canvasAgentReferenceCountOne/);
+  assert.match(source,/function canvasAgentCreateReferenceChip[\s\S]*?canvas-agent-reference-chip-icon[\s\S]*?dataset\.kind[\s\S]*?chip\.append\(icon,label,meta\)[\s\S]*?return chip;/);
+  assert.match(functionSource(source,"canvasAgentToggleReferencePicker"),/canvasAgentForm\.classList\.toggle\("canvas-agent-reference-open",open\)[\s\S]*canvasAgentSyncInputHint\(\)/);
   assert.match(core,/canvasAgentReferenceCountOne: "1 Widget"/);
   assert.match(zh,/canvasAgentReferenceCountOne: "1 个 Widget"/);
   assert.match(functionSource(source,"canvasAgentWidgetFromPickEvent"),/widgetPointerHit\(clientPoint\(event\),event\.pointerType\|\|"mouse",true\)/);
@@ -3134,7 +3136,10 @@ test("PenEcho Agent UI and browser Facade support local and Cloud runtimes and a
   assert.match(css,/\.canvas-agent-reference-list\s*\{[^}]*overflow-y: auto/);
   assert.match(html,/class="canvas-agent-reference-head"[\s\S]*?class="canvas-agent-reference-search-field"[\s\S]*?id="canvasAgentReferenceList"/);
   assert.match(html,/id="canvasAgentReferencePicker"[^>]*aria-describedby="canvasAgentReferenceHelp"/);
-  assert.match(css,/\.canvas-agent-reference-picker\s*\{[^}]*border-block: 1px solid[^}]*border-inline: 0[^}]*border-radius: 0/);
+  assert.match(css,/\.canvas-agent-reference-picker\s*\{[^}]*border: 1px solid[^}]*border-radius: 12px[^}]*background: var\(--studio-panel, #fff\)/);
+  assert.match(css,/\.canvas-agent-composer\.canvas-agent-reference-open textarea,[\s\S]*?\.canvas-agent-ink-input\s*\{ display: none; \}/);
+  assert.match(css,/\.canvas-agent-reference-chip\s*\{[^}]*width: 100%[^}]*grid-template-columns: 26px minmax\(0, 1fr\) auto 28px[^}]*background: var\(--studio-panel, #fff\)/);
+  assert.match(css,/\.canvas-agent-reference-chip em::before\s*\{[^}]*content: "\\2713"/);
   assert.match(css,/\.canvas-agent-reference-list > button\s*\{[^}]*min-height: 42px[^}]*grid-template-columns: 24px minmax\(0, 1fr\) auto/);
   assert.match(css,/\.canvas-agent-composer-surface\s*\{[^}]*border: 1px solid #dfe3ea;[^}]*border-radius: 18px;[^}]*box-shadow:/);
   const composerFocusRule=css.match(/\.canvas-agent-composer-surface:focus-within\s*\{([^}]*)\}/)?.[1]||"";

@@ -30,13 +30,14 @@ function runPageScale(config, storedScale = null) {
   return { classes, properties, storage, desktopCalls, browserWindow };
 }
 
-test("Canvas page scale exposes six validated choices with mutually exclusive desktop/web paths", () => {
+test("Canvas page scale exposes five validated choices with mutually exclusive desktop/web paths", () => {
   const desktop = runPageScale({ desktopApp:true });
   const web = runPageScale({ runtime:"cloud" }, 1.25);
   const main = read("desktop/main.js"), preload = read("desktop/canvas-preload.js"), css = read("public/style.css");
 
   assert.equal(CANVAS_PAGE_SCALE, 1);
-  assert.deepEqual(CANVAS_PAGE_SCALES, [0.9, 1, 1.1, 1.25, 1.5, 1.75]);
+  assert.deepEqual(CANVAS_PAGE_SCALES, [1, 1.1, 1.25, 1.5, 1.75]);
+  assert.equal(normalizeCanvasPageScale(0.9), 1);
   assert.equal(normalizeCanvasPageScale(1.5), 1.5);
   assert.equal(normalizeCanvasPageScale("invalid"), 1);
   assert.deepEqual(desktop.classes, []);

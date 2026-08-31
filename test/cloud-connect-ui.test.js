@@ -208,20 +208,30 @@ function boot({ status, remoteCloudStatus = null, cloudOrigin = "https://interna
     craftsPopover = withCrafts ? new FakeElement("section", document) : null,
     craftsClose = withCrafts ? new FakeElement("button", document) : null,
     craftsList = withCrafts ? new FakeElement("div", document) : null,
+    craftsCount = withCrafts ? new FakeElement("strong", document) : null,
     craftsRefreshStatus = withCrafts ? new FakeElement("span", document) : null,
     craftsFilters = withCrafts ? new FakeElement("div", document) : null,
     craftsFilterAll = withCrafts ? new FakeElement("button", document) : null,
     craftsFilterWidgets = withCrafts ? new FakeElement("button", document) : null,
-    craftsFilterCanvases = withCrafts ? new FakeElement("button", document) : null;
+    craftsFilterCanvases = withCrafts ? new FakeElement("button", document) : null,
+    craftsViewSwitch = withCrafts ? new FakeElement("div", document) : null,
+    craftsViewList = withCrafts ? new FakeElement("button", document) : null,
+    craftsViewGrid = withCrafts ? new FakeElement("button", document) : null,
+    craftsEchoesLink = withCrafts ? new FakeElement("a", document) : null;
   if (withCrafts) {
     craftsPopover.hidden = true;
     craftsRefreshStatus.hidden = true;
     craftsRefreshStatus.append(new FakeElement("span", document), new FakeElement("span", document));
     craftsFilters.append(craftsFilterAll, craftsFilterWidgets, craftsFilterCanvases);
-    craftsPopover.append(craftsFilters, craftsRefreshStatus, craftsClose, craftsList);
+    craftsViewSwitch.append(craftsViewList, craftsViewGrid);
+    const echoesLabel = new FakeElement("span", document);
+    echoesLabel.className = "crafts-echoes-label";
+    echoesLabel.attributes["data-crafts-echoes-label"] = "";
+    craftsEchoesLink.append(echoesLabel);
+    craftsPopover.append(craftsFilters, craftsEchoesLink, craftsCount, craftsRefreshStatus, craftsViewSwitch, craftsClose, craftsList);
     document.body.append(craftsButton, craftsPopover);
   }
-  document.getElementById = (id) => ({ cloudAccountBtn:cloudButton, shareCanvasBtn:shareButton, craftsButton, craftsPopover, craftsClose, craftsList, craftsRefreshStatus, craftsFilters, craftsFilterAll, craftsFilterWidgets, craftsFilterCanvases })[id] || null;
+  document.getElementById = (id) => ({ cloudAccountBtn:cloudButton, shareCanvasBtn:shareButton, craftsButton, craftsPopover, craftsClose, craftsList, craftsCount, craftsRefreshStatus, craftsFilters, craftsFilterAll, craftsFilterWidgets, craftsFilterCanvases, craftsViewSwitch, craftsViewList, craftsViewGrid, craftsEchoesLink })[id] || null;
 
   let statusPayload = status;
   let statusError = null;
@@ -359,7 +369,7 @@ function boot({ status, remoteCloudStatus = null, cloudOrigin = "https://interna
   vm.runInNewContext(cloudScript, context, { filename:"public/cloud-connect.js" });
   const statusCalls = () => fetchCalls.filter((call) => call.url === "/api/cloud/status").length;
   return {
-    document, cloudButton, shareButton, craftsButton, craftsPopover, craftsClose, craftsList, craftsRefreshStatus, craftsFilters, craftsFilterAll, craftsFilterWidgets, craftsFilterCanvases, timers, fetchCalls, statusCalls, alerts, clipboardWrites, imported, opened, openedLocal, favoriteStates, window:windowObject,
+    document, cloudButton, shareButton, craftsButton, craftsPopover, craftsClose, craftsList, craftsCount, craftsRefreshStatus, craftsFilters, craftsFilterAll, craftsFilterWidgets, craftsFilterCanvases, craftsViewSwitch, craftsViewList, craftsViewGrid, craftsEchoesLink, timers, fetchCalls, statusCalls, alerts, clipboardWrites, imported, opened, openedLocal, favoriteStates, window:windowObject,
     overlay:() => document.querySelector(".penecho-cloud-overlay"),
     setStatus(next) { statusPayload = next; },
     setStatusError(error) { statusError = error; },
@@ -992,6 +1002,13 @@ test("Cloud Center keeps Projects, Favorites, and Echoes in one title-only row",
   assert.equal(explore.getAttribute("href"), "https://internaltest.penecho.ai/community.html");
   assert.equal(explore.getAttribute("target"), "_blank");
   assert.equal(explore.getAttribute("rel"), "noopener");
+  const navigation = flatten(overlay).find((node) => node.className === "cloud-navigation");
+  assert.ok(navigation, "the Cloud Center keeps a dedicated navigation column");
+  assert.deepEqual(navigation.children.slice(0, 3).map((node) => node.className), [
+    "penecho-cloud-panel cloud-account-panel",
+    "cloud-section-toolbar",
+    "penecho-cloud-panel cloud-device-panel",
+  ], "account identity stays above navigation while device controls stay at the bottom");
 });
 
 test("Cloud Center keeps the concise account and device copy bilingual", async () => {
@@ -1062,7 +1079,7 @@ test("Cloud Center opens favorite Canvases in the current local Canvas", async (
   await run.flush();
   assert.match(cloudScript, /favoriteCanvasesHint:"Public Canvases in Favorites"/);
   assert.doesNotMatch(cloudScript, /favoriteCanvasesHint:"Saved public Canvases"/);
-  assert.equal(flatten(overlay).filter((node) => node.tagName === "H3" && node.textContent === "Favorites").length, 0);
+  assert.equal(flatten(overlay).filter((node) => node.tagName === "H3" && node.textContent === "Favorites").length, 1, "the active detail pane keeps one semantic heading");
   assert.deepEqual(flatten(overlay).filter((node) => node.className?.split?.(/\s+/).includes("cloud-favorite-filter")).map((node) => node.textContent), ["All", "Canvases", "Widgets"]);
   const activeFilter = () => flatten(overlay).find((node) => node.className?.split?.(/\s+/).includes("active") && node.className?.split?.(/\s+/).includes("cloud-favorite-filter"));
   assert.equal(activeFilter().textContent, "All");
@@ -1214,6 +1231,47 @@ test("the toolbar Favorites tabs filter one time-descending mixed list", async (
   await run.flush();
   assert.equal(run.craftsFilterAll.getAttribute("aria-selected"), "true", "each new open defaults to All");
   assert.deepEqual(rowTitles(), ["New Canvas", "Middle Widget", "Old Canvas"]);
+});
+
+test("the toolbar Favorites picker switches between list and grid views without changing its items", async () => {
+  const sharedSha = "7".repeat(64), localSha = "8".repeat(64), cloudSha = "9".repeat(64),
+    localFavoriteItems = [
+      { id:"local-synced", name:"Synced Widget", artifactSha256:sharedSha, cloudId:"cloud-copy", createdAt:300 },
+      { id:"local-only", name:"Local Widget", artifactSha256:localSha, cloudId:null, createdAt:100 },
+    ],
+    communityFavorites = [
+      { id:"123e4567-e89b-42d3-a456-426614174041", kind:"widget", name:"Synced Widget", artifactSha256:sharedSha, favoritedAt:300 },
+      { id:"123e4567-e89b-42d3-a456-426614174042", kind:"widget", name:"Cloud Widget", artifactSha256:cloudSha, favoritedAt:200 },
+    ],
+    run = boot({ status:deviceStatus(), communityFavorites, localFavoriteItems, withCrafts:true });
+  const rowTitles = () => flatten(run.craftsList)
+    .filter((node) => node.className === "crafts-row")
+    .map((row) => flatten(row).find((node) => node.tagName === "B")?.textContent);
+  await run.flush();
+
+  run.craftsButton.click();
+  await run.flush();
+  assert.deepEqual(rowTitles(), ["Synced Widget", "Cloud Widget", "Local Widget"]);
+  assert.equal(run.craftsCount.textContent, "3 favorites");
+  assert.equal(run.craftsViewList.getAttribute("aria-pressed"), "true");
+  assert.equal(run.craftsViewGrid.getAttribute("aria-pressed"), "false");
+  assert.equal(run.craftsList.classList.contains("is-grid"), false);
+  assert.equal(run.craftsEchoesLink.getAttribute("href"), "https://internaltest.penecho.ai/community.html");
+
+  run.craftsViewGrid.click();
+  assert.equal(run.craftsViewGrid.getAttribute("aria-pressed"), "true");
+  assert.equal(run.craftsViewList.getAttribute("aria-pressed"), "false");
+  assert.equal(run.craftsList.classList.contains("is-grid"), true);
+  assert.deepEqual(rowTitles(), ["Synced Widget", "Cloud Widget", "Local Widget"]);
+
+  run.craftsClose.click();
+  run.craftsButton.click();
+  await run.flush();
+  assert.equal(run.craftsViewGrid.getAttribute("aria-pressed"), "true", "the chosen view stays stable while the picker is reused");
+  assert.deepEqual(rowTitles(), ["Synced Widget", "Cloud Widget", "Local Widget"]);
+
+  run.craftsViewList.click();
+  assert.equal(run.craftsList.classList.contains("is-grid"), false);
 });
 
 test("the toolbar Favorites picker keeps its last successful rows interactive while refreshing", async () => {
@@ -1517,25 +1575,29 @@ test("Cloud Center uses a compact workbench shell and restores 44px coarse-point
   assert.match(cloudScript, /class:"cloud-navigation"/);
   assert.match(cloudScript, /layout\.replaceChildren\(navigation, workspace\)/);
   assert.match(cloudCss, /\.penecho-cloud-dialog \.cloud-dialog-close\s*\{[^}]*flex:\s*0 0 2\.25rem[^}]*min-width:\s*2\.25rem/);
-  assert.match(cloudCss, /\.penecho-cloud-panel p a\s*\{[^}]*min-height:\s*2\.25rem/);
-  assert.match(cloudCss, /\.cloud-project-web-link\s*\{[^}]*min-height:\s*2\.25rem/);
+  assert.match(cloudCss, /\.penecho-cloud-panel p a\s*\{[^}]*min-height:\s*2rem/);
+  assert.match(cloudCss, /\.cloud-project-web-link\s*\{[^}]*min-height:\s*2rem/);
   assert.match(cloudCss, /\.cloud-account-button\s*\{[^}]*min-height:\s*2\.25rem[^}]*min-width:\s*2\.25rem/);
   assert.match(cloudCss, /\.penecho-cloud-overlay\s*\{[^}]*background:\s*var\(--penecho-dialog-backdrop,[^}]*backdrop-filter:\s*var\(--penecho-dialog-backdrop-filter/);
-  assert.match(cloudCss, /\.penecho-cloud-dialog\s*\{[^}]*background:\s*var\(--penecho-dialog-surface,[^}]*backdrop-filter:\s*var\(--penecho-dialog-surface-filter/);
+  assert.match(cloudCss, /\.penecho-cloud-dialog\.cloud-center\s*\{[^}]*background:\s*var\(--ai-surface\)[^}]*backdrop-filter:\s*none/);
   assert.match(cloudCss, /\.penecho-cloud-dialog\.cloud-center\s*\{[^}]*height:\s*min\(760px, calc\(100svh - 40px\)\)[^}]*max-width:\s*1120px/);
-  assert.match(cloudCss, /\.cloud-dialog-titlebar\s*\{[^}]*min-height:\s*3\.375rem/);
-  assert.match(cloudCss, /\.penecho-cloud-layout\s*\{[^}]*grid-template-columns:\s*15\.5rem minmax\(0, 1fr\)/);
+  assert.match(cloudCss, /\.cloud-center \.cloud-dialog-titlebar\s*\{[^}]*background:\s*var\(--studio-titlebar, #f8f8f9\)[^}]*min-height:\s*3\.25rem/);
+  assert.match(cloudCss, /\.penecho-cloud-layout\s*\{[^}]*grid-template-columns:\s*14rem minmax\(0, 1fr\)/);
   assert.match(cloudCss, /\.cloud-navigation\s*\{[^}]*border-right:\s*1px solid var\(--ai-line\)[^}]*display:\s*flex/);
-  assert.match(cloudCss, /\.cloud-workspace > \.penecho-cloud-panel\s*\{[^}]*max-width:\s*51\.25rem/);
-  assert.match(cloudCss, /\.cloud-section-tab\s*\{[^}]*min-height:\s*2\.25rem/);
+  assert.match(cloudCss, /\.cloud-account-panel\s*\{[^}]*border-bottom:\s*1px solid var\(--ai-line\)/);
+  assert.match(cloudCss, /\.cloud-device-panel\s*\{[^}]*margin-top:\s*auto/);
+  assert.match(cloudCss, /\.cloud-workspace > \.penecho-cloud-panel\s*\{[^}]*max-width:\s*55rem/);
+  assert.match(cloudCss, /\.cloud-section-tab\s*\{[^}]*min-height:\s*2rem/);
   assert.match(cloudCss, /\.cloud-section-tab\.active\s*\{[^}]*background:\s*var\(--ai-surface\)[^}]*border-color:\s*var\(--ai-line\)[^}]*color:\s*var\(--ai-accent\)/);
   assert.match(cloudCss, /\.cloud-favorite-filters\s*\{[^}]*background:\s*var\(--ai-well\)[^}]*border:\s*1px solid var\(--ai-line\)/);
   assert.match(cloudCss, /\.cloud-favorite-filter\s*\{[^}]*min-height:\s*2rem/);
   assert.match(cloudCss, /\.cloud-favorite-filter\.active\s*\{[^}]*background:\s*var\(--ai-surface\)[^}]*color:\s*var\(--ai-accent\)/);
   assert.match(cloudCss, /\.cloud-compact-actions \.cloud-button\s*\{[^}]*min-height:\s*2rem[^}]*white-space:\s*nowrap/);
-  assert.match(cloudCss, /\.cloud-project-picker select, \.cloud-project-create-form input\s*\{[^}]*height:\s*2\.25rem[^}]*min-height:\s*2\.25rem/);
-  assert.match(cloudCss, /\.cloud-project-create > summary\s*\{[^}]*min-height:\s*2\.25rem/);
+  assert.match(cloudCss, /\.cloud-project-picker select, \.cloud-project-create-form input\s*\{[^}]*height:\s*2rem[^}]*min-height:\s*2rem/);
+  assert.match(cloudCss, /\.cloud-project-create > summary\s*\{[^}]*min-height:\s*2rem/);
   assert.match(cloudCss, /\.cloud-field input, \.cloud-field select\s*\{[^}]*height:\s*2\.25rem[^}]*min-height:\s*2\.25rem/);
+  assert.match(cloudCss, /\.cloud-center \.cloud-button\s*\{[^}]*background:\s*transparent[^}]*min-height:\s*2rem[^}]*padding:\s*\.25rem \.55rem/);
+  assert.match(cloudCss, /\.cloud-row-action\s*\{[^}]*background:\s*transparent[^}]*border-color:\s*transparent/);
   assert.match(cloudCss, /@media \(pointer: coarse\)[\s\S]*?\.cloud-account-button,[\s\S]*?\.penecho-cloud-panel p a \{ min-height: 2\.75rem; \}/);
   assert.match(cloudCss, /@media \(pointer: coarse\)[\s\S]*?\.cloud-field input,[\s\S]*?\.cloud-project-create-form input \{ height: 2\.75rem; min-height: 2\.75rem; \}/);
 });
@@ -1552,18 +1614,25 @@ test("Cloud Center exposes accessible loading, error, and focus-preservation con
   assert.match(cloudScript, /const shell = dialogShell[\s\S]*?render\(\);[\s\S]*?cloudButton\.setAttribute\("aria-busy", "true"\)/, "Cloud Center must render before its background status refresh");
 });
 
+test("Cloud text fields avoid the generic hard focus outline", () => {
+  const genericFocus = cloudCss.match(/\.penecho-cloud-dialog :is\(([^)]*)\):focus-visible\s*\{[^}]*\}/)?.[0] || "";
+  assert.doesNotMatch(genericFocus, /\binput\b|\btextarea\b/);
+  assert.match(cloudCss, /\.cloud-field input:focus, \.cloud-field select:focus, \.cloud-field textarea:focus\s*\{[^}]*outline:\s*none/);
+  assert.match(cloudCss, /\.cloud-published-url:focus\s*\{[^}]*border-color:\s*var\(--ai-accent\)[^}]*outline:\s*none/);
+});
+
 test("Cloud Center keeps narrow layouts and theme contrast token-driven", () => {
   assert.match(cloudCss, /\.penecho-cloud-layout > \*, \.penecho-cloud-panel > \*, \.cloud-workspace > \*\s*\{\s*min-width:\s*0/);
-  assert.match(cloudCss, /@media \(max-width:\s*820px\)[\s\S]*?\.penecho-cloud-layout\s*\{[^}]*display:\s*block/);
-  assert.match(cloudCss, /@media \(max-width:\s*820px\)[\s\S]*?\.cloud-section-tabs\s*\{[^}]*grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\)/);
-  assert.match(cloudCss, /@media \(max-width:\s*820px\)[\s\S]*?\.cloud-project-toolbar\s*\{[^}]*grid-template-columns:\s*1fr/);
+  assert.match(cloudCss, /@media \(max-width:\s*760px\)[\s\S]*?\.penecho-cloud-layout\s*\{[^}]*display:\s*block/);
+  assert.match(cloudCss, /@media \(max-width:\s*760px\)[\s\S]*?\.cloud-section-tabs\s*\{[^}]*grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\)/);
+  assert.match(cloudCss, /@media \(max-width:\s*760px\)[\s\S]*?\.cloud-project-toolbar\s*\{[^}]*grid-template-columns:\s*1fr/);
   assert.match(cloudCss, /\.cloud-field input, \.cloud-field select, \.cloud-field textarea\s*\{\s*max-width:\s*100%;\s*min-width:\s*0/);
   assert.match(cloudCss, /--cloud-link:\s*var\(--ai-accent\)/);
   assert.match(cloudCss, /\.cloud-canvas-open\s*\{\s*color:\s*var\(--cloud-link\)/);
   assert.match(cloudCss, /\.cloud-project-web-link\s*\{[^}]*color:\s*var\(--cloud-link\)/);
   assert.match(cloudCss, /\.cloud-button\.primary:hover:not\(:disabled\), \.cloud-button\.primary:focus-visible\s*\{[^}]*color:\s*var\(--ai-primary-ink\)/);
   assert.match(cloudCss, /\.penecho-cloud-dialog\s*\{[^}]*color-scheme:\s*light[^}]*--ai-bg:\s*color-mix\(in srgb, var\(--studio-shell, #f2f3f5\) 76%, var\(--studio-panel, #ffffff\)\)[^}]*--ai-surface:\s*var\(--studio-panel, #ffffff\)[^}]*--ai-accent:\s*var\(--studio-accent, #4f46e5\)[^}]*--ai-primary:\s*var\(--studio-accent-strong, #4338ca\)/);
-  assert.match(cloudCss, /\.cloud-dialog-titlebar\s*\{[^}]*background:\s*color-mix\(in srgb, var\(--studio-titlebar, #f8f8f9\) 94%, transparent\)/);
+  assert.match(cloudCss, /\.cloud-center \.cloud-dialog-titlebar\s*\{[^}]*background:\s*var\(--studio-titlebar, #f8f8f9\)/);
   assert.match(cloudCss, /\.cloud-share-canvas\s*\{\s*color:\s*var\(--studio-accent-strong, #4338ca\)/);
   assert.match(cloudCss, /@media \(prefers-reduced-motion:\s*reduce\)[\s\S]*?animation:\s*none/);
   assert.doesNotMatch(cloudCss, /body\[data-theme="(?:studio|research|arcane|scifi)"\] \.penecho-cloud-dialog/);

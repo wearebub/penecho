@@ -1,6 +1,6 @@
 "use strict";
 
-const CANVAS_PAGE_SCALES = Object.freeze([0.9, 1, 1.1, 1.25, 1.5, 1.75]);
+const CANVAS_PAGE_SCALES = Object.freeze([1, 1.1, 1.25, 1.5, 1.75]);
 const CANVAS_PAGE_SCALE = 1;
 const CANVAS_PAGE_SCALE_STORAGE_KEY = "penecho-canvas-page-scale";
 

@@ -34,6 +34,7 @@
     canvasAgentHistory = document.querySelector("#canvasAgentHistory"),
     canvasAgentHistoryPopover = document.querySelector("#canvasAgentHistoryPopover"),
     canvasAgentHistoryList = document.querySelector("#canvasAgentHistoryList"),
+    canvasAgentHistoryManage = document.querySelector("#canvasAgentHistoryManage"),
     canvasAgentHistoryView = document.querySelector("#canvasAgentHistoryView"),
     canvasAgentHistoryReturn = document.querySelector("#canvasAgentHistoryReturn"),
     canvasAgentResizeTop = document.querySelector("#canvasAgentResizeTop"),
@@ -1266,8 +1267,8 @@
     for (const conversation of histories) {
       const button=document.createElement("button"), title=document.createElement("span"), meta=document.createElement("span"), current=conversation.id===canvasAgent.currentConversation?.id;
       button.type="button";
-      button.setAttribute("role","menuitem");
       button.dataset.conversationId=conversation.id;
+      if(current)button.setAttribute("aria-current","page");
       title.className="canvas-agent-history-title";
       meta.className="canvas-agent-history-meta";
       title.textContent=conversation.title||t("canvasAgentHistoryUntitled");
@@ -1493,12 +1494,16 @@
     return [...new Set([...canvasAgent.references,...canvasAgentSelectionIds()])].filter(id=>canvasAgentObject(id));
   }
   function canvasAgentCreateReferenceChip(id,{selected=false}={}) {
-    const chip=document.createElement("span"), label=document.createElement("span"), meta=document.createElement("em");
+    const object=canvasAgentObject(id), chip=document.createElement("span"), icon=document.createElement("span"), label=document.createElement("span"), meta=document.createElement("em");
     chip.className="canvas-agent-reference-chip";
+    chip.classList.toggle("is-selected",selected);
+    icon.className="canvas-agent-reference-chip-icon";
+    icon.dataset.kind=object?.kind||"object";
+    icon.setAttribute("aria-hidden","true");
     label.textContent=canvasAgentReferenceLabel(id);
     label.title=String(id);
     meta.textContent=t(selected?"canvasAgentSelected":"canvasAgentReferenced");
-    chip.append(label,meta);
+    chip.append(icon,label,meta);
     if (!selected) {
       const remove=document.createElement("button");
       remove.type="button";
@@ -1578,7 +1583,9 @@
     const open=force===null?canvasAgentReferencePicker.hidden:Boolean(force);
     canvasAgentReferencePicker.hidden=!open;
     canvasAgentReference.setAttribute("aria-expanded",String(open));
+    canvasAgentForm.classList.toggle("canvas-agent-reference-open",open);
     canvasAgentSetWidgetPickActive(open);
+    canvasAgentSyncInputHint();
     if (open) {
       canvasAgentReferenceSearch.value="";
       canvasAgentRenderReferencePicker("");
@@ -2091,8 +2098,8 @@
   }
   function canvasAgentSyncInputHint() {
     if (!canvasAgentInputHint) return;
-    const hasConversation=Boolean(canvasAgent.currentConversation?.items?.length), hasDraft=Boolean(canvasAgentInput.value.trim()||canvasAgent.inkPresent||canvasAgent.attachments.length||canvasAgent.references.length);
-    canvasAgentInputHint.hidden=canvasAgent.inputMode==="ink"||hasConversation||hasDraft||Boolean(canvasAgent.viewingHistoryId);
+    const hasConversation=Boolean(canvasAgent.currentConversation?.items?.length), hasDraft=Boolean(canvasAgentInput.value.trim()||canvasAgent.inkPresent||canvasAgent.attachments.length||canvasAgent.references.length), referenceOpen=typeof canvasAgentReferencePicker!=="undefined"&&!canvasAgentReferencePicker.hidden;
+    canvasAgentInputHint.hidden=canvasAgent.inputMode==="ink"||hasConversation||hasDraft||referenceOpen||Boolean(canvasAgent.viewingHistoryId);
   }
   function canvasAgentResizeInput() {
     if(!canvasAgentInput||canvasAgentInput.hidden)return;
@@ -3936,6 +3943,7 @@
   function openCanvasAgent({focus=true}={}) {
     const options=arguments[0]||{},connect=options.connect!==false,animate=options.animate!==false;
     if (!canvasAgentAvailable()) return;
+    window.PenEchoStudioNavigator?.agentWillOpen?.();
     syncStudioWorkbench();
     canvasAgentCancelPanelMotion();
     canvasAgentPanel.hidden = false;
@@ -4043,7 +4051,23 @@
       canvasAgentRenderHistoryList();
       canvasAgentHistoryPopover.hidden=false;
       canvasAgentHistory.setAttribute("aria-expanded","true");
+      requestAnimationFrame(()=>{
+        const focusTarget=canvasAgentHistoryList.querySelector('[aria-current="page"],button')||canvasAgentHistoryManage;
+        focusTarget?.focus({preventScroll:true});
+      });
     } else canvasAgentHideHistoryPopover();
+  });
+  canvasAgentHistoryManage.addEventListener("click",()=>{
+    canvasAgentHideHistoryPopover();
+    window.PenEchoStudioNavigator?.open?.("agent");
+  });
+  canvasAgentHistoryList.addEventListener("keydown",event=>{
+    if(!["ArrowDown","ArrowUp","Home","End"].includes(event.key))return;
+    const controls=[...canvasAgentHistoryList.querySelectorAll("button")];
+    if(!controls.length)return;
+    event.preventDefault();
+    const current=Math.max(0,controls.indexOf(document.activeElement)),index=event.key==="Home"?0:event.key==="End"?controls.length-1:event.key==="ArrowDown"?(current+1)%controls.length:(current+controls.length-1)%controls.length;
+    controls[index].focus({preventScroll:true});
   });
   canvasAgentHistoryReturn.addEventListener("click",canvasAgentReturnToCurrentConversation);
   document.addEventListener("keydown",event=>{
