@@ -82,6 +82,7 @@
       deviceLinked:"Device linked",
       notLinked:"Not linked",
       connecting:"Connecting",
+      connectionFailed:"Connection failed",
       paused:"Paused",
       pauseLink:"Pause link",
       enableLink:"Enable link",
@@ -288,6 +289,7 @@
       deviceLinked:"设备已连接",
       notLinked:"未连接",
       connecting:"连接中",
+      connectionFailed:"连接失败",
       paused:"已暂停",
       pauseLink:"暂停连接",
       enableLink:"启用连接",
@@ -679,6 +681,18 @@
       : Boolean(state.status?.accountSession?.signedIn);
   }
 
+  function cloudDeviceConnectionStatus(status = state.status) {
+    const device = status?.device || {};
+    if (!device.configured) return { state:"unconfigured", label:cloudT("notLinked") };
+    if (!device.enabled) return { state:"paused", label:cloudT("paused") };
+    if (device.connected) return { state:"connected", label:cloudT("connected") };
+    const relayState = String(device.state || status?.state || "").toLowerCase();
+    const failed = Boolean(device.lastError || status?.lastError) || ["disconnected", "invalid", "waiting"].includes(relayState);
+    return failed
+      ? { state:"failed", label:cloudT("connectionFailed") }
+      : { state:"connecting", label:cloudT("connecting") };
+  }
+
   function updateCloudButton() {
     const account = state.status?.account;
     const remote = window.PENECHO_CONFIG?.runtime === "cloud" ? window.PENECHO_REMOTE_CLOUD_STATUS : null;
@@ -968,6 +982,7 @@
     panel.append(pageHeading(cloudT("linkThisDevice"), cloudT("linkDeviceHint")));
     const device = state.status.device || {};
     if (device.configured) {
+      const connection = cloudDeviceConnectionStatus();
       panel.append(el("div", { class:"cloud-settings-group" }, [
         el("div", { class:"cloud-setting-row cloud-device-summary" }, [
           el("div", { class:"cloud-setting-copy" }, [
@@ -976,8 +991,8 @@
           ]),
           el("span", {
             class:"cloud-device-state",
-            "data-state":device.connected ? "connected" : device.enabled ? "connecting" : "paused",
-            text:device.connected ? cloudT("connected") : device.enabled ? cloudT("connecting") : cloudT("paused"),
+            "data-state":connection.state,
+            text:connection.label,
           }),
         ]),
       ]));
@@ -1374,13 +1389,14 @@
       workspace.dataset.peRegion = "content";
       if (!localHostControlsAvailable && !["projects", "favorites"].includes(state.cloudSection)) state.cloudSection = "projects";
       const sections = el("nav", { class:"cloud-section-tabs", role:"tablist", "aria-label":cloudT("cloudArea"), "aria-orientation":"vertical" });
-      const appendSection = (value, label, meta = "", navHeading = "") => {
+      const appendSection = (value, label, meta = "", navHeading = "", trailing = null) => {
         const active = state.cloudSection === value;
         const localOnly = value === "account" || value === "device";
         const copy = el("span", { class:"cloud-nav-copy" }, [
           el("strong", { text:cloudT(label) }),
           meta ? el("span", { class:"cloud-nav-meta", text:meta }) : null,
         ]);
+        if (navHeading) sections.append(el("span", { class:"cloud-nav-heading", role:"presentation", text:navHeading }));
         sections.append(el("button", {
           id:`cloud-tab-${value}`,
           class:`cloud-section-tab cloud-section-tab-${value}${localOnly ? " cloud-local-controls" : ""}${active ? " active" : ""}`,
@@ -1389,7 +1405,6 @@
           "data-pe-button":"menu-item",
           "data-pe-state":active ? "selected" : "default",
           "data-cloud-section":value,
-          ...(navHeading ? { "data-nav-heading":navHeading } : {}),
           "aria-selected":String(active),
           "aria-controls":"cloud-section-panel",
           tabindex:active ? "0" : "-1",
@@ -1398,7 +1413,7 @@
             render();
             queueMicrotask(() => document.querySelector(`#cloud-tab-${value}`)?.focus());
           },
-        }, [el("span", { class:"cloud-nav-icon", "aria-hidden":"true" }), copy]));
+        }, [el("span", { class:"cloud-nav-icon", "aria-hidden":"true" }), copy, trailing]));
       };
       if (localHostControlsAvailable) {
         const accountName = accountSignedIn() ? String(state.status?.account?.name || cloudT("cloudUser")) : cloudT("signIn");
@@ -1407,7 +1422,14 @@
         const deviceMeta = device.configured
           ? String(device.name || (device.connected ? cloudT("connected") : device.enabled ? cloudT("connecting") : cloudT("paused")))
           : accountSignedIn() ? cloudT("notLinked") : cloudT("signIn");
-        appendSection("device", "linkThisDevice", deviceMeta);
+        const connection = cloudDeviceConnectionStatus();
+        appendSection("device", "linkThisDevice", deviceMeta, "", el("span", {
+          class:"cloud-device-status-dot",
+          "data-state":connection.state,
+          role:"img",
+          "aria-label":connection.label,
+          title:connection.label,
+        }));
       }
       const definitions = [
         ["projects", "cloudProjects"],

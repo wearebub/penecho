@@ -172,18 +172,18 @@ function interactiveScene(){
       get textContent(){return this.children.length?this.children.map(child=>child.textContent||"").join(""):this._textContent;},set textContent(value){this._textContent=String(value);this.children=[];},
       closest(selector){return selector==="button"&&this.tag==="button"?this:null;},append(...items){this.children.push(...items);},replaceChildren(...items){this.children=[...items];},
       setAttribute(name,value){this.attributes[name]=String(value);this[name]=String(value);},getAttribute(name){return this.attributes[name]??null;},
-      addEventListener(type,handler){this.handlers[type]=handler;},click(){this.handlers.click?.();},focus(options){this.focusOptions=options;active.element=this;active.insideForm=false;active.insideSuggestions=true;}};
+      addEventListener(type,handler){this.handlers[type]=handler;},click(event={}){this.handlers.click?.({target:this,currentTarget:this,...event});},focus(options){this.focusOptions=options;active.element=this;active.insideForm=false;active.insideSuggestions=true;}};
   }
   const document={get activeElement(){return active.element;},set activeElement(value){active.element=value;},createElement:node,createElementNS(_namespace,tag){return node(tag);}},
     input={value:"",disabled:false,events:0,focused:false,blurred:false,selection:null,dispatchEvent(event){this.events++;if(event.type==="input")sync();},focus(){this.focused=true;active.element=this;active.insideForm=true;active.insideSuggestions=false;},blur(){this.blurred=true;if(active.element===this){active.element=null;active.insideForm=false;}},setSelectionRange(start,end){this.selection=[start,end];}},
     form={contains(node){return node===input||node===active.element&&active.insideForm;},submitted:false},
     suggestions={hidden:true,dataset:{},attributes:{},classList:{expanded:false,promptRowsVisible:false,toggle(name,value){if(name==="expanded")this.expanded=Boolean(value);if(name==="prompt-rows-visible")this.promptRowsVisible=Boolean(value);}},setAttribute(name,value){this.attributes[name]=String(value);},contains(node){return node===active.element&&active.insideSuggestions;}},
-    popup={hidden:true},makeList=()=>({hidden:false,children:[],replaceChildren(){this.children=[];},append(child){this.children.push(child);}}),additional=makeList(),primary=makeList(),additionalGroup={hidden:true},primaryGroup={hidden:false},toggle=node("button"),disclosure=node("span"),
-    hint={hidden:false},canvasAgent={inputMode:"text",inkPresent:false,attachments:[],references:[],currentConversation:{items:[]},requestPending:false,running:false,viewingHistoryId:"",pendingApproval:null,attachmentBusy:false,projectUploadBusy:false,promptSuggestionsExpanded:false,promptSuggestionsManual:false,promptSuggestionsCollapsedAll:false,promptSuggestionPointerActive:false,promptSuggestionContextKey:"",promptSuggestions:[]},
+    popup={hidden:true},makeList=()=>({hidden:false,children:[],replaceChildren(){this.children=[];},append(child){this.children.push(child);},contains(child){return this.children.includes(child);}}),additional=makeList(),primary=makeList(),additionalGroup={hidden:true},primaryGroup={hidden:false},toggle=node("button"),disclosure=node("span"),
+    hint={hidden:false},canvasAgent={inputMode:"text",inkPresent:false,attachments:[],references:[],currentConversation:{items:[]},requestPending:false,running:false,viewingHistoryId:"",pendingApproval:null,attachmentBusy:false,projectUploadBusy:false,promptSuggestionsExpanded:false,promptSuggestionsManual:false,promptSuggestionsCollapsedAll:false,promptSuggestionPointerActive:false,promptSuggestionPointerClearTimer:0,promptSuggestionPointerType:"",promptSuggestionPointerButton:null,promptSuggestionContextKey:"",promptSuggestions:[]},
     panel={hidden:false},referencePicker={hidden:true},approval={hidden:true},translations={canvasAgentPromptHandwriting:"Polished prompt",canvasAgentPromptHandwritingTitle:"Enhance My Handwritten Notes",canvasAgentPromptMore:"Show",canvasAgentPromptLess:"Hide",canvasAgentPromptDisclosureMore:"More",canvasAgentPromptDisclosureLess:"Less"};
   const context={canvasAgentInput:input,canvasAgentInputHint:hint,canvasAgentPromptSuggestions:suggestions,canvasAgentPromptPopup:popup,canvasAgentAdditionalPromptGroup:additionalGroup,canvasAgentAdditionalPromptList:additional,canvasAgentPrimaryPromptGroup:primaryGroup,canvasAgentPrimaryPromptList:primary,
     canvasAgentPromptToggle:toggle,canvasAgentPromptDisclosureCopy:disclosure,canvasAgentPanel:panel,canvasAgentForm:form,canvasAgentReferencePicker:referencePicker,canvasAgentApproval:approval,document,canvasAgent,
-    CANVAS_AGENT_PROMPT_ICON_PATHS:constants.iconPaths,t:key=>translations[key]||key,canvasAgentSyncInputHint(){},canvasAgentPromptSuggestionSet:()=>set,Event:class Event{constructor(type){this.type=type;}},
+    CANVAS_AGENT_PROMPT_ICON_PATHS:constants.iconPaths,t:key=>translations[key]||key,canvasAgentSyncInputHint(){},canvasAgentPromptSuggestionSet:()=>set,setTimeout,clearTimeout,Event:class Event{constructor(type){this.type=type;}},
   };
   const hasDraft=vm.runInNewContext(`(()=>{${functionSource("canvasAgentPromptHasDraft")}return canvasAgentPromptHasDraft;})()`,context);
   context.canvasAgentPromptHasDraft=hasDraft;
@@ -205,6 +205,10 @@ function interactiveScene(){
   context.canvasAgentSyncPromptSuggestions=sync;
   const choose=vm.runInNewContext(`(()=>{${functionSource("canvasAgentChoosePromptSuggestion")}return canvasAgentChoosePromptSuggestion;})()`,context);
   context.canvasAgentChoosePromptSuggestion=choose;
+  const clearPointer=vm.runInNewContext(`(()=>{${functionSource("canvasAgentClearPromptSuggestionPointer")}return canvasAgentClearPromptSuggestionPointer;})()`,context);
+  context.canvasAgentClearPromptSuggestionPointer=clearPointer;
+  const activate=vm.runInNewContext(`(()=>{${functionSource("canvasAgentActivatePromptSuggestion")}return canvasAgentActivatePromptSuggestion;})()`,context);
+  context.canvasAgentActivatePromptSuggestion=activate;
   const preventFocusLoss=vm.runInNewContext(`(()=>{${functionSource("canvasAgentPreventPromptSuggestionFocusLoss")}return canvasAgentPreventPromptSuggestionFocusLoss;})()`,context),
     finishPointer=vm.runInNewContext(`(()=>{${functionSource("canvasAgentFinishPromptSuggestionPointer")}return canvasAgentFinishPromptSuggestionPointer;})()`,context),
     expandOnEnter=vm.runInNewContext(`(()=>{${functionSource("canvasAgentExpandPromptSuggestionsOnPointerEnter")}return canvasAgentExpandPromptSuggestionsOnPointerEnter;})()`,context),
@@ -212,7 +216,7 @@ function interactiveScene(){
     syncFocus=vm.runInNewContext(`(()=>{${functionSource("canvasAgentSyncPromptSuggestionsFocus")}return canvasAgentSyncPromptSuggestionsFocus;})()`,context),
     toggleExpanded=vm.runInNewContext(`(()=>{${functionSource("canvasAgentTogglePromptSuggestions")}return canvasAgentTogglePromptSuggestions;})()`,context),
     collapseFromPanel=vm.runInNewContext(`(()=>{${functionSource("canvasAgentCollapsePromptSuggestionsFromPanel")}return canvasAgentCollapsePromptSuggestionsFromPanel;})()`,context);
-  return {set,input,active,outside,document,form,suggestions,popup,additionalGroup,primaryGroup,additional,primary,toggle,canvasAgent,render,setExpanded,shouldShow,sync,choose,preventFocusLoss,finishPointer,expandOnEnter,collapseOnLeave,syncFocus,toggleExpanded,collapseFromPanel};
+  return {set,input,active,outside,document,form,suggestions,popup,additionalGroup,primaryGroup,additional,primary,toggle,canvasAgent,render,setExpanded,shouldShow,sync,choose,activate,preventFocusLoss,finishPointer,expandOnEnter,collapseOnLeave,syncFocus,toggleExpanded,collapseFromPanel};
 }
 
 test("PenEcho Agent renders one flat expanded prompt grid and inserts the full prompt",()=>{
@@ -277,18 +281,21 @@ test("Existing conversations stay collapsed on focus until the arrow is clicked"
   scene.active.element=scene.outside;scene.active.insideForm=false;scene.active.insideSuggestions=false;scene.syncFocus();assert.equal(scene.suggestions.hidden,false,"the fixed header remains after blur");assert.equal(scene.popup.hidden,true);
 });
 
-test("PenEcho Agent suggestions preserve mouse activation without blocking iPad scrolling",async()=>{
-  const scene=interactiveScene();scene.render(scene.set);const button=scene.primary.children.at(-1);scene.active.element=scene.input;scene.active.insideForm=true;scene.sync();
-  const touchEvent={pointerType:"touch",target:button,defaultPrevented:false,preventDefault(){this.defaultPrevented=true;}},
-    penEvent={pointerType:"pen",target:button,defaultPrevented:false,preventDefault(){this.defaultPrevented=true;}},
-    mouseEvent={pointerType:"mouse",target:button,defaultPrevented:false,preventDefault(){this.defaultPrevented=true;}},
-    toggleEvent={pointerType:"mouse",target:scene.toggle,defaultPrevented:false,preventDefault(){this.defaultPrevented=true;}};
-  scene.preventFocusLoss(touchEvent);scene.preventFocusLoss(penEvent);scene.preventFocusLoss(mouseEvent);scene.preventFocusLoss(toggleEvent);
-  assert.equal(touchEvent.defaultPrevented,false,"touch panning stays native");assert.equal(penEvent.defaultPrevented,false,"pen panning stays native");assert.equal(mouseEvent.defaultPrevented,true,"mouse selection keeps the composer stable");assert.equal(toggleEvent.defaultPrevented,false,"the disclosure may take non-text focus");
-  assert.equal(scene.canvasAgent.promptSuggestionPointerActive,true,"touch and pen activation survive the input focusout checkpoint");assert.equal(scene.document.activeElement,button,"the touched non-text option receives focus without opening the keyboard");
-  scene.active.element=scene.outside;scene.active.insideSuggestions=false;queueMicrotask(scene.syncFocus);await Promise.resolve();assert.equal(scene.popup.hidden,false,"focusout cannot hide the option before its click");
-  scene.active.element=button;scene.active.insideSuggestions=true;scene.finishPointer();assert.equal(scene.canvasAgent.promptSuggestionPointerActive,false);
-  button.click();assert.equal(scene.input.value,"Polished prompt");assert.equal(scene.suggestions.hidden,false);assert.equal(scene.primary.hidden,true);assert.equal(scene.form.submitted,false);
+test("PenEcho Agent touch and pen use first tap to expand and second tap to choose",async()=>{
+  for(const pointerType of ["touch","pen"]){
+    const scene=interactiveScene();scene.render(scene.set);scene.active.element=scene.input;scene.active.insideForm=true;scene.sync();
+    scene.expandOnEnter({pointerType});assert.equal(scene.canvasAgent.promptSuggestionsExpanded,false,`${pointerType} pointer entry must not consume the first tap`);
+    const peekButton=scene.primary.children.at(-1),pointerEvent={pointerType,target:peekButton,defaultPrevented:false,preventDefault(){this.defaultPrevented=true;}};
+    scene.preventFocusLoss(pointerEvent);assert.equal(pointerEvent.defaultPrevented,false,`${pointerType} panning stays native`);assert.equal(scene.document.activeElement,peekButton);
+    scene.active.element=scene.outside;scene.active.insideSuggestions=false;queueMicrotask(scene.syncFocus);await Promise.resolve();assert.equal(scene.popup.hidden,false,"focusout cannot hide the option before its click");
+    scene.active.element=peekButton;scene.active.insideSuggestions=true;scene.finishPointer({type:"pointerup"});peekButton.click();
+    assert.equal(scene.input.value,"",`${pointerType} first tap only expands`);assert.equal(scene.canvasAgent.promptSuggestionsExpanded,true);assert.equal(scene.additional.hidden,false);assert.equal(scene.primary.hidden,true);
+    const expandedButton=scene.additional.children.find(button=>button.dataset.promptKey===peekButton.dataset.promptKey),secondPointer={pointerType,target:expandedButton,defaultPrevented:false,preventDefault(){this.defaultPrevented=true;}};
+    scene.preventFocusLoss(secondPointer);scene.finishPointer({type:"pointerup"});expandedButton.click();
+    assert.equal(scene.input.value,"Polished prompt",`${pointerType} second tap fills the composer`);assert.equal(scene.primary.hidden,true);assert.equal(scene.form.submitted,false);
+  }
+  const mouseScene=interactiveScene();mouseScene.render(mouseScene.set);const mouseButton=mouseScene.primary.children.at(-1),mouseEvent={pointerType:"mouse",target:mouseButton,defaultPrevented:false,preventDefault(){this.defaultPrevented=true;}};
+  mouseScene.preventFocusLoss(mouseEvent);assert.equal(mouseEvent.defaultPrevented,true,"mouse selection keeps the composer stable");mouseScene.finishPointer({type:"pointerup"});mouseButton.click();assert.equal(mouseScene.input.value,"Polished prompt","mouse still chooses in one click");
   assert.match(runtime,/canvasAgentPromptSuggestions\?\.addEventListener\("pointerup",canvasAgentFinishPromptSuggestionPointer\)/);
   assert.match(runtime,/canvasAgentPromptSuggestions\?\.addEventListener\("pointercancel",canvasAgentFinishPromptSuggestionPointer\)/);
 });

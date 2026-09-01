@@ -502,7 +502,7 @@
         button.append(icon,copy);
         button.setAttribute("title",titleText);
         button.setAttribute("aria-label",`${titleText}: ${prompt}`);
-        button.addEventListener("click",()=>canvasAgentChoosePromptSuggestion(suggestion.prompt));
+        button.addEventListener("click",event=>canvasAgentActivatePromptSuggestion(suggestion.prompt,event));
         list.append(button);
       }
     };
@@ -514,17 +514,29 @@
     canvasAgentPromptSuggestions.setAttribute("aria-label",t("canvasAgentPromptSuggestions"));
     canvasAgentSetPromptSuggestionsExpanded(canvasAgent.promptSuggestionsExpanded);
   }
+  function canvasAgentClearPromptSuggestionPointer() {
+    if(canvasAgent.promptSuggestionPointerClearTimer)clearTimeout(canvasAgent.promptSuggestionPointerClearTimer);
+    canvasAgent.promptSuggestionPointerClearTimer=0;
+    canvasAgent.promptSuggestionPointerType="";
+    canvasAgent.promptSuggestionPointerButton=null;
+  }
   function canvasAgentPreventPromptSuggestionFocusLoss(event) {
     const button=event.target?.closest?.("button");
     if(!button)return;
+    canvasAgentClearPromptSuggestionPointer();
+    canvasAgent.promptSuggestionPointerType=event.pointerType||"";
+    canvasAgent.promptSuggestionPointerButton=button;
+    canvasAgent.promptSuggestionPointerActive=event.pointerType==="touch"||event.pointerType==="pen";
     if(event.pointerType==="mouse"&&button!==canvasAgentPromptToggle){event.preventDefault();return;}
-    if(event.pointerType==="touch"||event.pointerType==="pen"){
-      canvasAgent.promptSuggestionPointerActive=true;
+    if(canvasAgent.promptSuggestionPointerActive){
       try{button.focus({preventScroll:true});}catch{button.focus();}
     }
   }
-  function canvasAgentFinishPromptSuggestionPointer() {
+  function canvasAgentFinishPromptSuggestionPointer(event) {
     canvasAgent.promptSuggestionPointerActive=false;
+    if(event?.type==="pointercancel"){canvasAgentClearPromptSuggestionPointer();return;}
+    if(canvasAgent.promptSuggestionPointerClearTimer)clearTimeout(canvasAgent.promptSuggestionPointerClearTimer);
+    canvasAgent.promptSuggestionPointerClearTimer=setTimeout(canvasAgentClearPromptSuggestionPointer,700);
   }
   function canvasAgentPromptSuggestionsAvailable() {
     return Boolean(canvasAgentPromptSuggestions
@@ -559,7 +571,8 @@
       canvasAgentSyncInputHint();
     }
   }
-  function canvasAgentExpandPromptSuggestionsOnPointerEnter() {
+  function canvasAgentExpandPromptSuggestionsOnPointerEnter(event) {
+    if(event?.pointerType==="touch"||event?.pointerType==="pen")return;
     if(!canvasAgent.promptSuggestionsCollapsedAll&&!canvasAgentPromptNeedsManualExpansion())canvasAgentSetPromptSuggestionsExpanded(true,{manual:false});
   }
   function canvasAgentCollapsePromptSuggestionsOnPointerLeave() {
@@ -598,6 +611,16 @@
     canvasAgentInput.focus();
     canvasAgentInput.setSelectionRange?.(canvasAgentInput.value.length,canvasAgentInput.value.length);
     return true;
+  }
+  function canvasAgentActivatePromptSuggestion(promptKey,event) {
+    const button=event?.currentTarget||event?.target?.closest?.("button"),
+      pointerType=event?.pointerType||(button===canvasAgent.promptSuggestionPointerButton?canvasAgent.promptSuggestionPointerType:"");
+    canvasAgentClearPromptSuggestionPointer();
+    if((pointerType==="touch"||pointerType==="pen")&&canvasAgentPrimaryPromptList?.contains(button)){
+      canvasAgentSetPromptSuggestionsExpanded(true,{manual:true,collapseAll:false});
+      return false;
+    }
+    return canvasAgentChoosePromptSuggestion(promptKey);
   }
   function canvasAgentUpdateConnectionButton() {
     if(!canvasAgentConnectionButton||!canvasAgentConnectionLabel)return;
@@ -1812,7 +1835,7 @@
   function canvasAgentMaximumPanelWidth() {
     if (canvasAgentDockedPanel()) {
       const navigatorReserve=Math.max(0,parseFloat(getComputedStyle(canvasAgentFrame).getPropertyValue("--studio-navigator-edge-shift"))||0);
-      return Math.max(CANVAS_AGENT_WIDTH_MIN,Math.min(640,canvasAgentFrame.clientWidth-16-navigatorReserve));
+      return Math.max(CANVAS_AGENT_WIDTH_MIN,Math.min(canvasAgentFrame.clientWidth*0.5,canvasAgentFrame.clientWidth-16-navigatorReserve));
     }
     return Math.max(CANVAS_AGENT_WIDTH_MIN,view.clientWidth-16);
   }
@@ -1884,18 +1907,19 @@
     canvasAgentSyncResizeHandleValues();
     return vertical?height:width;
   }
-  function canvasAgentPanelPointerCanManipulate(event) {
-    if (event.pointerType==="touch") return false;
+  function canvasAgentPanelPointerCanManipulate(event,allowTouch=false) {
+    if (event.pointerType==="touch") return allowTouch&&event.isPrimary!==false&&(event.button===0||(Number(event.buttons)&1)===1);
     if (event.pointerType==="pen") return event.button===0||(Number(event.buttons)&1)===1;
     return event.button===0;
   }
   function canvasAgentBeginPanelResize(event) {
-    if (canvasAgentCompactPanel()||!canvasAgentPanelPointerCanManipulate(event)) return;
-    const edge=event.currentTarget.dataset.edge, vertical=edge==="top"||edge==="bottom", point=canvasClientPosition(event.clientX,event.clientY);
-    if (canvasAgentDockedPanel() && edge!=="left") return;
+    const edge=event.currentTarget.dataset.edge,docked=canvasAgentDockedPanel();
+    if (canvasAgentCompactPanel()||!canvasAgentPanelPointerCanManipulate(event,docked&&edge==="left")) return;
+    const vertical=edge==="top"||edge==="bottom", point=canvasClientPosition(event.clientX,event.clientY);
+    if (docked && edge!=="left") return;
     canvasAgent.panelResize={pointerId:event.pointerId,edge,vertical,startCoordinate:vertical?point.y:point.x,startSize:vertical?canvasAgentPanel.offsetHeight:canvasAgentPanel.offsetWidth,anchor:canvasAgentResizeAnchor(),handle:event.currentTarget};
     canvasAgentPanel.classList.add("resizing",`resizing-${edge}`);
-    if (canvasAgentDockedPanel()) canvasAgentFrame.classList.add("canvas-agent-resizing");
+    if (docked) canvasAgentFrame.classList.add("canvas-agent-resizing");
     event.currentTarget.setPointerCapture?.(event.pointerId);
     event.preventDefault();
     event.stopPropagation();

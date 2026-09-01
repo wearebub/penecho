@@ -382,7 +382,7 @@ test("hand mode exposes one focused object toolbar, drags from its surface, and 
   assert.deepEqual({ ...chromePosition({ x:100, y:100, w:300, h:260 }, "toolbar", "", { objectToolbar:true, minimumWidth:100, baseHeight:34 }) }, { x:100, y:-114, scale:1, baseWidth:300, baseHeight:34 });
   assert.doesNotMatch(app, /function drawHandModeOutlines\(/);
   const handToolbarOutlines = functionSource(app, "drawHandObjectToolbarOutlines");
-  assert.match(handToolbarOutlines, /state\.mode !== "hand"[\s\S]*?state\.handToolbarTargets\.values\(\)[\s\S]*?if \(!record\.expanded \|\| record\.kind === "widget"\) continue[\s\S]*?imageBox\(object\)[\s\S]*?animationBox\(object\)[\s\S]*?textBoxBox\(object\)[\s\S]*?strokeRect/);
+  assert.match(handToolbarOutlines, /state\.mode !== "hand"[\s\S]*?state\.handToolbarTargets\.values\(\)[\s\S]*?if \(!record\.expanded \|\| record\.kind === "widget"\) continue[\s\S]*?imageBox\(object\)[\s\S]*?animationBox\(object\)[\s\S]*?textBoxBox\(object\)[\s\S]*?record\.kind === "image" \? state\.paint\.border \|\| "#d8dbe2" : "rgba\(38, 121, 184, 0\.42\)"[\s\S]*?strokeRect/);
   assert.doesNotMatch(handToolbarOutlines, /widgetBox\(object\)/);
   assert.match(functionSource(app, "renderInteractionLayer"), /drawHandObjectToolbarOutlines\(interactionCtx\)/);
   assert.match(chromeSpecs, /for \(const \[key, record\] of state\.handToolbarTargets\)/);
@@ -1606,8 +1606,8 @@ test("live widgets use native canvas chrome, state-aware iframe gestures, and th
   assert.match(functionSource(app, "mountWidget"), /createWidgetResizeHandle\(widget, "width"\)[\s\S]*?createWidgetResizeHandle\(widget, "height"\)[\s\S]*?createWidgetResizeHandle\(widget, "resize"\)/);
   assert.match(functionSource(app, "positionWidget"), /--widget-resize-edge-x[\s\S]*?--widget-resize-edge-y[\s\S]*?--widget-resize-corner-x[\s\S]*?--widget-resize-corner-y/);
   assert.match(css, /\.canvas-widget-resize-handle\s*\{[^}]*pointer-events:\s*none;[^}]*touch-action:\s*none;/);
-  assert.match(css, /#viewport\.hand-mode:not\(\.view-mode\) \.canvas-widget-resize-handle\s*\{[^}]*pointer-events:\s*auto;/);
-  assert.doesNotMatch(css, /\.canvas-widget\.is-selected \.canvas-widget-resize-handle\s*\{[^}]*pointer-events:\s*auto;/);
+  assert.match(css, /#viewport\.hand-mode:not\(\.view-mode\) \.canvas-widget:is\(\.is-selected, \.pending\) \.canvas-widget-resize-handle\s*\{[^}]*pointer-events:\s*auto;/);
+  assert.doesNotMatch(css, /#viewport\.hand-mode:not\(\.view-mode\) >?\s*\.canvas-widget-resize-handle\s*\{[^}]*pointer-events:\s*auto;/);
   assert.match(css, /\.canvas-widget-resize-handle\.width\s*\{[^}]*cursor:\s*ew-resize;/);
   assert.match(css, /\.canvas-widget-resize-handle\.height\s*\{[^}]*cursor:\s*ns-resize;/);
   assert.match(css, /\.canvas-widget-resize-handle\.corner\s*\{[^}]*cursor:\s*nwse-resize;/);
@@ -1628,6 +1628,9 @@ test("live widgets use native canvas chrome, state-aware iframe gestures, and th
   assert.match(messageHandler, /validWidgetHostTouch\(message\)[\s\S]*?beginWidgetHostTouch\(widget, message\)[\s\S]*?updateWidgetHostTouch\(widget, message\)[\s\S]*?finishWidgetHostTouch\(widget, message\)/);
   assert.doesNotMatch(messageHandler, /validWidgetHostNavigation|handleWidgetHostNavigation/);
   assert.match(messageHandler, /validWidgetHostActivate\(message\)[\s\S]*?handObjectToolbarTargetFromWidgetMessage\(widget, message\)[\s\S]*?showHandObjectToolbar\(target\.kind, target\.object\)[\s\S]*?bringHtmlWidgetToFront\(target\.object\)/);
+  const beginResize = functionSource(app, "beginHandObjectResize");
+  assert.match(beginResize, /event\.pointerType === "touch"[\s\S]*?pendingHit[\s\S]*?beginPendingGesture[\s\S]*?widgetPointerHit\(point, event\.pointerType, false\)[\s\S]*?beginWidgetGesture[\s\S]*?imagePointerHit\(point, event\.pointerType, false\)[\s\S]*?beginImageGesture[\s\S]*?animationPointerHit\(point, event\.pointerType\)[\s\S]*?beginAnimationGesture/);
+  assert.match(pointerDown, /state\.pointers\.set[\s\S]*?beginHandObjectResize\(e, handPoint\)[\s\S]*?handObjectToolbarTargetAtPoint\(handPoint\)[\s\S]*?beginHandObjectFocus\(e, handPoint\)/);
   assert.match(pointerMove, /Number\(e\.buttons\) === 0[\s\S]*?syncWidgetResizeCursor\(point, e\.pointerType\)/);
   assert.match(functionSource(widgetHost, "controlHit"), /rightDistance[\s\S]*?bottomDistance[\s\S]*?return "resize"[\s\S]*?return "width"[\s\S]*?return "height"/);
   assert.match(widgetHost, /RESIZE_CURSOR_CLASSES = \["penecho-widget-resize-width", "penecho-widget-resize-height", "penecho-widget-resize-corner"\]/);
@@ -2130,7 +2133,8 @@ test("widget AI refinement is discoverable near ink and replaces only its locked
   assert.match(read("public/style.css"), /body\[data-theme="studio"\] \.object-chrome-button\.widget-chrome-control\.widget-tool \{[^}]*border-style: solid;[^}]*border-radius: 8px/);
   assert.match(read("public/style.css"), /#viewport \.canvas-widget:is\(\.is-selected, \.object-toolbar-attached\), #viewport \.canvas-image-selection \{[^}]*border-radius: 0 0 7px 7px;[^}]*background: transparent;[^}]*box-shadow: none;[^}]*backdrop-filter: none/);
   assert.doesNotMatch(read("public/style.css"), /#viewport \.canvas-widget\.is-selected::after[^\{]*\{[^}]*outline:/);
-  assert.match(read("public/style.css"), /#viewport \.canvas-image-selection::after \{[^}]*outline: 1px solid color-mix\(in srgb, var\(--studio-accent,[^)]+\) 46%, transparent\)[^}]*background: transparent;/);
+  assert.match(read("public/style.css"), /#viewport \.canvas-image-selection::after,[\s\S]*?#viewport \.canvas-widget\.object-toolbar-attached::after \{[^}]*opacity: 1;[^}]*border: 1px solid var\(--line\);[^}]*border-top-color: transparent;[^}]*background: transparent;/);
+  assert.match(read("public/style.css"), /body\[data-theme="studio"\] #viewport \.canvas-image-selection::after,[\s\S]*?body\[data-theme="studio"\] #viewport \.canvas-widget\.object-toolbar-attached::after \{[^}]*border-color: var\(--studio-line\);[^}]*border-top-color: transparent;/);
   assert.doesNotMatch(read("public/style.css").match(/#viewport \.canvas-image-selection::after \{[^}]*\}/)?.[0] || "", /backdrop-filter|filter:/);
   assert.match(read("public/style.css"), /\.object-chrome-button\.widget-tool\.icon-only \{[^}]*gap: 0;[^}]*padding: 0;/);
   assert.doesNotMatch(functionSource(app, "createObjectChromeButton"), /object-chrome-label/);
@@ -2208,6 +2212,8 @@ test("selected Widget chrome uses one top toolbar and follows Studio glass token
   assert.match(functionSource(app, "drawWidgetChrome"), /state\.paint\.accent \|\| "#4f46e5"/);
   assert.match(css, /\.widget-layer \{[^}]*overflow: clip;/);
   assert.match(css, /\.selected-widget-material \{[^}]*outline: 0;[^}]*background: color-mix\(in srgb, var\(--panel-raised, #ffffff\) 14%, transparent\);[^}]*backdrop-filter: saturate\(1\.08\) blur\(8px\)[^}]*clip-path: polygon[^}]*drop-shadow\(0 4px 8px color-mix\(in srgb, var\(--studio-chrome-shadow-color/);
+  assert.match(css, /\.object-toolbar-shell\) \{[^}]*border: 1px solid var\(--line\);[^}]*border-bottom: 0;/);
+  assert.match(css, /body\[data-theme="studio"\] :is\(#pe-button-contract, \.object-toolbar-shell\) \{[^}]*border-color: var\(--studio-line\);/);
   assert.match(css, /object-toolbar-surface\.widget-object-toolbar\)[^{]*\{[^}]*border-color: var\(--line\);[^}]*border-bottom-color: transparent;[^}]*background: transparent;[^}]*box-shadow: none;[^}]*backdrop-filter: none/);
   assert.match(css, /body\[data-theme="studio"\][^{]*object-toolbar-surface\.widget-object-toolbar\)[^{]*\{[^}]*border-color: var\(--studio-line\);[^}]*border-bottom-color: transparent/);
   assert.match(css, /object-toolbar-surface\.widget-object-toolbar\):focus-visible \{[^}]*border-color: var\(--studio-accent, #4f46e5\);[^}]*border-bottom-color: transparent/);
@@ -2216,7 +2222,7 @@ test("selected Widget chrome uses one top toolbar and follows Studio glass token
   assert.doesNotMatch(selectedWidgetRule, /blur\(/);
   assert.doesNotMatch(css, /#viewport \.canvas-widget\.is-selected::after[^\{]*\{[^}]*outline:/);
   assert.doesNotMatch(css.match(/#viewport \.canvas-image-selection::after \{[^}]*\}/)?.[0] || "", /backdrop-filter|filter:/);
-  assert.match(css, /#viewport \.canvas-widget\.object-toolbar-attached::after \{ opacity: 0; \}/);
+  assert.match(css, /#viewport \.canvas-image-selection::after,[\s\S]*?#viewport \.canvas-widget\.object-toolbar-attached::after \{[^}]*opacity: 1;[^}]*border: 1px solid var\(--line\);[^}]*border-top-color: transparent/);
   assert.match(css, /#viewport \.canvas-widget\.object-toolbar-attached \.canvas-widget-frame \{ opacity: \.72; mix-blend-mode: multiply; \}/);
   assert.match(functionSource(app, "syncSelectedWidgetMaterial"), /selectedWidgetMaterial\.hidden = true[\s\S]*?syncCanvasObjectLayerOrder\(\)[\s\S]*?widgetStackIndex = state\.widgets\.length[\s\S]*?spec\.object\.styleRule\.style\.zIndex = String\(widgetStackIndex\)[\s\S]*?--selected-widget-material-x[\s\S]*?--selected-widget-material-height[\s\S]*?--selected-widget-body-width/);
 });

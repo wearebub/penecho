@@ -246,7 +246,7 @@ test("PenEcho Agent dismisses the virtual keyboard after every successful send",
   assert.match(submit,/if\(focusComposerAfterSubmit\)\(canvasAgent\.inputMode==="ink"\?canvasAgentInkCanvas:canvasAgentInput\)\.focus\(\)/);
 });
 
-test("PenEcho Agent panel movement and edge resizing accept a pen tip",()=>{
+test("PenEcho Agent panel movement and edge resizing accept pen and scoped touch input",()=>{
   const source=read("src/client/app/canvas-agent-runtime.js"),css=read("public/style.css"),pointerCanManipulate=vm.runInNewContext(`(()=>{${functionSource(source,"canvasAgentPanelPointerCanManipulate")}return canvasAgentPanelPointerCanManipulate;})()`);
   assert.equal(pointerCanManipulate({pointerType:"pen",button:0,buttons:1}),true);
   assert.equal(pointerCanManipulate({pointerType:"pen",button:-1,buttons:1}),true);
@@ -254,9 +254,33 @@ test("PenEcho Agent panel movement and edge resizing accept a pen tip",()=>{
   assert.equal(pointerCanManipulate({pointerType:"mouse",button:0,buttons:1}),true);
   assert.equal(pointerCanManipulate({pointerType:"mouse",button:2,buttons:2}),false);
   assert.equal(pointerCanManipulate({pointerType:"touch",button:0,buttons:1}),false);
-  assert.match(functionSource(source,"canvasAgentBeginPanelResize"),/canvasAgentPanelPointerCanManipulate\(event\)/);
+  assert.equal(pointerCanManipulate({pointerType:"touch",button:0,buttons:1,isPrimary:true},true),true);
+  assert.equal(pointerCanManipulate({pointerType:"touch",button:0,buttons:1,isPrimary:false},true),false);
+  assert.match(functionSource(source,"canvasAgentBeginPanelResize"),/const edge=event\.currentTarget\.dataset\.edge,docked=canvasAgentDockedPanel\(\)[\s\S]*?canvasAgentPanelPointerCanManipulate\(event,docked&&edge==="left"\)/);
   assert.match(functionSource(source,"canvasAgentBeginPanelDrag"),/canvasAgentPanelPointerCanManipulate\(event\)/);
+  assert.match(css,/body\[data-theme="studio"\]\.studio-agent-docked \.canvas-agent-resize-edge\.left\s*\{[^}]*left: -5px;[^}]*width: 23px/);
+  assert.match(css,/body\[data-theme="studio"\]\.studio-agent-docked \.canvas-agent-resize-edge\.left::after\s*\{[^}]*left: 4px;[^}]*width: 1px/);
   assert.match(css,/@media \(min-width: 701px\) and \(pointer: coarse\) and \(any-pointer: fine\)\s*\{\s*\.canvas-agent-resize-edge \{ display: block; \}\s*\}/);
+  assert.match(css,/@media \(min-width: 701px\) and \(any-pointer: coarse\)\s*\{[\s\S]*?body\[data-theme="studio"\]\.studio-agent-docked \.canvas-agent-resize-edge\.left\s*\{[^}]*display: block;[^}]*width: 49px/);
+});
+
+test("PenEcho Agent docked width can grow to half the page",()=>{
+  const source=read("src/client/app/canvas-agent-runtime.js"),css=read("public/style.css"),maximumWidthSource=functionSource(source,"canvasAgentMaximumPanelWidth"),widthState={docked:true},context={
+    CANVAS_AGENT_WIDTH_MIN:360,
+    canvasAgentFrame:{clientWidth:2000},
+    view:{clientWidth:1200},
+    canvasAgentDockedPanel:()=>widthState.docked,
+    getComputedStyle(){return {getPropertyValue(){return "0";}};},
+  },maximumWidth=vm.runInNewContext(`(()=>{${maximumWidthSource}return canvasAgentMaximumPanelWidth;})()`,context);
+  assert.equal(maximumWidth(),1000);
+  context.canvasAgentFrame.clientWidth=800;
+  assert.equal(maximumWidth(),400);
+  context.canvasAgentFrame.clientWidth=701;
+  assert.equal(maximumWidth(),360);
+  widthState.docked=false;
+  assert.equal(maximumWidth(),1184);
+  assert.doesNotMatch(maximumWidthSource,/640/);
+  assert.match(css,/--studio-agent-width: clamp\(360px, var\(--canvas-agent-width, 390px\), min\(calc\(100% - 16px - var\(--studio-navigator-edge-shift\)\), 50%\)\)/);
 });
 
 const DIRECT_HARNESS_DEPENDENCIES = [

@@ -2901,7 +2901,6 @@
     if (state.mode !== "hand" || !state.handToolbarTargets.size) return;
     const unit = 1 / state.scale;
     context.save();
-    context.strokeStyle = "rgba(38, 121, 184, 0.42)";
     context.lineWidth = unit;
     for (const record of state.handToolbarTargets.values()) {
       if (!record.expanded || record.kind === "widget") continue;
@@ -2912,6 +2911,7 @@
           : null);
       if (!box) continue;
       context.globalAlpha = record.hiding ? .28 : 1;
+      context.strokeStyle = record.kind === "image" ? state.paint.border || "#d8dbe2" : "rgba(38, 121, 184, 0.42)";
       context.strokeRect(box.x, box.y, box.w, box.h);
     }
     context.restore();

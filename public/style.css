@@ -1545,16 +1545,18 @@ body[data-theme="scifi"] .canvas-navigation-lock:not(.locked):focus-visible { op
 .placed-content-layer { position: absolute; z-index: 2; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 .canvas-widget { position: absolute; top: 0; left: 0; contain: layout paint style; pointer-events: none; transform-origin: 0 0; transition: border-radius .18s ease-out, box-shadow .18s ease-out; }
 #viewport.widget-shadows .canvas-widget { border-radius: 7px; box-shadow: 0 1px 2px rgba(15, 23, 42, .2), 0 7px 16px rgba(15, 23, 42, .14), 0 22px 46px rgba(15, 23, 42, .12); }
-.canvas-widget::after, .canvas-image-selection::after { position: absolute; z-index: 1; inset: 0; content: ""; pointer-events: none; opacity: 0; border-radius: inherit; transition: opacity .18s ease-out; }
+.canvas-widget::after, .canvas-image-selection::after { position: absolute; z-index: 1; inset: 0; box-sizing: border-box; content: ""; pointer-events: none; opacity: 0; border-radius: inherit; transition: opacity .18s ease-out; }
 #viewport .canvas-widget:is(.is-selected, .object-toolbar-attached), #viewport .canvas-image-selection { overflow: hidden; border-radius: 0 0 7px 7px; background: transparent; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
-#viewport .canvas-image-selection::after { opacity: 1; outline: 1px solid color-mix(in srgb, var(--studio-accent, #4f46e5) 46%, transparent); outline-offset: -1px; background: transparent; }
-#viewport .canvas-widget.object-toolbar-attached::after { opacity: 0; }
+#viewport .canvas-image-selection::after,
+#viewport .canvas-widget.object-toolbar-attached::after { opacity: 1; border: 1px solid var(--line); border-top-color: transparent; background: transparent; }
+body[data-theme="studio"] #viewport .canvas-image-selection::after,
+body[data-theme="studio"] #viewport .canvas-widget.object-toolbar-attached::after { border-color: var(--studio-line); border-top-color: transparent; }
 .canvas-widget.widget-offscreen { visibility: hidden; }
 .canvas-widget-frame { display: block; width: 100%; height: 100%; pointer-events: none; color-scheme: light; touch-action: none; border: 0; background: transparent; opacity: 1; transition: opacity .18s cubic-bezier(.22, 1, .36, 1); }
 #viewport .canvas-widget.object-toolbar-attached .canvas-widget-frame { opacity: .72; mix-blend-mode: multiply; }
 #viewport.hand-mode .canvas-widget-frame { pointer-events: auto; cursor: default; }
 .canvas-widget-resize-handle { position: absolute; z-index: 3; pointer-events: none; touch-action: none; }
-#viewport.hand-mode:not(.view-mode) .canvas-widget-resize-handle { pointer-events: auto; }
+#viewport.hand-mode:not(.view-mode) .canvas-widget:is(.is-selected, .pending) .canvas-widget-resize-handle { pointer-events: auto; }
 .canvas-widget-resize-handle.width { top: 0; right: 0; bottom: 0; width: var(--widget-resize-edge-x, 14px); cursor: ew-resize; }
 .canvas-widget-resize-handle.height { right: 0; bottom: 0; left: 0; height: var(--widget-resize-edge-y, 14px); cursor: ns-resize; }
 .canvas-widget-resize-handle.corner { right: 0; bottom: 0; width: var(--widget-resize-corner-x, 18px); height: var(--widget-resize-corner-y, 18px); cursor: nwse-resize; }
@@ -2103,7 +2105,7 @@ body[data-theme="studio"].studio-toolbar-two-row .canvas-agent-toolbar-home {
 }
 
 /* Studio: the canvas owns the quiet center; chrome stays on the edges. */
-body[data-theme="studio"] .canvas-frame { --studio-navigator-width: 264px; --studio-agent-width: clamp(360px, var(--canvas-agent-width, 390px), min(calc(100% - 16px - var(--studio-navigator-edge-shift)), 640px)); --studio-agent-edge-shift: 0px; --studio-navigator-edge-shift: 0px; min-height: 0; padding: 0; overflow: hidden; border: 0; border-radius: 0; background: var(--outside); box-shadow: none; isolation: isolate; }
+body[data-theme="studio"] .canvas-frame { --studio-navigator-width: 264px; --studio-agent-width: clamp(360px, var(--canvas-agent-width, 390px), min(calc(100% - 16px - var(--studio-navigator-edge-shift)), 50%)); --studio-agent-edge-shift: 0px; --studio-navigator-edge-shift: 0px; min-height: 0; padding: 0; overflow: hidden; border: 0; border-radius: 0; background: var(--outside); box-shadow: none; isolation: isolate; }
 body[data-theme="studio"].studio-agent-docked.canvas-agent-open .canvas-frame { --studio-agent-edge-shift: calc(var(--studio-agent-width) - 4px); }
 @media (min-width: 1101px) {
   body[data-theme="studio"].studio-navigator-open .canvas-frame { --studio-navigator-edge-shift: var(--studio-navigator-width); }
@@ -3644,7 +3646,8 @@ body[data-theme="studio"] .canvas-frame.canvas-agent-resizing .canvas-agent-cont
   body[data-theme="studio"].studio-agent-docked .canvas-agent-resize-edge.top,
   body[data-theme="studio"].studio-agent-docked .canvas-agent-resize-edge.right,
   body[data-theme="studio"].studio-agent-docked .canvas-agent-resize-edge.bottom { display: none; }
-  body[data-theme="studio"].studio-agent-docked .canvas-agent-resize-edge.left { top: 0; bottom: 0; left: -5px; width: 10px; }
+  /* The panel clips the outer 5px, leaving an 18px inward resize hit area. */
+  body[data-theme="studio"].studio-agent-docked .canvas-agent-resize-edge.left { top: 0; bottom: 0; left: -5px; width: 23px; }
   body[data-theme="studio"].studio-agent-docked .canvas-agent-resize-edge.left::after { top: 0; bottom: 0; left: 4px; width: 1px; border-radius: 0; opacity: .38; }
   body[data-theme="studio"].studio-agent-docked .canvas-agent-transcript { padding-inline: 15px; }
   body[data-theme="studio"].studio-agent-docked .canvas-agent-head,
@@ -3662,6 +3665,11 @@ body[data-theme="studio"] .canvas-frame.canvas-agent-resizing .canvas-agent-cont
   body[data-theme="studio"].studio-agent-docked .canvas-agent-panel:has(.canvas-agent-prompt-popup:not([hidden])) .canvas-agent-empty > span:last-child { display: none; }
   body[data-theme="studio"].studio-agent-docked .canvas-agent-panel:has(.canvas-agent-prompt-popup:not([hidden])) .canvas-agent-empty strong { max-width: 280px; color: var(--studio-text); font-size: 14px; font-weight: 650; line-height: 1.35; }
   body.canvas-view-mode.studio-agent-docked .canvas-agent-panel { display: none !important; }
+}
+
+@media (min-width: 701px) and (any-pointer: coarse) {
+  /* The outer 5px stays clipped; touch receives a 44px inward hit area. */
+  body[data-theme="studio"].studio-agent-docked .canvas-agent-resize-edge.left { display: block; width: 49px; }
 }
 
 @media (prefers-reduced-motion: reduce) and (min-width: 701px) {
@@ -6077,7 +6085,7 @@ html.penecho-web-page-scale .canvas-agent-project-dialog {
 }
 :is(#pe-button-contract, .object-toolbar-shell) {
   color: var(--ink);
-  border: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
+  border: 1px solid var(--line);
   border-bottom: 0;
   border-radius: 7px 7px 0 0;
   background: color-mix(in srgb, var(--panel-raised) 88%, transparent);
@@ -6163,7 +6171,7 @@ html.penecho-web-page-scale .canvas-agent-project-dialog {
 }
 body[data-theme="studio"] :is(#pe-button-contract, .object-toolbar-shell) {
   color: var(--studio-text);
-  border-color: color-mix(in srgb, var(--studio-line) 82%, transparent);
+  border-color: var(--studio-line);
   background: color-mix(in srgb, var(--studio-panel) 88%, transparent);
   box-shadow: none;
 }

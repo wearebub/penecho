@@ -7363,7 +7363,6 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     if (state.mode !== "hand" || !state.handToolbarTargets.size) return;
     const unit = 1 / state.scale;
     context.save();
-    context.strokeStyle = "rgba(38, 121, 184, 0.42)";
     context.lineWidth = unit;
     for (const record of state.handToolbarTargets.values()) {
       if (!record.expanded || record.kind === "widget") continue;
@@ -7374,6 +7373,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
           : null);
       if (!box) continue;
       context.globalAlpha = record.hiding ? .28 : 1;
+      context.strokeStyle = record.kind === "image" ? state.paint.border || "#d8dbe2" : "rgba(38, 121, 184, 0.42)";
       context.strokeRect(box.x, box.y, box.w, box.h);
     }
     context.restore();
@@ -16584,7 +16584,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
         button.append(icon,copy);
         button.setAttribute("title",titleText);
         button.setAttribute("aria-label",`${titleText}: ${prompt}`);
-        button.addEventListener("click",()=>canvasAgentChoosePromptSuggestion(suggestion.prompt));
+        button.addEventListener("click",event=>canvasAgentActivatePromptSuggestion(suggestion.prompt,event));
         list.append(button);
       }
     };
@@ -16596,17 +16596,29 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     canvasAgentPromptSuggestions.setAttribute("aria-label",t("canvasAgentPromptSuggestions"));
     canvasAgentSetPromptSuggestionsExpanded(canvasAgent.promptSuggestionsExpanded);
   }
+  function canvasAgentClearPromptSuggestionPointer() {
+    if(canvasAgent.promptSuggestionPointerClearTimer)clearTimeout(canvasAgent.promptSuggestionPointerClearTimer);
+    canvasAgent.promptSuggestionPointerClearTimer=0;
+    canvasAgent.promptSuggestionPointerType="";
+    canvasAgent.promptSuggestionPointerButton=null;
+  }
   function canvasAgentPreventPromptSuggestionFocusLoss(event) {
     const button=event.target?.closest?.("button");
     if(!button)return;
+    canvasAgentClearPromptSuggestionPointer();
+    canvasAgent.promptSuggestionPointerType=event.pointerType||"";
+    canvasAgent.promptSuggestionPointerButton=button;
+    canvasAgent.promptSuggestionPointerActive=event.pointerType==="touch"||event.pointerType==="pen";
     if(event.pointerType==="mouse"&&button!==canvasAgentPromptToggle){event.preventDefault();return;}
-    if(event.pointerType==="touch"||event.pointerType==="pen"){
-      canvasAgent.promptSuggestionPointerActive=true;
+    if(canvasAgent.promptSuggestionPointerActive){
       try{button.focus({preventScroll:true});}catch{button.focus();}
     }
   }
-  function canvasAgentFinishPromptSuggestionPointer() {
+  function canvasAgentFinishPromptSuggestionPointer(event) {
     canvasAgent.promptSuggestionPointerActive=false;
+    if(event?.type==="pointercancel"){canvasAgentClearPromptSuggestionPointer();return;}
+    if(canvasAgent.promptSuggestionPointerClearTimer)clearTimeout(canvasAgent.promptSuggestionPointerClearTimer);
+    canvasAgent.promptSuggestionPointerClearTimer=setTimeout(canvasAgentClearPromptSuggestionPointer,700);
   }
   function canvasAgentPromptSuggestionsAvailable() {
     return Boolean(canvasAgentPromptSuggestions
@@ -16641,7 +16653,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       canvasAgentSyncInputHint();
     }
   }
-  function canvasAgentExpandPromptSuggestionsOnPointerEnter() {
+  function canvasAgentExpandPromptSuggestionsOnPointerEnter(event) {
+    if(event?.pointerType==="touch"||event?.pointerType==="pen")return;
     if(!canvasAgent.promptSuggestionsCollapsedAll&&!canvasAgentPromptNeedsManualExpansion())canvasAgentSetPromptSuggestionsExpanded(true,{manual:false});
   }
   function canvasAgentCollapsePromptSuggestionsOnPointerLeave() {
@@ -16680,6 +16693,16 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     canvasAgentInput.focus();
     canvasAgentInput.setSelectionRange?.(canvasAgentInput.value.length,canvasAgentInput.value.length);
     return true;
+  }
+  function canvasAgentActivatePromptSuggestion(promptKey,event) {
+    const button=event?.currentTarget||event?.target?.closest?.("button"),
+      pointerType=event?.pointerType||(button===canvasAgent.promptSuggestionPointerButton?canvasAgent.promptSuggestionPointerType:"");
+    canvasAgentClearPromptSuggestionPointer();
+    if((pointerType==="touch"||pointerType==="pen")&&canvasAgentPrimaryPromptList?.contains(button)){
+      canvasAgentSetPromptSuggestionsExpanded(true,{manual:true,collapseAll:false});
+      return false;
+    }
+    return canvasAgentChoosePromptSuggestion(promptKey);
   }
   function canvasAgentUpdateConnectionButton() {
     if(!canvasAgentConnectionButton||!canvasAgentConnectionLabel)return;
@@ -17894,7 +17917,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   function canvasAgentMaximumPanelWidth() {
     if (canvasAgentDockedPanel()) {
       const navigatorReserve=Math.max(0,parseFloat(getComputedStyle(canvasAgentFrame).getPropertyValue("--studio-navigator-edge-shift"))||0);
-      return Math.max(CANVAS_AGENT_WIDTH_MIN,Math.min(640,canvasAgentFrame.clientWidth-16-navigatorReserve));
+      return Math.max(CANVAS_AGENT_WIDTH_MIN,Math.min(canvasAgentFrame.clientWidth*0.5,canvasAgentFrame.clientWidth-16-navigatorReserve));
     }
     return Math.max(CANVAS_AGENT_WIDTH_MIN,view.clientWidth-16);
   }
@@ -17966,18 +17989,19 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     canvasAgentSyncResizeHandleValues();
     return vertical?height:width;
   }
-  function canvasAgentPanelPointerCanManipulate(event) {
-    if (event.pointerType==="touch") return false;
+  function canvasAgentPanelPointerCanManipulate(event,allowTouch=false) {
+    if (event.pointerType==="touch") return allowTouch&&event.isPrimary!==false&&(event.button===0||(Number(event.buttons)&1)===1);
     if (event.pointerType==="pen") return event.button===0||(Number(event.buttons)&1)===1;
     return event.button===0;
   }
   function canvasAgentBeginPanelResize(event) {
-    if (canvasAgentCompactPanel()||!canvasAgentPanelPointerCanManipulate(event)) return;
-    const edge=event.currentTarget.dataset.edge, vertical=edge==="top"||edge==="bottom", point=canvasClientPosition(event.clientX,event.clientY);
-    if (canvasAgentDockedPanel() && edge!=="left") return;
+    const edge=event.currentTarget.dataset.edge,docked=canvasAgentDockedPanel();
+    if (canvasAgentCompactPanel()||!canvasAgentPanelPointerCanManipulate(event,docked&&edge==="left")) return;
+    const vertical=edge==="top"||edge==="bottom", point=canvasClientPosition(event.clientX,event.clientY);
+    if (docked && edge!=="left") return;
     canvasAgent.panelResize={pointerId:event.pointerId,edge,vertical,startCoordinate:vertical?point.y:point.x,startSize:vertical?canvasAgentPanel.offsetHeight:canvasAgentPanel.offsetWidth,anchor:canvasAgentResizeAnchor(),handle:event.currentTarget};
     canvasAgentPanel.classList.add("resizing",`resizing-${edge}`);
-    if (canvasAgentDockedPanel()) canvasAgentFrame.classList.add("canvas-agent-resizing");
+    if (docked) canvasAgentFrame.classList.add("canvas-agent-resizing");
     event.currentTarget.setPointerCapture?.(event.pointerId);
     event.preventDefault();
     event.stopPropagation();
@@ -21659,6 +21683,35 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     dot(p, erasing, size, true);
     requestRender();
   }
+  function beginHandObjectResize(event, point) {
+    if (state.mode !== "hand" || event.pointerType === "touch" || Number(event.button) !== 0 || !point || !valid(point)) return false;
+    if (state.pending) {
+      const result = pendingHit(state.pending, event, state.pending.revealProgress < 1),
+        hit = typeof result === "string" ? result : result?.hit,
+        itemIndex = result && typeof result === "object" ? result.itemIndex : null;
+      if (["resize", "width", "height", "batch-resize"].includes(hit)) {
+        beginPendingGesture(event, hit, itemIndex);
+        return true;
+      }
+    }
+    const widgetResult = widgetRuntimeEnabled() ? widgetPointerHit(point, event.pointerType, false) : null;
+    if (widgetResult && ["resize", "width", "height"].includes(widgetResult.hit)) {
+      refreshHandObjectToolbar();
+      return beginWidgetGesture(event, point, widgetResult);
+    }
+    const imageResult = imagePointerHit(point, event.pointerType, false);
+    if (imageResult && ["resize", "width", "height"].includes(imageResult.hit)) {
+      if (state.selectedAnimationId) acceptAnimationEdit();
+      refreshHandObjectToolbar();
+      return beginImageGesture(event, point, imageResult);
+    }
+    const animationResult = animationPointerHit(point, event.pointerType);
+    if (animationResult && ["resize", "width", "height"].includes(animationResult.hit)) {
+      refreshHandObjectToolbar();
+      return beginAnimationGesture(event, point, animationResult);
+    }
+    return false;
+  }
   screen.addEventListener("pointerdown", (e) => {
     e.preventDefault();
     if (state.viewMode) {
@@ -21685,10 +21738,11 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     } catch {}
     calibrateScreenClientRatio(e, false);
     const penEraser = canvasPenEraserActive(e),
-      handPoint = !penEraser && state.mode === "hand" ? clientPoint(e) : null,
-      handTarget = handPoint ? handObjectToolbarTargetAtPoint(handPoint) : null;
+      handPoint = !penEraser && state.mode === "hand" ? clientPoint(e) : null;
     beginCanvasWidgetGestureResetTap(e, handPoint);
     state.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (handPoint && beginHandObjectResize(e, handPoint)) return;
+    const handTarget = handPoint ? handObjectToolbarTargetAtPoint(handPoint) : null;
     if (Number(e.button) === 0 && handTarget?.kind === "text-box" && editTextBox(handTarget.object)) return;
     if (handPoint) beginHandObjectFocus(e, handPoint);
     if (penEraser) {

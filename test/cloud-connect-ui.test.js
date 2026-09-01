@@ -1050,7 +1050,37 @@ test("Cloud Center uses History-style vertical navigation with Account and Link 
   assert.equal(explore.getAttribute("rel"), "noopener");
   const navigation = flatten(overlay).find((node) => node.className.includes("cloud-navigation"));
   assert.ok(navigation, "the Cloud Center keeps a dedicated navigation column");
-  assert.deepEqual(tablist.children.map((node) => node.getAttribute("data-cloud-section")), ["account", "device", "projects", "favorites", "echoes"]);
+  const libraryHeading = tablist.children.find((node) => node.className === "cloud-nav-heading");
+  assert.equal(libraryHeading?.textContent, "Library");
+  assert.equal(libraryHeading?.getAttribute("role"), "presentation");
+  assert.equal(tabs[2].getAttribute("data-nav-heading"), null, "the Library label must not live inside the selected Projects row");
+  assert.deepEqual(tablist.children.map((node) => node.getAttribute("data-cloud-section")), ["account", "device", null, "projects", "favorites", "echoes"]);
+});
+
+test("Link device navigation shows the live connection state with a semantic status dot", async () => {
+  const cases = [
+    ["connected", deviceStatus({ connected:true, state:"connected" }), "Connected"],
+    ["unconfigured", deviceStatus({ configured:false, enabled:false, connected:false, state:"disconnected", id:null, name:null }), "Not linked"],
+    ["failed", { ...deviceStatus({ connected:false, state:"waiting" }), lastError:"relay unavailable" }, "Connection failed"],
+    ["paused", deviceStatus({ enabled:false, connected:false, state:"disconnected" }), "Paused"],
+    ["connecting", deviceStatus({ enabled:true, connected:false, state:"connecting" }), "Connecting"],
+  ];
+  for (const [expectedState, status, expectedLabel] of cases) {
+    const run = boot({ status });
+    await run.flush();
+    const overlay = await openCloudCenter(run);
+    const deviceTab = flatten(overlay).find((node) => node.getAttribute("data-cloud-section") === "device");
+    const dot = flatten(deviceTab).find((node) => node.className === "cloud-device-status-dot");
+    assert.equal(dot?.getAttribute("data-state"), expectedState);
+    assert.equal(dot?.getAttribute("aria-label"), expectedLabel);
+    assert.equal(dot?.getAttribute("title"), expectedLabel);
+    if (status.device.configured) {
+      selectCloudSection(overlay, "device");
+      const pageState = flatten(overlay).find((node) => node.className === "cloud-device-state");
+      assert.equal(pageState?.getAttribute("data-state"), expectedState);
+      assert.equal(pageState?.textContent, expectedLabel);
+    }
+  }
 });
 
 test("Cloud Center preserves long account names in both the navigation and Account page", async () => {
@@ -1682,11 +1712,21 @@ test("Cloud Center uses a compact workbench shell and restores 44px coarse-point
   assert.match(cloudCss, /\.penecho-cloud-layout\s*\{[^}]*grid-template-columns:\s*var\(--penecho-workbench-navigation-w\) minmax\(0, 1fr\)/);
   assert.match(cloudCss, /\.cloud-navigation\s*\{[^}]*border-right:\s*1px solid var\(--ai-line\)[^}]*display:\s*flex/);
   assert.match(cloudCss, /\.cloud-section-tabs\s*\{[^}]*flex-direction:\s*column/);
+  assert.match(cloudCss, /\.cloud-section-tabs\s*\{[^}]*gap:\s*4px/);
   assert.match(cloudCss, /\.cloud-section-tab-device\s*\{[^}]*margin-top:\s*auto/);
+  assert.match(cloudCss, /\.cloud-section-tab-device\s*\{[^}]*grid-template-columns:\s*16px minmax\(0, 1fr\) 8px/);
+  assert.match(cloudCss, /\.cloud-nav-heading\s*\{[^}]*grid-column:\s*1 \/ -1[^}]*margin:\s*9px 9px 1px/);
+  assert.match(cloudCss, /@media \(min-width:\s*821px\)[\s\S]*?\.cloud-section-tab:where\([\s\S]*?\[data-cloud-section="projects"\][\s\S]*?--pe-menu-item-h:\s*30px/);
+  assert.match(cloudCss, /@media \(min-width:\s*821px\)[\s\S]*?\.cloud-nav-icon\s*\{[^}]*width:\s*14px[^}]*height:\s*14px[^}]*margin-top:\s*0/);
+  assert.match(cloudCss, /@media \(min-width:\s*821px\)[\s\S]*?\.cloud-nav-copy strong\s*\{[^}]*font-size:\s*12\.5px[^}]*font-weight:\s*500[^}]*line-height:\s*var\(--pe-menu-item-h\)/);
   assert.match(cloudCss, /\.cloud-workspace > \.penecho-cloud-panel\s*\{[^}]*max-width:\s*55rem/);
   assert.match(cloudCss, /\.cloud-section-tab\s*\{[^}]*min-height:\s*var\(--pe-menu-item-h\)/);
   assert.match(cloudCss, /\.cloud-section-tab\.active\s*\{[^}]*background:\s*var\(--pe-selected, var\(--ai-accent-soft\)\)[^}]*color:\s*var\(--pe-accent-label, var\(--ai-ink\)\)/);
   assert.match(cloudCss, /\.cloud-section-tab\.active \.cloud-nav-icon\s*\{[^}]*color:\s*var\(--ai-accent\)/);
+  assert.match(cloudCss, /\.cloud-device-status-dot\[data-state="connected"\]\s*\{[^}]*background:\s*var\(--pe-success, #277a4c\)/);
+  assert.match(cloudCss, /\.cloud-device-status-dot\[data-state="unconfigured"\]\s*\{[^}]*background:\s*var\(--pe-ink-3, #737b88\)/);
+  assert.match(cloudCss, /\.cloud-device-status-dot\[data-state="failed"\]\s*\{[^}]*background:\s*var\(--pe-danger, #b4232c\)/);
+  assert.match(cloudCss, /\.cloud-device-status-dot\[data-state="paused"\]\s*\{[^}]*background:\s*var\(--pe-warning, #9a5b12\)/);
   assert.match(cloudCss, /\.cloud-nav-meta\s*\{[^}]*overflow:\s*hidden[^}]*text-overflow:\s*ellipsis[^}]*white-space:\s*nowrap/);
   assert.match(cloudCss, /\.cloud-account-name\s*\{[^}]*overflow-wrap:\s*anywhere[^}]*white-space:\s*normal/);
   assert.match(cloudCss, /\.cloud-settings-group\s*\{[^}]*border:\s*1px solid var\(--ai-line\)[^}]*border-radius:\s*\.625rem/);
@@ -1727,6 +1767,7 @@ test("Cloud Center keeps narrow layouts and theme contrast token-driven", () => 
   assert.match(cloudCss, /\.penecho-cloud-layout > \*, \.penecho-cloud-panel > \*, \.cloud-workspace > \*\s*\{\s*min-width:\s*0/);
   assert.match(cloudCss, /@media \(max-width:\s*760px\)[\s\S]*?\.penecho-cloud-layout\s*\{[^}]*grid-template-columns:\s*1fr[^}]*grid-template-rows:\s*auto minmax\(0, 1fr\)/);
   assert.match(cloudCss, /@media \(max-width:\s*760px\)[\s\S]*?\.cloud-section-tabs\s*\{[^}]*flex-direction:\s*row[^}]*overflow-x:\s*auto/);
+  assert.match(cloudCss, /@media \(max-width:\s*820px\)[\s\S]*?\.cloud-nav-heading\s*\{[^}]*display:\s*none/);
   assert.match(cloudCss, /@media \(max-width:\s*760px\)[\s\S]*?\.cloud-project-toolbar\s*\{[^}]*grid-template-columns:\s*1fr/);
   assert.match(cloudCss, /\.cloud-field input, \.cloud-field select, \.cloud-field textarea\s*\{\s*max-width:\s*100%;\s*min-width:\s*0/);
   assert.match(cloudCss, /--cloud-link:\s*var\(--ai-accent\)/);

@@ -119,16 +119,15 @@
 .cloud-navigation { --pe-menu-item-h: var(--penecho-workbench-menu-item-h); background: color-mix(in srgb, var(--studio-toolbar, #eef0f2) 68%, transparent); border-right: 1px solid var(--ai-line); display: flex; flex-direction: column; min-height: 0; overflow: hidden auto; padding: 13px 11px; -webkit-backdrop-filter: blur(24px) saturate(1.14); backdrop-filter: blur(24px) saturate(1.14); }
 .cloud-center .cloud-navigation { --penecho-workbench-menu-item-h: 2.25rem; }
 .cloud-section-toolbar { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; position: relative; }
-.cloud-section-tabs { display: grid; flex: 1 1 auto; align-content: start; flex-direction: column; gap: .125rem; min-height: 0; min-width: 0; }
+.cloud-section-tabs { display: grid; flex: 1 1 auto; align-content: start; flex-direction: column; gap: 4px; min-height: 0; min-width: 0; }
 .cloud-section-tab { align-items: center; background: transparent; border: 0; border-radius: 5px; color: var(--ai-muted); cursor: pointer; display: grid; flex: 0 0 auto; font: inherit; gap: 7px; grid-template-columns: 16px minmax(0, 1fr); justify-content: initial; min-height: var(--pe-menu-item-h); min-width: 0; padding: 0 7px; text-align: left; text-decoration: none; transition: background-color 180ms cubic-bezier(.22, 1, .36, 1), color 180ms cubic-bezier(.22, 1, .36, 1); width: 100%; }
 .cloud-section-tab-account, .cloud-section-tab-device { --pe-menu-item-h: 44px; align-items: center; min-height: 44px; padding-block: 5px; }
 :is(.cloud-section-tab-account, .cloud-section-tab-device) .cloud-nav-copy { display: grid; gap: 1px; align-content: center; }
 :is(.cloud-section-tab-account, .cloud-section-tab-device) .cloud-nav-copy strong { line-height: 1.3; }
 :is(.cloud-section-tab-account, .cloud-section-tab-device) .cloud-nav-meta { max-width: none; font-size: 11.5px; line-height: 1.3; }
-.cloud-section-tab-device { margin-top: auto; }
+.cloud-section-tab-device { grid-template-columns: 16px minmax(0, 1fr) 8px; margin-top: auto; }
 .cloud-section-tab { min-height: 2.25rem; }
-.cloud-section-tab[data-nav-heading]::before { grid-column: 1 / -1; margin: 9px 1px 1px; color: var(--ai-faint); content: attr(data-nav-heading); font: 500 11.5px/1.2 var(--ai-font); letter-spacing: .02em; }
-:is(#pe-button-contract, .cloud-section-tab[data-nav-heading]) { height: auto; }
+.cloud-nav-heading { grid-column: 1 / -1; margin: 9px 9px 1px; color: var(--ai-faint); font: 500 11.5px/1.2 var(--ai-font); letter-spacing: .02em; }
 .cloud-nav-icon { background: currentColor; flex: 0 0 1rem; height: 1rem; margin-top: .0625rem; opacity: .78; -webkit-mask: var(--cloud-nav-icon) center / contain no-repeat; mask: var(--cloud-nav-icon) center / contain no-repeat; width: 1rem; }
 .cloud-section-tab[data-cloud-section="account"] { --cloud-nav-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='8' r='4'/%3E%3Cpath d='M4.5 21a7.5 7.5 0 0 1 15 0'/%3E%3C/svg%3E"); }
 .cloud-section-tab[data-cloud-section="projects"] { --cloud-nav-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 7h7l2 2h9v10H3Z'/%3E%3Cpath d='M3 7V5h7l2 2'/%3E%3C/svg%3E"); }
@@ -141,6 +140,11 @@
 .cloud-section-tab.active { background: var(--pe-selected, var(--ai-accent-soft)); color: var(--pe-accent-label, var(--ai-ink)); }
 .cloud-section-tab.active .cloud-nav-icon { color: var(--ai-accent); opacity: 1; }
 .cloud-section-tab:hover:not(.active) { background: var(--ai-hover); color: var(--ai-ink); }
+.cloud-device-status-dot { align-self: center; background: var(--ai-accent); border-radius: 50%; height: 8px; justify-self: end; width: 8px; }
+.cloud-device-status-dot[data-state="connected"] { background: var(--pe-success, #277a4c); }
+.cloud-device-status-dot[data-state="unconfigured"] { background: var(--pe-ink-3, #737b88); }
+.cloud-device-status-dot[data-state="failed"] { background: var(--pe-danger, #b4232c); }
+.cloud-device-status-dot[data-state="paused"] { background: var(--pe-warning, #9a5b12); }
 .penecho-cloud-dialog .cloud-section-tab:focus-visible { outline-offset: 0; }
 .cloud-explore-link { margin-top: 0; }
 .cloud-section-refresh-indicator { color: var(--ai-accent); display: grid; height: 1.5rem; place-items: center; pointer-events: none; position: absolute; right: .35rem; top: .375rem; width: 1.5rem; }
@@ -189,8 +193,10 @@
 .cloud-device-name { overflow-wrap: anywhere; white-space: normal; }
 .cloud-device-state { align-items: center; display: inline-flex; flex: 0 0 auto; gap: .42rem; white-space: nowrap; }
 .cloud-device-state::before { background: var(--ai-faint); border-radius: 50%; content: ""; height: .42rem; width: .42rem; }
-.cloud-device-state[data-state="connected"]::before { background: var(--ai-ok); }
+.cloud-device-state[data-state="connected"]::before { background: var(--pe-success, #277a4c); }
 .cloud-device-state[data-state="connecting"]::before { background: var(--ai-accent); }
+.cloud-device-state[data-state="failed"]::before { background: var(--pe-danger, #b4232c); }
+.cloud-device-state[data-state="paused"]::before { background: var(--pe-warning, #9a5b12); }
 .cloud-device-form { margin-top: 1rem; }
 .cloud-device-form .cloud-field { margin: 0; padding: .75rem; }
 .cloud-device-form .cloud-field + .cloud-field { border-top: 1px solid var(--ai-line); }
@@ -414,7 +420,7 @@
   .cloud-navigation { border-bottom: 1px solid var(--ai-line); border-right: 0; overflow: visible; padding: .5rem .625rem; }
   .cloud-section-tabs { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .25rem; }
   .cloud-section-tab { min-height: 2.25rem; width: auto; min-width: 0; }
-  .cloud-section-tab[data-nav-heading]::before { display: none; }
+  .cloud-nav-heading { display: none; }
   .cloud-section-tab .cloud-nav-meta { display: none; }
   .cloud-section-tab-account, .cloud-section-tab-device { --pe-menu-item-h: 2.25rem; min-height: 2.25rem; padding-block: 0; }
   .cloud-section-tab-device { margin-top: 0; }
@@ -570,6 +576,36 @@
 :is(#pe-type-contract, .penecho-cloud-dialog) :where(
   .cloud-environment code, .cloud-published-url
 ) { font-family: var(--ai-mono); font-size: 12px; font-weight: 400; line-height: 1.5; letter-spacing: normal; }
+
+/* The Library rows share Settings' desktop navigation geometry. The heading is
+   a separate group label, so Projects alone owns its selected background. */
+@media (min-width: 821px) {
+  :is(#pe-type-contract, .penecho-cloud-dialog) .cloud-section-tab:where(
+    [data-cloud-section="projects"],
+    [data-cloud-section="favorites"],
+    [data-cloud-section="echoes"]
+  ) {
+    --pe-menu-item-h: 30px;
+  }
+  :is(#pe-type-contract, .penecho-cloud-dialog) .cloud-section-tab:where(
+    [data-cloud-section="projects"],
+    [data-cloud-section="favorites"],
+    [data-cloud-section="echoes"]
+  ) .cloud-nav-icon {
+    width: 14px;
+    height: 14px;
+    margin-top: 0;
+  }
+  :is(#pe-type-contract, .penecho-cloud-dialog) .cloud-section-tab:where(
+    [data-cloud-section="projects"],
+    [data-cloud-section="favorites"],
+    [data-cloud-section="echoes"]
+  ) .cloud-nav-copy strong {
+    font-size: 12.5px;
+    font-weight: 500;
+    line-height: var(--pe-menu-item-h);
+  }
+}
 
 html.penecho-web-page-scale .penecho-cloud-dialog {
   width: min(760px, calc(var(--penecho-canvas-page-viewport-width, 100vw) - 40px));

@@ -194,6 +194,35 @@
     dot(p, erasing, size, true);
     requestRender();
   }
+  function beginHandObjectResize(event, point) {
+    if (state.mode !== "hand" || event.pointerType === "touch" || Number(event.button) !== 0 || !point || !valid(point)) return false;
+    if (state.pending) {
+      const result = pendingHit(state.pending, event, state.pending.revealProgress < 1),
+        hit = typeof result === "string" ? result : result?.hit,
+        itemIndex = result && typeof result === "object" ? result.itemIndex : null;
+      if (["resize", "width", "height", "batch-resize"].includes(hit)) {
+        beginPendingGesture(event, hit, itemIndex);
+        return true;
+      }
+    }
+    const widgetResult = widgetRuntimeEnabled() ? widgetPointerHit(point, event.pointerType, false) : null;
+    if (widgetResult && ["resize", "width", "height"].includes(widgetResult.hit)) {
+      refreshHandObjectToolbar();
+      return beginWidgetGesture(event, point, widgetResult);
+    }
+    const imageResult = imagePointerHit(point, event.pointerType, false);
+    if (imageResult && ["resize", "width", "height"].includes(imageResult.hit)) {
+      if (state.selectedAnimationId) acceptAnimationEdit();
+      refreshHandObjectToolbar();
+      return beginImageGesture(event, point, imageResult);
+    }
+    const animationResult = animationPointerHit(point, event.pointerType);
+    if (animationResult && ["resize", "width", "height"].includes(animationResult.hit)) {
+      refreshHandObjectToolbar();
+      return beginAnimationGesture(event, point, animationResult);
+    }
+    return false;
+  }
   screen.addEventListener("pointerdown", (e) => {
     e.preventDefault();
     if (state.viewMode) {
@@ -220,10 +249,11 @@
     } catch {}
     calibrateScreenClientRatio(e, false);
     const penEraser = canvasPenEraserActive(e),
-      handPoint = !penEraser && state.mode === "hand" ? clientPoint(e) : null,
-      handTarget = handPoint ? handObjectToolbarTargetAtPoint(handPoint) : null;
+      handPoint = !penEraser && state.mode === "hand" ? clientPoint(e) : null;
     beginCanvasWidgetGestureResetTap(e, handPoint);
     state.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (handPoint && beginHandObjectResize(e, handPoint)) return;
+    const handTarget = handPoint ? handObjectToolbarTargetAtPoint(handPoint) : null;
     if (Number(e.button) === 0 && handTarget?.kind === "text-box" && editTextBox(handTarget.object)) return;
     if (handPoint) beginHandObjectFocus(e, handPoint);
     if (penEraser) {
