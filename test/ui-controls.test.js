@@ -215,7 +215,7 @@ test("closing Settings moves focus outside before hiding it from accessibility A
   assert.match(closeSettings, /restoreTarget\?\.focus\(\{ preventScroll:true \}\)/);
 });
 
-test("canvas photos use one picker, editable image records, side action bar, and dirty Auto AI", () => {
+test("canvas photos use one picker, editable image records, unified top toolbar, and dirty Auto AI", () => {
   const html = read("public/index.html"), app = read("public/app.js"), zh = read("public/locales/zh.js"), css = read("public/style.css"),
     end = functionSource(app, "end"),
     save = functionSource(app, "save"),
@@ -268,17 +268,15 @@ test("canvas photos use one picker, editable image records, side action bar, and
   assert.deepEqual({ ...resizeImage(resizeStart, { x:15100, y:10200 }, "resize") }, { ...resizeStart, w:15000, h:10000 });
   assert.doesNotMatch(resizeImageBox, /6000|MAX_IMAGE_PIXELS/);
   assert.doesNotMatch(imageRecord, /n\(item\.(?:w|h), 80, 6000\)|item\.w \* item\.h > MAX_IMAGE_PIXELS/);
-  for (const id of ["imageEditBar", "imageMergeBtn"]) assert.match(html, new RegExp(`id="${id}"`));
-  for (const id of ["imagePlaceBtn", "imageDeleteBtn"]) assert.doesNotMatch(html, new RegExp(`id="${id}"`));
-  assert.match(css, /\.image-edit-bar \{/);
-  assert.match(css, /\.image-action-hint \{/);
-  assert.match(app, /function positionImageEditBar\(\)/);
-  assert.match(functionSource(app, "positionImageEditBar"), /imageSelectionMaterial\.hidden = true[\s\S]*?--image-selection-x[\s\S]*?--image-selection-height/);
-  assert.doesNotMatch(functionSource(app, "positionImageEditBar"), /imagePlaceButton|placePosition|image-place-control|--object-control-x/);
-  assert.match(renderInteractionLayer, /positionImageEditBar\(\)/);
-  assert.match(functionSource(app, "objectChromeSpecs"), /record\.kind === "image"[\s\S]*?imageToolGroup = `image-\$\{handTarget\.id\}-tools`[\s\S]*?kind:"move"[\s\S]*?widgetCore:true[\s\S]*?kind:"cancel"[\s\S]*?label:t\("imageDelete"\)[\s\S]*?deleteImage\(handTarget\)[\s\S]*?kind:"accept"[\s\S]*?label:t\("imagePlace"\)[\s\S]*?acceptImageEdit\(\{ showHint:true \}\)/);
-  assert.match(app, /imageMergeButton\.onclick =[\s\S]{0,100}?mergeImage\(item, \{ showHint:true \}\)/);
-  assert.doesNotMatch(app, /imagePlaceButton|imageDeleteButton/);
+  for (const id of ["imageEditBar", "imageMergeBtn", "imagePlaceBtn", "imageDeleteBtn"]) assert.doesNotMatch(html, new RegExp(`id="${id}"`));
+  assert.doesNotMatch(css, /\.image-edit-bar \{|\.image-action-hint \{/);
+  assert.match(app, /function positionImageSelectionMaterial\(\)/);
+  assert.match(functionSource(app, "positionImageSelectionMaterial"), /imageSelectionMaterial\.hidden = true[\s\S]*?--image-selection-x[\s\S]*?--image-selection-height/);
+  assert.match(renderInteractionLayer, /positionImageSelectionMaterial\(\)/);
+  const imageChrome = functionSource(app, "objectChromeSpecs");
+  assert.match(imageChrome, /record\.kind === "image"[\s\S]*?addObjectToolbarSpecs\(specs, \{[\s\S]*?cancelLabel:t\("imageDelete"\)[\s\S]*?acceptLabel:t\("imagePlace"\)[\s\S]*?acceptTooltip:t\("imagePlaceHint"\)[\s\S]*?deleteImage\(handTarget\)[\s\S]*?acceptImageEdit\(\{ showHint:true \}\)/);
+  assert.match(imageChrome, /kind:"merge"[\s\S]*?label:t\("imageMerge"\)[\s\S]*?tooltip:t\("imageMergeHint"\)[\s\S]*?objectToolbarItem:true[\s\S]*?mergeImage\(handTarget, \{ showHint:true \}\)/);
+  assert.match(functionSource(app, "syncObjectChrome"), /button\.setAttribute\("aria-label", label\)[\s\S]*?spec\.kind === "refine" \|\| spec\.objectToolbar\) button\.removeAttribute\("title"\)[\s\S]*?button\.title = spec\.tooltip \|\| label/);
   assert.match(app, /images = storedImages\(\)/);
   assert.match(loadSnapshot, /decodeSnapshotImagesInBatches\(item\.images, loadIsCurrent/);
   assert.match(loadSnapshot, /restoreImages\(images\)/);
@@ -290,13 +288,13 @@ test("canvas photos use one picker, editable image records, side action bar, and
   assert.doesNotMatch(end, /imageTouchHold|cancelImageTouchHold/);
   assert.ok(end.indexOf("state.imageGesture") < end.indexOf("state.pendingGesture"));
   assert.equal((app.match(/imagePickerButton\.addEventListener\("click"/g) || []).length, 1);
-  for (const key of ["addImage", "imageAdded", "imageSelected", "imageDeleted", "imageMerged", "imageEditBarLabel", "imagePlace", "imagePlaceHint", "imageMerge", "imageMergeHint", "imageDelete", "imageDeleteHint", "snapshotImages"]) {
+  for (const key of ["addImage", "imageAdded", "imageSelected", "imageDeleted", "imagePlaced", "imageMerged", "imagePlace", "imagePlaceHint", "imageMerge", "imageMergeHint", "imageDelete", "imageDeleteHint", "snapshotImages"]) {
     assert.match(app, new RegExp(`${key}:`));
     assert.match(zh, new RegExp(`${key}:`));
   }
 });
 
-test("hand is the only object interaction mode and uses dedicated, clamped move handles", () => {
+test("hand mode exposes one focused object toolbar, drags from its surface, and expires after inactivity", () => {
   const html = read("public/index.html"),
     app = read("public/app.js"),
     css = read("public/style.css"),
@@ -321,6 +319,8 @@ test("hand is the only object interaction mode and uses dedicated, clamped move 
     syncChrome = functionSource(app, "syncObjectChrome"),
     chromeSpecs = functionSource(app, "objectChromeSpecs"),
     chromeMove = functionSource(app, "beginObjectChromeMove"),
+    focusObject = functionSource(app, "focusHandObject"),
+    activateToolbar = functionSource(app, "activateHandObjectToolbar"),
     chromePosition = vm.runInNewContext(`(${functionSource(app, "objectChromePosition")})`, {
       state:{ panX:0, panY:-180, scale:1 },
       view:{ clientWidth:900, clientHeight:600 },
@@ -348,15 +348,17 @@ test("hand is the only object interaction mode and uses dedicated, clamped move 
   assert.match(mode, /state\.mode = mode;[\s\S]*?updateAutoControl\(\)/);
   assert.match(mode, /if \(mode === "hand" && options\.showHint && !state\.busy\)[\s\S]*?showHandStatusHint\("hand-mode", \["handAutoAIManual", "handAutoAIResume"\]\)/);
   assert.doesNotMatch(mode, /setAutoEnabled|state\.autoEligible|supersedeActiveAI|controller\.abort/);
-  assert.match(acceptImageEdit, /options\.showHint[\s\S]*?showHandStatusHint\("image-confirmed"/);
-  assert.match(mergeImage, /options\.showHint[\s\S]*?showHandStatusHint\("image-merged"/);
+  assert.match(acceptImageEdit, /setStatusKey\(options\.showHint \? "imagePlaced" : "ready"\)/);
+  assert.doesNotMatch(acceptImageEdit, /showHandStatusHint/);
+  assert.match(mergeImage, /setStatusKey\("imageMerged"\)/);
+  assert.doesNotMatch(mergeImage, /showHandStatusHint/);
   assert.match(acceptWidgetEdit, /options\.showHint[\s\S]*?showHandStatusHint\("widget-confirmed"/);
   assert.match(acceptPendingWidget, /options\.showHint[\s\S]*?showHandStatusHint\("widget-draft-confirmed"/);
   assert.match(acceptAnimationEdit, /options\.showHint[\s\S]*?showHandStatusHint\("animation-confirmed"/);
   assert.match(confirmTextEditor, /options\.showHint[\s\S]*?showHandStatusHint\("text-confirmed"/);
   assert.match(acceptPending, /options\.showHint[\s\S]*?showHandStatusHint\("ai-draft-confirmed"/);
-  assert.match(chromeSpecs, /record\.kind === "image"[\s\S]*?kind:"cancel"[\s\S]*?deleteImage\(handTarget\)[\s\S]*?kind:"accept"[\s\S]*?acceptImageEdit\(\{ showHint:true \}\)/);
-  assert.match(app, /mergeImage\(item, \{ showHint:true \}\)/);
+  assert.match(chromeSpecs, /record\.kind === "image"[\s\S]*?addObjectToolbarSpecs[\s\S]*?deleteImage\(handTarget\)[\s\S]*?acceptImageEdit\(\{ showHint:true \}\)/);
+  assert.match(chromeSpecs, /mergeImage\(handTarget, \{ showHint:true \}\)/);
   assert.match(app, /acceptPending\(\{ showHint:true \}\)/);
   assert.match(app, /acceptPendingWidget\(\{ showHint:true \}\)/);
   assert.match(modePresentation, /view\.classList\.toggle\("hand-mode", mode === "hand"\)/);
@@ -374,7 +376,7 @@ test("hand is the only object interaction mode and uses dedicated, clamped move 
   for (const target of ["image", "animation", "widget", "pending-widget"]) assert.match(chromeSpecs, new RegExp(`target:"${target}"`));
   assert.match(functionSource(app, "pendingChromeSpecs"), /target:"pending"/);
   assert.match(chromeMove, /beginPendingGesture[\s\S]*?beginWidgetGesture[\s\S]*?beginImageGesture[\s\S]*?beginAnimationGesture/);
-  assert.equal(chromePosition({ x:100, y:100, w:300, h:260 }, "move").y, 6);
+  assert.deepEqual({ ...chromePosition({ x:100, y:100, w:300, h:260 }, "toolbar", "", { objectToolbar:true, minimumWidth:100, baseHeight:34 }) }, { x:100, y:-114, scale:1, baseWidth:300, baseHeight:34 });
   assert.doesNotMatch(app, /function drawHandModeOutlines\(/);
   const handToolbarOutlines = functionSource(app, "drawHandObjectToolbarOutlines");
   assert.match(handToolbarOutlines, /state\.mode !== "hand"[\s\S]*?state\.handToolbarTargets\.values\(\)[\s\S]*?if \(!record\.expanded\) continue[\s\S]*?widgetBox\(object\)[\s\S]*?imageBox\(object\)[\s\S]*?animationBox\(object\)[\s\S]*?textBoxBox\(object\)[\s\S]*?strokeRect/);
@@ -382,11 +384,19 @@ test("hand is the only object interaction mode and uses dedicated, clamped move 
   assert.match(chromeSpecs, /for \(const \[key, record\] of state\.handToolbarTargets\)/);
   assert.doesNotMatch(chromeSpecs, /for \(const item of (?:visibleImages|visibleAnimations|visibleTextBoxes|visibleWidgets)/);
   assert.match(app, /HAND_OBJECT_TOOLBAR_VISIBLE_MS = 10000/);
-  assert.match(functionSource(app, "expireHandObjectToolbars"), /record\.holds\?\.size\) continue[\s\S]*?record\.expiresAt <= now[\s\S]*?record\.hiding = true[\s\S]*?HAND_OBJECT_TOOLBAR_FADE_MS/);
+  assert.match(functionSource(app, "handToolbarHasActiveOperation"), /token\.startsWith\("pointer:"\) \|\| token\.startsWith\("operation:"\)/);
+  assert.match(functionSource(app, "scheduleHandObjectToolbarTick"), /handToolbarHasActiveOperation\(record\)\) continue[\s\S]*?record\.hiding \? record\.hideAt : record\.expiresAt/);
+  assert.match(functionSource(app, "expireHandObjectToolbars"), /handToolbarHasActiveOperation\(record\)\) continue[\s\S]*?record\.expiresAt <= now[\s\S]*?record\.hiding = true[\s\S]*?HAND_OBJECT_TOOLBAR_FADE_MS/);
   assert.match(functionSource(app, "ensureHandToolbarRecord"), /expanded:false[\s\S]*?holds:new Set\(\)/);
-  assert.match(functionSource(app, "updateHandObjectHover"), /handObjectToolbarTargetAtPoint[\s\S]*?releaseHandObjectFocus[\s\S]*?focusHandObject/);
+  assert.match(focusObject, /previousKey && previousKey !== ensured\.key\) finishHandToolbarHide\(previousKey\)[\s\S]*?key !== ensured\.key\) finishHandToolbarHide\(key\)[\s\S]*?handToolbarActiveKey = ensured\.key[\s\S]*?record\.expanded = true/);
+  assert.match(activateToolbar, /targetKey !== key\) finishHandToolbarHide\(targetKey\)[\s\S]*?handToolbarActiveKey = key[\s\S]*?record\.expanded = true/);
+  assert.match(functionSource(app, "updateHandObjectHover"), /handObjectToolbarTargetAtPoint[\s\S]*?\["widget", "text-box"\]\.includes\(hovered\?\.kind\) \? null : hovered[\s\S]*?releaseHandObjectFocus[\s\S]*?focusHandObject/);
+  assert.doesNotMatch(functionSource(app, "mountWidget"), /pointerenter[\s\S]*?focusHandObject|updateHandObjectHover/);
+  assert.match(functionSource(app, "mountWidget"), /frame\.addEventListener\("focus"[\s\S]*?focusHandObject\("widget", widget, "widget-focus"\)/);
   assert.match(functionSource(app, "beginHandObjectFocus"), /handObjectToolbarTargetAtPoint[\s\S]*?handPointerFocusKeys\.set/);
-  assert.match(createChromeButton, /kind === "move"\) activateHandObjectToolbar[\s\S]*?beginObjectChromeMove/);
+  assert.match(createChromeButton, /dragSurface = kind === "move" \|\| kind === "toolbar"[\s\S]*?if \(dragSurface\) activateHandObjectToolbar[\s\S]*?beginObjectChromeMove/);
+  assert.match(createChromeButton, /button\.className = kind === "toolbar" \? "object-chrome-button" : `object-chrome-button \$\{kind\}`/);
+  assert.match(pointerDown, /hideHandObjectToolbar\(\{ all:true \}\)[\s\S]*?beginCanvasPointerAction/);
   assert.match(refineHoverOutline, /state\.widgetRefineButtonHoverId[\s\S]*?\["pen", "hand"\]\.includes\(state\.mode\)/);
   assert.match(functionSource(app, "widgetRefineOutlineTarget"), /visibleWidgets\(\)\.find\(\(item\) => item\.id === widgetId\)/);
   assert.doesNotMatch(refineHoverOutline, /widgetRefineHoveredWidgetId|widgetRefineHintHovered/);
@@ -409,7 +419,7 @@ test("hand is the only object interaction mode and uses dedicated, clamped move 
   assert.match(css, /#viewport\.hand-mode \.canvas-widget-frame\s*\{[^}]*pointer-events:\s*auto[^}]*cursor:\s*default/);
   assert.match(css, /\.widget-layer\s*\{[^}]*z-index:\s*1/);
   assert.match(css, /\.object-chrome-layer\s*\{[^}]*z-index:\s*4/);
-  assert.match(css, /\.object-chrome-button\.move\s*\{[^}]*width:\s*34px[^}]*height:\s*34px[^}]*cursor:\s*grab/);
+  assert.match(css, /\.object-chrome-button\.object-toolbar-surface\)[^{]*\{[^}]*width:\s*var\(--object-control-width, 104px\)[^}]*height:\s*var\(--object-control-height, 34px\)[^}]*cursor:\s*grab/);
   assert.match(css, /\.object-chrome-button\.hand-toolbar-hiding\s*\{[^}]*pointer-events:\s*none[^}]*opacity:\s*0/);
   for (const name of ["acceptImageEdit", "cancelImageEdit", "deleteImage", "mergeImage"]) {
     assert.match(functionSource(app, name), /state\.mode !== "hand"/);
@@ -568,9 +578,10 @@ test("PenEcho Agent auto-open is a default-on canvas preference", () => {
   assert.match(setter, /localStorage\.setItem\("penecho-canvas-agent-auto-open"[\s\S]*?aria-checked/);
   assert.match(app, /settingsCanvasAgentAutoOpen: "Open PenEcho Agent with each canvas"/);
   assert.match(zh, /settingsCanvasAgentAutoOpen: "打开画布时自动打开 PenEcho Agent"/);
-  let openCount = 0;
+  let openCount = 0, shellOpen = false;
   const context = {
     canvasAgent:{ socket:null, connectPromise:null }, state:{ canvasAgentAutoOpen:false }, canvasAgentPanel:{ hidden:true }, WebSocket:{ OPEN:1 },
+    document:{ body:{ classList:{ contains:() => shellOpen } } },
     canvasAgentCanvasIdentity:() => "draft:test-client", canvasAgentPersistCurrentConversation:() => {}, canvasAgentBeginLocalConversation:() => {}, canvasAgentDropSessionIdentity:() => {}, canvasAgentSyncPromptSuggestions:() => {}, openCanvasAgent:() => { openCount++; },
   };
   vm.runInNewContext(functionSource(agent, "canvasAgentCanvasDidChange"), context);
@@ -579,6 +590,13 @@ test("PenEcho Agent auto-open is a default-on canvas preference", () => {
   context.state.canvasAgentAutoOpen = true;
   context.canvasAgentCanvasDidChange();
   assert.equal(openCount, 1);
+  context.canvasAgentPanel.hidden = false;
+  shellOpen = true;
+  context.canvasAgentCanvasDidChange();
+  assert.equal(openCount, 1, "an already-open Agent stays open without a duplicate open call");
+  shellOpen = false;
+  context.canvasAgentCanvasDidChange();
+  assert.equal(openCount, 2, "a stale visible panel without the shell open state is reopened");
 });
 
 test("pen ink stays above widgets and the eraser exposes a dashed footprint", () => {
@@ -966,12 +984,12 @@ test("plugin manager is a centered dynamic catalog with General HTML and bundled
   assert.match(zh, /pluginDetails:\s*"详情"/);
   assert.match(zh, /copyPluginMarkdown:\s*"复制 Markdown"/);
   assert.match(css, /\.plugin-option-grid\s*\{[^}]*grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\)/);
-  assert.match(css, /\.plugin-control\s*\{[^}]*height:\s*29px;\s*min-height:\s*29px/);
+  assert.match(css, /\.plugin-control\s*\{[^}]*height:\s*28px;\s*min-height:\s*28px[^}]*border:\s*0[^}]*background:\s*transparent[^}]*box-shadow:\s*none/);
   const updatePluginControl = functionSource(app, "updatePluginControl");
   assert.match(updatePluginControl, /classList\.toggle\("active", !pluginPopover\.hidden\)/);
   assert.match(updatePluginControl, /removeAttribute\("aria-pressed"\)/);
   assert.doesNotMatch(updatePluginControl, /anyEnabled/);
-  assert.match(css, /@media \(pointer: coarse\)[\s\S]*?\.plugin-control\s*\{\s*height:\s*38px;\s*min-height:\s*38px;\s*\}[\s\S]*?\.toolbar \.plugin-trigger\s*\{\s*height:\s*36px;\s*min-height:\s*36px/);
+  assert.match(css, /@media \(pointer: coarse\)[\s\S]*?\[data-pe-button\][^}]*::after\s*\{[^}]*inset-block:\s*-7px/);
   assert.match(css, /\.plugin-modal-layer\s*\{[^}]*position:\s*fixed[^}]*place-items:\s*center/);
   assert.match(css, /\.plugin-modal\s*\{[^}]*color-scheme:\s*light[^}]*--ink:\s*var\(--studio-text, #1c1f27\)[^}]*--panel-raised:\s*var\(--studio-panel, #ffffff\)[^}]*--gold-bright:\s*var\(--studio-accent-strong, #4338ca\)[^}]*width:\s*min\(920px, 100%\)[^}]*max-height/);
   assert.doesNotMatch(css, /body\[data-theme="(?:studio|research|arcane|scifi)"\] \.plugin-modal/);
@@ -1359,9 +1377,10 @@ test("strict CSP dynamic layout uses stylesheet rules instead of element style a
     widgetHost = read("public/widget-host.js"),
     helper = functionSource(app, "runtimeElementStyle");
   assert.match(helper, /sheet\.insertRule\(`\.\$\{className\} \{\}`/);
-  for (const key of ["tour-layer", "tour-highlight", "tour-card", "tour-progress", "animation-controls", "canvas-image-selection", "image-edit-bar", "selection-toolbar", "summon-copy"])
+  for (const key of ["tour-layer", "tour-highlight", "tour-card", "tour-progress", "animation-controls", "canvas-image-selection", "selection-toolbar", "summon-copy"])
     assert.match(app, new RegExp(`runtimeElementStyle\\([^)]*["']${key}["']`));
-  assert.doesNotMatch(app, /Reflect\.get\((?:tourLayer|tourHighlight|tourCard|tourProgressBar|animationControls|imageEditBar|selectionToolbar), "style"\)/);
+  assert.doesNotMatch(app, /Reflect\.get\((?:tourLayer|tourHighlight|tourCard|tourProgressBar|animationControls|selectionToolbar), "style"\)/);
+  assert.match(functionSource(app, "ensureObjectChromeStyleRule"), /sheet\.insertRule\(`\.\$\{className\} \{ --object-control-x: 0px; --object-control-y: 0px; z-index: 1; \}`/);
   assert.doesNotMatch(summon, /copyEl\.style\./);
   assert.match(summon, /styleFor = options\.styleFor/);
   assert.doesNotMatch(app, /pluginStylesPreview\.srcdoc|<style>\$\{escaped\}/);
@@ -1460,18 +1479,18 @@ test("live widgets use native canvas chrome, state-aware iframe gestures, and th
   assert.equal(declaration.height, "800px");
   assert.equal(declaration.transform, "translate3d(30px,60px,0) scale(0.1,0.1)");
   const chromeBox={x:400,y:100,w:300,h:200},
-    anchoredToolSpec={widgetTool:true,widgetToolPlacement:"inside-top",widgetCoreMoveKey:"move",widgetCoreAcceptKey:"accept",widgetToolGroup:"tools",groupHorizontalWidth:116,groupVerticalWidth:36,groupVerticalHeight:110,groupHorizontalOffset:0,groupVerticalOffset:0,baseWidth:36,baseHeight:34,controlScale:1},
-    fallbackToolSpec={...anchoredToolSpec,groupHorizontalWidth:234,groupVerticalWidth:118,groupVerticalHeight:72,baseWidth:118},
-    corePositions = box => new Map([
-      ["move",chromePosition(box,"move","",{widgetCore:true})],
-      ["accept",chromePosition(box,"accept","",{widgetCore:true})],
-    ]);
-  assert.deepEqual({x:chromePosition(chromeBox,"move","",{widgetCore:true}).x,y:chromePosition(chromeBox,"move","",{widgetCore:true}).y},{x:533,y:108});
-  assert.deepEqual({x:chromePosition(chromeBox,"cancel","",{widgetCore:true}).x,y:chromePosition(chromeBox,"cancel","",{widgetCore:true}).y},{x:408,y:108});
-  assert.deepEqual({x:chromePosition(chromeBox,"accept","",{widgetCore:true}).x,y:chromePosition(chromeBox,"accept","",{widgetCore:true}).y},{x:656,y:108});
-  assert.deepEqual({x:chromePosition({x:200,y:100,w:900,h:200},"download","",anchoredToolSpec,corePositions({x:200,y:100,w:900,h:200})).x,y:chromePosition({x:200,y:100,w:900,h:200},"download","",anchoredToolSpec,corePositions({x:200,y:100,w:900,h:200})).y},{x:674,y:108});
-  assert.deepEqual({x:chromePosition(chromeBox,"download","",anchoredToolSpec,corePositions(chromeBox)).x,y:chromePosition(chromeBox,"download","",anchoredToolSpec,corePositions(chromeBox)).y},{x:656,y:149});
-  assert.deepEqual({x:chromePosition({x:900,y:200,w:250,h:200},"copy","",fallbackToolSpec,corePositions({x:900,y:200,w:250,h:200})).x,y:chromePosition({x:900,y:200,w:250,h:200},"copy","",fallbackToolSpec,corePositions({x:900,y:200,w:250,h:200})).y},{x:1024,y:249});
+    toolbarSpec={objectToolbar:true,minimumWidth:196,baseHeight:34},
+    toolbarPosition=chromePosition(chromeBox,"toolbar","widget:1:toolbar",toolbarSpec),
+    toolbarPositions=new Map([["widget:1:toolbar",toolbarPosition]]),
+    cancelSpec={objectToolbarItem:true,objectToolbarKey:"widget:1:toolbar",toolbarSlot:"leading",baseWidth:28,baseHeight:28},
+    moveSpec={...cancelSpec,toolbarSlot:"move"},
+    acceptSpec={...cancelSpec,toolbarSlot:"trailing"},
+    toolSpec={...cancelSpec,toolbarSlot:"tool",toolbarOrder:0,toolbarItemCount:4};
+  assert.deepEqual({x:toolbarPosition.x,y:toolbarPosition.y,baseWidth:toolbarPosition.baseWidth},{x:400,y:66,baseWidth:300});
+  assert.deepEqual({x:chromePosition(chromeBox,"cancel","",cancelSpec,toolbarPositions).x,y:chromePosition(chromeBox,"cancel","",cancelSpec,toolbarPositions).y},{x:404,y:69});
+  assert.deepEqual({x:chromePosition(chromeBox,"move","",moveSpec,toolbarPositions).x,y:chromePosition(chromeBox,"move","",moveSpec,toolbarPositions).y},{x:436,y:69});
+  assert.deepEqual({x:chromePosition(chromeBox,"accept","",acceptSpec,toolbarPositions).x,y:chromePosition(chromeBox,"accept","",acceptSpec,toolbarPositions).y},{x:668,y:69});
+  assert.deepEqual({x:chromePosition(chromeBox,"copy","",toolSpec,toolbarPositions).x,y:chromePosition(chromeBox,"copy","",toolSpec,toolbarPositions).y},{x:540,y:69});
   assert.match(frameRule, /color-scheme:\s*light/);
   assert.match(frameRule, /background:\s*transparent/);
   assert.match(functionSource(app, "sendWidgetHostState"), /const selected[\s\S]*?classList\.toggle\("is-selected", selected\)[\s\S]*?if \(!widget\.frame\?\.contentWindow/);
@@ -1666,7 +1685,8 @@ test("live widgets use native canvas chrome, state-aware iframe gestures, and th
   resetState.handWidgetPointerIds.add("widget-touch:2");
   assert.equal(resetHarness.beginCanvasWidgetGestureResetTap(resetPointer, { x:10, y:20 }), false);
   assert.equal(resetState.handWidgetPointerIds.has("widget-touch:2"), true);
-  assert.match(functionSource(app, "mountWidget"), /frame\.addEventListener\("pointerenter"[\s\S]*?updateHandObjectHover\(clientPoint\(event\)\)[\s\S]*?frame\.addEventListener\("pointerleave"[\s\S]*?updateHandObjectHover\(null\)/);
+  assert.doesNotMatch(functionSource(app, "mountWidget"), /pointerenter|pointerleave|updateHandObjectHover/);
+  assert.match(functionSource(app, "handleWidgetMessage"), /validWidgetHostActivate\(message\)[\s\S]*?state\.mode === "hand"[\s\S]*?focusHandObject\(target\.kind, target\.object\)/);
   const trackedPoint = vm.runInNewContext(`(${functionSource(app, "widgetHostTrackedPoint")})`, { screenClientRatio:0.5 });
   assert.deepEqual({ ...trackedPoint({ clientX:100, clientY:200, screenX:500, screenY:600 }, { screenX:540, screenY:660 }) }, { x:120, y:230 });
   assert.equal(trackedPoint(null, { screenX:0, screenY:0 }), null);
@@ -1696,7 +1716,7 @@ test("live widgets use native canvas chrome, state-aware iframe gestures, and th
   const downloadWidgetImage = functionSource(app,"downloadWidgetImage");
   assert.match(downloadWidgetImage,/requestWidgetSnapshot\(widget, WIDGET_SNAPSHOT_TIMEOUT_MS, true, null, true\)[\s\S]*?link\.download = widgetImageFilename\(widget\)[\s\S]*?link\.click\(\)/);
   assert.doesNotMatch(downloadWidgetImage,/\bfetch\s*\(|XMLHttpRequest|WebSocket|\/api\/|cloud|relay/i);
-  assert.match(app,/function addWidgetToolSpecs[\s\S]*?kind:"download"[\s\S]*?widgetToolGroup = `widget-\$\{widget\.id\}-tools`[\s\S]*?widgetToolPlacement:"inside-top"/);
+  assert.match(app,/function addWidgetToolSpecs[\s\S]*?kind:"download"[\s\S]*?widgetToolGroup = `widget-\$\{widget\.id\}-tools`[\s\S]*?objectToolbarItem:Boolean\(options\.objectToolbarKey\)/);
   for (const key of ["downloadWidget","widgetDownloading","widgetDownloaded","widgetDownloadFailed"]) {
     assert.match(app,new RegExp(`${key}:`));
     assert.match(read("public/locales/zh.js"),new RegExp(`${key}:`));
@@ -1730,11 +1750,13 @@ test("dragged images and HTML Widgets share the front Canvas layer", () => {
 
   const layerState = { frontCanvasObjectKind:"image" },
     layerStyles = new Map(),
+    selectedLayerMaterial = { hidden:true },
     syncCanvasObjectLayerOrder = vm.runInNewContext(`(${functionSource(app, "syncCanvasObjectLayerOrder")})`, {
       state:layerState,
       widgetLayer:{},
       imageMaterialLayer:{},
       placedContentLayer:{},
+      selectedWidgetMaterial:selectedLayerMaterial,
       runtimeElementStyle:(_element, key) => {
         if (!layerStyles.has(key)) layerStyles.set(key, {});
         return layerStyles.get(key);
@@ -1753,6 +1775,14 @@ test("dragged images and HTML Widgets share the front Canvas layer", () => {
     layerStyles.get("image-material-layer-stack").zIndex,
     layerStyles.get("placed-content-layer-stack").zIndex,
   ], ["2", "1", "1"]);
+  selectedLayerMaterial.hidden = false;
+  layerState.frontCanvasObjectKind = "image";
+  syncCanvasObjectLayerOrder();
+  assert.deepEqual([
+    layerStyles.get("widget-layer-stack").zIndex,
+    layerStyles.get("image-material-layer-stack").zIndex,
+    layerStyles.get("placed-content-layer-stack").zIndex,
+  ], ["3", "2", "2"]);
 
   const hitState = { frontCanvasObjectKind:"widget" },
     hitImage = { id:"image" },
@@ -1811,7 +1841,7 @@ test("widget AI refinement is discoverable near ink and replaces only its locked
   const nonHandChrome = chrome.slice(0, chrome.indexOf("return specs;"));
   assert.match(nonHandChrome, /persistentCandidate = currentWidgetRefineCandidate\(\)[\s\S]*?hoverCandidate = currentWidgetRefineHoverCandidate\(\)[\s\S]*?state\.mode !== "hand"/);
   assert.doesNotMatch(nonHandChrome, /copy:true/);
-  assert.match(chrome, /for \(const \[key, record\] of state\.handToolbarTargets\)[\s\S]*?record\.kind === "text-box"[\s\S]*?target:"text-box"/);
+  assert.doesNotMatch(chrome, /target:"text-box"/);
   assert.match(chrome, /if \(persistentCandidate\) addWidgetToolSpecs\(specs, persistentCandidate\.widget, \{ refine:persistentCandidate \}\)/);
   assert.match(functionSource(app, "updateWidgetRefinePointer"), /\["pen", "hand"\]\.includes\(state\.mode\)[\s\S]*?widgetAtRefinePoint[\s\S]*?const hasDirty = viewportHasWidgetRefineInput/);
   assert.match(functionSource(app, "updateWidgetRefinePointer"), /instructionMode:"viewport-dirty"[\s\S]*?hintKey:"widgetRefineViewportHint"/);
@@ -1820,7 +1850,7 @@ test("widget AI refinement is discoverable near ink and replaces only its locked
   assert.match(functionSource(app, "scheduleWidgetRefineHoverClear"), /WIDGET_REFINE_HOVER_GRACE_MS/);
   assert.match(functionSource(app, "widgetRefineHintVisible"), /widgetRefineHintHovered\(candidate\) \|\| candidate\.hintUntil > Date\.now\(\)/);
   assert.match(functionSource(app, "confirmTextEditor"), /latchWidgetRefineCandidate\(item, "text-box"\)[\s\S]*?!refineCandidate\) schedule/);
-  assert.match(functionSource(app, "finishTextBoxChromeGesture"), /latchWidgetRefineCandidate\(gesture\.item, "text-box"\)/);
+  assert.doesNotMatch(app, /function finishTextBoxChromeGesture\(|function updateTextBoxChromeGesture\(|textBoxGesture/);
   assert.doesNotMatch(read("public/widget-host.js"), /penecho-widget-hover/);
   assert.match(functionSource(app, "beginWidgetRefineTouch"), /state\.mode !== "pen"[\s\S]*?setWidgetRefineHoverCandidate\(widget, false\)[\s\S]*?widgetRefineTouchCandidates\.set/);
   assert.doesNotMatch(functionSource(app, "beginWidgetHostTouch"), /beginWidgetRefineTouch/);
@@ -1843,11 +1873,10 @@ test("widget AI refinement is discoverable near ink and replaces only its locked
   assert.deepEqual({ ...confirmationPosition({ x:300, y:220, width:112, height:34 }, 360, 50, 1000, 700) }, { x:176, y:212 });
   assert.deepEqual({ ...confirmationPosition({ x:930, y:220, width:64, height:34 }, 360, 50, 1000, 700) }, { x:632, y:212 });
   assert.deepEqual({ ...confirmationPosition({ x:300, y:670, width:112, height:34 }, 360, 50, 1000, 700) }, { x:176, y:642 });
-  assert.match(chrome, /editWidget = state\.mode === "hand" && state\.widgetEdit \? selectedWidget\(\) : null/);
   const handChrome = chrome.slice(chrome.indexOf("const specs = [];", chrome.indexOf("return specs;") + 1));
   assert.doesNotMatch(handChrome, /addWidgetToolSpecs\([^\n]*refine:/);
-  assert.match(handChrome, /state\.widgetEdit\?\.id === handTarget\.id[\s\S]*?editWidget === handTarget[\s\S]*?addWidgetToolSpecs\(specs, handTarget, \{[\s\S]*?copy:true,[\s\S]*?community:true,[\s\S]*?download:true,[\s\S]*?handToolbar:true/);
-  assert.match(chrome, /state\.pendingWidget[\s\S]*?addWidgetToolSpecs\(specs, widget, \{[\s\S]*?copy:true,[\s\S]*?download:true,[\s\S]*?widgetCoreMoveKey:`pending-widget:\$\{widget\.id\}:move`[\s\S]*?widgetCoreAcceptKey:`pending-widget:\$\{widget\.id\}:accept`/);
+  assert.match(handChrome, /record\.kind === "widget"[\s\S]*?record\.expanded[\s\S]*?state\.handToolbarActiveKey !== key[\s\S]*?addObjectToolbarSpecs\(specs, \{[\s\S]*?addWidgetToolSpecs\(specs, handTarget, \{[\s\S]*?copy:true,[\s\S]*?community:true,[\s\S]*?download:true,[\s\S]*?objectToolbarKey:toolbarKey/);
+  assert.match(chrome, /state\.pendingWidget[\s\S]*?addObjectToolbarSpecs\(specs, \{[\s\S]*?prefix:`pending-widget:\$\{widget\.id\}`[\s\S]*?addWidgetToolSpecs\(specs, widget, \{[\s\S]*?copy:true,[\s\S]*?download:true,[\s\S]*?objectToolbarKey:toolbarKey/);
   assert.match(request, /supersedeActiveAI\("widget-refine"\)[\s\S]*?captureCurrentViewport:true[\s\S]*?widgetEditTarget:widget/);
   assert.match(functionSource(app, "requestAI"), /let attentionBox = dirtySnapshot[\s\S]*?if \(requestedAttentionBox\) attentionBox = requestedAttentionBox/);
   assert.match(request, /clearTimeout\(state\.timer\)[\s\S]*?state\.timer = 0[\s\S]*?supersedeActiveAI\("widget-refine"\)/);
@@ -1930,27 +1959,67 @@ test("widget AI refinement is discoverable near ink and replaces only its locked
   assert.match(scheduleAutomatic, /activeWidgetRefinement\(\)[\s\S]*?return[\s\S]*?state\.timer = setTimeout/);
   assert.match(app, /widgetRefinePending:/);
   assert.match(zh, /widgetRefinePending:/);
-  assert.doesNotMatch(functionSource(app, "objectChromePosition"), /side:"(?:right|bottom|left)"[\s\S]*?positions\.find/);
-  assert.match(functionSource(app, "objectChromePosition"), /spec\.widgetCoreMoveKey && spec\.widgetCoreAcceptKey[\s\S]*?side:"move"[\s\S]*?preferred\.x \+ preferred\.w <= acceptPosition\.x - gap[\s\S]*?side:"accept"[\s\S]*?y:acceptPosition\.y \+ acceptHeight \+ gap[\s\S]*?fitsBetweenCoreControls \? preferred : belowAccept/);
-  assert.match(functionSource(app, "objectChromePosition"), /if \(spec\?\.widgetCore\)[\s\S]*?inset = 8[\s\S]*?kind === "cancel" \? screenBox\.left \+ inset : right - width - inset[\s\S]*?y:screenBox\.top \+ inset/);
-  assert.match(functionSource(app, "objectChromePosition"), /spec\.groupHorizontalOffset[\s\S]*?vertical \? spec\.groupVerticalOffset/);
-  assert.doesNotMatch(functionSource(app, "objectChromePosition"), /querySelectorAll|overlapsObstacle|fallbackPosition/);
-  assert.match(functionSource(app, "objectChromeSpecs"), /widgetToolGroup = `widget-\$\{handTarget\.id\}-tools`[\s\S]*?widgetCore:true, widgetToolGroup[\s\S]*?widgetCoreMoveKey:`widget:\$\{handTarget\.id\}:move`[\s\S]*?widgetCoreAcceptKey:`widget:\$\{handTarget\.id\}:accept`/);
-  assert.match(functionSource(app, "objectChromeSpecs"), /imageToolGroup = `image-\$\{handTarget\.id\}-tools`[\s\S]*?kind:"move"[\s\S]*?widgetCore:true, widgetToolGroup:imageToolGroup[\s\S]*?kind:"cancel"[\s\S]*?widgetCore:true, widgetToolGroup:imageToolGroup[\s\S]*?kind:"accept"[\s\S]*?widgetCore:true, widgetToolGroup:imageToolGroup/);
-  assert.match(functionSource(app, "objectChromePosition"), /chromeGap = 7[\s\S]*?gap = chromeGap \* controlScale[\s\S]*?above = screenBox\.top - height - chromeGap/);
+  const chromePositionSource = functionSource(app, "objectChromePosition");
+  assert.match(chromePositionSource, /if \(spec\?\.objectToolbar\)[\s\S]*?Math\.max\(spec\.minimumWidth \|\| 100, screenBox\.width\)[\s\S]*?x:screenBox\.left, y:screenBox\.top - baseHeight/);
+  assert.match(chromePositionSource, /if \(spec\?\.objectToolbarItem\)[\s\S]*?knownPositions\?\.get\?\.\(spec\.objectToolbarKey\)[\s\S]*?toolbarSlot === "leading"[\s\S]*?toolbarSlot === "trailing"/);
+  assert.doesNotMatch(chromePositionSource, /querySelectorAll|overlapsObstacle|fallbackPosition/);
+  assert.match(functionSource(app, "objectToolbarMinimumWidth"), /itemCount = 2 \+ Math\.max[\s\S]*?itemCount \* itemSize \+ \(itemCount - 1\) \* itemGap \+ inset \* 2/);
+  const toolbarMinimumWidth = vm.runInNewContext(`(${functionSource(app, "objectToolbarMinimumWidth")})`),
+    toolbarNeedsMove = vm.runInNewContext(`(${functionSource(app, "objectToolbarNeedsMove")})`, { objectToolbarMinimumWidth:toolbarMinimumWidth }),
+    finalizeToolbarWidths = vm.runInNewContext(`(${functionSource(app, "finalizeObjectToolbarWidths")})`, {
+      objectToolbarMinimumWidth:toolbarMinimumWidth,
+      objectToolbarNeedsMove:toolbarNeedsMove,
+      screenObjectBox:box=>({width:box.w}),
+      t:key=>key,
+    }),
+    toolbarSpecs = (width) => [{
+      key:"widget:compact:toolbar", objectToolbar:true, box:{w:width}, target:"widget", object:{id:"compact"}, priority:2,
+    }, ...Array.from({length:4}, (_, index) => ({
+      key:`widget:compact:tool-${index}`, objectToolbarItem:true, objectToolbarKey:"widget:compact:toolbar", toolbarSlot:"tool",
+    }))],
+    narrowToolbarSpecs = finalizeToolbarWidths(toolbarSpecs(223)),
+    wideToolbarSpecs = finalizeToolbarWidths(toolbarSpecs(224)),
+    responsiveMove = narrowToolbarSpecs.find((spec) => spec.toolbarSlot === "move");
+  assert.equal(toolbarMinimumWidth(4), 196);
+  assert.equal(toolbarMinimumWidth(5), 228);
+  assert.equal(toolbarNeedsMove(4, 223), true);
+  assert.equal(toolbarNeedsMove(4, 224), false);
+  assert.equal(narrowToolbarSpecs[0].minimumWidth, 228);
+  assert.equal(wideToolbarSpecs[0].minimumWidth, 196);
+  assert.equal(wideToolbarSpecs.some((spec) => spec.toolbarSlot === "move"), false);
+  assert.deepEqual({
+    kind:responsiveMove.kind,
+    objectToolbarKey:responsiveMove.objectToolbarKey,
+    target:responsiveMove.target,
+    objectId:responsiveMove.object.id,
+    baseWidth:responsiveMove.baseWidth,
+  }, {
+    kind:"move",
+    objectToolbarKey:"widget:compact:toolbar",
+    target:"widget",
+    objectId:"compact",
+    baseWidth:28,
+  });
+  assert.match(functionSource(app, "finalizeObjectToolbarWidths"), /objectToolbarItem \|\| spec\.toolbarSlot !== "tool"[\s\S]*?toolCounts\.set[\s\S]*?objectToolbarNeedsMove\(toolCount, screenObjectBox\(spec\.box\)\.width\)[\s\S]*?toolbarSlot:"move"/);
+  assert.match(functionSource(app, "objectChromeSpecs"), /prefix:`widget:\$\{handTarget\.id\}`[\s\S]*?objectToolbarKey:toolbarKey[\s\S]*?return finalizeObjectToolbarWidths\(specs\)/);
+  assert.match(functionSource(app, "objectChromeSpecs"), /prefix:`image:\$\{handTarget\.id\}`[\s\S]*?kind:"merge"[\s\S]*?objectToolbarKey:toolbarKey/);
   const syncChrome = functionSource(app, "syncObjectChrome");
   assert.match(syncChrome, /knownPositions = new Map\(\)[\s\S]*?objectChromePosition\(spec\.box, spec\.kind, spec\.key, spec, knownPositions\)[\s\S]*?knownPositions\.set\(spec\.key, position\)/);
-  assert.match(syncChrome, /spec\.kind === "refine"\) button\.removeAttribute\("title"\)/);
+  assert.match(syncChrome, /spec\.kind === "refine" \|\| spec\.objectToolbar\) button\.removeAttribute\("title"\)/);
   assert.doesNotMatch(syncChrome, /button\.title = spec\.kind === "refine"/);
   assert.doesNotMatch(app, /function widgetToolScale/);
-  assert.match(app, /function addWidgetToolSpecs\(specs, widget, options = \{\}\)[\s\S]*?controlScale:1[\s\S]*?baseHeight:34/);
-  assert.match(app, /kind:"favorite"[\s\S]*?baseWidth:36,[\s\S]*?iconOnly:true/);
-  assert.match(app, /kind:"share"[\s\S]*?baseWidth:36,[\s\S]*?iconOnly:true/);
-  assert.match(syncChrome, /classList\.toggle\("icon-only", Boolean\(spec\.iconOnly\)\)/);
-  assert.match(syncChrome, /classList\.toggle\("widget-chrome-control", Boolean\(spec\.widgetTool \|\| spec\.widgetCore\)\)/);
+  assert.match(app, /function addWidgetToolSpecs\(specs, widget, options = \{\}\)[\s\S]*?objectToolbarItem:Boolean\(options\.objectToolbarKey\)[\s\S]*?baseHeight:options\.objectToolbarKey \? 28 : 34/);
+  assert.match(app, /kind:"favorite"[\s\S]*?baseWidth:28,[\s\S]*?iconOnly:true/);
+  assert.match(app, /kind:"share"[\s\S]*?baseWidth:28,[\s\S]*?iconOnly:true/);
+  assert.match(syncChrome, /classList\.toggle\("icon-only", Boolean\(spec\.iconOnly \|\| spec\.objectToolbarItem\)\)/);
+  assert.match(syncChrome, /classList\.toggle\("widget-chrome-control", Boolean\(spec\.widgetTool \|\| spec\.objectToolbar \|\| spec\.objectToolbarItem\)\)/);
+  assert.match(syncChrome, /classList\.toggle\("widget-object-toolbar", Boolean\(spec\.objectToolbar && \["widget", "pending-widget"\]\.includes\(spec\.target\)\)\)/);
+  assert.match(syncChrome, /attachedWidgetShells = new Set\(\)[\s\S]*?spec\.objectToolbar && spec\.object\?\.shell[\s\S]*?classList\.toggle\("object-toolbar-attached", attachedWidgetShells\.has\(widget\.shell\)\)/);
+  assert.match(syncChrome, /selectedWidgetMaterialRecord = \{ spec, position \}[\s\S]*?syncSelectedWidgetMaterial\(selectedWidgetMaterialRecord\)/);
+  assert.match(functionSource(app, "syncSelectedWidgetMaterial"), /widgetStackIndex = state\.widgets\.length \+ \(state\.pendingWidget \? 2 : 1\)[\s\S]*?spec\.object\.styleRule\.style\.zIndex = String\(widgetStackIndex\)[\s\S]*?setProperty\("z-index", String\(widgetStackIndex\)\)/);
   assert.match(app, /favoriteLabelKey = widget\.favoriteBusy \? "favoriteWidgetSaving" : widget\.favorite \? "unfavoriteWidget" : "favoriteWidget"/);
   assert.match(app, /kind:"favorite"[\s\S]*?pressed:widget\.favorite === true,[\s\S]*?busy:widget\.favoriteBusy === true/);
-  assert.match(functionSource(app, "createObjectChromeButton"), /kind === "move" \|\| button\.disabled/);
+  assert.match(functionSource(app, "createObjectChromeButton"), /kind === "move" \|\| kind === "toolbar" \|\| button\.disabled/);
   assert.match(syncChrome, /classList\.toggle\("is-favorite", Boolean\(spec\.kind === "favorite" && spec\.pressed\)\)/);
   assert.match(syncChrome, /button\.disabled = Boolean\(spec\.busy\)/);
   assert.match(syncChrome, /spec\.kind === "favorite"\) button\.setAttribute\("aria-pressed", String\(Boolean\(spec\.pressed\)\)\)/);
@@ -1959,12 +2028,14 @@ test("widget AI refinement is discoverable near ink and replaces only its locked
   assert.match(read("public/style.css"), /\.object-chrome-button\.move \{ width: 34px; height: 34px;/);
   assert.match(read("public/style.css"), /\.object-chrome-button \{[^}]*box-shadow: none;[^}]*backdrop-filter: none;/);
   assert.match(read("public/style.css"), /body\[data-theme="studio"\] \.object-chrome-button\.widget-chrome-control \{[^}]*border-radius: 8px;[^}]*background: color-mix\(in srgb, var\(--studio-panel\) 74%, transparent\);[^}]*box-shadow: 0 2px 8px[^}]*backdrop-filter: saturate\(1\.16\) blur\(16px\)/);
+  assert.match(read("public/style.css"), /\.object-toolbar-shell\) \{[^}]*box-shadow: none;/);
+  assert.match(read("public/style.css"), /body\[data-theme="studio"\][^{]*\.object-toolbar-shell\) \{[^}]*box-shadow: none;/);
   assert.match(read("public/style.css"), /body\[data-theme="studio"\] \.object-chrome-button\.widget-chrome-control\.widget-tool \{[^}]*border-style: solid;[^}]*border-radius: 8px/);
-  assert.match(read("public/style.css"), /#viewport \.canvas-widget\.is-selected, #viewport \.canvas-image-selection \{[^}]*border-radius: 10px;[^}]*background: color-mix\(in srgb, var\(--studio-panel,[^;]+12%, transparent\);[^}]*box-shadow: 0 4px 8px color-mix\(in srgb, var\(--studio-chrome-shadow-color,[^;]+72%, transparent\);[^}]*backdrop-filter: saturate\(1\.08\) blur\(18px\)/);
+  assert.match(read("public/style.css"), /#viewport \.canvas-widget:is\(\.is-selected, \.object-toolbar-attached\), #viewport \.canvas-image-selection \{[^}]*border-radius: 0 0 7px 7px;[^}]*background: transparent;[^}]*box-shadow: none;[^}]*backdrop-filter: none/);
   assert.match(read("public/style.css"), /#viewport \.canvas-widget\.is-selected::after, #viewport \.canvas-image-selection::after \{[^}]*outline: 1px solid color-mix\(in srgb, var\(--studio-accent,[^)]+\) 46%, transparent\)[^}]*background: transparent;/);
   assert.doesNotMatch(read("public/style.css").match(/#viewport \.canvas-widget\.is-selected::after, #viewport \.canvas-image-selection::after \{[^}]*\}/)?.[0] || "", /backdrop-filter|filter:/);
   assert.match(read("public/style.css"), /\.object-chrome-button\.widget-tool\.icon-only \{[^}]*gap: 0;[^}]*padding: 0;/);
-  assert.match(read("public/style.css"), /\.object-chrome-button\.widget-tool\.icon-only \.object-chrome-label \{ display: none; \}/);
+  assert.doesNotMatch(functionSource(app, "createObjectChromeButton"), /object-chrome-label/);
   assert.match(read("public/style.css"), /\.object-chrome-button\.favorite\.is-favorite svg \{ fill: currentColor; \}/);
   assert.match(read("public/style.css"), /\.object-chrome-button\.loading::after \{[^}]*animation: history-save-spin \.8s linear infinite;/);
   assert.match(read("public/style.css"), /object-chrome-button[^}]*scale\(var\(--object-control-scale, 1\)\)/);
@@ -1973,10 +2044,12 @@ test("widget AI refinement is discoverable near ink and replaces only its locked
     placedContentIndex = canvasHtml.indexOf('id="placedContentLayer"');
   assert.ok(materialLayerIndex >= 0 && materialLayerIndex < placedContentIndex);
   assert.match(canvasHtml, /id="imageMaterialLayer"[^>]*>[\s\S]*?id="imageSelectionMaterial"[\s\S]*?<\/div>[\s\S]*?id="placedContentLayer"/);
+  assert.match(canvasHtml, /id="widgetLayer"[^>]*>[\s\S]*?id="selectedWidgetMaterial"[^>]*hidden[^>]*aria-hidden="true"[^>]*><\/div>[\s\S]*?<\/div>/);
   assert.match(canvasHtml, /id="objectChromeLayer" class="object-chrome-layer"><\/div>/);
   assert.doesNotMatch(canvasHtml, /imagePlaceBtn|imageDeleteBtn|image-place-control/);
   assert.match(read("public/style.css"), /\.image-material-layer \{[^}]*z-index: 1;[^}]*overflow: hidden;[^}]*pointer-events: none;/);
-  assert.match(read("public/style.css"), /body\[data-theme="studio"\] \.image-edit-bar \{[^}]*var\(--studio-panel\) 74%, transparent[^}]*box-shadow: 0 4px 8px/);
+  assert.match(read("public/style.css"), /body\[data-theme="studio"\] \.selected-widget-material \{[^}]*background: color-mix\(in srgb, var\(--studio-panel\) 14%, transparent\);[^}]*drop-shadow\(0 4px 8px color-mix\(in srgb, var\(--studio-chrome-shadow-color\) 72%, transparent\)\)/);
+  assert.match(read("public/style.css"), /object-toolbar-surface\.widget-object-toolbar\)[^{]*\{[^}]*border-color: var\(--line\);[^}]*border-bottom-color: transparent;[^}]*background: transparent;[^}]*box-shadow: none;[^}]*backdrop-filter: none/);
 });
 
 test("widget Refine discovery stays in the parent canvas and leaves iframe events untouched", () => {
@@ -1993,7 +2066,8 @@ test("widget Refine discovery stays in the parent canvas and leaves iframe event
   assert.match(pointer, /\["pen", "hand"\]\.includes\(state\.mode\) \? widgetAtRefinePoint\(state\.widgetRefinePointer\) : null/);
   assert.match(hitTest, /visibleWidgets\(\)[\s\S]*?widgetBox\(widget\)[\s\S]*?point\.x[\s\S]*?point\.y/);
   assert.doesNotMatch(hitTest, /contentWindow|postMessage|addEventListener/);
-  assert.match(functionSource(app, "mountWidget"), /frame\.addEventListener\("pointerenter"[\s\S]*?updateHandObjectHover\(clientPoint\(event\)\)[\s\S]*?frame\.addEventListener\("pointerleave"[\s\S]*?updateHandObjectHover\(null\)/);
+  assert.doesNotMatch(functionSource(app, "mountWidget"), /pointerenter|pointerleave|updateHandObjectHover/);
+  assert.match(functionSource(app, "mountWidget"), /frame\.addEventListener\("focus"[\s\S]*?focusHandObject\("widget", widget, "widget-focus"\)/);
   assert.doesNotMatch(widgetHost, /penecho-widget-hover|widget-refine/i);
   assert.doesNotMatch(messageHandler, /refine|hover/i);
   assert.match(frameRule, /pointer-events:\s*none/);
@@ -2002,7 +2076,7 @@ test("widget Refine discovery stays in the parent canvas and leaves iframe event
   assert.match(handFrameRule, /cursor:\s*default/);
 });
 
-test("selected Widget chrome stays inside the frame and follows Studio glass tokens", () => {
+test("selected Widget chrome uses one top toolbar and follows Studio glass tokens", () => {
   const app = read("public/app.js"), css = read("public/style.css"),
     chromePosition = vm.runInNewContext(`(${functionSource(app, "objectChromePosition")})`, {
       state:{panX:0,panY:0,scale:1},
@@ -2010,13 +2084,12 @@ test("selected Widget chrome stays inside the frame and follows Studio glass tok
       screenObjectBox:box=>({left:box.x,top:box.y,width:box.w,height:box.h}),
     }),
     box = {x:400,y:100,w:300,h:200},
-    move = chromePosition(box,"move","",{widgetCore:true}),
-    accept = chromePosition(box,"accept","",{widgetCore:true}),
-    corePositions = new Map([["move",move],["accept",accept]]),
-    firstTool = {widgetTool:true,widgetCoreMoveKey:"move",widgetCoreAcceptKey:"accept",groupHorizontalWidth:234,groupVerticalWidth:118,groupVerticalHeight:72,groupHorizontalOffset:0,groupVerticalOffset:0,baseWidth:118,baseHeight:34,controlScale:1},
-    secondTool = {...firstTool,groupVerticalOffset:38,baseWidth:36},
-    firstPosition = chromePosition(box,"copy","",firstTool,corePositions),
-    secondPosition = chromePosition(box,"download","",secondTool,corePositions),
+    toolbar = chromePosition(box,"toolbar","widget:1:toolbar",{objectToolbar:true,minimumWidth:196,baseHeight:34}),
+    toolbarPositions = new Map([["widget:1:toolbar",toolbar]]),
+    cancel = chromePosition(box,"cancel","",{objectToolbarItem:true,objectToolbarKey:"widget:1:toolbar",toolbarSlot:"leading",baseWidth:28,baseHeight:28},toolbarPositions),
+    move = chromePosition(box,"move","",{objectToolbarItem:true,objectToolbarKey:"widget:1:toolbar",toolbarSlot:"move",baseWidth:28,baseHeight:28},toolbarPositions),
+    accept = chromePosition(box,"accept","",{objectToolbarItem:true,objectToolbarKey:"widget:1:toolbar",toolbarSlot:"trailing",baseWidth:28,baseHeight:28},toolbarPositions),
+    firstTool = chromePosition(box,"copy","",{objectToolbarItem:true,objectToolbarKey:"widget:1:toolbar",toolbarSlot:"tool",toolbarOrder:0,toolbarItemCount:4,baseWidth:28,baseHeight:28},toolbarPositions),
     selectedClasses = [],
     sendWidgetHostState = vm.runInNewContext(`(${functionSource(app, "sendWidgetHostState")})`, {
       state:{scale:1,widgetEdit:{id:"widget-1"},selectedWidgetId:"widget-1",navigationLocked:false},
@@ -2026,17 +2099,29 @@ test("selected Widget chrome stays inside the frame and follows Studio glass tok
     shell:{classList:{toggle(name,value){selectedClasses.push([name,value]);}}},
   });
 
-  assert.deepEqual({x:chromePosition(box,"cancel","",{widgetCore:true}).x,y:chromePosition(box,"cancel","",{widgetCore:true}).y},{x:408,y:108});
-  assert.deepEqual({x:move.x,y:move.y},{x:533,y:108});
-  assert.deepEqual({x:accept.x,y:accept.y},{x:656,y:108});
-  assert.deepEqual({x:firstPosition.x,y:firstPosition.y},{x:574,y:149});
-  assert.deepEqual({x:secondPosition.x,y:secondPosition.y},{x:656,y:187});
+  assert.deepEqual({x:toolbar.x,y:toolbar.y,baseWidth:toolbar.baseWidth},{x:400,y:66,baseWidth:300});
+  assert.deepEqual({x:cancel.x,y:cancel.y},{x:404,y:69});
+  assert.deepEqual({x:move.x,y:move.y},{x:436,y:69});
+  assert.deepEqual({x:accept.x,y:accept.y},{x:668,y:69});
+  assert.deepEqual({x:firstTool.x,y:firstTool.y},{x:540,y:69});
+  assert.deepEqual({ ...chromePosition({x:-40,y:100,w:300,h:200},"toolbar","",{objectToolbar:true,minimumWidth:196,baseHeight:34}) },{x:-40,y:66,scale:1,baseWidth:300,baseHeight:34});
+  assert.deepEqual({ ...chromePosition({x:1130,y:100,w:300,h:200},"toolbar","",{objectToolbar:true,minimumWidth:196,baseHeight:34}) },{x:1130,y:66,scale:1,baseWidth:300,baseHeight:34});
+  assert.deepEqual({ ...chromePosition({x:400,y:100,w:180,h:200},"toolbar","",{objectToolbar:true,minimumWidth:196,baseHeight:34}) },{x:400,y:66,scale:1,baseWidth:196,baseHeight:34});
   assert.deepEqual(selectedClasses,[["is-selected",true]]);
   assert.doesNotMatch(functionSource(app, "objectChromePosition"), /querySelectorAll|positions\.find|fallbackPosition/);
   assert.match(functionSource(app, "drawWidgetChrome"), /state\.paint\.accent \|\| "#4f46e5"/);
-  assert.match(css, /body\[data-theme="studio"\] \.object-chrome-button\.widget-chrome-control \{[^}]*var\(--studio-panel\)[^}]*box-shadow: 0 2px 8px[^}]*backdrop-filter: saturate\(1\.16\) blur\(16px\)/);
-  assert.match(css, /#viewport \.canvas-widget\.is-selected, #viewport \.canvas-image-selection \{[^}]*var\(--studio-chrome-shadow-color,[^;]+72%, transparent\);[^}]*backdrop-filter: saturate\(1\.08\) blur\(18px\)/);
+  assert.match(css, /\.widget-layer \{[^}]*overflow: clip;/);
+  assert.match(css, /\.selected-widget-material \{[^}]*outline: 1px solid[^}]*background: color-mix\(in srgb, var\(--panel-raised, #ffffff\) 14%, transparent\);[^}]*backdrop-filter: saturate\(1\.08\) blur\(8px\)[^}]*clip-path: polygon[^}]*drop-shadow\(0 4px 8px color-mix\(in srgb, var\(--studio-chrome-shadow-color/);
+  assert.match(css, /object-toolbar-surface\.widget-object-toolbar\)[^{]*\{[^}]*border-color: var\(--line\);[^}]*border-bottom-color: transparent;[^}]*background: transparent;[^}]*box-shadow: none;[^}]*backdrop-filter: none/);
+  assert.match(css, /body\[data-theme="studio"\][^{]*object-toolbar-surface\.widget-object-toolbar\)[^{]*\{[^}]*border-color: var\(--studio-line\);[^}]*border-bottom-color: transparent/);
+  assert.match(css, /object-toolbar-surface\.widget-object-toolbar\):focus-visible \{[^}]*border-color: var\(--studio-accent, #4f46e5\);[^}]*border-bottom-color: transparent/);
+  const selectedWidgetRule = css.match(/#viewport \.canvas-widget:is\(\.is-selected, \.object-toolbar-attached\), #viewport \.canvas-image-selection \{[^}]*\}/)?.[0] || "";
+  assert.match(selectedWidgetRule, /border-radius: 0 0 7px 7px;[^}]*background: transparent;[^}]*box-shadow: none;[^}]*backdrop-filter: none/);
+  assert.doesNotMatch(selectedWidgetRule, /blur\(/);
   assert.doesNotMatch(css.match(/#viewport \.canvas-widget\.is-selected::after, #viewport \.canvas-image-selection::after \{[^}]*\}/)?.[0] || "", /backdrop-filter|filter:/);
+  assert.match(css, /#viewport \.canvas-widget\.object-toolbar-attached::after \{ opacity: 0; \}/);
+  assert.match(css, /#viewport \.canvas-widget\.object-toolbar-attached \.canvas-widget-frame \{ opacity: \.72; mix-blend-mode: multiply; \}/);
+  assert.match(functionSource(app, "syncSelectedWidgetMaterial"), /selectedWidgetMaterial\.hidden = true[\s\S]*?syncCanvasObjectLayerOrder\(\)[\s\S]*?widgetStackIndex = state\.widgets\.length[\s\S]*?spec\.object\.styleRule\.style\.zIndex = String\(widgetStackIndex\)[\s\S]*?--selected-widget-material-x[\s\S]*?--selected-widget-material-height[\s\S]*?--selected-widget-body-width/);
 });
 
 test("downsampled animation drafts clip against logical rather than raster dimensions", () => {
@@ -2114,7 +2199,7 @@ test("Save canvas exposes non-blocking progress and completion feedback", () => 
   assert.match(app, /historySavePanel\.open[\s\S]*?!historySavePanel\.contains\(event\.target\)[\s\S]*?closeHistorySavePanel\(\)/);
   assert.match(app, /button\.disabled = busy/);
   assert.match(css, /\.history-notice\s*\{[^}]*pointer-events:\s*none/);
-  assert.match(css, /#historySaveCurrent\.is-saving::before/);
+  assert.doesNotMatch(css, /#historySaveCurrent\.is-saving::before|#historySave\.is-saving::before/);
   assert.match(zh, /snapshotSaving:/);
   assert.match(html, /id="saveCanvasBtn"/);
   assert.match(html, /id="historySaveCurrent"[^>]*>Save<\/button>/);
@@ -2146,8 +2231,14 @@ test("canvas history clearly separates device, server, and private cross-device 
   const html = read("public/index.html"), app = read("public/app.js"), css = read("public/style.css"), zh = read("public/locales/zh.js");
   const closeHistory = functionSource(app, "closeHistoryPanel"), openHistory = functionSource(app, "openHistoryPanel");
   assert.match(html, /id="historyPanel"[^>]*role="dialog"[^>]*aria-modal="true"[^>]*aria-hidden="true"[^>]*tabindex="-1"[^>]*\sinert/);
+  assert.match(html, /id="historyPanel"[^>]*data-pe-surface="manager"[^>]*data-pe-size="xl"[^>]*data-pe-layout="nav-content"[^>]*data-pe-material="control-glass"/);
+  assert.match(html, /class="history-titlebar penecho-workbench-header"[^>]*data-pe-region="header"[\s\S]*?class="penecho-workbench-icon"[^>]*>[\s\S]*?<svg[^>]*viewBox="0 0 24 24"/);
+  assert.match(html, /class="history-library-sidebar penecho-workbench-navigation"/);
   assert.match(html, /id="historySearch"[^>]*type="search"/);
-  assert.match(html, /class="history-library-browser"[\s\S]*?class="history-library-sidebar"[\s\S]*?<section class="history-library-main"/);
+  assert.match(html, /id="historySearch"[^>]*placeholder="Search"[^>]*data-i18n-aria="historySearchLabel"[^>]*aria-label="Search Canvas Library"/);
+  assert.match(openHistory, /requestAnimationFrame\(\(\) => panel\.focus\(\{ preventScroll:true \}\)\)/);
+  assert.doesNotMatch(openHistory, /historySearch[^\n]*focus/);
+  assert.match(html, /class="history-library-browser"[\s\S]*?class="history-library-sidebar penecho-workbench-navigation"[\s\S]*?<section class="history-library-main"/);
   assert.match(html, /id="historyProjectNav"[^>]*class="history-project-nav"/);
   assert.match(html, /id="historySort"[\s\S]*?value="modified"[\s\S]*?value="name"[\s\S]*?value="created"/);
   assert.match(html, /id="historyViewList"[^>]*data-history-view="list"[\s\S]*?id="historyViewGrid"[^>]*data-history-view="grid"/);
@@ -2159,7 +2250,7 @@ test("canvas history clearly separates device, server, and private cross-device 
   assert.match(html, /class="history-toolbar"[\s\S]*?id="historySavePanel"[^>]*class="history-toolbar-save"/);
   assert.doesNotMatch(html, /class="history-footer"|id="historySelectionName"|id="historyCancel"|id="historyOpenCanvas"/);
   assert.match(html, /id="historyList"[\s\S]*?id="historyGridActions"[^>]*class="history-grid-actions"[^>]*hidden[\s\S]*?id="historyGridSelectionName"[\s\S]*?id="historyGridLoad"[^>]*class="history-grid-load history-load"/);
-  assert.match(html, /id="historyDeleteDialog"[^>]*class="studio-session-delete-dialog history-delete-dialog"/);
+  assert.match(html, /id="historyDeleteDialog"[^>]*class="studio-session-delete-dialog history-delete-dialog"[^>]*role="alertdialog"[^>]*aria-modal="true"[^>]*data-pe-surface="alert"[^>]*data-pe-size="xs"[^>]*data-pe-layout="single"[^>]*data-pe-presentation="modal"[^>]*data-pe-material="opaque"/);
   assert.doesNotMatch(html, /id="historyPanel"[\s\S]*?<span class="history-kicker">PenEcho<\/span>[\s\S]*?<div class="history-composer">/);
   assert.doesNotMatch(html, /data-i18n="historyDescription"/);
   assert.doesNotMatch(app, /historyDescription:/);
@@ -2168,8 +2259,8 @@ test("canvas history clearly separates device, server, and private cross-device 
   assert.doesNotMatch(css, /body\[data-theme="(?:studio|research|arcane|scifi)"\] \.history-panel/);
   assert.ok(css.includes("width: min(1080px, calc(100vw - 56px));"));
   assert.ok(css.includes("height: min(720px, calc(100dvh - 56px));"));
-  assert.match(css, /\.history-library-browser\s*\{[^}]*grid-template-columns:\s*226px minmax\(0, 1fr\)/);
-  assert.match(css, /\.history-library-sidebar\s*\{[^}]*border-right:\s*1px solid var\(--ai-line\)/);
+  assert.match(css, /\.penecho-workbench-dialog\s*\{[^}]*--penecho-workbench-header-h:\s*68px[^}]*--penecho-workbench-navigation-w:\s*184px[^}]*--penecho-workbench-menu-item-h:\s*30px/);
+  assert.match(css, /\.history-library-sidebar\s*\{[^}]*--pe-menu-item-h:\s*var\(--penecho-workbench-menu-item-h, 30px\)[^}]*border-right:\s*1px solid var\(--ai-line\)/);
   assert.match(css, /\.history-library-main\s*\{[^}]*grid-template-rows:\s*50px 74px 30px minmax\(0, 1fr\)/);
   assert.match(css, /\.history-panel\.open\s*\{[^}]*opacity:\s*1[^}]*translate\(-50%, -50%\) scale\(1\)[^}]*visibility:\s*visible/);
   assert.match(css, /html\.penecho-web-page-scale \.history-panel\s*\{[^}]*min-height:\s*0/);
@@ -2215,11 +2306,53 @@ test("canvas history clearly separates device, server, and private cross-device 
   assert.match(functionSource(app, "historySortItems"), /historySort[\s\S]*?localeCompare[\s\S]*?createdAt[\s\S]*?updatedAt/);
   assert.match(functionSource(app, "updateHistoryLibrarySummary"), /historySectionTitle[\s\S]*?historyWindowSummary[\s\S]*?historyCanvasCount[\s\S]*?history-location-count/);
   assert.match(functionSource(app, "updateHistoryLibrarySummary"), /snapshotItemsLocation === location[\s\S]*?snapshotLocationCountCache\.set\(location, scopedCount\)[\s\S]*?snapshotLocationCountCache\.get\(node\.dataset\.location\)/);
-  assert.match(functionSource(app, "setHistoryView"), /historyColumnHeader[\s\S]*?history-library-main[\s\S]*?classList\.toggle\("grid-view", grid\)[\s\S]*?header\.hidden = grid[\s\S]*?aria-pressed[\s\S]*?HISTORY_VIEW_STORAGE_KEY/);
+  assert.match(functionSource(app, "setHistoryView"), /historyColumnHeader[\s\S]*?history-library-main[\s\S]*?classList\.toggle\("grid-view", grid\)[\s\S]*?dataset\.peList = grid \? "grid" : "media-list"[\s\S]*?header\.hidden = grid[\s\S]*?aria-pressed[\s\S]*?HISTORY_VIEW_STORAGE_KEY/);
   const renderSnapshotList = functionSource(app, "renderSnapshotList");
-  assert.match(renderSnapshotList, /history-card-select[\s\S]*?aria-pressed[\s\S]*?history-identity[\s\S]*?history-stats[\s\S]*?history-modified/);
+  const releaseHistoryPreviewUrls = functionSource(app, "releaseHistoryPreviewUrls"),
+    revokeHistoryPreviewUrlWhenSettled = functionSource(app, "revokeHistoryPreviewUrlWhenSettled");
+  assert.match(releaseHistoryPreviewUrls, /entries = \[\.\.\.historyPreviewUrls\][\s\S]*?historyPreviewUrls\.clear\(\)[\s\S]*?queueMicrotask[\s\S]*?revokeHistoryPreviewUrlWhenSettled\(url, image\)/);
+  assert.match(revokeHistoryPreviewUrlWhenSettled, /image\.complete[\s\S]*?addEventListener\("load", revoke\)[\s\S]*?addEventListener\("error", revoke\)/);
+  assert.match(renderSnapshotList, /releaseHistoryPreviewUrls\(\)[\s\S]*?historyPreviewUrls\.set\(url, image\)[\s\S]*?image\.onerror/);
+  assert.doesNotMatch(renderSnapshotList, /image\.onload\s*=/);
+  assert.match(renderSnapshotList, /dataset\.peItem = "card-action"[\s\S]*?history-card-select history-preview[\s\S]*?dataset\.peRegion = "media"[\s\S]*?dataset\.peMedia = "prompt-preview"[\s\S]*?dataset\.peMedia = "prompt-icon"/);
+  assert.match(renderSnapshotList, /history-card-content[\s\S]*?dataset\.peRegion = "content"[\s\S]*?dataset\.peRegion = "copy"[\s\S]*?dataset\.peRegion = "title"[\s\S]*?history-card-description[\s\S]*?dataset\.peRegion = "description"/);
+  assert.match(renderSnapshotList, /description\.append\(stats\)/);
+  assert.doesNotMatch(renderSnapshotList, /history-detail|description\.append\(detail/);
+  const historyItemContentSummary = functionSource(app, "historyItemContentSummary");
+  assert.match(historyItemContentSummary, /historySnapshotTile[\s\S]*?historySnapshotTiles[\s\S]*?historySnapshotWidget[\s\S]*?historySnapshotWidgets/);
+  assert.match(historyItemContentSummary, /item\.tileCount === 1[\s\S]*?item\.widgetCount === 1/);
+  assert.doesNotMatch(historyItemContentSummary, /snapshotAnimations|snapshotImages/);
   assert.match(renderSnapshotList, /history-current-label[\s\S]*?studioNavigatorCurrent/);
-  assert.match(renderSnapshotList, /isCurrent \? "history-item-save history-save-current" : "history-item-load history-load"[\s\S]*?saveCurrentHistoryItem[\s\S]*?loadHistorySnapshot[\s\S]*?card\.append\(selectButton, load, more, advancedActions\)/);
+  assert.match(renderSnapshotList, /isCurrent \? "history-item-save history-save-current" : "history-item-load history-load"[\s\S]*?saveCurrentHistoryItem[\s\S]*?loadHistorySnapshot[\s\S]*?footer\.append\(modifiedColumn, load, more\)[\s\S]*?content\.append\(meta, footer\)[\s\S]*?card\.append\(selectButton, content, advancedActions\)/);
+  assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-list:not\(\.grid-view\)\s*\{[^}]*grid-auto-rows:\s*max-content[^}]*align-content:\s*start/);
+  assert.match(css, /\.history-panel\[data-pe-surface="manager"\]\s*\{[^}]*width:\s*min\(900px,[^}]*background:\s*var\(--penecho-dialog-surface\)[^}]*backdrop-filter:\s*var\(--penecho-dialog-surface-filter\)[^}]*container:\s*history-library \/ inline-size/);
+  assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-library-sidebar\s*\{[^}]*padding:\s*13px 11px[^}]*background:\s*color-mix\(in srgb, var\(--studio-toolbar, #eef0f2\) 68%, transparent\)/);
+  assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-library-main\s*\{[^}]*background:\s*var\(--penecho-dialog-body-surface\)/);
+  assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-library-browser\s*\{[^}]*grid-template-columns:\s*var\(--penecho-workbench-navigation-w\) minmax\(0, 1fr\)/);
+  assert.match(css, /History Grid keeps the catalog Action grid skeleton[\s\S]*?\.history-panel\[data-pe-surface="manager"\] \.history-list\.grid-view\s*\{[^}]*grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\)[^}]*gap:\s*var\(--pe-s6, 12px\)/);
+  assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-list\.grid-view \.history-card\s*\{[^}]*grid-template-rows:\s*auto minmax\(0, 1fr\)[^}]*gap:\s*var\(--pe-s5, 10px\)[^}]*padding:\s*8px[^}]*border-radius:\s*var\(--pe-r-group, 10px\)/);
+  assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-list\.grid-view \.history-meta \.history-card-title\s*\{[^}]*font:\s*400 13px\/1\.3 var\(--pe-font-ui\)[^}]*white-space:\s*nowrap/);
+  assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-list\.grid-view \.history-card-description\s*\{[^}]*min-height:\s*17px[^}]*font:\s*400 12px\/1\.4 var\(--pe-font-ui\)[^}]*text-overflow:\s*ellipsis[^}]*white-space:\s*nowrap/);
+  assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-list\.grid-view \.history-card-description \.history-stats\s*\{[^}]*display:\s*block[^}]*text-overflow:\s*ellipsis[^}]*white-space:\s*nowrap/);
+  assert.match(css, /:is\(#pe-type-contract, body\[data-theme="studio"\]\)\s*\.history-panel\[data-pe-surface="manager"\]\s*\.history-list\.grid-view\s*\.history-meta\s*\.history-card-title\s*\{[^}]*font-size:\s*12px[^}]*font-weight:\s*400/);
+  assert.match(css, /:is\(#pe-type-contract, body\[data-theme="studio"\]\)\s*\.history-panel\[data-pe-surface="manager"\]\s*\.history-list\.grid-view\s*\.history-card-description\s*\.history-stat\s*\{[^}]*font-size:\s*10\.5px[^}]*font-weight:\s*400/);
+  assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-list\.grid-view \.history-card \.history-card-select\s*\{[^}]*display:\s*block[^}]*aspect-ratio:\s*640 \/ 426[^}]*overflow:\s*visible[^}]*border:\s*0[^}]*border-radius:\s*0[^}]*background:\s*transparent/);
+  assert.match(css, /Catalog Action Grid:[\s\S]*?:is\(#pe-button-contract, body\[data-theme="studio"\]\)[\s\S]*?\.history-card-select\[data-pe-hit="choice"\]\s*\{[^}]*border:\s*0[^}]*outline:\s*0[^}]*background:\s*transparent[^}]*box-shadow:\s*none/);
+  assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-list\.grid-view \.history-card-select > :where\(\[data-pe-media="prompt-preview"\], \[data-pe-media="prompt-icon"\]\)\s*\{[^}]*position:\s*absolute[^}]*top:\s*calc\(-1 \* var\(--pe-s4, 8px\)\)[^}]*left:\s*calc\(-1 \* var\(--pe-s4, 8px\)\)[^}]*width:\s*calc\(100% \+ var\(--pe-s4, 8px\) \+ var\(--pe-s4, 8px\)\)[^}]*height:\s*calc\(100% \+ var\(--pe-s4, 8px\)\)/);
+  assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-list\.grid-view \.history-card-select > img\[data-pe-media="prompt-preview"\]\s*\{[^}]*background:\s*transparent[^}]*object-fit:\s*contain/);
+  assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-list\.grid-view \.history-card:has\(\.history-card-select:focus-visible\)\s*\{[^}]*border-color:\s*color-mix\(in srgb, var\(--pe-accent\) 42%, var\(--pe-line\)\)[^}]*box-shadow:\s*0 0 0 1px/);
+  assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-more\s*\{[^}]*width:\s*28px[^}]*margin:\s*0[^}]*padding:\s*0/);
+  assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-more::before\s*\{[^}]*content:\s*"…"[^}]*font:\s*600 11px\/1 var\(--pe-font-ui\)[^}]*letter-spacing:\s*0/);
+  assert.match(css, /Catalog History Manager keeps Save progress textual[\s\S]*?:is\(#pe-button-contract, body\[data-theme="studio"\]\)[\s\S]*?\.history-panel\[data-pe-surface="manager"\][\s\S]*?:is\(#historySaveCurrent, #historySave, \.history-save-current\)\[aria-busy="true"\]::before\s*\{[^}]*display:\s*none[^}]*content:\s*none[^}]*animation:\s*none/);
+  assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-list\.grid-view \.history-more\s*\{[^}]*top:\s*var\(--pe-s2, 4px\)[^}]*right:\s*var\(--pe-s2, 4px\)[^}]*margin:\s*0[^}]*background:\s*transparent/);
+  assert.match(css, /The shared card DOM also follows the catalog media-list skeleton[\s\S]*?\.history-panel\[data-pe-surface="manager"\] \.history-list:not\(\.grid-view\) \.history-card\s*\{[^}]*min-height:\s*80px[^}]*grid-template-columns:\s*96px minmax\(0, 1fr\)[^}]*gap:\s*var\(--pe-s5, 10px\)/);
+  assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-list:not\(\.grid-view\)\s*\{[^}]*gap:\s*0[^}]*padding:\s*0[^}]*border:\s*0[^}]*border-radius:\s*0/);
+  assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-list:not\(\.grid-view\) \.history-card\s*\{[^}]*border:\s*0[^}]*border-bottom:\s*1px solid var\(--pe-line\)[^}]*border-radius:\s*0/);
+  assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-list:not\(\.grid-view\) \.history-card \.history-card-select\s*\{[^}]*display:\s*block[^}]*width:\s*96px[^}]*height:\s*64px/);
+  assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-list:not\(\.grid-view\) \.history-modified\s*\{\s*display:\s*none/);
+  assert.match(css, /@container history-library \(max-width: 480px\)[\s\S]*?\.history-list:not\(\.grid-view\) \.history-card\s*\{[^}]*grid-template-columns:\s*80px minmax\(0, 1fr\)[^}]*\}[\s\S]*?\.history-card-select\s*\{[^}]*width:\s*80px[^}]*height:\s*56px/);
+  assert.match(css, /@media \(max-width: 920px\)[\s\S]*?\.history-panel\[data-pe-surface="manager"\] \.history-list\.grid-view\s*\{[^}]*grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\)/);
+  assert.match(css, /@container history-library \(max-width: 700px\)[\s\S]*?\.history-library-browser\s*\{[^}]*grid-template-columns:\s*1fr/);
   assert.match(css, /\.history-current-label\s*\{[^}]*position:\s*absolute[^}]*background:/);
   assert.match(css, /\.history-list\.grid-view \.history-item-save\s*\{[^}]*top:\s*auto[^}]*right:\s*10px[^}]*bottom:\s*10px[^}]*height:\s*26px[^}]*padding:\s*0 8px[^}]*font-size:\s*12px/);
   const updateHistorySelectionUi = functionSource(app, "updateHistorySelectionUi");
@@ -2228,6 +2361,15 @@ test("canvas history clearly separates device, server, and private cross-device 
   assert.match(app, /function selectHistorySnapshot[\s\S]*?grid-view[\s\S]*?historyGridSelectionActivated = true/);
   assert.match(functionSource(app, "setHistoryView"), /historyGridSelectionActivated = false[\s\S]*?updateHistorySelectionUi\(\)/);
   assert.match(functionSource(app, "closeHistoryRowActions"), /history-row-actions:not\(\[hidden\]\)[\s\S]*?aria-expanded", "false"/);
+  assert.match(functionSource(app, "positionHistoryRowActions"), /getBoundingClientRect\(\)[\s\S]*?menuHeight = row\.offsetHeight[\s\S]*?spaceAbove[\s\S]*?spaceBelow[\s\S]*?dataset\.pePlacement/);
+  assert.match(renderSnapshotList, /className = "history-row-actions pe-compact-menu"[\s\S]*?dataset\.peSurface = "menu"[\s\S]*?dataset\.peSize = "xs"[\s\S]*?dataset\.peList = "menu"[\s\S]*?dataset\.pePresentation = "anchored"/);
+  assert.match(renderSnapshotList, /aria-controls[\s\S]*?aria-labelledby[\s\S]*?className = "menu-separator"[\s\S]*?role", "separator"/);
+  assert.match(renderSnapshotList, /more\.addEventListener\("keydown"[\s\S]*?Escape[\s\S]*?stopPropagation\(\)[\s\S]*?advancedActions\.hidden = true/);
+  assert.match(renderSnapshotList, /advancedActions\.addEventListener\("keydown"[\s\S]*?Escape[\s\S]*?stopPropagation\(\)[\s\S]*?more\.focus/);
+  assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-row-actions\s*\{[^}]*display:\s*grid[^}]*width:\s*min\(200px, calc\(100% - 16px\)\)[^}]*gap:\s*0[^}]*padding:\s*4px/);
+  assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-row-actions\[hidden\]\s*\{\s*display:\s*none/);
+  assert.match(css, /\.history-list:not\(\.grid-view\) \.history-row-actions\[data-pe-placement="bottom"\]\s*\{[^}]*top:\s*calc\(50% \+ 17px\)[^}]*bottom:\s*auto/);
+  assert.match(css, /\.history-list:not\(\.grid-view\) \.history-row-actions\[data-pe-placement="top"\]\s*\{[^}]*top:\s*auto[^}]*bottom:\s*calc\(50% \+ 27px\)/);
   assert.match(app, /querySelector\("#historyPanel"\)\.addEventListener\("pointerdown"[\s\S]*?closest\("\.history-more, \.history-row-actions"\)[\s\S]*?closeHistoryRowActions\(\)/);
   assert.match(functionSource(app, "ensureHistorySelection"), /state\.currentSnapshotId[\s\S]*?items\[0\]/);
   assert.match(functionSource(app, "loadHistorySnapshot"), /button\.disabled[\s\S]*?requestLoadSnapshot\(item\.id, location\)/);
@@ -2257,6 +2399,12 @@ test("canvas history clearly separates device, server, and private cross-device 
   assert.match(functionSource(app, "openServerProjectDialog"), /projectDialog[\s\S]*?showModal\(\)[\s\S]*?input\.focus\(\)/);
   assert.match(functionSource(app, "createServerProject"), /projectName[\s\S]*?input\.value\.trim\(\)\.slice\(0, 48\)[\s\S]*?fetch\(isCloud \? "\/api\/cloud\/projects" : "\/api\/canvas-projects"[\s\S]*?dialog\.close\("created"\)/);
   assert.doesNotMatch(app, /\bprompt\s*\(/);
+  assert.doesNotMatch(functionSource(app, "deleteSelectedServerProject"), /\bconfirm\s*\(/);
+  assert.match(functionSource(app, "requestSelectedProjectDelete"), /historyDeletePending = \{ type:"project"[\s\S]*?deleteCloudProjectConfirm[\s\S]*?showModal\(\)[\s\S]*?cancel\.focus/);
+  assert.match(functionSource(app, "confirmSnapshotDelete"), /pending\.type === "project"[\s\S]*?deleteSelectedServerProject\(pending\)[\s\S]*?dialog\.close\("deleted"\)/);
+  assert.match(app, /querySelector\("#historyProjectDelete"\)\.onclick = requestSelectedProjectDelete/);
+  assert.match(css, /\.history-sidebar-heading\s*\{[^}]*width:\s*100%[^}]*justify-content:\s*space-between/);
+  assert.match(css, /\.history-project-create\s*\{[^}]*margin-left:\s*auto/);
   assert.match(functionSource(app, "storedServerProjectId"), /sessionStorage\.getItem\(SERVER_PROJECT_SESSION_KEY\)/);
   assert.match(functionSource(app, "rememberSelectedServerProject"), /sessionStorage\.setItem\(SERVER_PROJECT_SESSION_KEY, selectedServerProjectId\)/);
   assert.match(functionSource(app, "selectedServerSaveProjectId"), /selectedServerProjectId === SERVER_ALL_PROJECTS_ID \? SERVER_DEFAULT_PROJECT_ID/);
@@ -2291,7 +2439,8 @@ test("canvas history clearly separates device, server, and private cross-device 
   assert.match(css, /\.history-row-actions\s*\{[^}]*position:\s*absolute[^}]*padding:\s*3px[^}]*background:\s*var\(--ai-surface\)/);
   assert.match(css, /\.history-toolbar-save \.history-save-row\s*\{[^}]*position:\s*absolute[^}]*grid-template-columns:\s*minmax\(190px, 1fr\) auto/);
   assert.match(css, /\.history-projects\s*\{[^}]*display:\s*flex[^}]*flex-direction:\s*column[^}]*gap:\s*0/);
-  assert.match(css, /\.history-project-nav-item\s*\{[^}]*min-height:\s*36px[^}]*border-radius:\s*7px/);
+  assert.match(css, /\.history-project-nav-item\s*\{[^}]*min-height:\s*var\(--pe-menu-item-h, 30px\)[^}]*border-radius:\s*5px/);
+  assert.doesNotMatch(css, /Keep compact Library project rows/);
   assert.match(css, /\.history-content-guidance\s*\{[^}]*max-width:\s*44ch[^}]*text-align:\s*right/);
   assert.match(css, /\.history-move\s*\{[^}]*width:\s*min\(196px, 100%\)[^}]*height:\s*30px/);
   assert.match(css, /\.history-sidebar-section \.snapshot-location-options\s*\{[^}]*grid-template-columns:\s*1fr/);
@@ -2300,11 +2449,12 @@ test("canvas history clearly separates device, server, and private cross-device 
   assert.match(css, /\.history-panel \.history-projects \.history-project-delete:hover:not\(:disabled\)\s*\{[^}]*color:\s*var\(--ai-danger\)[^}]*background:\s*transparent/);
   assert.match(css, /\.history-projects \.history-project-delete:disabled\s*\{[^}]*visibility:\s*visible[^}]*opacity:\s*\.48/);
   assert.match(css, /\.history-sidebar-section \.history-location-label\s*\{[^}]*flex:\s*1 1 auto[^}]*text-align:\s*left/);
+  assert.match(css, /\.history-sidebar-section :is\(\.history-location-label, \.history-location-count\)\s*\{[^}]*line-height:\s*var\(--pe-menu-item-h, 30px\)/);
   assert.match(css, /@media \(max-width: 820px\)[\s\S]*?\.history-panel\s*\{[^}]*border-radius:\s*0[^}]*box-shadow:\s*none[^}]*backdrop-filter:\s*none/);
   assert.match(css, /\.history-card \.history-item-load,[\s\S]*?\.history-card \.history-item-save\s*\{[^}]*height:\s*28px[^}]*color:\s*var\(--ai-ink\)[^}]*background:\s*transparent/);
   assert.match(css, /\.history-panel \.history-row-actions \.history-delete\s*\{[^}]*color:\s*var\(--ai-danger\)[^}]*background:\s*transparent/);
   assert.match(css, /\.history-panel \.history-row-actions button,[\s\S]*?\.history-row-actions select\s*\{[^}]*font:\s*500 13px\/1 var\(--ai-font\)/);
-  assert.match(css, /\.history-meta \.history-card-title\s*\{[^}]*font:\s*500 14px\/1\.3 var\(--ai-font\)/);
+  assert.match(css, /\.history-meta \.history-card-title\s*\{[^}]*font:\s*400 14px\/1\.3 var\(--ai-font\)/);
   assert.match(css, /\.history-meta > small\s*\{[^}]*font:\s*400 12\.5px\/1\.4 var\(--ai-font\)/);
   assert.match(css, /\.history-card \.history-item-load,[\s\S]*?\.history-card \.history-item-save\s*\{[^}]*font:\s*500 13px\/1 var\(--ai-font\)/);
   assert.match(css, /\.history-card \.history-item-load:hover:not\(:disabled\),[\s\S]*?\.history-card \.history-item-save:hover:not\(:disabled\)\s*\{[^}]*background:\s*transparent/);
@@ -2342,6 +2492,20 @@ test("canvas history clearly separates device, server, and private cross-device 
   assert.match(zh, /newSnapshotName:\s*"名称"/);
   assert.match(css, /\.project-dialog\s*\{[^}]*width:\s*min\(336px,[^}]*border-radius:\s*12px/);
   assert.match(css, /\.history-rename-form\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) 36px 36px/);
+});
+
+test("searchable sidebars and popups open without focusing a text field", () => {
+  const html = read("public/index.html"), persistence = read("src/client/app/persistence.js"),
+    navigator = read("src/client/app/studio-navigator.js"), agent = read("src/client/app/canvas-agent-runtime.js"),
+    openHistory = functionSource(persistence, "openHistoryPanel"), scheduleNavigator = functionSource(navigator, "scheduleStudioNavigatorOpenWork"),
+    toggleReferencePicker = functionSource(agent, "canvasAgentToggleReferencePicker");
+  for (const id of ["historySearch", "studioNavigatorSearch", "canvasAgentReferenceSearch"]) {
+    assert.doesNotMatch(html, new RegExp(`id="${id}"[^>]*\\bautofocus\\b`));
+  }
+  assert.match(openHistory, /requestAnimationFrame\(\(\) => panel\.focus\(\{ preventScroll:true \}\)\)/);
+  assert.doesNotMatch(openHistory, /historySearch[^\n]*focus/);
+  assert.doesNotMatch(scheduleNavigator, /studioNavigatorSearch\.focus/);
+  assert.doesNotMatch(toggleReferencePicker, /canvasAgentReferenceSearch\.focus/);
 });
 
 test("text-entry focus stays on the rounded control surface without a nested rectangular outline", () => {
@@ -2504,14 +2668,15 @@ test("Studio-only palettes are wired through initialization, localization, and s
   assert.match(css, /body\[data-theme="studio"\]\s*\{/);
   for (const palette of ["indigo", "graphite", "cobalt", "azure", "teal", "forest", "amber", "burgundy"]) assert.match(css, new RegExp(`\\[data-studio-palette="${palette}"\\]`));
   assert.match(css, /body\[data-theme="studio"\] \.canvas-agent-project-dialog\s*\{[^}]*color:\s*var\(--studio-text\)[^}]*border-color:\s*var\(--studio-line\)[^}]*background:\s*var\(--penecho-dialog-surface\)/);
-  assert.match(css, /body\[data-theme="studio"\] \.canvas-agent-project-choice\[aria-pressed="true"\]\s*\{[^}]*border-color:\s*var\(--studio-accent\)[^}]*background:\s*var\(--studio-accent-soft\)/);
+  assert.match(css, /body\[data-theme="studio"\] \.canvas-agent-project-row\.selected,[\s\S]*?\.canvas-agent-project-row\.selected:hover\s*\{[^}]*background:\s*var\(--pe-selected\)/);
+  assert.match(css, /body\[data-theme="studio"\] \.canvas-agent-resource-heading-icon,[\s\S]*?\.canvas-agent-resource-icon\s*\{[^}]*color:\s*var\(--pe-ink-2\)[^}]*background:\s*var\(--pe-surface-muted\)/);
   assert.match(css, /body\[data-theme="studio"\] \.canvas-agent-prompt-popup\s*\{[^}]*border-color:\s*var\(--studio-line\)[^}]*background:\s*var\(--studio-panel-raised\)/);
   assert.match(css, /body\[data-theme="studio"\]\.is-fullscreen\s+#viewport\s*\{[^}]*height:\s*100%[^}]*min-height:\s*0/);
 });
 
 test("Studio palette propagates through every Canvas popup surface", () => {
   const css = read("public/style.css");
-  assert.match(css, /:root\s*\{[^}]*--penecho-dialog-backdrop:\s*rgba\(18, 23, 34, \.2\)[^}]*--penecho-dialog-backdrop-filter:\s*blur\(4px\) saturate\(1\.08\)[^}]*--penecho-dialog-surface:[^}]*78%, transparent\)[^}]*--penecho-dialog-surface-filter:\s*blur\(30px\) saturate\(1\.24\)/);
+  assert.match(css, /:root\s*\{[^}]*--penecho-dialog-backdrop:\s*rgba\(18, 23, 34, \.2\)[^}]*--penecho-dialog-backdrop-filter:\s*blur\(4px\) saturate\(1\.08\)[^}]*--penecho-dialog-surface:[^}]*70%, transparent\)[^}]*--penecho-dialog-raised-surface:[^}]*78%, transparent\)[^}]*--penecho-dialog-body-surface:[^}]*74%, transparent\)[^}]*--penecho-dialog-surface-filter:\s*blur\(24px\) saturate\(1\.18\)/);
   assert.match(css, /\.plugin-modal\s*\{[^}]*--ink:\s*var\(--studio-text,[^)]+\)[^}]*--panel-raised:\s*var\(--studio-panel,[^)]+\)[^}]*--gold-bright:\s*var\(--studio-accent-strong,[^)]+\)/);
   assert.match(css, /\.plugin-modal-layer\s*\{[^}]*background:\s*var\(--penecho-dialog-backdrop\)[^}]*backdrop-filter:\s*var\(--penecho-dialog-backdrop-filter\)/);
   assert.match(css, /\.plugin-modal\s*\{[^}]*background:\s*var\(--penecho-dialog-surface\)[^}]*backdrop-filter:\s*var\(--penecho-dialog-surface-filter\)/);
@@ -2519,7 +2684,7 @@ test("Studio palette propagates through every Canvas popup surface", () => {
   assert.match(css, /body\[data-theme="studio"\] \.tour-card\s*\{[^}]*border-color:\s*var\(--studio-accent-border\)[^}]*background:\s*var\(--studio-panel\)/);
   assert.match(css, /\.settings-panel, \.configuration-panel\s*\{[^}]*--ink:\s*var\(--studio-text,[^)]+\)[^}]*--gold-bright:\s*var\(--studio-accent-strong,[^)]+\)/);
   assert.match(css, /\.configuration-panel\s*\{[^}]*background:\s*var\(--penecho-dialog-surface\)[^}]*backdrop-filter:\s*var\(--penecho-dialog-surface-filter\)/);
-  assert.match(css, /\.crafts-modal\s*\{[^}]*--ink:\s*var\(--studio-text,[^)]+\)[^}]*--panel-raised:\s*var\(--studio-panel,[^)]+\)[^}]*background:\s*color-mix\(in srgb, var\(--panel-raised\) 92%, transparent\)[^}]*backdrop-filter:\s*var\(--penecho-dialog-surface-filter\)/);
+  assert.match(css, /\.crafts-modal\s*\{[^}]*--ink:\s*var\(--studio-text,[^)]+\)[^}]*--panel-raised:\s*var\(--studio-panel,[^)]+\)[^}]*background:\s*var\(--penecho-dialog-surface\)[^}]*backdrop-filter:\s*var\(--penecho-dialog-surface-filter\)/);
   assert.match(css, /body\[data-theme="studio"\] \.canvas-agent-project-dialog\s*\{[^}]*color:\s*var\(--studio-text\)[^}]*border-color:\s*var\(--studio-line\)[^}]*background:\s*var\(--penecho-dialog-surface\)/);
   assert.match(css, /body\[data-theme="studio"\] \.canvas-agent-prompt-popup\s*\{[^}]*border-color:\s*var\(--studio-line\)[^}]*background:\s*var\(--studio-panel-raised\)/);
   assert.match(css, /\.studio-session-delete-dialog\s*\{[^}]*color:\s*var\(--studio-text,[^)]+\)[^}]*background:\s*var\(--penecho-dialog-surface\)[^}]*backdrop-filter:\s*var\(--penecho-dialog-surface-filter\)/);
@@ -2533,23 +2698,28 @@ test("Settings is a centered frosted workbench with persistent navigation and sw
   const html = read("public/index.html"), css = read("public/style.css"), app = read("public/app.js");
   const panel = html.match(/<section id="settingsPanel"[\s\S]*?<\/section>\s*<\/div>\s*<div id="configurationLayer"/)?.[0] || "";
   assert.match(panel, /role="dialog"[^>]*aria-modal="true"[^>]*aria-labelledby="settingsTitle"/);
-  assert.match(panel, /class="settings-window-header"[\s\S]*?id="settingsClose"[\s\S]*?<svg/);
-  assert.match(panel, /class="settings-navigation"[^>]*role="tablist"[^>]*aria-orientation="vertical"/);
+  assert.match(panel, /data-pe-surface="settings"[^>]*data-pe-size="xl"[^>]*data-pe-layout="nav-content"[^>]*data-pe-material="control-glass"/);
+  assert.match(panel, /class="settings-window-header penecho-workbench-header"[^>]*data-pe-region="header"[\s\S]*?class="penecho-workbench-icon"[^>]*>[\s\S]*?id="settingsClose"[\s\S]*?<svg/);
+  assert.match(panel, /class="settings-navigation penecho-workbench-navigation"[^>]*role="tablist"[^>]*aria-orientation="vertical"/);
   for (const page of ["appearance", "connections", "canvas", "about"]) {
     assert.match(panel, new RegExp(`data-settings-page-target="${page}"`));
     assert.match(panel, new RegExp(`data-settings-page="${page}"`));
   }
-  assert.ok(panel.indexOf('class="settings-navigation"') < panel.indexOf('class="settings-detail"'));
+  assert.ok(panel.indexOf('class="settings-navigation penecho-workbench-navigation"') < panel.indexOf('class="settings-detail"'));
   assert.equal((panel.match(/class="studio-palette-option"/g) || []).length, 8);
-  assert.equal((panel.match(/data-page-scale=/g) || []).length, 5);
-  assert.doesNotMatch(panel, /data-page-scale="0\.9"/);
+  assert.equal((panel.match(/data-page-scale=/g) || []).length, 6);
+  assert.match(panel, /data-page-scale="0\.9" aria-checked="false"[^>]*>90%<\/button>/);
   assert.match(panel, /data-page-scale="1" aria-checked="true"/);
   assert.match(css, /\.settings-panel\s*\{[^}]*top:\s*50%[^}]*left:\s*50%[^}]*background:\s*var\(--penecho-dialog-surface\)[^}]*backdrop-filter:\s*var\(--penecho-dialog-surface-filter\)/);
-  assert.match(css, /\.settings-workbench\s*\{[^}]*grid-template-columns:\s*184px minmax\(0, 1fr\)/);
+  assert.match(css, /\.settings-workbench\s*\{[^}]*grid-template-columns:\s*var\(--penecho-workbench-navigation-w\) minmax\(0, 1fr\)/);
   assert.match(css, /\.settings-page\s*\{[^}]*overflow-y:\s*auto/);
   assert.match(css, /@media \(max-width: 680px\)[\s\S]*?\.settings-workbench\s*\{\s*grid-template-columns:\s*112px minmax\(0, 1fr\)/);
+  assert.match(css, /@media \(max-width: 520px\)[\s\S]*?\.settings-workbench\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)[^}]*grid-template-rows:\s*auto minmax\(0, 1fr\)/);
+  assert.match(css, /@media \(max-width: 520px\)[\s\S]*?\.settings-navigation\s*\{[^}]*flex-direction:\s*row[^}]*overflow-x:\s*auto[^}]*border-bottom:/);
   assert.match(app, /function selectSettingsPage\(page,[\s\S]*?data-settings-page-target[\s\S]*?node\.hidden = !selected[\s\S]*?return true;\s*\}/);
   assert.match(functionSource(app, "handleSettingsNavigationKeydown"), /ArrowUp[\s\S]*?ArrowDown[\s\S]*?Home[\s\S]*?End/);
+  assert.match(html, /<div class="settings-group settings-system-group">\s*<div class="settings-fields two-column">/);
+  assert.doesNotMatch(html, /settingsSystemHeading|data-i18n="settingsSystemSection"|data-i18n="settingsSystemDescription"/);
 });
 
 test("Canvas grid keeps the original 500-unit lines at half-pixel weight in the viewport and PNG export", () => {
@@ -2566,6 +2736,7 @@ test("Canvas grid keeps the original 500-unit lines at half-pixel weight in the 
 
 test("Studio uses glass workbench overlays, contextual pen properties, and a right-edge Agent inspector", () => {
   const html = read("public/index.html"), css = read("public/style.css"), core = read("src/client/app/core.js"), bootstrap = read("src/client/app/ui-bootstrap.js"), agent = read("src/client/app/canvas-agent-runtime.js");
+  const openAgentSource = agent.slice(agent.indexOf("function openCanvasAgent("),agent.indexOf("function closeCanvasAgent("));
   assert.match(html, /<body\b[^>]*data-theme="studio"[^>]*data-canvas-mode="pen"/);
   assert.match(html, /id="penToolProperties"[^>]*class="tool-properties pen-tool-properties"[\s\S]*?id="penSize"[\s\S]*?data-color-control="ink"[\s\S]*?data-color-control="ai"/);
   assert.match(html, /id="canvasAgentHome"[^>]*hidden[\s\S]*?id="canvasAgentPanel"[^>]*hidden[^>]*inert/);
@@ -2574,28 +2745,45 @@ test("Studio uses glass workbench overlays, contextual pen properties, and a rig
   assert.match(functionSource(bootstrap, "setCanvasMode"), /syncCanvasModePresentation\(\)/);
   assert.match(functionSource(core, "applyTheme"), /syncStudioWorkbench\(theme\)/);
   assert.match(functionSource(agent, "syncStudioWorkbench"), /theme === "studio"[\s\S]*?min-width: 701px[\s\S]*?canvasAgentFrame\.append\(canvasAgentPanel\)[\s\S]*?canvasAgentHome\.after\(canvasAgentPanel\)/);
+  assert.match(functionSource(agent, "canvasAgentWorkbenchNeedsSync"), /dockedClass !== docked \|\| canvasAgentPanel\.parentElement !== expectedParent/);
   assert.match(functionSource(agent, "canvasAgentBeginPanelDrag"), /canvasAgentDockedPanel\(\)/);
   assert.match(functionSource(agent, "canvasAgentKeyboardPanelResize"), /canvasAgentFrame\.clientWidth\/CANVAS_AGENT_SIZE_STEPS/);
+  assert.match(functionSource(agent, "canvasAgentMaximumPanelWidth"), /Math\.min\(640,canvasAgentFrame\.clientWidth-16-navigatorReserve\)/);
   assert.match(css, /body\[data-theme="studio"\] \.top-row\s*\{[^}]*min-height:\s*52px[^}]*border-bottom:/);
   assert.match(css, /--studio-chrome-shadow-color:\s*rgba\(30, 35, 48, \.07\)/);
-  assert.match(css, /body\[data-theme="studio"\] \.toolbar\s*\{[^}]*position:\s*absolute[^}]*top:\s*100%[^}]*min-height:\s*var\(--studio-toolbar-height\)[^}]*background:\s*var\(--studio-glass\)[^}]*box-shadow:\s*0 4px 8px var\(--studio-chrome-shadow-color\)[^}]*backdrop-filter:\s*saturate\(1\.2\) blur\(18px\)/);
+  assert.match(css, /body\[data-theme="studio"\] \.toolbar\s*\{[^}]*position:\s*absolute[^}]*top:\s*100%[^}]*min-height:\s*var\(--studio-toolbar-height\)[^}]*background:\s*var\(--studio-glass\)[^}]*box-shadow:\s*none[^}]*backdrop-filter:\s*saturate\(1\.2\) blur\(18px\)/);
+  assert.match(css, /body\[data-theme="studio"\] \.canvas-frame::after\s*\{[^}]*z-index:\s*40[^}]*top:\s*calc\(var\(--studio-toolbar-height\) - 1px\)[^}]*box-shadow:\s*0 4px 8px var\(--studio-chrome-shadow-color\)/);
+  assert.match(css, /studio-navigator-open \.canvas-frame::after\s*\{[^}]*left:\s*var\(--studio-navigator-width\)/);
+  assert.match(css, /studio-agent-docked\.canvas-agent-open \.canvas-frame::after\s*\{[^}]*right:\s*var\(--studio-agent-width\)/);
+  assert.match(css, /@media \(max-width: 1100px\)\s*\{[\s\S]*?studio-navigator-open \.canvas-frame::after\s*\{[^}]*left:\s*min\(320px, calc\(100% - 44px\)\)/);
+  assert.match(css, /@media \(max-width: 820px\)\s*\{[\s\S]*?studio-navigator-open \.canvas-frame::after\s*\{[^}]*left:\s*min\(360px, calc\(100% - 16px\)\)/);
   assert.match(css, /body\[data-theme="studio"\]\[data-canvas-mode="pen"\] \.pen-tool-properties\s*\{[^}]*display:\s*inline-flex/);
   assert.match(css, /body\[data-theme="studio"\] main > footer\s*\{[^}]*min-height:\s*26px[^}]*border-top:/);
   assert.match(css, /--studio-agent-glass:\s*color-mix\(in srgb, var\(--studio-panel\) 80%, transparent\)/);
   assert.match(css, /@media \(min-width: 701px\)[\s\S]*?studio-agent-docked \.canvas-agent-panel\s*\{[\s\S]*?position:\s*absolute[\s\S]*?inset:\s*var\(--studio-toolbar-height\) 0 0 auto[\s\S]*?flex:\s*none[\s\S]*?background:\s*var\(--studio-agent-glass\)[\s\S]*?box-shadow:\s*-4px 0 8px var\(--studio-chrome-shadow-color\)[\s\S]*?backdrop-filter:\s*saturate\(1\.08\) blur\(30px\)/);
   assert.match(css, /studio-agent-docked:not\(\.canvas-agent-open\) \.canvas-agent-panel\s*\{[^}]*pointer-events:\s*none[^}]*opacity:\s*0[^}]*translate3d\(100%, 0, 0\)/);
+  assert.match(css, /studio-agent-docked \.canvas-agent-panel\s*\{[^}]*transition:\s*transform \.16s cubic-bezier\(\.2,\.72,\.2,1\), opacity \.12s ease/);
+  assert.match(css, /studio-agent-docked:not\(\.canvas-agent-open\) \.canvas-agent-panel\s*\{[^}]*transition-delay:\s*0s, 0s, 0s, \.16s/);
   assert.doesNotMatch(css, /studio-agent-docked:not\(\.canvas-agent-open\) \.canvas-agent-panel\s*\{[^}]*width:\s*0/);
   assert.match(css, /studio-agent-docked\.canvas-agent-open \.canvas-frame\s*\{[^}]*--studio-agent-edge-shift:\s*calc\(var\(--studio-agent-width\) - 4px\)/);
   assert.match(css, /body\[data-theme="studio"\] \.canvas-agent-control\s*\{[^}]*right:\s*calc\(max\(16px, env\(safe-area-inset-right\)\) \+ var\(--studio-agent-edge-shift\)\)[^}]*transition:\s*right \.22s/);
   assert.match(css, /body\[data-theme="studio"\] \.canvas-agent-control\s*\{[^}]*border-color:\s*var\(--studio-line\)[^}]*background:\s*var\(--studio-panel\)[^}]*box-shadow:\s*none[^}]*backdrop-filter:\s*none/);
+  assert.match(css, /\.canvas-agent-control\) > #canvasAgentToggle\[data-pe-button="toolbar"\]\s*\{[^}]*margin-inline:\s*0[^}]*background:\s*transparent[^}]*box-shadow:\s*none/);
+  assert.match(css, /\.canvas-agent-control:has\(> #canvasAgentToggle:hover\)\s*\{[^}]*background:\s*var\(--pe-hover\)/);
+  assert.match(css, /#canvasAgentToggle\[data-pe-button="toolbar"\]:is\(:hover, :active, :focus-visible\)\s*\{[^}]*background:\s*transparent[^}]*box-shadow:\s*none/);
+  assert.match(css, /\.canvas-agent-control:has\(> #canvasAgentToggle:focus-visible\)\s*\{[^}]*border-color:\s*var\(--pe-accent\)[^}]*box-shadow:\s*0 0 0 2px var\(--pe-accent-focus\)/);
+  assert.match(css, /@media \(max-width: 700px\)\s*\{[\s\S]*?body\[data-theme="studio"\] \.canvas-agent-control\s*\{[^}]*height:\s*46px[^}]*min-height:\s*46px[^}]*border-radius:\s*10px/);
   assert.match(agent, /function openCanvasAgent\([\s\S]*?canvasAgentToggle\.setAttribute\("aria-expanded","true"\)/);
+  assert.match(openAgentSource, /if\(canvasAgentWorkbenchNeedsSync\(\)\)syncStudioWorkbench\(\)/);
   assert.match(agent, /function openCanvasAgent\(\{focus=true\}=\{\}\)[\s\S]*?document\.body\.classList\.add\("canvas-agent-open"\)[\s\S]*?syncCanvasModePresentation\(\)/);
+  assert.match(functionSource(agent, "canvasAgentScheduleDockedOpenWork"), /requestAnimationFrame\([\s\S]*?setTimeout\([\s\S]*?canvasAgentFinishDockedOpen\(focus,connect\)/);
+  assert.match(openAgentSource, /document\.body\.classList\.add\("canvas-agent-open"\)[\s\S]*?if\(animate&&docked\)\{[\s\S]*?canvasAgentScheduleDockedOpenWork\(focus,connect\);[\s\S]*?return/);
   assert.match(css, /body\[data-theme="studio"\] \.canvas-agent-trigger\[aria-expanded="true"\]\s*\{[^}]*color:\s*var\(--studio-accent\)/);
   assert.doesNotMatch(css, /\.canvas-agent-control:focus-within/);
   assert.match(agent, /function closeCanvasAgent\([\s\S]*?if\(focus\)canvasAgentToggle\.focus\(\)/);
   assert.match(css, /studio-agent-launcher-floating #tip,[\s\S]*?right:\s*calc\(176px \+ var\(--studio-agent-edge-shift\)\)/);
   assert.match(functionSource(agent, "canvasAgentApplyPanelWidth"), /canvasAgentFrame\.classList\.add\(`canvas-agent-width-\$\{step\}`\)/);
-  assert.match(agent, /function openCanvasAgent\(\{focus=true\}=\{\}\)[\s\S]*?if\(docked\)\{[\s\S]*?canvasAgentRestorePanelSize\(\)[\s\S]*?document\.body\.classList\.add\("canvas-agent-open"\)/);
+  assert.match(agent, /function openCanvasAgent\(\{focus=true\}=\{\}\)[\s\S]*?document\.body\.classList\.add\("canvas-agent-open"\)[\s\S]*?if\(docked\)\{[\s\S]*?canvasAgentRestorePanelSize\(\)/);
   assert.match(css, /html\.penecho-web-page-scale body\[data-theme="studio"\] main\s*\{[^}]*--penecho-canvas-page-dynamic-height/);
 });
 
@@ -2633,39 +2821,59 @@ test("opening PenEcho Agent re-syncs Pen mode presentation without changing the 
   assert.doesNotMatch(openAgent,/setCanvasMode\(/);
 });
 
-test("PenEcho Agent launcher uses a rotating color border while it works", () => {
-  const css = read("public/style.css"), agent = read("src/client/app/canvas-agent-runtime.js");
+test("PenEcho Agent launcher stays clickable while its status shell shows work", () => {
+  const html = read("public/index.html"), css = read("public/style.css"), agent = read("src/client/app/canvas-agent-runtime.js");
   const syncTrigger = functionSource(agent, "canvasAgentSyncTriggerState");
-  assert.match(syncTrigger, /busy = canvasAgent\.requestPending \|\| canvasAgent\.running[\s\S]*?classList\.toggle\("is-busy",busy\)[\s\S]*?aria-busy/);
+  assert.match(syncTrigger, /busy = canvasAgent\.requestPending \|\| canvasAgent\.running[\s\S]*?canvasAgentControl\.classList\.toggle\("is-busy",busy\)[\s\S]*?canvasAgentControl\.setAttribute\("aria-busy",String\(busy\)\)/);
+  assert.doesNotMatch(syncTrigger, /canvasAgentToggle\.setAttribute\("aria-busy"/);
   assert.doesNotMatch(syncTrigger, /canvasAgentPanel\.hidden/);
   const triggerState = {};
   vm.runInNewContext(`${syncTrigger};canvasAgentSyncTriggerState();`,{
     canvasAgent:{requestPending:true,running:false}, canvasAgentPanel:{hidden:false},
-    canvasAgentControl:{classList:{toggle:(name,value)=>{triggerState.className=name;triggerState.busy=value;}}},
-    canvasAgentToggle:{setAttribute:(name,value)=>{triggerState.attribute=name;triggerState.ariaBusy=value;}},
+    canvasAgentControl:{
+      classList:{toggle:(name,value)=>{triggerState.className=name;triggerState.busy=value;}},
+      setAttribute:(name,value)=>{triggerState.attribute=name;triggerState.ariaBusy=value;},
+    },
     canvasAgentSyncPromptSuggestions:()=>{},
   });
   assert.deepEqual(triggerState,{className:"is-busy",busy:true,attribute:"aria-busy",ariaBusy:"true"});
+  const toggle = html.match(/<button id="canvasAgentToggle"[^>]*>/)?.[0] || "";
+  assert.doesNotMatch(toggle, /(?:disabled|aria-disabled|aria-busy)=/);
+  assert.match(agent, /canvasAgentToggle\.addEventListener\("click",\(\)=>canvasAgentPanel\.hidden \? openCanvasAgent\(\) : closeCanvasAgent\(\)\)/);
+  assert.match(css, /\[data-pe-button\]\)\[aria-busy="true"\][^}]*pointer-events:\s*none/);
   assert.match(css, /@property --canvas-agent-busy-angle\s*\{[^}]*syntax:\s*"<angle>"[^}]*initial-value:\s*0deg/);
   assert.match(css, /\.canvas-agent-control\.is-busy::after\s*\{[^}]*inset:\s*0[^}]*padding:\s*2px[^}]*background:\s*conic-gradient\(from var\(--canvas-agent-busy-angle\)[^}]*mask-composite:\s*exclude[^}]*animation:\s*canvas-agent-trigger-busy 1\.4s linear infinite/);
   assert.match(css, /@keyframes canvas-agent-trigger-busy\s*\{\s*to\s*\{\s*--canvas-agent-busy-angle:\s*360deg/);
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.canvas-agent-control\.is-busy::after\s*\{[^}]*animation:\s*none/);
 });
 
-test("PenEcho Agent launcher uses ordered toolbar compaction before returning to the Canvas corner", () => {
+test("PenEcho Agent launcher uses ordered toolbar compaction before the toolbar wraps", () => {
   const html = read("public/index.html"), css = read("public/style.css"), core = read("src/client/app/core.js"), agent = read("src/client/app/canvas-agent-runtime.js");
   const toolbar = html.match(/<nav class="toolbar"[\s\S]*?<\/nav>/)?.[0] || "",
     syncLayout = functionSource(agent, "canvasAgentSyncToolbarLayout"),
+    positionPopover = functionSource(core, "positionToolbarPopover"),
     updateEffort = functionSource(core, "updateEffortControl");
   assert.ok(toolbar.indexOf('class="tool-group primary-tools"') < toolbar.indexOf('id="canvasAgentToolbarHome"'));
   assert.match(toolbar, /id="canvasAgentToolbarHome"[\s\S]*?id="canvasAgentControl"[\s\S]*?id="canvasAgentToggle"/);
   assert.equal((html.match(/id="canvasAgentControl"/g) || []).length, 1);
   assert.match(updateEffort, /effort-label-full[\s\S]*?effort-label-short[\s\S]*?shortLabel\.textContent = shortLevel[\s\S]*?canvasAgentScheduleToolbarLayout/);
-  assert.match(syncLayout, /canvasAgentToolbarHome\.append\(canvasAgentControl\)[\s\S]*?studio-toolbar-effort-compact[\s\S]*?canvasAgentToolbarOverflows\(\)[\s\S]*?studio-toolbar-controls-compact[\s\S]*?canvasAgentToolbarOverflows\(\)[\s\S]*?studio-agent-launcher-floating[\s\S]*?canvasAgentFrame\.append\(canvasAgentControl\)/);
+  assert.match(syncLayout, /canvasAgentToolbarHome\.append\(canvasAgentControl\)[\s\S]*?studio-toolbar-effort-compact[\s\S]*?canvasAgentToolbarOverflows\(\)[\s\S]*?studio-toolbar-controls-compact[\s\S]*?canvasAgentToolbarOverflows\(\)[\s\S]*?studio-toolbar-two-row[\s\S]*?return "two-row"/);
+  assert.equal(syncLayout.indexOf("canvasAgentFrame.append(canvasAgentControl)", syncLayout.indexOf('body.classList.add("studio-toolbar-controls-compact")')), -1);
   assert.match(css, /studio-toolbar-effort-compact \.effort-label-full\s*\{[^}]*display:\s*none/);
   assert.match(css, /studio-toolbar-effort-compact \.effort-label-short\s*\{[^}]*display:\s*inline/);
   assert.match(css, /studio-toolbar-controls-compact \.toolbar \.icon-button\s*\{[^}]*width:\s*27px/);
   assert.match(css, /canvas-agent-toolbar-home\s*\{[^}]*margin-left:\s*auto/);
+  assert.match(css, /studio-toolbar-two-row\s*\{[^}]*--studio-toolbar-height:\s*68px/);
+  assert.match(css, /studio-toolbar-two-row \.toolbar\s*\{[^}]*display:\s*grid[^}]*grid-template-columns:\s*28px 1px minmax\(0, 1fr\) max-content/);
+  assert.match(css, /studio-toolbar-two-row \.tool-group\s*\{[^}]*flex-wrap:\s*wrap[^}]*row-gap:\s*2px/);
+  assert.match(css, /studio-toolbar-two-row \.canvas-agent-toolbar-home\s*\{[^}]*grid-column:\s*4[^}]*justify-self:\s*end[^}]*margin-left:\s*0/);
+  assert.match(css, /@media \(min-width: 901px\)[\s\S]*?:not\(\.studio-toolbar-two-row\) \.primary-tools\s*\{[^}]*gap:\s*0/);
+  assert.match(css, /:not\(\.studio-toolbar-two-row\) \.primary-tools \.ai-tools-section\s*\{[^}]*gap:\s*2px/);
+  assert.match(css, /:not\(\.studio-toolbar-two-row\) \.primary-tools \.mode-tools,[\s\S]*?\.primary-tools \.view-tools\s*\{[^}]*gap:\s*0/);
+  assert.match(css, /\.primary-tools \.view-tools\s*\{\s*gap:\s*8px/);
+  assert.match(css, /@media \(min-width: 901px\) and \(pointer: fine\)[\s\S]*?\.primary-tools \.mode-tools :is/);
+  assert.match(css, /\.primary-tools \.mode-tools :is\(#pe-button-contract, button\[data-pe-button="toolbar"\]\)[\s\S]*?margin-inline:\s*2px/);
+  assert.match(positionPopover, /studio-toolbar-two-row[\s\S]*?Math\.max\(controlRect\.bottom, toolbarRect\.bottom\)[\s\S]*?anchorBottom/);
 });
 
 test("Studio title bar exposes document identity, explicit save state, and a blank-canvas next step", () => {
@@ -2682,18 +2890,20 @@ test("Studio title bar exposes document identity, explicit save state, and a bla
   assert.match(html, /id="canvasWelcome"[^>]*hidden[\s\S]*?canvasWelcomeKicker[\s\S]*?canvasWelcomeTitle[\s\S]*?canvasWelcomeBody/);
   assert.match(css, /body\[data-theme="studio"\] \.sigil\s*\{[^}]*background:\s*var\(--studio-accent-strong\)[^}]*-webkit-mask:\s*url\("penecho-mark\.png"\)[^}]*mask:\s*url\("penecho-mark\.png"\)/);
   assert.match(css, /body\[data-theme="studio"\] \.sigil img\s*\{[^}]*opacity:\s*0[^}]*filter:\s*none/);
-  assert.match(css, /body\[data-theme="studio"\] \.toolbar\s*\{[^}]*column-gap:\s*8px/);
+  assert.match(css, /body\[data-theme="studio"\] \.toolbar\s*\{[^}]*column-gap:\s*6px/);
   assert.match(css, /body\[data-theme="studio"\] \.toolbar > \.studio-navigator-toggle::before\s*\{[^}]*inset:\s*-2px/);
   assert.match(css, /body\[data-theme="studio"\] \.toolbar > \.studio-navigator-toggle\.active\s*\{[^}]*background:\s*var\(--studio-accent-soft\)[^}]*box-shadow:\s*none/);
   assert.match(css, /body\[data-theme="studio"\] \.toolbar-leading-divider\s*\{[^}]*width:\s*1px[^}]*height:\s*24px[^}]*background:\s*var\(--studio-line\)/);
   assert.match(css, /\.canvas-document-save-state\[data-state="saved"\][\s\S]*?\.canvas-document-save-state\[data-state="edited"\][\s\S]*?\.canvas-document-save-state\[data-state="saving"\]/);
   assert.match(html, /class="canvas-welcome-kicker"[\s\S]*?<svg viewBox="0 0 24 12" aria-hidden="true"><path d="M1\.5 6h20M16\.5 1\.5 21 6l-4\.5 4\.5"\/>/);
-  assert.match(css, /body\[data-theme="studio"\] \.canvas-frame\s*\{[^}]*--studio-agent-edge-shift:\s*0px[^}]*--studio-navigator-edge-shift:\s*0px/);
+  assert.match(css, /body\[data-theme="studio"\] \.canvas-frame\s*\{[^}]*--studio-navigator-width:\s*264px[^}]*--studio-agent-edge-shift:\s*0px[^}]*--studio-navigator-edge-shift:\s*0px/);
   assert.match(css, /studio-agent-docked\.canvas-agent-open \.canvas-frame\s*\{[^}]*--studio-agent-edge-shift:\s*calc\(var\(--studio-agent-width\) - 4px\)/);
-  assert.match(css, /studio-navigator-open \.canvas-frame\s*\{[^}]*--studio-navigator-edge-shift:\s*240px/);
-  assert.match(css, /studio-navigator-open\.studio-agent-docked\.canvas-agent-open \.canvas-frame\s*\{[^}]*--studio-agent-width:\s*336px/);
+  assert.match(css, /studio-navigator-open \.canvas-frame\s*\{[^}]*--studio-navigator-edge-shift:\s*var\(--studio-navigator-width\)/);
+  assert.match(css, /body\[data-theme="studio"\] \.canvas-frame\s*\{[^}]*--studio-agent-width:\s*clamp\(360px, var\(--canvas-agent-width, 390px\), min\(calc\(100% - 16px - var\(--studio-navigator-edge-shift\)\), 640px\)\)/);
+  assert.doesNotMatch(css, /studio-navigator-open\.studio-agent-docked\.canvas-agent-open[^}]*--studio-agent-width:\s*336px/);
   assert.match(css, /body\[data-theme="studio"\] \.canvas-welcome\s*\{[^}]*inset:\s*var\(--studio-toolbar-height\) var\(--studio-agent-edge-shift\) 0 var\(--studio-navigator-edge-shift\)[^}]*align-content:\s*center[^}]*pointer-events:\s*none/);
-  assert.match(css, /body\[data-theme="studio"\] \.canvas-welcome-kicker\s*\{[^}]*font:\s*650 2rem\/1\.05 "Bradley Hand", "Segoe Print", "Comic Sans MS", cursive[^}]*letter-spacing:\s*\.015em[^}]*transform:\s*rotate\(-2deg\)/);
+  assert.match(css, /body\[data-theme="studio"\] \.canvas-welcome-kicker\s*\{[^}]*font:\s*600 2rem\/1\.05 var\(--pe-font-hand[^}]*letter-spacing:\s*\.015em[^}]*transform:\s*rotate\(-2deg\)/);
+  assert.match(css, /html:lang\(zh\) body\[data-theme="studio"\] \.canvas-welcome-kicker\s*\{[^}]*font-family:\s*var\(--pe-font-ui/);
   assert.doesNotMatch(css, /\.canvas-welcome-kicker::after/);
   const updateDocument = functionSource(navigator, "updateStudioDocumentState");
   assert.match(updateDocument, /currentCanvasDisplayName\(\) \|\| t\("canvasUntitledName"\)/);
@@ -2732,42 +2942,78 @@ test("Studio navigator groups recent Agent sessions by canvas and opens the boun
   assert.match(functionSource(navigator, "studioNavigatorQueueDraftSnapshot"), /canvasKey\.startsWith\("draft:"\)[\s\S]*?studioNavigatorLoadDraftSnapshot\(request\)/);
   assert.match(functionSource(navigator, "studioNavigatorQueueCanvasGroupSnapshots"), /snapshotListInProgress[\s\S]*?studioNavigatorCanvasGroupSnapshotLoads\.get\(location\)[\s\S]*?studioNavigatorLoadCanvasGroupSnapshots\(location,request\)/);
   assert.match(functionSource(navigator, "studioNavigatorLoadCanvasGroupSnapshots"), /await snapshotsAt\(location\)[\s\S]*?studioNavigatorCanvasGroupSnapshots\.set\(key,item\)[\s\S]*?renderStudioAgentHistory\(\)/);
+  const conversationEntry=functionSource(navigator,"studioNavigatorConversationEntry");
+  assert.match(conversationEntry, /className="studio-navigator-conversation-name"[\s\S]*?title\.textContent=conversationName[\s\S]*?body\.append\(title\);row\.append\(body\)/);
+  assert.doesNotMatch(conversationEntry, /studio-navigator-item-icon agent|studio-navigator-item-summary|studioNavigatorMessageCount|studioNavigatorMetaTime\(conversation/);
+  const renderCanvasHistory=functionSource(navigator,"renderStudioCanvasHistory");
+  assert.match(navigator, /meta\.textContent=\[group\.location\?snapshotLocationLabel\(group\.location\):"",studioNavigatorMetaTime\(group\.updatedAt\)\]/);
+  assert.doesNotMatch(navigator, /studioNavigatorCurrentStateLabel|meta\.textContent=\[[^\n]*studioNavigatorSessionCount/);
+  assert.match(renderCanvasHistory, /meta\.textContent = \[snapshotLocationLabel\(item\.location\), studioNavigatorMetaTime\(item\.updatedAt \|\| item\.createdAt\)\]/);
+  assert.doesNotMatch(renderCanvasHistory, /canvasAgentHistoryCurrent/);
   const renderAgentHistory=functionSource(navigator, "renderStudioAgentHistory"), renderWorkHistory=functionSource(navigator,"renderStudioWorkHistory");
   assert.match(renderAgentHistory, /studioNavigatorWorkGroups\(\)[\s\S]*?conversations:query\?group\.conversations\.filter/);
   assert.match(renderAgentHistory, /releaseStudioNavigatorPreviewUrls\(studioNavigatorAgentPreviewUrls\)[\s\S]*?studioNavigatorQueueCanvasGroupSnapshots\(groups\)[\s\S]*?studioNavigatorGroupSection\(group,\{previewUrls:studioNavigatorAgentPreviewUrls\}\)/);
   assert.match(renderWorkHistory, /studioNavigatorWorkGroups\(\)[\s\S]*?studioNavigatorSectionLabel\("studioNavigatorCurrent"\)[\s\S]*?studioNavigatorSectionLabel\("studioNavigatorRecent"\)/);
-  assert.match(functionSource(navigator, "studioNavigatorCanvasPreview"), /item\?\.preview instanceof Blob[\s\S]*?urls\.add\(url\)[\s\S]*?urls\.delete\(url\)/);
+  const navigatorCanvasPreview=functionSource(navigator, "studioNavigatorCanvasPreview");
+  assert.match(navigatorCanvasPreview, /item\?\.preview instanceof Blob[\s\S]*?urls\.set\(url, image\)[\s\S]*?image\.onerror[\s\S]*?urls\.delete\(url\)/);
+  assert.doesNotMatch(navigatorCanvasPreview, /image\.onload\s*=/);
+  const releaseNavigatorPreviewUrls=functionSource(navigator,"releaseStudioNavigatorPreviewUrls"),
+    revokeNavigatorPreviewUrlWhenSettled=functionSource(navigator,"revokeStudioNavigatorPreviewUrlWhenSettled");
+  assert.match(releaseNavigatorPreviewUrls, /entries = \[\.\.\.urls\][\s\S]*?urls\.clear\(\)[\s\S]*?queueMicrotask[\s\S]*?revokeStudioNavigatorPreviewUrlWhenSettled\(url, image\)/);
+  assert.match(revokeNavigatorPreviewUrlWhenSettled, /image\.complete[\s\S]*?addEventListener\("load", revoke\)[\s\S]*?addEventListener\("error", revoke\)/);
   assert.match(navigator, /className="studio-navigator-conversation-entry"[\s\S]*?className="studio-navigator-session-delete"/);
   assert.match(functionSource(navigator, "openStudioSessionDeleteDialog"), /studioSessionDeletePending=[\s\S]*?studioSessionDeleteDialog\.showModal\(\)[\s\S]*?studioSessionDeleteCancel\.focus/);
   assert.match(functionSource(navigator, "confirmStudioSessionDelete"), /canvasAgentDeleteStoredConversation\(studioSessionDeletePending\.canvasKey,studioSessionDeletePending\.conversationId\)/);
   assert.match(functionSource(navigator, "openStudioConversation"), /requestLoadSnapshot\(identity\.id,identity\.location\)/);
   assert.match(functionSource(navigator, "openStudioConversationOnCurrentCanvas"), /canvasAgentHistoryForCanvas\(pending\.canvasKey\)[\s\S]*?openCanvasAgent\(\{focus:false,connect:false\}\)[\s\S]*?canvasAgentViewStoredConversation\(conversation\.id\)/);
-  assert.match(functionSource(navigator, "collapseStudioNavigatorForWorkspaceFocus"), /studioNavigatorIsCompact\(\)[\s\S]*?studioNavigatorIsOpen\(\)[\s\S]*?setStudioNavigatorOpen\(false\)/);
-  assert.match(navigator, /view\.addEventListener\("pointerdown", collapseStudioNavigatorForWorkspaceFocus, true\)/);
-  assert.match(navigator, /view\.addEventListener\("focusin", collapseStudioNavigatorForWorkspaceFocus\)/);
-  assert.match(navigator, /canvasAgentPanel\.addEventListener\("pointerdown", collapseStudioNavigatorForWorkspaceFocus, true\)/);
-  assert.match(navigator, /canvasAgentPanel\.addEventListener\("focusin", collapseStudioNavigatorForWorkspaceFocus\)/);
+  const collapseNavigator = functionSource(navigator, "collapseStudioNavigatorForWorkspaceFocus");
+  assert.match(collapseNavigator, /studioNavigatorIsOpen\(\)[\s\S]*?studioNavigator\.contains\(target\)[\s\S]*?studioNavigatorToggle\.contains\(target\)[\s\S]*?setStudioNavigatorOpen\(false\)/);
+  assert.doesNotMatch(functionSource(navigator, "collapseStudioNavigatorForWorkspaceFocus"), /studioNavigatorIsCompact\(\)/);
+  assert.match(navigator, /document\.addEventListener\("pointerdown", collapseStudioNavigatorForWorkspaceFocus, true\)/);
+  assert.match(navigator, /document\.addEventListener\("focusin", collapseStudioNavigatorForWorkspaceFocus\)/);
+  assert.doesNotMatch(navigator, /(?:view|canvasAgentPanel)\.addEventListener\("(?:pointerdown|focusin)", collapseStudioNavigatorForWorkspaceFocus/);
   assert.match(functionSource(navigator, "studioNavigatorCanvasDidLoad"), /openStudioConversationOnCurrentCanvas\(studioNavigatorPendingConversation\)/);
   assert.match(functionSource(navigator,"renderStudioCanvasHistory"), /studioNavigatorSnapshots\(\)[\s\S]*?requestLoadSnapshot\(item\.id, item\.location\)/);
   assert.match(navigator, /openHistoryPanel\(\)/);
   assert.match(functionSource(navigator, "updateStudioNavigatorSurfaceInert"), /studioNavigatorIsCompact\(\)[\s\S]*?view\.inert = true[\s\S]*?dataset\.studioNavigatorInert[\s\S]*?view\.inert = false/);
   assert.match(functionSource(navigator,"handleStudioNavigatorCompactChange"), /studioNavigatorIsOpen\(\)[\s\S]*?studioNavigatorIsCompact\(\)\)suspendStudioAgentForNavigator\(\)[\s\S]*?restoreStudioAgentAfterNavigator\(\)/);
   assert.match(functionSource(navigator,"studioNavigatorAgentWillOpen"), /studioNavigatorIsCompact\(\)[\s\S]*?setStudioNavigatorOpen\(false,\{restoreAgent:false\}\)/);
+  const setNavigatorOpen=navigator.slice(navigator.indexOf("function setStudioNavigatorOpen("),navigator.indexOf("function syncStudioNavigatorTheme(")), scheduleNavigatorOpen=functionSource(navigator,"scheduleStudioNavigatorOpenWork"), renderNavigator=functionSource(navigator,"renderStudioNavigator"), syncNavigatorTheme=functionSource(navigator,"syncStudioNavigatorTheme");
+  assert.match(setNavigatorOpen, /classList\.toggle\("studio-navigator-open"[\s\S]*?updateStudioNavigatorA11y\(\)[\s\S]*?scheduleStudioNavigatorOpenWork\(\)/);
+  assert.doesNotMatch(setNavigatorOpen, /renderStudioNavigator\(|refreshStudioNavigatorSources\(/);
+  assert.match(scheduleNavigatorOpen, /requestAnimationFrame\([\s\S]*?setTimeout\([\s\S]*?renderStudioNavigator\(\)[\s\S]*?refreshStudioNavigatorSources\(\)/);
+  assert.doesNotMatch(scheduleNavigatorOpen, /studioNavigatorSearch\.focus/);
+  assert.match(renderNavigator, /setStudioNavigatorTab\(studioNavigatorActiveTab, \{ persist:false \}\)/);
+  assert.doesNotMatch(renderNavigator, /renderStudioWorkHistory\(|renderStudioAgentHistory\(|renderStudioCanvasHistory\(/);
+  assert.match(syncNavigatorTheme, /wasActive = document\.body\.classList\.contains\("studio-navigator-enabled"\)[\s\S]*?if \(active && !wasActive\) renderStudioNavigator\(\)/);
   assert.doesNotMatch(navigator, /canvasAgentBeginLocalConversation|canvasAgentStartNewConversation/);
   assert.match(persistence, /function snapshotItemsForCurrentView\(\)/);
-  assert.match(functionSource(persistence, "renderStudioSnapshotLists"), /renderWork\?\.\(\)[\s\S]*?renderCanvases\?\.\(\)[\s\S]*?renderAgent\?\.\(\)/);
+  assert.match(functionSource(persistence, "renderStudioSnapshotLists"), /PenEchoStudioNavigator\?\.render\?\.\(\)/);
+  assert.doesNotMatch(functionSource(persistence, "renderStudioSnapshotLists"), /renderWork|renderCanvases|renderAgent/);
+  const renderActiveNavigator=functionSource(navigator,"renderActiveStudioNavigatorHistory"),
+    refreshNavigatorSource=navigator.slice(navigator.indexOf("async function refreshStudioNavigatorSource("),navigator.indexOf("function refreshStudioNavigatorSources("));
+  assert.match(renderActiveNavigator, /studioNavigatorActiveTab==="canvas"[\s\S]*?renderStudioCanvasHistory\(\)[\s\S]*?studioNavigatorActiveTab==="agent"[\s\S]*?renderStudioAgentHistory\(\)[\s\S]*?renderStudioWorkHistory\(\)/);
+  assert.doesNotMatch(refreshNavigatorSource, /renderStudioWorkHistory\(\)[\s\S]*?renderStudioCanvasHistory\(\)|renderStudioCanvasHistory\(\)[\s\S]*?renderStudioAgentHistory\(\)/);
   assert.match(functionSource(persistence, "renderSnapshotList"), /renderStudioSnapshotLists\(\)[\s\S]*?renderStudioSnapshotLists\(\)/);
   assert.match(persistence, /wantsConversationForCanvas\?\.\(\{ id:item\.id, location \}\)[\s\S]*?deferConversationStart:restoreStudioConversation/);
   assert.match(functionSource(agent, "canvasAgentCanvasDidChange"), /deferConversationStart[\s\S]*?!deferConversationStart&&/);
   assert.match(agent, /function canvasAgentStoredHistoryGroups\(\)/);
   assert.match(agent, /PenEchoStudioNavigator\?\.renderAgent/);
-  assert.match(css, /body\[data-theme="studio"\] \.studio-navigator\s*\{[^}]*position:\s*absolute[^}]*inset:\s*var\(--studio-toolbar-height\) auto 0 0[^}]*width:\s*240px[^}]*flex:\s*0 0 auto[^}]*border-right:\s*0[^}]*background:\s*var\(--studio-glass\)[^}]*box-shadow:\s*4px 0 8px var\(--studio-chrome-shadow-color\)[^}]*backdrop-filter:\s*saturate\(1\.15\) blur\(20px\)/);
+  assert.match(css, /body\[data-theme="studio"\] \.studio-navigator\s*\{[^}]*position:\s*absolute[^}]*inset:\s*var\(--studio-toolbar-height\) auto 0 0[^}]*width:\s*var\(--studio-navigator-width\)[^}]*flex:\s*0 0 auto[^}]*border-right:\s*0[^}]*background:\s*var\(--studio-glass\)[^}]*box-shadow:\s*4px 0 8px var\(--studio-chrome-shadow-color\)[^}]*backdrop-filter:\s*saturate\(1\.15\) blur\(20px\)/);
   assert.match(css, /@media \(max-width: 1100px\)[\s\S]*?\.studio-navigator\s*\{[^}]*z-index:\s*45[^}]*box-shadow:\s*4px 0 8px var\(--studio-chrome-shadow-color\)/);
   assert.match(css, /@media \(max-width: 1100px\)[\s\S]*?\.studio-navigator-scrim\s*\{[^}]*z-index:\s*44[^}]*background:\s*rgba\(20, 24, 34, \.16\)/);
   assert.match(css, /not\(\.studio-navigator-open\) \.studio-navigator\s*\{[^}]*transform:\s*translateX\(-100%\)/);
   assert.match(css, /\.studio-navigator-group-heading \.studio-navigator-item-icon\.canvas\s*\{[^}]*width:\s*40px[^}]*height:\s*28px[^}]*flex-basis:\s*40px/);
   assert.match(css, /\.studio-navigator-group-heading \.studio-navigator-item-icon\.canvas img\s*\{[^}]*object-fit:\s*contain/);
   assert.match(css, /\.studio-navigator-group-conversations\s*\{[^}]*border-left:\s*1px solid/);
+  assert.match(css, /\.studio-navigator-conversation\s*\{[^}]*min-height:\s*36px[^}]*padding:\s*2px 36px 2px 8px/);
+  assert.match(css, /\.studio-navigator-foot\s*\{[^}]*width:\s*var\(--studio-navigator-width\)[^}]*min-width:\s*0[^}]*margin:\s*0[^}]*overflow:\s*visible/);
+  assert.match(css, /\.studio-navigator-item-body strong\s*\{[^}]*font:\s*500 13px\/1\.25 var\(--studio-ui-font/);
+  assert.match(css, /\.studio-navigator-conversation-name\s*\{[^}]*text-overflow:\s*clip !important[^}]*mask-image:\s*linear-gradient\(to right,/);
+  assert.match(css, /\.studio-navigator-item-body strong[\s\S]*?color:\s*var\(--pe-ink\)[\s\S]*?\.studio-navigator-item-body small\s*\{[^}]*color:\s*var\(--pe-ink-3\)/);
+  assert.match(css, /#studioNavigatorManage\[data-pe-button="ghost"\][^}]*\{[^}]*height:\s*auto[^}]*min-height:\s*34px[^}]*padding-block:\s*6px/);
+  assert.match(css, /#studioNavigatorManage\[data-pe-button="ghost"\] > span\s*\{[^}]*overflow:\s*visible[^}]*white-space:\s*normal[^}]*overflow-wrap:\s*anywhere/);
+  assert.doesNotMatch(css, /\.studio-navigator-item-icon\.agent|\.studio-navigator-item-summary/);
   assert.match(css, /\.studio-navigator-session-delete\s*\{[^}]*width:\s*36px[^}]*height:\s*36px[^}]*opacity:\s*0[^}]*pointer-events:\s*none/);
   assert.match(css, /\.studio-navigator-conversation-entry:focus-within \.studio-navigator-session-delete\s*\{[^}]*opacity:\s*1[^}]*pointer-events:\s*auto/);
   assert.match(css, /\.studio-session-delete-dialog\s*\{[^}]*width:\s*min\(400px,[^}]*border-radius:\s*14px/);
@@ -2790,7 +3036,7 @@ test("Studio tablet edge swipes open the left and right sidebars without taking 
   assert.match(side, /leftInset >= 0[\s\S]*?!studioNavigatorIsOpen\(\)[\s\S]*?return "left"/);
   assert.match(side, /rightInset >= 0[\s\S]*?canvasAgentAvailable\(\)[\s\S]*?canvasAgentPanel\.hidden[\s\S]*?canvasAgentDockedPanel\(\)[\s\S]*?return "right"/);
   assert.match(move, /inward < STUDIO_EDGE_SWIPE_COMMIT_PX \|\| inward < deltaY \* STUDIO_EDGE_SWIPE_DIRECTION_RATIO/);
-  assert.match(move, /setStudioNavigatorOpen\(true, \{ focus:false \}\)[\s\S]*?openCanvasAgent\(\{ focus:false \}\)/);
+  assert.match(move, /setStudioNavigatorOpen\(true\)[\s\S]*?openCanvasAgent\(\{ focus:false \}\)/);
   assert.match(navigator, /view\.addEventListener\("pointerdown", beginStudioEdgeSwipe, true\)[\s\S]*?view\.addEventListener\("pointercancel", finishStudioEdgeSwipe, true\)/);
   assert.match(navigator, /studioNavigatorToggle\.addEventListener\("click"/);
 });
@@ -2953,6 +3199,9 @@ test("toolbar exposes a fixed clickable reasoning menu before the drawing tools"
   assert.match(css, /\.ai-tools-section\s*\{/);
   assert.match(css, /\.view-tools\s*\{/);
   assert.match(html, /id="aiEffortButton"[^>]*aria-haspopup="listbox"/);
+  const effortButton = html.match(/<button id="aiEffortButton"[\s\S]*?<\/button>/)?.[0] || "";
+  assert.match(effortButton, />\s*<span id="aiEffortLabel">/);
+  assert.equal((effortButton.match(/<svg/g) || []).length, 1);
   assert.match(html, /id="effortPopover"[^>]*hidden/);
   assert.equal((html.match(/class="effort-option"/g) || []).length, 6);
   assert.match(html, /data-effort="config"/);
@@ -2967,7 +3216,10 @@ test("toolbar exposes a fixed clickable reasoning menu before the drawing tools"
   assert.match(app, /reasoningEffort === "config" \? \{\} : \{ reasoningEffort: state\.reasoningEffort \}/);
   assert.match(app, /const EFFORT_LEVELS = \["none", "low", "medium", "high", "max"\]/);
   assert.match(app, /EFFORT_OPTIONS = \["config", \.\.\.EFFORT_LEVELS\]/);
-  assert.match(css, /\.effort-control\s*\{[^}]*width:\s*172px;[^}]*flex:\s*0 0 172px/);
+  assert.match(css, /\.effort-control\s*\{[^}]*width:\s*auto;[^}]*height:\s*var\(--pe-button-compact-h, 28px\);[^}]*flex:\s*0 0 auto/);
+  assert.match(css, /\.toolbar \.effort-trigger\s*\{[^}]*width:\s*auto;[^}]*gap:\s*4px/);
+  assert.match(css, /\.effort-trigger #aiEffortLabel\s*\{[^}]*flex:\s*0 0 auto;[^}]*white-space:\s*nowrap/);
+  assert.doesNotMatch(css, /\.effort-trigger > svg:first-child|\.effort-control\[data-effort="config"\] \.effort-trigger > svg:first-child/);
   assert.match(app, /function positionToolbarPopover\(controlSelector, popoverSelector, options\)[\s\S]*?host\.append\(popover\)[\s\S]*?getBoundingClientRect\(\)[\s\S]*?toolbar-anchored-popover/);
   assert.match(app, /showEffortControl\(\)[\s\S]*?positionToolbarPopover\("#effortControl", "#effortPopover"\)/);
   assert.match(app, /!document\.querySelector\("#effortControl"\)\.contains\(event\.target\) && !document\.querySelector\("#effortPopover"\)\.contains\(event\.target\)/);
@@ -3093,9 +3345,10 @@ test("text tool toggles a real MD+TeX preview and confirms the unchanged source"
   assert.match(app, /startFontCss:\s*editor\.fontCss/);
   assert.match(app, /mixedModeButton\.setAttribute\("aria-pressed", "false"\)/);
   assert.match(app, /helpButton\.setAttribute\("aria-haspopup", "dialog"\)/);
-  assert.match(app, /header\.append\(title, helpButton, mixedModeButton, acceptButton, cancelButton\)/);
+  assert.match(app, /header\.className = "text-editor-header object-toolbar-shell"/);
+  assert.match(app, /header\.append\(cancelButton, title, helpButton, mixedModeButton, acceptButton\)/);
   assert.match(app, /openTextHelp\(editor, helpButton\)/);
-  assert.match(app, /function fittedTextBoxContent\(text, fontSize, color, maxWidth\)/);
+  assert.match(app, /function fittedTextBoxContent\(text, fontSize, color, maxWidth, fontFamily = TEXT_EDITOR_FONT_FAMILY\)/);
   assert.match(app, /function textEditorContentMetrics\(editor\)/);
   assert.match(app, /function textImageContentInset\(image\)/);
   assert.match(app, /function textBoxOriginFromEditor\(editor, contentMetrics, contentInset, scale\)/);
@@ -3132,15 +3385,20 @@ test("text tool toggles a real MD+TeX preview and confirms the unchanged source"
   assert.match(confirm, /contentMetrics = textEditorContentMetrics\(editor\)/);
   assert.match(confirm, /alignedOrigin = textBoxOriginFromEditor\(editor, contentMetrics, contentInset, editorScale\)/);
   assert.doesNotMatch(confirm, /editor\.x \+=|editor\.y \+=/);
-  assert.match(confirm, /fittedTextBoxContent\(text, fontSize, color, maxWidth\)/);
+  assert.match(confirm, /fittedTextBoxContent\(text, fontSize, color, maxWidth, editor\.fontFamily\)/);
   assert.match(confirm, /Math\.min\(SIZE - width, x\)/);
   assert.match(confirm, /Math\.min\(SIZE - height, y\)/);
   assert.match(confirm, /state\.textBoxes\.splice\(existingIndex, 1, item\)[\s\S]*?state\.textBoxes\.push\(item\)/);
   assert.doesNotMatch(confirm, /blitSized\(|retainSharpOverlay\(/);
   assert.match(app, /function editTextBox\(item\)/);
   assert.match(app, /state\.mode !== "hand"[\s\S]*?sourceTextBoxId:item\.id/);
-  assert.match(css, /\.text-editor\s*\{[^}]*border:\s*1px solid[^}]*border-radius:\s*10px[^}]*box-shadow:/);
-  assert.match(css, /\.text-editor-button\s*\{[^}]*width:\s*32px;[^}]*height:\s*32px;[^}]*box-shadow:\s*none/);
+  assert.match(app, /handTarget = handPoint \? handObjectToolbarTargetAtPoint\(handPoint\) : null[\s\S]*?Number\(e\.button\) === 0 && handTarget\?\.kind === "text-box" && editTextBox\(handTarget\.object\)/);
+  assert.match(functionSource(app, "updateHandObjectHover"), /\["widget", "text-box"\]\.includes\(hovered\?\.kind\) \? null : hovered/);
+  assert.doesNotMatch(functionSource(app, "objectChromeSpecs"), /target:"text-box"/);
+  assert.doesNotMatch(app, /function finishTextBoxChromeGesture\(|function updateTextBoxChromeGesture\(|textBoxGesture/);
+  assert.match(app, /header\.addEventListener\("pointerdown"[\s\S]*?event\.target\.closest\("button"\)[\s\S]*?textEditorPointerDown\(event, editor, "move"\)/);
+  assert.match(css, /\.text-editor\s*\{[^}]*grid-template-rows:\s*34px minmax\(0, 1fr\)[^}]*border:\s*0;[^}]*border-radius:\s*7px;[^}]*background:\s*transparent;[^}]*box-shadow:\s*none/);
+  assert.match(css, /\.text-editor-button\s*\{[^}]*width:\s*28px;[^}]*height:\s*28px;[^}]*box-shadow:\s*none/);
   assert.ok(confirm.indexOf('setCanvasMode("pen")') > confirm.indexOf("if (!text.trim())"));
   assert.ok(confirm.indexOf('setCanvasMode("pen")') < confirm.indexOf("await fittedTextBoxContent"));
   assert.match(cancel, /setCanvasMode\("pen"\)/);
@@ -3163,9 +3421,12 @@ test("text tool toggles a real MD+TeX preview and confirms the unchanged source"
   assert.match(preview, /editor\.previewRevision !== revision/);
   assert.match(preview, /editor\.preview\.replaceChildren\(image\)/);
   assert.doesNotMatch(preview, /schedule\(|requestAI\(|userRevision/);
-  assert.match(css, /\.text-editor\s*\{[^}]*pointer-events:\s*auto;[^}]*border:\s*1px solid[^}]*background:[^}]*box-shadow:/);
-  assert.match(css, /\.text-editor-header\s*\{[^}]*border-bottom:\s*1px solid[^}]*background:/);
-  assert.match(css, /\.text-editor-body\s*\{[^}]*background:\s*transparent/);
+  assert.match(css, /\.text-editor\s*\{[^}]*pointer-events:\s*auto;[^}]*border:\s*0;[^}]*background:\s*transparent;[^}]*box-shadow:\s*none/);
+  assert.match(css, /\.text-editor-header\s*\{[^}]*height:\s*34px;[^}]*gap:\s*4px;[^}]*padding:\s*3px 4px;[^}]*cursor:\s*grab/);
+  assert.match(css, /\.object-toolbar-shell\)\s*\{[^}]*border-bottom:\s*0;[^}]*border-radius:\s*7px 7px 0 0;[^}]*box-shadow:\s*none;[^}]*backdrop-filter:\s*saturate\(1\.12\) blur\(14px\)/);
+  assert.match(css, /\.text-editor-body\s*\{[^}]*border:\s*1px solid[^}]*border-radius:\s*0 0 7px 7px;[^}]*background:\s*color-mix/);
+  assert.match(css, /\.text-editor-button\.confirm, \.text-editor-button\.confirm:hover\s*\{[^}]*color:\s*var\(--confirm\)[^}]*background:\s*transparent/);
+  assert.match(css, /\.text-editor-button\.cancel, \.text-editor-button\.cancel:hover\s*\{[^}]*color:\s*var\(--danger\)[^}]*background:\s*transparent/);
   assert.match(css, /\.text-editor-preview\s*\{[^}]*background:\s*transparent/);
   assert.match(css, /\.text-editor-preview-canvas\s*\{[^}]*--text-editor-preview-inset-x[^}]*--text-editor-preview-inset-y/);
   assert.match(css, /\.text-editor-input\[hidden\]\s*\{[^}]*display:\s*none/);
@@ -3472,6 +3733,41 @@ test("the magic orb becomes a device-scoped stop button while an AI request is a
   assert.match(functionSource(app, "activeWidgetRefinement"), /aiPreparation\?\.widgetEdit \|\| state\.activeAI\?\.widgetEdit/);
 });
 
+test("AI text defaults to the cross-platform handwritten font and remembers explicit choices", () => {
+  const html = read("public/index.html"), core = read("src/client/app/core.js"), canvas = read("src/client/app/canvas-runtime.js"), ai = read("src/client/app/ai-runtime.js"), agent = read("src/client/app/canvas-agent-runtime.js"), bootstrap = read("src/client/app/ui-bootstrap.js"), app = read("public/app.js"),
+    handwrittenOption = html.match(/<option[^>]*data-i18n="fontHand"[^>]*>/)?.[0] || "",
+    handwritten = "Bradley Hand, Segoe Print, Comic Sans MS, cursive",
+    normalizeFont = Function("AI_FONT_HANDWRITTEN_LEGACY", "AI_FONT_HANDWRITTEN", "AI_FONT_OPTIONS", `return (${functionSource(core, "normalizeAiFont")});`)(
+      "Segoe Print, Comic Sans MS, cursive",
+      handwritten,
+      new Set(["ui-rounded, system-ui, sans-serif", handwritten, "Georgia, serif", "system-ui, sans-serif"]),
+    ),
+    setFont = functionSource(core, "setAiFont"),
+    fitTextBox = functionSource(canvas, "fittedTextBoxContent"),
+    renderTextBox = functionSource(canvas, "renderedTextBoxRecord"),
+    prepareAgentItems = functionSource(agent, "canvasAgentPrepareCreateItems");
+  assert.match(handwrittenOption, /value="Bradley Hand, Segoe Print, Comic Sans MS, cursive"/);
+  assert.match(handwrittenOption, /\bselected\b/);
+  assert.match(core, /AI_FONT_STORAGE_KEY = "penecho-ai-font"/);
+  assert.match(core, /AI_FONT_HANDWRITTEN = "Bradley Hand, Segoe Print, Comic Sans MS, cursive"/);
+  assert.match(core, /initialAiFont = normalizeAiFont\(storedAiFont\)/);
+  assert.match(core, /aiFont: initialAiFont/);
+  assert.equal(normalizeFont(null), handwritten);
+  assert.equal(normalizeFont("not-an-option"), handwritten);
+  assert.equal(normalizeFont("Segoe Print, Comic Sans MS, cursive"), handwritten);
+  assert.equal(normalizeFont("Georgia, serif"), "Georgia, serif");
+  assert.match(setFont, /state\.aiFont = normalizeAiFont\(value\)/);
+  assert.match(setFont, /localStorage\.setItem\(AI_FONT_STORAGE_KEY, state\.aiFont\)/);
+  assert.match(bootstrap, /document\.querySelector\("#aiFont"\)\.onchange = \(e\) => \{\s*setAiFont\(e\.target\.value\)/);
+  assert.match(ai, /fontFamily = family \|\| AI_FONT_HANDWRITTEN/);
+  assert.match(ai, /resolvedFamily = family \|\| AI_FONT_HANDWRITTEN/);
+  assert.match(fitTextBox, /fontFamily = normalizeTextBoxFontFamily\(fontFamily\)/);
+  assert.match(renderTextBox, /fittedTextBoxContent\(item\.text, fontSize, color, maxWidth, item\.fontFamily\)/);
+  assert.match(renderTextBox, /fontFamily:fitted\.fontFamily/);
+  assert.match(prepareAgentItems, /fontFamily:state\.aiFont/);
+  assert.match(app, /AI_FONT_HANDWRITTEN = "Bradley Hand, Segoe Print, Comic Sans MS, cursive"/);
+});
+
 test("AI drafts move only from the dedicated Hand chrome", () => {
   const app = read("public/app.js"),
     pointerDownStart = app.indexOf('screen.addEventListener("pointerdown"'),
@@ -3566,7 +3862,7 @@ test("pending copy is exposed as a direct DOM chrome action", () => {
     specs = functionSource(app, "pendingChromeSpecs"),
     button = functionSource(app, "createObjectChromeButton");
   assert.match(specs, /pendingCopyable\(target\)[\s\S]*?kind:"copy"[\s\S]*?copyPendingText\(itemIndex\)/);
-  assert.match(button, /kind !== "move"[\s\S]*?button\.penechoSpec\?\.activate\?\.\(button\)/);
+  assert.match(button, /kind === "move" \|\| kind === "toolbar" \|\| button\.disabled[\s\S]*?button\.penechoSpec\?\.activate\?\.\(button\)/);
   assert.match(functionSource(app, "objectChromeLabel"), /kind === "copy"[\s\S]*?t\("copyText"\)/);
 });
 

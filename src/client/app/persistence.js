@@ -14,9 +14,11 @@
   let snapshotDbPromise = null,
     snapshotItems = [],
     snapshotSaveInProgress = false,
+    canvasSnapshotFinalizationDepth = 0,
     snapshotListGeneration = 0,
     historyNoticeTimer = 0,
     historyActivityTimer = 0,
+    historyPreviewUrls = new Map(),
     snapshotListInProgress = false,
     snapshotLoadInProgress = false,
     snapshotLoadingId = null,
@@ -786,12 +788,17 @@
     return decoded;
   }
   async function finalizeCanvasForSnapshot() {
-    if (state.pendingWidget) acceptPendingWidget({ restoreMode:false });
-    if (state.pending) acceptPending({ restoreMode:false });
-    if (state.widgetEdit) acceptWidgetEdit();
-    if (state.imageEdit) acceptImageEdit();
-    if (state.animationEdit) acceptAnimationEdit();
-    for (const editor of [...state.textEditors.values()]) await confirmTextEditor(editor);
+    canvasSnapshotFinalizationDepth++;
+    try {
+      if (state.pendingWidget) acceptPendingWidget({ restoreMode:false });
+      if (state.pending) acceptPending({ restoreMode:false });
+      if (state.widgetEdit) acceptWidgetEdit();
+      if (state.imageEdit) acceptImageEdit();
+      if (state.animationEdit) acceptAnimationEdit();
+      for (const editor of [...state.textEditors.values()]) await confirmTextEditor(editor);
+    } finally {
+      canvasSnapshotFinalizationDepth--;
+    }
     if (state.selection) commitSelection();
     finishAIDraftHandMode();
   }
@@ -1462,12 +1469,37 @@
   function requestSnapshotDelete(item, location = state.snapshotLocation) {
     if (!item || historyBusy()) return false;
     const dialog = document.querySelector("#historyDeleteDialog"),
+      title = document.querySelector("#historyDeleteTitle"),
       description = document.querySelector("#historyDeleteDescription"),
       cancel = document.querySelector("#historyDeleteCancel"),
       confirm = document.querySelector("#historyDeleteConfirm"),
       detailKey = location === "server" ? "deleteSnapshotConfirmServer" : location === "cloud" ? "deleteSnapshotConfirmCloud" : "deleteSnapshotConfirmDevice";
-    historyDeletePending = { id:item.id, location, name:snapshotName(item) };
+    historyDeletePending = { type:"snapshot", id:item.id, location, name:snapshotName(item) };
+    title.textContent = t("historyDeleteTitle");
     description.textContent = `${historyDeletePending.name} · ${snapshotLocationLabel(location)}. ${t(detailKey)}`;
+    confirm.textContent = t("deleteSnapshot");
+    confirm.disabled = false;
+    if (!dialog.open) dialog.showModal();
+    requestAnimationFrame(() => cancel.focus({ preventScroll:true }));
+    return true;
+  }
+  function requestSelectedProjectDelete() {
+    if (historyBusy()) return false;
+    const isCloud = state.snapshotLocation === "cloud",
+      projects = isCloud ? cloudCanvasProjects : serverCanvasProjects,
+      selectedProjectId = isCloud ? selectedCloudProjectId : selectedServerProjectId,
+      project = projects.find((item) => item.id === selectedProjectId);
+    if (!project || project.id === SERVER_DEFAULT_PROJECT_ID || project.system || project.systemKey === "uncategorized") return false;
+    const dialog = document.querySelector("#historyDeleteDialog"),
+      title = document.querySelector("#historyDeleteTitle"),
+      description = document.querySelector("#historyDeleteDescription"),
+      cancel = document.querySelector("#historyDeleteCancel"),
+      confirm = document.querySelector("#historyDeleteConfirm"),
+      name = project.name || t("canvasProjectUncategorized");
+    historyDeletePending = { type:"project", id:project.id, location:state.snapshotLocation, name };
+    title.textContent = t("canvasProjectDelete");
+    description.textContent = t("deleteCloudProjectConfirm").replace("{name}", name);
+    confirm.textContent = t("canvasProjectDelete");
     confirm.disabled = false;
     if (!dialog.open) dialog.showModal();
     requestAnimationFrame(() => cancel.focus({ preventScroll:true }));
@@ -1482,7 +1514,8 @@
     confirm.disabled = true;
     confirm.setAttribute("aria-busy", "true");
     try {
-      await deleteSnapshot(pending.id, pending.location);
+      if (pending.type === "project") await deleteSelectedServerProject(pending);
+      else await deleteSnapshot(pending.id, pending.location);
       dialog.close("deleted");
       return true;
     } catch (error) {
@@ -1720,9 +1753,11 @@
     input.value = originalName;
     input.setAttribute("aria-label", t("canvasNamePlaceholder"));
     confirm.type = "submit";
+    peButton(confirm, "primary", "compact");
     confirm.textContent = "✓";
     confirm.setAttribute("aria-label", t("saveCurrentSnapshot"));
     cancel.type = "button";
+    peButton(cancel, "secondary", "compact");
     cancel.textContent = "×";
     cancel.setAttribute("aria-label", t("cancel"));
     cancel.addEventListener("click", restore);
@@ -1766,6 +1801,7 @@
   function renderSnapshotListLoading(location = state.snapshotLocation) {
     const list = document.querySelector("#historyList");
     if (!list) return;
+    releaseHistoryPreviewUrls();
     const loading = document.createElement("div");
     loading.className = "history-list-loading";
     loading.setAttribute("role", "status");
@@ -1777,6 +1813,7 @@
   function renderSnapshotListError(location = state.snapshotLocation) {
     const list = document.querySelector("#historyList");
     if (!list) return;
+    releaseHistoryPreviewUrls();
     const error = document.createElement("div");
     error.className = "history-list-loading error";
     error.setAttribute("role", "alert");
@@ -1788,12 +1825,14 @@
   function renderCloudHistorySignIn() {
     const list = document.querySelector("#historyList");
     if (!list) return;
+    releaseHistoryPreviewUrls();
     const empty = document.createElement("div"), title = document.createElement("strong"),
       description = document.createElement("p"), action = document.createElement("button");
     empty.className = "history-cloud-auth";
     title.textContent = cloudHistoryCopy("title");
     description.textContent = cloudHistoryCopy("description");
     action.type = "button";
+    peButton(action, "primary", "standard");
     action.textContent = cloudHistoryCopy("action");
     action.onclick = () => {
       closeHistoryPanel();
@@ -1855,6 +1894,7 @@
         itemCount = isAll ? snapshotItems.length : snapshotItems.filter((item) => (item.projectId || (isCloud ? "" : SERVER_DEFAULT_PROJECT_ID)) === option.value).length;
       button.className = "history-project-nav-item";
       button.type = "button";
+      peButton(button, "menu-item", "");
       button.dataset.projectId = option.value;
       button.setAttribute("aria-current", option.value === select.value ? "page" : "false");
       icon.setAttribute("viewBox", "0 0 24 24");
@@ -1919,14 +1959,10 @@
     showHistoryNoticeKey("canvasProjectCreated", "success");
     return true;
   }
-  async function deleteSelectedServerProject() {
-    const isCloud = state.snapshotLocation === "cloud",
-      projects = isCloud ? cloudCanvasProjects : serverCanvasProjects,
-      selectedProjectId = isCloud ? selectedCloudProjectId : selectedServerProjectId,
-      project = projects.find((item) => item.id === selectedProjectId);
-    if (!project || project.id === SERVER_DEFAULT_PROJECT_ID || project.system || project.systemKey === "uncategorized") return;
-    if (isCloud && !confirm(t("deleteCloudProjectConfirm").replace("{name}", project.name || t("canvasProjectUncategorized")))) return;
-    const response = await fetch(isCloud ? `/api/cloud/projects/${encodeURIComponent(project.id)}` : `/api/canvas-projects/${encodeURIComponent(project.id)}`, {
+  async function deleteSelectedServerProject(pending = historyDeletePending) {
+    if (!pending || pending.type !== "project") return false;
+    const isCloud = pending.location === "cloud",
+      response = await fetch(isCloud ? `/api/cloud/projects/${encodeURIComponent(pending.id)}` : `/api/canvas-projects/${encodeURIComponent(pending.id)}`, {
       method:"DELETE",
       credentials:"same-origin",
       headers:authenticatedApiHeaders(),
@@ -1936,6 +1972,7 @@
     else rememberSelectedServerProject(SERVER_DEFAULT_PROJECT_ID);
     await refreshSnapshots();
     showHistoryNoticeKey("canvasProjectDeleted", "success", 4200);
+    return true;
   }
   async function moveServerSnapshot(id, projectId) {
     const isCloud = state.snapshotLocation === "cloud",
@@ -2004,6 +2041,7 @@
     document.querySelectorAll(".history-card").forEach((card) => {
       const selected = Boolean(visiblySelectedItem && card.dataset.snapshotId === visiblySelectedItem.id);
       card.classList.toggle("selected", selected);
+      card.dataset.peState = selected ? "selected" : "default";
       card.querySelector(".history-card-select")?.setAttribute("aria-pressed", String(selected));
     });
     const actions = document.querySelector("#historyGridActions"),
@@ -2036,6 +2074,21 @@
       row.closest(".history-card")?.querySelector(".history-more")?.setAttribute("aria-expanded", "false");
     });
   }
+  function positionHistoryRowActions(row, trigger) {
+    if (!row || row.hidden || !trigger) return;
+    const list = row.closest("#historyList");
+    if (!list || list.classList.contains("grid-view")) {
+      row.dataset.pePlacement = "top";
+      return;
+    }
+    const listRect = list.getBoundingClientRect(),
+      triggerRect = trigger.getBoundingClientRect(),
+      menuHeight = row.offsetHeight,
+      gutter = 8,
+      spaceAbove = triggerRect.top - listRect.top,
+      spaceBelow = listRect.bottom - triggerRect.bottom;
+    row.dataset.pePlacement = spaceBelow >= menuHeight + gutter || spaceBelow >= spaceAbove ? "bottom" : "top";
+  }
   function selectHistorySnapshot(item, location = state.snapshotLocation, { focus = false } = {}) {
     if (!item || location !== state.snapshotLocation) return false;
     historySelectedSnapshotId = item.id;
@@ -2060,10 +2113,12 @@
     return selected;
   }
   function historyItemContentSummary(item) {
-    const counts = Number.isFinite(item.tileCount) ? [[item.tileCount, "snapshotTiles"]] : [];
-    if (pluginEnabled("animation") && item.animationCount) counts.push([item.animationCount, "snapshotAnimations"]);
-    if (item.widgetCount) counts.push([item.widgetCount, "snapshotWidgets"]);
-    if (item.imageCount) counts.push([item.imageCount, "snapshotImages"]);
+    const counts = Number.isFinite(item.tileCount)
+      ? [[item.tileCount, item.tileCount === 1 ? "historySnapshotTile" : "historySnapshotTiles"]]
+      : [];
+    if (item.widgetCount) {
+      counts.push([item.widgetCount, item.widgetCount === 1 ? "historySnapshotWidget" : "historySnapshotWidgets"]);
+    }
     return counts.map(([count, key]) => `${count} ${t(key)}`).join(" · ");
   }
   function loadHistorySnapshot(item, location, button) {
@@ -2077,6 +2132,7 @@
     if (changed) historyGridSelectionActivated = false;
     closeHistoryRowActions();
     list?.classList.toggle("grid-view", grid);
+    if (list) list.dataset.peList = grid ? "grid" : "media-list";
     main?.classList.toggle("grid-view", grid);
     if (header) header.hidden = grid;
     document.querySelectorAll("[data-history-view]").forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.historyView === (grid ? "grid" : "list"))));
@@ -2084,9 +2140,26 @@
     updateHistorySelectionUi();
   }
   function renderStudioSnapshotLists() {
-    window.PenEchoStudioNavigator?.renderWork?.();
-    window.PenEchoStudioNavigator?.renderCanvases?.();
-    window.PenEchoStudioNavigator?.renderAgent?.();
+    window.PenEchoStudioNavigator?.render?.();
+  }
+  function revokeHistoryPreviewUrlWhenSettled(url, image) {
+    const revoke = () => {
+      image.removeEventListener("load", revoke);
+      image.removeEventListener("error", revoke);
+      URL.revokeObjectURL(url);
+    };
+    if (image.complete) revoke();
+    else {
+      image.addEventListener("load", revoke);
+      image.addEventListener("error", revoke);
+    }
+  }
+  function releaseHistoryPreviewUrls() {
+    const entries = [...historyPreviewUrls];
+    historyPreviewUrls.clear();
+    queueMicrotask(() => {
+      for (const [url, image] of entries) revokeHistoryPreviewUrlWhenSettled(url, image);
+    });
   }
   function renderSnapshotList() {
     const list = document.querySelector("#historyList"),
@@ -2096,6 +2169,12 @@
       filteredItems = query ? scopedItems.filter((item) => snapshotName(item).toLocaleLowerCase(state.language === "zh" ? "zh-CN" : "en").includes(query)) : scopedItems,
       items = historySortItems(filteredItems);
     if (!list) return;
+    if (!document.querySelector("#historyPanel")?.classList.contains("open")) {
+      releaseHistoryPreviewUrls();
+      list.replaceChildren();
+      renderStudioSnapshotLists();
+      return;
+    }
     renderServerProjectUi();
     updateHistoryLibrarySummary(items.length, snapshotItems.length);
     if (location === "cloud" && cloudHistorySignInRequired) {
@@ -2107,6 +2186,7 @@
       renderSnapshotListLoading(location);
       return;
     }
+    releaseHistoryPreviewUrls();
     list.replaceChildren();
     if (!items.length) {
       const empty = document.createElement("div");
@@ -2121,21 +2201,23 @@
     for (const item of items) {
       const card = document.createElement("article"),
         selectButton = document.createElement("button"),
-        identity = document.createElement("div"),
-        preview = document.createElement("div"),
         image = document.createElement("img"),
+        fallback = document.createElement("span"),
+        content = document.createElement("div"),
         meta = document.createElement("div"),
         titleRow = document.createElement("div"),
         title = document.createElement("strong"),
         currentLabel = document.createElement("span"),
         rename = document.createElement("button"),
         load = document.createElement("button"),
-        detail = document.createElement("small"),
+        description = document.createElement("p"),
+        footer = document.createElement("div"),
         advancedActions = document.createElement("div"),
         more = document.createElement("button"),
         remove = document.createElement("button"),
         url = item.preview instanceof Blob ? URL.createObjectURL(item.preview) : "";
       card.className = "history-card";
+      card.dataset.peItem = "card-action";
       card.dataset.snapshotId = item.id;
       card.setAttribute("role", "listitem");
       const isCurrent = item.id === state.currentSnapshotId && location === state.currentSnapshotLocation;
@@ -2143,46 +2225,60 @@
       if (isCurrent) card.setAttribute("aria-current", "true");
       const isSelected = selectedItem?.id === item.id;
       card.classList.toggle("selected", isSelected);
-      selectButton.className = "history-card-select";
+      card.dataset.peState = isSelected ? "selected" : "default";
+      selectButton.className = "history-card-select history-preview";
       selectButton.type = "button";
+      peChoice(selectButton);
+      selectButton.dataset.peRegion = "media";
       selectButton.setAttribute("aria-pressed", String(isSelected));
       selectButton.setAttribute("aria-label", isCurrent ? `${snapshotName(item)} · ${t("studioNavigatorCurrent")}` : snapshotName(item));
-      preview.className = "history-preview";
+      image.dataset.peMedia = "prompt-preview";
       image.alt = "";
+      fallback.dataset.peMedia = "prompt-icon";
+      fallback.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v14H4Z"/><path d="m7 15 3-3 2.5 2.5L15 12l3 3"/><circle cx="9" cy="9" r="1.2"/></svg>`;
       if (url) {
         image.src = url;
-        image.onload = image.onerror = () => URL.revokeObjectURL(url);
-      }
-      preview.append(image);
+        historyPreviewUrls.set(url, image);
+        fallback.hidden = true;
+        image.onerror = () => {
+          if (historyPreviewUrls.delete(url)) URL.revokeObjectURL(url);
+          image.hidden = true;
+          fallback.hidden = false;
+        };
+      } else image.hidden = true;
+      selectButton.append(image, fallback);
       if (isCurrent) {
         currentLabel.className = "history-current-label";
         currentLabel.textContent = t("studioNavigatorCurrent");
-        preview.append(currentLabel);
+        selectButton.append(currentLabel);
       }
-      identity.className = "history-identity";
+      content.className = "history-card-content";
+      content.dataset.peRegion = "content";
       meta.className = "history-meta";
+      meta.dataset.peRegion = "copy";
       titleRow.className = "history-title-row";
       title.className = "history-card-title";
+      title.dataset.peRegion = "title";
       title.textContent = snapshotName(item);
       rename.className = "history-rename";
       rename.type = "button";
+      peButton(rename, "menu-item", "");
       rename.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 20 4.4-1 10-10a2.1 2.1 0 0 0-3-3l-10 10L4 20Z"/><path d="m13.8 7.6 3 3"/></svg><span>${t("canvasRename")}</span>`;
       rename.setAttribute("aria-label", t("canvasRenameNamed").replace("{name}", title.textContent));
       rename.title = t("canvasRename");
-      rename.addEventListener("click", () => beginSnapshotRename(item, location, titleRow, title, rename));
+      rename.addEventListener("click", () => {
+        closeHistoryRowActions();
+        beginSnapshotRename(item, location, titleRow, title, rename);
+      });
       titleRow.append(title);
       load.className = isCurrent ? "history-item-save history-save-current" : "history-item-load history-load";
       load.type = "button";
+      peButton(load, "secondary", "compact");
       load.dataset.snapshotId = item.id;
       load.textContent = t(isCurrent ? "saveCurrentSnapshot" : "loadSnapshot");
       load.setAttribute("aria-label", `${t(isCurrent ? "saveCurrentSnapshot" : "loadSnapshot")}: ${title.textContent}`);
       load.onclick = isCurrent ? () => saveCurrentHistoryItem(item, location) : () => loadHistorySnapshot(item, location, load);
       const modified = new Intl.DateTimeFormat(state.language === "zh" ? "zh-CN" : "en", { dateStyle: "short", timeStyle: "short" }).format(item.updatedAt || item.createdAt);
-      if (location === "server" || location === "cloud") {
-        const projects = location === "cloud" ? cloudCanvasProjects : serverCanvasProjects,
-          project = projects.find((entry) => entry.id === (item.projectId || (location === "cloud" ? "" : SERVER_DEFAULT_PROJECT_ID)));
-        detail.textContent = project ? serverProjectName(project) : t("canvasProjectUncategorized");
-      } else detail.textContent = snapshotLocationLabel(location);
       const stats = document.createElement("div"),
         contentSummary = historyItemContentSummary(item);
       stats.className = "history-stats";
@@ -2192,31 +2288,72 @@
         chip.textContent = text;
         stats.append(chip);
       }
+      description.className = "history-card-description";
+      description.dataset.peRegion = "description";
+      description.append(stats);
       const modifiedColumn = document.createElement("div");
       modifiedColumn.className = "history-modified";
       modifiedColumn.textContent = modified;
       more.className = "history-more";
       more.type = "button";
+      peButton(more, "toolbar", "compact");
       more.textContent = "";
       more.setAttribute("aria-expanded", "false");
       more.setAttribute("aria-label", t("historyMoreActions").replace("{name}", title.textContent));
       more.title = t("historyMoreActions").replace("{name}", title.textContent);
-      advancedActions.className = "history-row-actions";
+      const actionId = String(item.id).replace(/[^a-zA-Z0-9_-]/g, "-");
+      more.id = `history-more-${actionId}`;
+      more.setAttribute("aria-controls", `history-actions-${actionId}`);
+      advancedActions.id = `history-actions-${actionId}`;
+      advancedActions.className = "history-row-actions pe-compact-menu";
+      advancedActions.dataset.peSurface = "menu";
+      advancedActions.dataset.peSize = "xs";
+      advancedActions.dataset.peLayout = "single";
+      advancedActions.dataset.peList = "menu";
+      advancedActions.dataset.peMaterial = "popover-glass";
+      advancedActions.dataset.pePresentation = "anchored";
+      advancedActions.dataset.peState = "default";
+      advancedActions.setAttribute("aria-labelledby", more.id);
       advancedActions.hidden = true;
-      more.onclick = () => {
+      more.onclick = (event) => {
         const willOpen = advancedActions.hidden;
         closeHistoryRowActions(advancedActions);
         advancedActions.hidden = !willOpen;
         more.setAttribute("aria-expanded", String(!advancedActions.hidden));
-        if (!advancedActions.hidden) rename.focus({ preventScroll:true });
+        if (!advancedActions.hidden) {
+          positionHistoryRowActions(advancedActions, more);
+          if (event.detail === 0) rename.focus({ preventScroll:true });
+        }
       };
+      more.addEventListener("keydown", (event) => {
+        if (event.key !== "Escape" || advancedActions.hidden) return;
+        event.preventDefault();
+        event.stopPropagation();
+        advancedActions.hidden = true;
+        more.setAttribute("aria-expanded", "false");
+      });
+      advancedActions.addEventListener("keydown", (event) => {
+        if (event.key !== "Escape") return;
+        event.preventDefault();
+        event.stopPropagation();
+        advancedActions.hidden = true;
+        more.setAttribute("aria-expanded", "false");
+        more.focus({ preventScroll:true });
+      });
       remove.className = "history-delete";
+      remove.type = "button";
+      peButton(remove, "menu-item", "");
+      remove.dataset.peTone = "danger";
       remove.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"/></svg><span>${t("deleteSnapshot")}</span>`;
-      remove.onclick = () => requestSnapshotDelete(item, location);
+      remove.onclick = () => {
+        closeHistoryRowActions();
+        requestSnapshotDelete(item, location);
+      };
       advancedActions.append(rename);
       if (location === "server" || location === "cloud") {
         const move = document.createElement("select");
         move.className = "history-move";
+        move.dataset.peControl = "select";
         move.setAttribute("aria-label", t("canvasProjectMove"));
         move.title = t("canvasProjectMove");
         const projects = location === "cloud" ? cloudCanvasProjects : serverCanvasProjects;
@@ -2230,16 +2367,30 @@
         move.onchange = () => runSnapshotAction(() => moveServerSnapshot(item.id, move.value));
         advancedActions.append(move);
       }
-      advancedActions.append(remove);
-      meta.append(titleRow, detail);
-      identity.append(preview, meta);
-      selectButton.append(identity, stats, modifiedColumn);
+      const actionSeparator = document.createElement("div");
+      actionSeparator.className = "menu-separator";
+      actionSeparator.setAttribute("role", "separator");
+      advancedActions.append(actionSeparator, remove);
+      footer.className = "history-card-footer";
+      footer.dataset.peRegion = "actions";
+      meta.append(titleRow, description);
+      footer.append(modifiedColumn, load, more);
+      content.append(meta, footer);
       selectButton.onclick = () => selectHistorySnapshot(item, location);
       selectButton.ondblclick = () => {
         selectHistorySnapshot(item, location);
         loadHistorySnapshot(item, location, load);
       };
-      card.append(selectButton, load, more, advancedActions);
+      content.onclick = (event) => {
+        if (event.target.closest("button, input, select, textarea, a")) return;
+        selectHistorySnapshot(item, location);
+      };
+      content.ondblclick = (event) => {
+        if (event.target.closest("button, input, select, textarea, a")) return;
+        selectHistorySnapshot(item, location);
+        loadHistorySnapshot(item, location, load);
+      };
+      card.append(selectButton, content, advancedActions);
       list.append(card);
     }
     updateHistorySelectionUi(items);
@@ -2341,7 +2492,8 @@
     updateSnapshotLocationUi();
     historyGridSelectionActivated = false;
     setHistoryView(localStorage.getItem(HISTORY_VIEW_STORAGE_KEY) === "list" ? "list" : "grid");
-    requestAnimationFrame(() => document.querySelector("#historySearch")?.focus({ preventScroll:true }));
+    requestAnimationFrame(() => panel.focus({ preventScroll:true }));
+    renderSnapshotList();
     if (refresh) refreshSnapshots().catch((error) => {
       if (state.snapshotLocation !== "cloud" || !cloudHistoryRequiresSignIn(error)) setStatus(`${t("snapshotError")}${error.message}`);
     });
@@ -2358,7 +2510,11 @@
     button.setAttribute("aria-expanded", "false");
     window.PenEchoStudioNavigator?.historyManagerDidClose?.();
     setTimeout(() => {
-      if (!panel.classList.contains("open")) backdrop.hidden = true;
+      if (!panel.classList.contains("open")) {
+        backdrop.hidden = true;
+        document.querySelector("#historyList")?.replaceChildren();
+        releaseHistoryPreviewUrls();
+      }
     }, 220);
   }
   function trapHistoryPanelFocus(event) {
@@ -2762,7 +2918,7 @@
     return entry;
   }
   function saveUserCanvasChange() {
-    return canvasAgentDidCommitUserCanvasChange(save());
+    return canvasAgentDidCommitUserCanvasChange(save(), { allowAutoHide:canvasSnapshotFinalizationDepth === 0 });
   }
   function applyHistory(entry, side) {
     const changes = Array.isArray(entry) ? entry : entry?.tiles || [];

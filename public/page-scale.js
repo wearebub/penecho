@@ -1,6 +1,6 @@
 "use strict";
 
-const CANVAS_PAGE_SCALES = Object.freeze([1, 1.1, 1.25, 1.5, 1.75]);
+const CANVAS_PAGE_SCALES = Object.freeze([0.9, 1, 1.1, 1.25, 1.5, 1.75]);
 const CANVAS_PAGE_SCALE = 1;
 const CANVAS_PAGE_SCALE_STORAGE_KEY = "penecho-canvas-page-scale";
 
@@ -24,6 +24,7 @@ if (typeof window !== "undefined" && typeof document !== "undefined") {
   function applyCanvasPageScale(value, { persist = true } = {}) {
     currentScale = normalizeCanvasPageScale(value);
     root.style.setProperty("--penecho-canvas-page-scale", String(currentScale));
+    root.style.setProperty("--penecho-canvas-page-viewport-width", `${100 / currentScale}vw`);
     root.style.setProperty("--penecho-canvas-page-viewport-height", `${100 / currentScale}vh`);
     root.style.setProperty("--penecho-canvas-page-dynamic-height", `${100 / currentScale}dvh`);
     if (persist) {

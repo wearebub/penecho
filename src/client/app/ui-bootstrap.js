@@ -57,7 +57,6 @@
       ".widget-layer",
       ".object-chrome-layer",
       ".animation-controls",
-      ".image-edit-bar",
       ".selection-overlay-layer",
       ".text-editor-layer",
       ".ai-embodiment",
@@ -221,9 +220,11 @@
     } catch {}
     calibrateScreenClientRatio(e, false);
     const penEraser = canvasPenEraserActive(e),
-      handPoint = !penEraser && state.mode === "hand" ? clientPoint(e) : null;
+      handPoint = !penEraser && state.mode === "hand" ? clientPoint(e) : null,
+      handTarget = handPoint ? handObjectToolbarTargetAtPoint(handPoint) : null;
     beginCanvasWidgetGestureResetTap(e, handPoint);
     state.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (Number(e.button) === 0 && handTarget?.kind === "text-box" && editTextBox(handTarget.object)) return;
     if (handPoint) beginHandObjectFocus(e, handPoint);
     if (penEraser) {
       beginCanvasPointerAction(e, clientPoint(e), { forceEraser:true });
@@ -299,6 +300,7 @@
         return;
       }
     }
+    hideHandObjectToolbar({ all:true });
     beginCanvasPointerAction(e, point);
   });
   screen.addEventListener("pointermove", (e) => {
@@ -783,17 +785,6 @@
     button.addEventListener("pointerdown", (event) => event.stopPropagation());
     button.addEventListener("click", (event) => event.stopPropagation());
   });
-  imageMergeButton.onclick = () => {
-    const item = selectedImage();
-    if (item) mergeImage(item, { showHint:true });
-  };
-  for (const button of [imageMergeButton]) {
-    button.addEventListener("pointerdown", (event) => {
-      event.stopPropagation();
-      refreshHandObjectToolbar();
-    });
-    button.addEventListener("click", (event) => event.stopPropagation());
-  }
   function bindHandToolbarSurface(element, kind, currentObject) {
     const currentKey = () => {
       const object = currentObject();
@@ -824,7 +815,6 @@
       if (key) setHandToolbarHold(key, `${kind}-toolbar-focus`, false);
     });
   }
-  bindHandToolbarSurface(imageEditBar, "image", selectedImage);
   imagePickerButton.addEventListener("click", () => {
     if (state.imageImporting) return;
     if (selectionAIBusy()) {
@@ -962,7 +952,7 @@
     document.querySelector("#penSizeValue").textContent = `${state.pen} px`;
   };
   document.querySelector("#aiFont").onchange = (e) => {
-    state.aiFont = e.target.value;
+    setAiFont(e.target.value);
   };
   function colorOrbitFor(control) {
     const id = control?.querySelector(".color-orb-trigger")?.getAttribute("aria-controls");
@@ -1172,12 +1162,16 @@
     updateGridButton();
     requestRender();
   };
-  document.querySelector("#fullscreenBtn").onclick = async () => {
+  const fullscreenButton = document.querySelector("#fullscreenBtn");
+  fullscreenButton.onclick = async (event) => {
+    const pointerActivated = (event?.detail || 0) > 0;
     try {
       if (document.fullscreenElement) await document.exitFullscreen();
       else await document.documentElement.requestFullscreen();
     } catch (error) {
       setStatus(`${t("aiError")}${error.message}`);
+    } finally {
+      if (pointerActivated) requestAnimationFrame(() => fullscreenButton.blur());
     }
   };
   document.querySelector("#newCanvasBtn").onclick = openNewCanvasDialog;
@@ -1230,7 +1224,7 @@
     renderSnapshotList();
   };
   document.querySelector("#historyProjectCreate").onclick = openServerProjectDialog;
-  document.querySelector("#historyProjectDelete").onclick = () => runSnapshotAction(deleteSelectedServerProject);
+  document.querySelector("#historyProjectDelete").onclick = requestSelectedProjectDelete;
   const projectDialog = document.querySelector("#projectDialog"),
     projectForm = document.querySelector("#projectForm"),
     closeProjectDialog = () => {

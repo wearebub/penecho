@@ -28,6 +28,9 @@ test("toolbar ships a left-navigation Favorites workbench with list and grid vie
   assert.match(page, /id="craftsCount"[^>]*aria-live="polite"/);
   assert.match(page, /id="craftsClose"[^>]*data-i18n-aria="closeSavedCrafts"[^>]*data-i18n-title="closeSavedCrafts"[\s\S]*?<svg viewBox="0 0 24 24"/);
   assert.match(page, /class="crafts-empty"[^>]*data-i18n="savedLoading"/);
+  assert.match(page, /id="craftsRemoveDialog"[^>]*role="alertdialog"[^>]*aria-modal="true"[^>]*data-pe-surface="alert"/);
+  assert.match(page, /id="craftsRemoveCancel"[^>]*value="cancel"[^>]*data-pe-button="secondary"/);
+  assert.match(page, /id="craftsRemoveConfirm"[^>]*value="remove"[^>]*data-pe-button="danger-primary"/);
 
   assert.match(script, /const FAVORITE_PAGE_SIZE = 20/);
   assert.match(script, /\/api\/cloud\/favorites\/feed\?/);
@@ -50,7 +53,14 @@ test("toolbar ships a left-navigation Favorites workbench with list and grid vie
   assert.match(script, /restore\?\.focus\?\.\(\)/);
   assert.match(script, /craftsList\?\.setAttribute\("aria-busy", String\(refreshing\)\)/);
   assert.match(script, /data-crafts-filter-label/);
-  assert.match(script, /row\.append\(media, copy, actions\)/);
+  assert.match(script, /meta\.append\(kindBadge, craftsSourceBadge\(merged\.sources\)\)/);
+  assert.doesNotMatch(script, /media\.append\(kindBadge\)/);
+  assert.match(script, /title\.className = "crafts-card-title"/);
+  assert.match(script, /footer\.append\(meta, actions\);[\s\S]*?row\.append\(media, copy, footer\)/);
+  assert.match(script, /add\.dataset\.peButton = "secondary"/);
+  assert.match(script, /function confirmCraftRemoval\(name\)/);
+  assert.match(script, /craftsRemoveDialog\.showModal\(\)/);
+  assert.match(script, /if \(!await confirmCraftRemoval\(title\.textContent\)\) return;[\s\S]*?await removeCraft\(merged\)/);
   assert.match(script, /craftsCount\.textContent = savedT\("savedCount"/);
 
   assert.match(locale, /savedCrafts: "收藏"/);
@@ -60,6 +70,8 @@ test("toolbar ships a left-navigation Favorites workbench with list and grid vie
   assert.match(locale, /browseEchoes: "浏览 Echoes"/);
   assert.match(locale, /savedCount: "\{count\} 个收藏"/);
   assert.match(locale, /savedSourceSynced: "云端 \+ 本机"/);
+  assert.match(locale, /savedRemoveConfirmTitle: "从收藏中移除？"/);
+  assert.match(locale, /savedRemoveConfirmDescription: "“\{name\}”将不再出现在收藏中。"/);
   assert.match(locale, /savedLoading: "正在加载收藏…"/);
   assert.match(locale, /savedRefreshing: "正在刷新…"/);
 
@@ -70,28 +82,40 @@ test("toolbar ships a left-navigation Favorites workbench with list and grid vie
   assert.match(modalRule, /width:\s*min\(960px,\s*100%\)/);
   assert.match(modalRule, /height:\s*min\(680px,\s*calc\(100dvh - 48px\)\)/);
   assert.match(modalRule, /grid-template-columns:\s*228px minmax\(0,\s*1fr\)/);
-  assert.match(modalRule, /background:\s*color-mix\(in srgb,\s*var\(--panel-raised\)\s*92%,\s*transparent\)/);
+  assert.match(modalRule, /background:\s*var\(--penecho-dialog-surface\)/);
   assert.match(modalRule, /box-shadow:\s*0 6px 14px/);
   assert.match(craftsCss, /\.crafts-sidebar\s*\{[^}]*border-right:\s*1px solid/);
+  assert.match(craftsCss, /\.crafts-sidebar\s*\{[^}]*background:\s*var\(--penecho-dialog-raised-surface\)/);
   assert.match(craftsCss, /\.crafts-workspace\s*\{[^}]*grid-template-rows:\s*50px minmax\(0,\s*1fr\)/);
+  assert.match(craftsCss, /\.crafts-workspace\s*\{[^}]*background:\s*var\(--penecho-dialog-body-surface\)/);
   assert.match(craftsCss, /\.crafts-nav-item\s*\{[^}]*min-height:\s*34px/);
   assert.match(craftsCss, /\.crafts-nav-item:focus-visible\s*\{[^}]*outline:\s*2px solid var\(--gold-bright\)/);
   assert.match(craftsCss, /\.crafts-view-switch\s*\{[^}]*height:\s*32px/);
   assert.match(craftsCss, /\.crafts-view-option\s*\{[^}]*width:\s*27px[^}]*height:\s*26px/);
   assert.match(craftsCss, /\.crafts-view-option\.active\s*\{[^}]*color:\s*var\(--gold-bright\)/);
   assert.match(craftsCss, /\.crafts-modal \.cloud-dialog-close\s*\{[^}]*width:\s*32px[^}]*height:\s*32px/);
-  assert.match(craftsCss, /\.crafts-row\s*\{[^}]*grid-template-columns:\s*88px minmax\(0,\s*1fr\) auto[^}]*min-height:\s*78px/);
-  assert.match(craftsCss, /\.crafts-add, \.crafts-open\s*\{[^}]*height:\s*30px[^}]*font-weight:\s*500/);
+  assert.match(craftsCss, /\.crafts-row\s*\{[^}]*grid-template-areas:\s*"preview copy" "preview footer"[^}]*grid-template-columns:\s*88px minmax\(0,\s*1fr\)[^}]*min-height:\s*78px/);
+  assert.doesNotMatch(craftsCss, /\.crafts-kind-badge\s*\{[^}]*position:\s*absolute/);
+  assert.match(craftsCss, /\.crafts-kind-badge, \.crafts-source\s*\{[^}]*min-height:\s*20px[^}]*border-radius:\s*5px[^}]*font-size:\s*11\.5px[^}]*font-weight:\s*400/);
+  assert.match(craftsCss, /\.crafts-add, \.crafts-open\s*\{[^}]*height:\s*28px[^}]*border-radius:\s*5px[^}]*background:\s*transparent[^}]*font-weight:\s*400/);
   assert.match(craftsCss, /\.crafts-remove::before\s*\{[^}]*mask:/s);
+  assert.match(craftsCss, /\.crafts-remove::before\s*\{[^}]*M6%206l12%2012M18%206%206%2018/s);
+  assert.match(script, /remove\.dataset\.peButton = "toolbar";[\s\S]*?remove\.textContent = "";/);
+  assert.doesNotMatch(script, /remove\.textContent = "×";/);
   assert.match(craftsCss, /\.crafts-list\.is-grid\s*\{[^}]*grid-template-columns:\s*repeat\(auto-fill,\s*minmax\(216px,\s*1fr\)\)[^}]*grid-auto-rows:\s*max-content/);
-  assert.match(craftsCss, /\.crafts-list\.is-grid \.crafts-row\s*\{[^}]*grid-template-areas:\s*"preview" "title" "description" "footer"/);
+  assert.match(craftsCss, /\.crafts-list\.is-grid \.crafts-row\s*\{[^}]*grid-template-areas:\s*"preview" "title" "footer"[^}]*grid-template-rows:\s*auto 18px auto/);
+  assert.match(craftsCss, /\.crafts-list\.is-grid \.crafts-card-title\s*\{[^}]*text-overflow:\s*ellipsis[^}]*white-space:\s*nowrap/);
+  assert.match(craftsCss, /\.crafts-list\.is-grid \.crafts-copy small\s*\{[^}]*display:\s*none/);
+  assert.match(craftsCss, /\.crafts-list\.is-grid \.crafts-footer\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)[^}]*gap:\s*6px/);
   assert.match(craftsCss, /@media \(max-width: 760px\)\s*\{[\s\S]*?\.crafts-sidebar\s*\{[^}]*grid-template-areas:\s*"brand echoes" "filters filters"/);
+  assert.match(craftsCss, /@media \(max-width: 760px\)\s*\{[\s\S]*?:is\(#pe-button-contract, \.crafts-modal\) \.crafts-nav-item\s*\{[^}]*display:\s*flex[^}]*flex:\s*1 1 0[^}]*line-height:\s*30px/);
   assert.match(craftsCss, /@media \(max-width: 560px\)\s*\{[\s\S]*?\.crafts-row\s*\{[^}]*grid-template-columns:\s*72px minmax\(0,\s*1fr\)/);
   assert.match(craftsCss, /@media \(prefers-reduced-motion: reduce\)\s*\{[\s\S]*?\.crafts-refresh-spinner\s*\{[^}]*animation:\s*none/);
+  assert.match(css, /:is\(#pe-type-contract, \.crafts-modal, \.crafts-remove-dialog\) :where\(\*\)\s*\{\s*font-weight:\s*400;/);
 
   const bilingualKeys = [
     "savedCrafts", "savedCraftsTitle", "savedCraftsSubtitle", "savedType", "savedView", "savedListView", "savedGridView", "browseEchoes", "savedCount", "savedLoading", "savedRefreshing", "savedEmptyIn", "savedEmptyOut",
-    "savedAdd", "savedAdding", "savedOpen", "savedOpening", "savedCanvas", "savedWidget", "savedRemoveTitle", "savedSourceLocal", "savedSourceCloud", "savedSourceCommunity",
+    "savedAdd", "savedAdding", "savedOpen", "savedOpening", "savedCanvas", "savedWidget", "savedRemoveTitle", "savedRemoveConfirmTitle", "savedRemoveConfirmDescription", "savedRemoveAction", "savedSourceLocal", "savedSourceCloud", "savedSourceCommunity",
     "savedSourceSynced", "savedSourceSyncedTitle", "savedSourceLocalTitle", "savedSourceCloudTitle", "savedErrorAdd", "savedErrorOpen", "savedErrorToggle",
     "closeSavedCrafts", "shareCanvasCloud", "shareWidget", "snapshotCloudSignInRequired", "snapshotCloudSignInHint",
     "openPenEchoCloud", "openPenEchoCloudExternal", "opensInNewTab", "openCloudCanvasUnsaved", "openInNewPage",

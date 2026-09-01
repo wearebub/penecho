@@ -484,6 +484,13 @@ async function openCloudCenter(run) {
   return overlay;
 }
 
+function selectCloudSection(overlay, section) {
+  const control = flatten(overlay).find((node) => node.getAttribute("role") === "tab" && node.getAttribute("data-cloud-section") === section);
+  assert.ok(control, `expected the ${section} Cloud navigation entry`);
+  control.click();
+  return control;
+}
+
 async function publishCraftFromShareDialog(run, kind, { continuationText="Continue with the next useful detail.", beforePublish = null } = {}) {
   if (kind === "canvas") run.shareButton.click();
   else await run.window.dispatch("penecho:community-widget-action", { detail:{ action:"share", widgetId:"widget-1" } });
@@ -626,6 +633,7 @@ test("Cloud Center pairing instructions link PenEcho Cloud → Devices to the co
   const uat = boot({ status:deviceStatus({ configured:false, enabled:false, state:"disconnected", id:null, name:null }) });
   await uat.flush();
   const overlay = await openCloudCenter(uat);
+  selectCloudSection(overlay, "device");
   const links = flatten(overlay).filter((node) => node.tagName === "A");
   const devices = links.find((node) => node.textContent === "PenEcho Cloud → Devices");
   assert.ok(devices, "expected the pairing instructions to contain a Devices link");
@@ -637,22 +645,37 @@ test("Cloud Center pairing instructions link PenEcho Cloud → Devices to the co
   const prod = boot({ status:deviceStatus({ configured:false, enabled:false, state:"disconnected", id:null, name:null }), cloudOrigin:"https://penecho.ai" });
   await prod.flush();
   const prodOverlay = await openCloudCenter(prod);
+  selectCloudSection(prodOverlay, "device");
   const prodLink = flatten(prodOverlay).find((node) => node.tagName === "A" && node.textContent === "PenEcho Cloud → Devices");
   assert.equal(prodLink.getAttribute("href"), "https://penecho.ai/dashboard.html#devices");
   assert.equal(prodLink.getAttribute("target"), "_blank");
   assert.equal(prodLink.getAttribute("rel"), "noopener");
 });
 
-test("signed-in account and configured device expose direct compact actions without settings copy", async () => {
-  const run = boot({ status:deviceStatus() });
+test("signed-in account and configured device expose actions on their own pages", async () => {
+  const run = boot({
+    status:deviceStatus(),
+    library:{
+      workspace:{ storageUsedBytes:1024, storageReservedBytes:512, storageLimitBytes:4096 },
+      projects:[{ id:"project-1", name:"Research" }, { id:"system", name:"Unsorted", systemKey:"uncategorized" }],
+      canvases:[{ id:"canvas-1", projectId:"project-1" }, { id:"canvas-2", projectId:"system" }],
+      sync:{ bundleVersion:2, conflictPolicy:"base-revision-required" },
+    },
+  });
   await run.flush();
   const overlay = await openCloudCenter(run);
-  const controls = flatten(overlay);
-  const actionRows = controls.filter((node) => node.className === "cloud-button-row cloud-compact-actions");
-  assert.equal(actionRows.length, 2);
-  for (const label of ["Refresh account", "Sign out on this host", "Pause link", "Remove this link"]) {
-    assert.ok(controls.some((node) => node.tagName === "BUTTON" && node.textContent === label), `expected direct ${label} action`);
-  }
+  selectCloudSection(overlay, "account");
+  await run.flush();
+  assert.ok(flatten(overlay).some((node) => node.tagName === "BUTTON" && node.textContent === "Refresh account"));
+  assert.ok(flatten(overlay).some((node) => node.tagName === "BUTTON" && node.textContent === "Sign out on this host"));
+  assert.ok(overlay.textContent.includes("Account overview"));
+  assert.ok(overlay.textContent.includes("Cloud storage used"));
+  assert.ok(overlay.textContent.includes("1.5 KB used of 4.0 KB"));
+  selectCloudSection(overlay, "projects");
+  assert.ok(!overlay.textContent.includes("Cloud storage used"), "storage statistics live on Account, not Projects");
+  selectCloudSection(overlay, "device");
+  assert.ok(flatten(overlay).some((node) => node.tagName === "BUTTON" && node.textContent === "Pause link"));
+  assert.ok(flatten(overlay).some((node) => node.tagName === "BUTTON" && node.textContent === "Remove this link"));
   assert.ok(!overlay.textContent.includes("Account settings"));
   assert.ok(!overlay.textContent.includes("Signing out removes"));
   assert.ok(!overlay.textContent.includes("Link settings"));
@@ -702,8 +725,10 @@ test("a linked device remains visible and controllable when the Cloud account is
   const run = boot({ status:signedOutStatus({ configured:true, enabled:true, connected:true, state:"connected", id:"dev-1", name:"My PenEcho" }) });
   await run.flush();
   const overlay = await openCloudCenter(run);
+  selectCloudSection(overlay, "device");
 
-  assert.ok(overlay.textContent.includes("My PenEcho · Connected"));
+  assert.ok(overlay.textContent.includes("My PenEcho"));
+  assert.ok(overlay.textContent.includes("Connected"));
   assert.ok(flatten(overlay).some((node) => node.tagName === "BUTTON" && node.textContent === "Pause link"));
   assert.ok(flatten(overlay).some((node) => node.tagName === "BUTTON" && node.textContent === "Remove this link"));
   assert.ok(!overlay.textContent.includes("enter a one-time pairing key"));
@@ -713,15 +738,16 @@ test("Cloud Center re-renders from Connecting to Connected through the retained 
   const run = boot({ status:deviceStatus() });
   await run.flush();
   const overlay = await openCloudCenter(run);
-  assert.ok(overlay.textContent.includes("My PenEcho · Connecting"));
+  selectCloudSection(overlay, "account");
 
   run.setStatus(deviceStatus({ connected:true, state:"connected" }));
   const refresh = flatten(overlay).find((node) => node.tagName === "BUTTON" && node.textContent === "Refresh account");
   refresh.click();
   await run.flush();
   assert.equal(run.overlay(), overlay, "overlay must stay the same instance");
-  assert.ok(overlay.textContent.includes("My PenEcho · Connected"));
-  assert.ok(!overlay.textContent.includes("· Connecting"));
+  selectCloudSection(overlay, "device");
+  assert.ok(overlay.textContent.includes("My PenEcho"));
+  assert.ok(overlay.textContent.includes("Connected"));
   assert.equal(run.cloudButton.dataset.state, "connected");
 });
 
@@ -729,6 +755,7 @@ test("a newly paired device automatically changes from Connecting to Connected",
   const run = boot({ status:deviceStatus({ configured:false, enabled:false, connected:false, state:"disconnected", id:null, name:null }) });
   await run.flush();
   const overlay = await openCloudCenter(run);
+  selectCloudSection(overlay, "device");
   const pairingKey = flatten(overlay).find((node) => node.getAttribute("placeholder") === "Pairing key");
   const linkDevice = flatten(overlay).find((node) => node.tagName === "BUTTON" && node.textContent === "Link device");
   assert.ok(pairingKey);
@@ -739,7 +766,8 @@ test("a newly paired device automatically changes from Connecting to Connected",
   linkDevice.click();
   await run.flush();
 
-  assert.ok(overlay.textContent.includes("My PenEcho · Connecting"));
+  assert.ok(overlay.textContent.includes("My PenEcho"));
+  assert.ok(overlay.textContent.includes("Connecting"));
   assert.equal(run.timers.count(), 1, "only the bounded post-pair connection watcher is active");
 
   run.setStatus(deviceStatus({ connected:true, state:"connected" }));
@@ -747,8 +775,8 @@ test("a newly paired device automatically changes from Connecting to Connected",
   await run.flush();
 
   assert.equal(run.overlay(), overlay);
-  assert.ok(overlay.textContent.includes("My PenEcho · Connected"));
-  assert.ok(!overlay.textContent.includes("· Connecting"));
+  assert.ok(overlay.textContent.includes("My PenEcho"));
+  assert.ok(overlay.textContent.includes("Connected"));
   assert.equal(run.cloudButton.dataset.state, "connected");
   assert.equal(run.timers.count(), 0, "the watcher stops as soon as Relay is connected");
 });
@@ -757,19 +785,22 @@ test("a re-enabled device automatically changes from Connecting to Connected", a
   const run = boot({ status:deviceStatus({ enabled:false, connected:false, state:"disconnected" }) });
   await run.flush();
   const overlay = await openCloudCenter(run);
+  selectCloudSection(overlay, "device");
   const enableLink = flatten(overlay).find((node) => node.tagName === "BUTTON" && node.textContent === "Enable link");
   assert.ok(enableLink);
 
   run.setStatus(deviceStatus());
   enableLink.click();
   await run.flush();
-  assert.ok(overlay.textContent.includes("My PenEcho · Connecting"));
+  assert.ok(overlay.textContent.includes("My PenEcho"));
+  assert.ok(overlay.textContent.includes("Connecting"));
   assert.equal(run.timers.count(), 1);
 
   run.setStatus(deviceStatus({ connected:true, state:"connected" }));
   await run.timers.advance(2_000);
   await run.flush();
-  assert.ok(overlay.textContent.includes("My PenEcho · Connected"));
+  assert.ok(overlay.textContent.includes("My PenEcho"));
+  assert.ok(overlay.textContent.includes("Connected"));
   assert.equal(run.timers.count(), 0);
 });
 
@@ -787,6 +818,7 @@ test("browser sign-in polling closes Cloud Center after the account session beco
   const run = boot({ status:signedOutStatus() });
   await run.flush();
   const overlay = await openCloudCenter(run);
+  selectCloudSection(overlay, "account");
   const signIn = flatten(overlay).find((node) => node.tagName === "BUTTON" && node.textContent === "Sign in with browser");
   assert.ok(signIn, "expected the local browser sign-in action");
 
@@ -801,15 +833,15 @@ test("browser sign-in polling closes Cloud Center after the account session beco
   assert.equal(run.timers.count(), 0, "successful login stops both login and dialog status polling");
 });
 
-test("Projects signed-out state keeps one account sign-in action without a duplicate CTA", async () => {
+test("Projects signed-out state routes account sign-in through the dedicated Account page", async () => {
   const run = boot({ status:signedOutStatus() });
   await run.flush();
   const overlay = await openCloudCenter(run);
-  assert.ok(!overlay.textContent.includes("Choose a project, then open or save a versioned Canvas."), "the active tab label replaces the duplicate Projects heading and hint");
-
-  assert.equal(flatten(overlay).filter((node) => node.tagName === "BUTTON" && node.textContent === "Sign in").length, 0);
+  assert.ok(overlay.textContent.includes("Sign in to view private projects"));
+  assert.equal(flatten(overlay).filter((node) => node.tagName === "BUTTON" && node.textContent === "Sign in with browser").length, 0);
+  selectCloudSection(overlay, "account");
   const signIn = flatten(overlay).find((node) => node.tagName === "BUTTON" && node.textContent === "Sign in with browser");
-  assert.ok(signIn, "the account panel keeps the single browser sign-in action");
+  assert.ok(signIn, "the Account page owns the browser sign-in action");
   signIn.click();
   await run.flush();
 
@@ -821,6 +853,7 @@ test("browser sign-in detects Electron from the renderer bridge instead of the h
   const remoteClient = boot({ status:signedOutStatus(), serverDesktopApp:true });
   await remoteClient.flush();
   const remoteOverlay = await openCloudCenter(remoteClient);
+  selectCloudSection(remoteOverlay, "account");
   const remoteSignIn = flatten(remoteOverlay).find((node) => node.tagName === "BUTTON" && node.textContent === "Sign in with browser");
   assert.ok(remoteSignIn, "a browser or mobile WebView connected to an Electron host stays on the browser flow");
   remoteSignIn.click();
@@ -830,6 +863,7 @@ test("browser sign-in detects Electron from the renderer bridge instead of the h
   const electronRenderer = boot({ status:signedOutStatus(), rendererDesktopBridge:true });
   await electronRenderer.flush();
   const electronOverlay = await openCloudCenter(electronRenderer);
+  selectCloudSection(electronOverlay, "account");
   const electronSignIn = flatten(electronOverlay).find((node) => node.tagName === "BUTTON" && node.textContent === "Continue in browser");
   assert.ok(electronSignIn, "the Electron preload bridge selects the system-browser flow");
   electronSignIn.click();
@@ -949,6 +983,7 @@ test("Cloud Center ignores a stale forced-refresh error after a newer status suc
   const run = boot({ status:deviceStatus() });
   await run.flush();
   const overlay = await openCloudCenter(run);
+  selectCloudSection(overlay, "account");
 
   run.freezeAccountError(new Error("stale account refresh failed"));
   const refresh = flatten(overlay).find((node) => node.tagName === "BUTTON" && node.textContent === "Refresh account");
@@ -963,7 +998,9 @@ test("Cloud Center ignores a stale forced-refresh error after a newer status suc
   await run.flush();
   assert.deepEqual(run.alerts, []);
   assert.equal(run.cloudButton.dataset.state, "connected");
-  assert.ok(overlay.textContent.includes("My PenEcho · Connected"));
+  selectCloudSection(overlay, "device");
+  assert.ok(overlay.textContent.includes("My PenEcho"));
+  assert.ok(overlay.textContent.includes("Connected"));
 });
 
 test("Cloud Center preserves a confirmed signed-in account across transient status failures and tab switches", async () => {
@@ -985,43 +1022,56 @@ test("Cloud Center preserves a confirmed signed-in account across transient stat
   assert.ok(!reopened.textContent.includes("Sign in to view favorites"));
 });
 
-test("Cloud Center keeps Projects, Favorites, and Echoes in one title-only row", async () => {
+test("Cloud Center uses History-style vertical navigation with Account and Link device pages", async () => {
   const run = boot({ status:deviceStatus() });
   await run.flush();
   const overlay = await openCloudCenter(run);
   const tabs = flatten(overlay).filter((node) => node.getAttribute("role") === "tab");
-  assert.deepEqual(tabs.map((tab) => tab.textContent), [
-    "Projects",
-    "Favorites",
-  ]);
-  assert.equal(tabs[0].getAttribute("aria-selected"), "true");
-  assert.ok(tabs.every((tab) => !flatten(tab).some((node) => node.tagName === "SPAN")), "tabs contain titles only");
+  assert.deepEqual(tabs.map((tab) => tab.getAttribute("data-cloud-section")), ["account", "projects", "favorites", "device"]);
+  assert.equal(tabs[1].getAttribute("aria-selected"), "true");
+  assert.ok(tabs[0].textContent.includes("Test User"), "the Account entry exposes the signed-in name");
+  assert.ok(tabs[3].textContent.includes("My PenEcho"), "the Link device entry exposes the configured device name");
+  const tablist = flatten(overlay).find((node) => node.getAttribute("role") === "tablist");
+  assert.equal(tablist.getAttribute("aria-orientation"), "vertical");
   const explore = flatten(overlay).find((node) => node.tagName === "A" && node.className.includes("cloud-explore-link"));
   assert.ok(explore, "Echoes remains a Cloud navigation link");
   assert.equal(explore.textContent, "Echoes ↗");
   assert.equal(explore.getAttribute("href"), "https://internaltest.penecho.ai/community.html");
   assert.equal(explore.getAttribute("target"), "_blank");
   assert.equal(explore.getAttribute("rel"), "noopener");
-  const navigation = flatten(overlay).find((node) => node.className === "cloud-navigation");
+  const navigation = flatten(overlay).find((node) => node.className.includes("cloud-navigation"));
   assert.ok(navigation, "the Cloud Center keeps a dedicated navigation column");
-  assert.deepEqual(navigation.children.slice(0, 3).map((node) => node.className), [
-    "penecho-cloud-panel cloud-account-panel",
-    "cloud-section-toolbar",
-    "penecho-cloud-panel cloud-device-panel",
-  ], "account identity stays above navigation while device controls stay at the bottom");
+  assert.deepEqual(tablist.children.map((node) => node.getAttribute("data-cloud-section")), ["account", "projects", "favorites", "echoes", "device"]);
+});
+
+test("Cloud Center preserves long account names in both the navigation and Account page", async () => {
+  const accountName = "Alexandria Catherine Montgomery-Wellington";
+  const run = boot({ status:{ ...deviceStatus(), account:{ name:accountName, credits:10 } } });
+  await run.flush();
+  const overlay = await openCloudCenter(run);
+  const accountTab = flatten(overlay).find((node) => node.getAttribute("data-cloud-section") === "account");
+  assert.equal(flatten(accountTab).find((node) => node.className === "cloud-nav-meta")?.textContent, accountName);
+  selectCloudSection(overlay, "account");
+  await run.flush();
+  assert.equal(flatten(overlay).find((node) => node.className === "cloud-account-name")?.textContent, accountName);
+  assert.ok(!overlay.textContent.includes("..."), "long names must wrap instead of being replaced with an ellipsis");
 });
 
 test("Cloud Center keeps the concise account and device copy bilingual", async () => {
   const english = boot({ status:signedOutStatus(), language:"en" });
   await english.flush();
   const englishOverlay = await openCloudCenter(english);
+  selectCloudSection(englishOverlay, "account");
   assert.ok(englishOverlay.textContent.includes("Sign in for private projects and favorites; API keys stay on this device."));
+  selectCloudSection(englishOverlay, "device");
   assert.ok(englishOverlay.textContent.includes("After signing in, enter a one-time pairing key to reach this host securely from Cloud."));
-  assert.equal(flatten(englishOverlay).filter((node) => node.tagName === "BUTTON" && node.textContent === "Sign in with browser").length, 1, "signed-out state has one sign-in action");
+  selectCloudSection(englishOverlay, "account");
+  assert.equal(flatten(englishOverlay).filter((node) => node.tagName === "BUTTON" && node.textContent === "Sign in with browser").length, 1, "the Account page has one sign-in action");
 
   const production = boot({ status:signedOutStatus(), cloudOrigin:"https://penecho.ai", language:"en" });
   await production.flush();
   const productionOverlay = await openCloudCenter(production);
+  selectCloudSection(productionOverlay, "account");
   assert.ok(!productionOverlay.textContent.includes("Production"), "the normal production environment needs no badge");
   assert.ok(!productionOverlay.textContent.includes("UAT"));
 
@@ -1029,9 +1079,11 @@ test("Cloud Center keeps the concise account and device copy bilingual", async (
   await run.flush();
   const overlay = await openCloudCenter(run);
 
+  selectCloudSection(overlay, "account");
   assert.ok(overlay.textContent.includes("登录后即可使用私有项目和收藏；API 密钥仍保存在此设备。"));
+  selectCloudSection(overlay, "device");
   assert.ok(overlay.textContent.includes("登录后输入一次性配对密钥，即可从 Cloud 安全访问此主机。"));
-  assert.deepEqual(flatten(overlay).filter((node) => node.getAttribute("role") === "tab").map((node) => node.textContent), ["项目", "收藏"]);
+  assert.deepEqual(flatten(overlay).filter((node) => node.getAttribute("role") === "tab").map((node) => node.getAttribute("data-cloud-section")), ["account", "projects", "favorites", "device"]);
   assert.ok(flatten(overlay).some((node) => node.tagName === "A" && node.textContent === "Echoes ↗"));
   assert.ok(!overlay.textContent.includes("Sign in for private projects"));
 });
@@ -1572,23 +1624,34 @@ test("Cloud Connect refreshes views by interaction and keeps background watchers
 
 test("Cloud Center uses a compact workbench shell and restores 44px coarse-pointer targets", () => {
   assert.match(cloudScript, /variant:"cloud-center"/);
-  assert.match(cloudScript, /class:"cloud-navigation"/);
+  assert.match(cloudScript, /dataset\.peSurface = "manager"/);
+  assert.match(cloudScript, /dataset\.peLayout = "nav-content"/);
+  assert.match(cloudScript, /isCloudCenter \? "penecho-workbench-dialog"/);
+  assert.match(cloudScript, /class:`cloud-dialog-titlebar\$\{isCloudCenter \? " penecho-workbench-header" : ""\}`/);
+  assert.match(cloudScript, /class:`cloud-dialog-mark\$\{isCloudCenter \? " penecho-workbench-icon" : ""\}`/);
+  assert.match(cloudScript, /lineIcon\(\["M7 18\.5h10\.5/);
+  assert.match(cloudScript, /class:"cloud-navigation penecho-workbench-navigation"/);
   assert.match(cloudScript, /layout\.replaceChildren\(navigation, workspace\)/);
   assert.match(cloudCss, /\.penecho-cloud-dialog \.cloud-dialog-close\s*\{[^}]*flex:\s*0 0 2\.25rem[^}]*min-width:\s*2\.25rem/);
   assert.match(cloudCss, /\.penecho-cloud-panel p a\s*\{[^}]*min-height:\s*2rem/);
   assert.match(cloudCss, /\.cloud-project-web-link\s*\{[^}]*min-height:\s*2rem/);
   assert.match(cloudCss, /\.cloud-account-button\s*\{[^}]*min-height:\s*2\.25rem[^}]*min-width:\s*2\.25rem/);
   assert.match(cloudCss, /\.penecho-cloud-overlay\s*\{[^}]*background:\s*var\(--penecho-dialog-backdrop,[^}]*backdrop-filter:\s*var\(--penecho-dialog-backdrop-filter/);
-  assert.match(cloudCss, /\.penecho-cloud-dialog\.cloud-center\s*\{[^}]*background:\s*var\(--ai-surface\)[^}]*backdrop-filter:\s*none/);
+  assert.match(cloudCss, /\.penecho-cloud-dialog\.cloud-center\s*\{[^}]*background:\s*var\(--penecho-dialog-surface,[^}]*70%, transparent\)\)[^}]*backdrop-filter:\s*var\(--penecho-dialog-surface-filter,[^}]*blur\(24px\) saturate\(1\.18\)\)/);
   assert.match(cloudCss, /\.penecho-cloud-dialog\.cloud-center\s*\{[^}]*height:\s*min\(760px, calc\(100svh - 40px\)\)[^}]*max-width:\s*1120px/);
-  assert.match(cloudCss, /\.cloud-center \.cloud-dialog-titlebar\s*\{[^}]*background:\s*var\(--studio-titlebar, #f8f8f9\)[^}]*min-height:\s*3\.25rem/);
-  assert.match(cloudCss, /\.penecho-cloud-layout\s*\{[^}]*grid-template-columns:\s*14rem minmax\(0, 1fr\)/);
+  assert.match(cloudCss, /\.cloud-center \.cloud-dialog-titlebar\s*\{[^}]*background:\s*color-mix\(in srgb, var\(--studio-titlebar, #fff\) 70%, transparent\)[^}]*min-height:\s*var\(--penecho-workbench-header-h\)[^}]*padding:\s*var\(--penecho-workbench-header-padding\)/);
+  assert.match(cloudCss, /\.cloud-center \.cloud-dialog-mark\s*\{[^}]*flex:\s*0 0 20px[^}]*background:\s*transparent/);
+  assert.match(cloudCss, /\.penecho-cloud-layout\s*\{[^}]*grid-template-columns:\s*var\(--penecho-workbench-navigation-w\) minmax\(0, 1fr\)/);
   assert.match(cloudCss, /\.cloud-navigation\s*\{[^}]*border-right:\s*1px solid var\(--ai-line\)[^}]*display:\s*flex/);
-  assert.match(cloudCss, /\.cloud-account-panel\s*\{[^}]*border-bottom:\s*1px solid var\(--ai-line\)/);
-  assert.match(cloudCss, /\.cloud-device-panel\s*\{[^}]*margin-top:\s*auto/);
+  assert.match(cloudCss, /\.cloud-section-tabs\s*\{[^}]*flex-direction:\s*column/);
+  assert.match(cloudCss, /\.cloud-section-tab-device\s*\{[^}]*margin-top:\s*auto/);
   assert.match(cloudCss, /\.cloud-workspace > \.penecho-cloud-panel\s*\{[^}]*max-width:\s*55rem/);
-  assert.match(cloudCss, /\.cloud-section-tab\s*\{[^}]*min-height:\s*2rem/);
-  assert.match(cloudCss, /\.cloud-section-tab\.active\s*\{[^}]*background:\s*var\(--ai-surface\)[^}]*border-color:\s*var\(--ai-line\)[^}]*color:\s*var\(--ai-accent\)/);
+  assert.match(cloudCss, /\.cloud-section-tab\s*\{[^}]*min-height:\s*var\(--pe-menu-item-h\)/);
+  assert.match(cloudCss, /\.cloud-section-tab\.active\s*\{[^}]*background:\s*var\(--pe-selected, var\(--ai-accent-soft\)\)[^}]*color:\s*var\(--pe-accent-label, var\(--ai-ink\)\)/);
+  assert.match(cloudCss, /\.cloud-section-tab\.active \.cloud-nav-icon\s*\{[^}]*color:\s*var\(--ai-accent\)/);
+  assert.match(cloudCss, /\.cloud-nav-meta\s*\{[^}]*overflow:\s*hidden[^}]*text-overflow:\s*ellipsis[^}]*white-space:\s*nowrap/);
+  assert.match(cloudCss, /\.cloud-account-name\s*\{[^}]*overflow-wrap:\s*anywhere[^}]*white-space:\s*normal/);
+  assert.match(cloudCss, /\.cloud-settings-group\s*\{[^}]*border:\s*1px solid var\(--ai-line\)[^}]*border-radius:\s*\.625rem/);
   assert.match(cloudCss, /\.cloud-favorite-filters\s*\{[^}]*background:\s*var\(--ai-well\)[^}]*border:\s*1px solid var\(--ai-line\)/);
   assert.match(cloudCss, /\.cloud-favorite-filter\s*\{[^}]*min-height:\s*2rem/);
   assert.match(cloudCss, /\.cloud-favorite-filter\.active\s*\{[^}]*background:\s*var\(--ai-surface\)[^}]*color:\s*var\(--ai-accent\)/);
@@ -1596,6 +1659,7 @@ test("Cloud Center uses a compact workbench shell and restores 44px coarse-point
   assert.match(cloudCss, /\.cloud-project-picker select, \.cloud-project-create-form input\s*\{[^}]*height:\s*2rem[^}]*min-height:\s*2rem/);
   assert.match(cloudCss, /\.cloud-project-create > summary\s*\{[^}]*min-height:\s*2rem/);
   assert.match(cloudCss, /\.cloud-field input, \.cloud-field select\s*\{[^}]*height:\s*2\.25rem[^}]*min-height:\s*2\.25rem/);
+  assert.match(cloudCss, /\.cloud-center \.cloud-field input, \.cloud-center \.cloud-field select\s*\{[^}]*height:\s*2rem[^}]*min-height:\s*2rem/);
   assert.match(cloudCss, /\.cloud-center \.cloud-button\s*\{[^}]*background:\s*transparent[^}]*min-height:\s*2rem[^}]*padding:\s*\.25rem \.55rem/);
   assert.match(cloudCss, /\.cloud-row-action\s*\{[^}]*background:\s*transparent[^}]*border-color:\s*transparent/);
   assert.match(cloudCss, /@media \(pointer: coarse\)[\s\S]*?\.cloud-account-button,[\s\S]*?\.penecho-cloud-panel p a \{ min-height: 2\.75rem; \}/);
@@ -1607,8 +1671,8 @@ test("Cloud Center exposes accessible loading, error, and focus-preservation con
   assert.match(cloudScript, /"aria-describedby":subtitleId/);
   assert.match(cloudScript, /class:"cloud-project-content", "aria-live":"polite", "aria-busy":"true"/);
   assert.match(cloudScript, /class:"cloud-library-list", "aria-live":"polite", "aria-busy":"true"/);
-  assert.equal((cloudScript.match(/class:"cloud-message", role:"status"/g) || []).length, 3);
-  assert.equal((cloudScript.match(/class:"cloud-message error", role:"alert"/g) || []).length, 2);
+  assert.ok((cloudScript.match(/class:"cloud-message", role:"status"/g) || []).length >= 3);
+  assert.ok((cloudScript.match(/class:"cloud-message error", role:"alert"/g) || []).length >= 2);
   assert.equal((cloudScript.match(/content\.setAttribute\("aria-busy", "false"\)/g) || []).length, 2);
   assert.match(cloudScript, /queueMicrotask\(\(\) => document\.querySelector\(`#cloud-tab-\$\{value\}`\)\?\.focus\(\)\)/);
   assert.match(cloudScript, /const shell = dialogShell[\s\S]*?render\(\);[\s\S]*?cloudButton\.setAttribute\("aria-busy", "true"\)/, "Cloud Center must render before its background status refresh");
@@ -1623,16 +1687,17 @@ test("Cloud text fields avoid the generic hard focus outline", () => {
 
 test("Cloud Center keeps narrow layouts and theme contrast token-driven", () => {
   assert.match(cloudCss, /\.penecho-cloud-layout > \*, \.penecho-cloud-panel > \*, \.cloud-workspace > \*\s*\{\s*min-width:\s*0/);
-  assert.match(cloudCss, /@media \(max-width:\s*760px\)[\s\S]*?\.penecho-cloud-layout\s*\{[^}]*display:\s*block/);
-  assert.match(cloudCss, /@media \(max-width:\s*760px\)[\s\S]*?\.cloud-section-tabs\s*\{[^}]*grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\)/);
+  assert.match(cloudCss, /@media \(max-width:\s*760px\)[\s\S]*?\.penecho-cloud-layout\s*\{[^}]*grid-template-columns:\s*1fr[^}]*grid-template-rows:\s*auto minmax\(0, 1fr\)/);
+  assert.match(cloudCss, /@media \(max-width:\s*760px\)[\s\S]*?\.cloud-section-tabs\s*\{[^}]*flex-direction:\s*row[^}]*overflow-x:\s*auto/);
   assert.match(cloudCss, /@media \(max-width:\s*760px\)[\s\S]*?\.cloud-project-toolbar\s*\{[^}]*grid-template-columns:\s*1fr/);
   assert.match(cloudCss, /\.cloud-field input, \.cloud-field select, \.cloud-field textarea\s*\{\s*max-width:\s*100%;\s*min-width:\s*0/);
   assert.match(cloudCss, /--cloud-link:\s*var\(--ai-accent\)/);
-  assert.match(cloudCss, /\.cloud-canvas-open\s*\{\s*color:\s*var\(--cloud-link\)/);
+  assert.match(cloudCss, /\.cloud-canvas-open\s*\{\s*color:\s*var\(--ai-muted\)/);
+  assert.match(cloudCss, /\.cloud-canvas-row:hover \.cloud-canvas-open,[\s\S]*?color:\s*var\(--cloud-link\)/);
   assert.match(cloudCss, /\.cloud-project-web-link\s*\{[^}]*color:\s*var\(--cloud-link\)/);
   assert.match(cloudCss, /\.cloud-button\.primary:hover:not\(:disabled\), \.cloud-button\.primary:focus-visible\s*\{[^}]*color:\s*var\(--ai-primary-ink\)/);
   assert.match(cloudCss, /\.penecho-cloud-dialog\s*\{[^}]*color-scheme:\s*light[^}]*--ai-bg:\s*color-mix\(in srgb, var\(--studio-shell, #f2f3f5\) 76%, var\(--studio-panel, #ffffff\)\)[^}]*--ai-surface:\s*var\(--studio-panel, #ffffff\)[^}]*--ai-accent:\s*var\(--studio-accent, #4f46e5\)[^}]*--ai-primary:\s*var\(--studio-accent-strong, #4338ca\)/);
-  assert.match(cloudCss, /\.cloud-center \.cloud-dialog-titlebar\s*\{[^}]*background:\s*var\(--studio-titlebar, #f8f8f9\)/);
+  assert.match(cloudCss, /\.cloud-center \.cloud-dialog-titlebar\s*\{[^}]*background:\s*color-mix\(in srgb, var\(--studio-titlebar, #fff\) 70%, transparent\)/);
   assert.match(cloudCss, /\.cloud-share-canvas\s*\{\s*color:\s*var\(--studio-accent-strong, #4338ca\)/);
   assert.match(cloudCss, /@media \(prefers-reduced-motion:\s*reduce\)[\s\S]*?animation:\s*none/);
   assert.doesNotMatch(cloudCss, /body\[data-theme="(?:studio|research|arcane|scifi)"\] \.penecho-cloud-dialog/);

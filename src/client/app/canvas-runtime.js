@@ -99,6 +99,7 @@
       h:item.h,
       maxWidth:item.maxWidth,
       fontSize:item.fontSize,
+      fontFamily:item.fontFamily,
       color:item.color,
       text:item.text,
       image:item.image,
@@ -132,12 +133,13 @@
     }
     return null;
   }
-  async function fittedTextBoxContent(text, fontSize, color, maxWidth) {
+  async function fittedTextBoxContent(text, fontSize, color, maxWidth, fontFamily = TEXT_EDITOR_FONT_FAMILY) {
+    fontFamily = normalizeTextBoxFontFamily(fontFamily);
     const render = async () => {
       try {
-        return { image:await mixedTextImage(text, fontSize, color, maxWidth, 1.35, TEXT_EDITOR_FONT_FAMILY), mixedFallback:false };
+        return { image:await mixedTextImage(text, fontSize, color, maxWidth, 1.35, fontFamily), mixedFallback:false };
       } catch {
-        return { image:textImage(text, fontSize, color, maxWidth, 1.35, TEXT_EDITOR_FONT_FAMILY, TEXT_INPUT_MAX_LENGTH), mixedFallback:true };
+        return { image:textImage(text, fontSize, color, maxWidth, 1.35, fontFamily, TEXT_INPUT_MAX_LENGTH), mixedFallback:true };
       }
     };
     maxWidth = Math.min(SIZE, Math.max(fontSize * 3, maxWidth));
@@ -154,6 +156,7 @@
     }
     return {
       ...result,
+      fontFamily,
       fontSize,
       maxWidth,
       width:Math.min(SIZE, width),
@@ -168,7 +171,7 @@
       maxWidth = Number(item.maxWidth);
     if (![x, y, fontSize, maxWidth].every(Number.isFinite) || x < 0 || y < 0 || fontSize < 1 || fontSize > 2000 || maxWidth < fontSize * 3 || maxWidth > SIZE) return null;
     const color = item.color || state.inkColor,
-      fitted = await fittedTextBoxContent(item.text, fontSize, color, maxWidth),
+      fitted = await fittedTextBoxContent(item.text, fontSize, color, maxWidth, item.fontFamily),
       width = fitted.width,
       height = fitted.height,
       fittedX = Math.max(0, Math.min(SIZE - width, x)),
@@ -182,6 +185,7 @@
       h:height,
       maxWidth:fitted.maxWidth,
       fontSize:fitted.fontSize,
+      fontFamily:fitted.fontFamily,
       color:typeof item.color === "string" ? item.color : color,
       text:item.text,
       image:fitted.image,
@@ -275,10 +279,11 @@
   }
   function syncCanvasObjectLayerOrder() {
     const widgetInFront = state.frontCanvasObjectKind === "widget",
+      selectedWidgetMaterialActive = Boolean(selectedWidgetMaterial && !selectedWidgetMaterial.hidden),
       widgetStyle = runtimeElementStyle(widgetLayer, "widget-layer-stack"),
       imageMaterialStyle = runtimeElementStyle(imageMaterialLayer, "image-material-layer-stack"),
       imageStyle = runtimeElementStyle(placedContentLayer, "placed-content-layer-stack");
-    if (widgetStyle) widgetStyle.zIndex = widgetInFront ? "2" : "1";
+    if (widgetStyle) widgetStyle.zIndex = selectedWidgetMaterialActive ? "3" : widgetInFront ? "2" : "1";
     if (imageMaterialStyle) imageMaterialStyle.zIndex = widgetInFront ? "1" : "2";
     if (imageStyle) imageStyle.zIndex = widgetInFront ? "1" : "2";
   }
@@ -406,12 +411,15 @@
     if (record.kind === "image") return acceptImageEdit({ restoreMode:false });
     return acceptAnimationEdit();
   }
+  function handToolbarHasActiveOperation(record) {
+    return [...(record?.holds || [])].some((token) => token.startsWith("pointer:") || token.startsWith("operation:"));
+  }
   function scheduleHandObjectToolbarTick() {
     clearTimeout(state.handToolbarTimer);
     state.handToolbarTimer = 0;
     let nextAt = Infinity;
     for (const record of state.handToolbarTargets.values()) {
-      if (record.holds?.size) continue;
+      if (handToolbarHasActiveOperation(record)) continue;
       nextAt = Math.min(nextAt, record.hiding ? record.hideAt : record.expiresAt);
     }
     if (!Number.isFinite(nextAt)) return;
@@ -437,7 +445,7 @@
         finishHandToolbarHide(key);
         continue;
       }
-      if (record.holds?.size) continue;
+      if (handToolbarHasActiveOperation(record)) continue;
       if (record.hiding && record.hideAt <= now) finishHandToolbarHide(key);
       else if (!record.hiding && record.expiresAt <= now) {
         record.hiding = true;
@@ -527,6 +535,13 @@
   function focusHandObject(kind, object, token = "") {
     const ensured = ensureHandToolbarRecord(kind, object);
     if (!ensured) return "";
+    const previousKey = state.handToolbarActiveKey;
+    if (previousKey && previousKey !== ensured.key) finishHandToolbarHide(previousKey);
+    for (const key of [...state.handToolbarTargets.keys()]) {
+      if (key !== ensured.key) finishHandToolbarHide(key);
+    }
+    state.handToolbarActiveKey = ensured.key;
+    ensured.record.expanded = true;
     if (token) ensured.record.holds.add(token);
     ensured.record.expiresAt = Date.now() + HAND_OBJECT_TOOLBAR_VISIBLE_MS;
     ensured.record.hiding = false;
@@ -555,11 +570,13 @@
       object = handToolbarObject(record);
     if (!record || !object) return false;
     const key = handToolbarKey(record.kind, record.id),
-      previousKey = state.handToolbarActiveKey,
-      previous = previousKey && previousKey !== key ? handToolbarRecord(previousKey) : null;
+      previousKey = state.handToolbarActiveKey;
+    if (previousKey && previousKey !== key) finishHandToolbarHide(previousKey);
+    for (const targetKey of [...state.handToolbarTargets.keys()]) {
+      if (targetKey !== key) finishHandToolbarHide(targetKey);
+    }
     state.handToolbarActiveKey = key;
     record.expanded = true;
-    if (previous) finishHandToolbarEdit(previous);
     let activated = true;
     if (record.kind === "widget") activated = beginWidgetEdit(object);
     else if (record.kind === "image") activated = beginImageEdit(object);
@@ -611,7 +628,8 @@
   }
   function updateHandObjectHover(point) {
     if (state.mode !== "hand") point = null;
-    const target = point && valid(point) ? handObjectToolbarTargetAtPoint(point) : null,
+    const hovered = point && valid(point) ? handObjectToolbarTargetAtPoint(point) : null,
+      target = ["widget", "text-box"].includes(hovered?.kind) ? null : hovered,
       nextKey = target ? handToolbarKey(target.kind, target.object.id) : "",
       previousKey = state.handHoverKey || "";
     if (previousKey === nextKey) return Boolean(nextKey);
@@ -747,10 +765,9 @@
       refineCandidate = relatchWidgetRefineCandidateFromDirty();
     }
     requestRender();
-    if (edit) setStatusKey("ready");
+    if (edit) setStatusKey(options.showHint ? "imagePlaced" : "ready");
     if (edit && restoreMode) finishManualImageHandMode();
     else if (edit) state.imageHandReturnMode = null;
-    if (edit && options.showHint) showHandStatusHint("image-confirmed", ["handImageConfirmedHint", "handAutoAIManual"]);
     if (edit && state.mode !== "hand" && !refineCandidate) schedule();
     return Boolean(edit);
   }
@@ -923,7 +940,6 @@
     if (state.mode !== "hand") schedule();
     requestRender();
     setStatusKey("imageMerged");
-    if (options.showHint) showHandStatusHint("image-merged", ["handImageMergedHint", "handAutoAIManual"]);
     return true;
   }
   function importedImagePlacement(naturalW, naturalH) {
@@ -1040,6 +1056,9 @@
       stackIndex++;
     }
     if (state.pendingWidget?.styleRule?.style) state.pendingWidget.styleRule.style.zIndex = String(stackIndex);
+    const attachedWidget = [...state.widgets, ...(state.pendingWidget ? [state.pendingWidget] : [])]
+      .find((widget) => widget.shell?.classList?.contains("object-toolbar-attached"));
+    if (attachedWidget?.styleRule?.style) attachedWidget.styleRule.style.zIndex = String(stackIndex + 1);
   }
   function setWidgetStackIndex(widget, nextIndex) {
     const currentIndex = state.widgets.indexOf(widget);
@@ -1311,11 +1330,6 @@
       widget.hostReadyPromise = new Promise((resolve) => (widget.resolveHostReady = resolve));
       probeWidgetHost(widget);
     });
-    frame.addEventListener("pointerenter", (event) => {
-      if (state.mode !== "hand" || event.pointerType === "touch") return;
-      updateHandObjectHover(clientPoint(event));
-    });
-    frame.addEventListener("pointerleave", () => updateHandObjectHover(null));
     frame.addEventListener("focus", () => focusHandObject("widget", widget, "widget-focus"));
     frame.addEventListener("blur", () => releaseHandObjectFocus(handToolbarKey("widget", widget.id), "widget-focus"));
     shell.append(frame);
@@ -2949,39 +2963,23 @@
     context.stroke();
     context.restore();
   }
-  function positionImageEditBar() {
+  function positionImageSelectionMaterial() {
     const item = state.imageEdit ? selectedImage() : null;
     if (!item) {
       imageSelectionMaterial.hidden = true;
-      imageEditBar.classList.remove("hand-toolbar-hiding");
-      if (!imageEditBar.hidden) imageEditBar.hidden = true;
       return;
     }
-    const hiding = Boolean(handToolbarRecord({ kind:"image", id:item.id })?.hiding);
-    imageEditBar.classList.toggle("hand-toolbar-hiding", hiding);
     if (imageSelectionMaterial.hidden) imageSelectionMaterial.hidden = false;
-    if (imageEditBar.hidden) imageEditBar.hidden = false;
-    const { width:viewportWidth, height:viewportHeight } = canvasViewportMetrics(),
-      box = imageBox(item),
+    const box = imageBox(item),
       left = state.panX + box.x * state.scale,
       top = state.panY + box.y * state.scale,
       width = box.w * state.scale,
       height = box.h * state.scale,
-      materialStyle = runtimeElementStyle(imageSelectionMaterial, "canvas-image-selection"),
-      barWidth = imageEditBar.offsetWidth || 200,
-      barHeight = imageEditBar.offsetHeight || 52,
-      gap = 12,
-      style = runtimeElementStyle(imageEditBar, "image-edit-bar");
+      materialStyle = runtimeElementStyle(imageSelectionMaterial, "canvas-image-selection");
     materialStyle?.setProperty("--image-selection-x", `${left.toFixed(1)}px`);
     materialStyle?.setProperty("--image-selection-y", `${top.toFixed(1)}px`);
     materialStyle?.setProperty("--image-selection-width", `${width.toFixed(1)}px`);
     materialStyle?.setProperty("--image-selection-height", `${height.toFixed(1)}px`);
-    let x = left + width + gap;
-    if (x + barWidth > viewportWidth - 8) x = left - barWidth - gap;
-    if (x < 8) x = Math.max(8, Math.min(viewportWidth - barWidth - 8, left + width / 2 - barWidth / 2));
-    const y = Math.max(8, Math.min(viewportHeight - barHeight - 8, top + height / 2 - barHeight / 2));
-    style?.setProperty("--image-edit-bar-x", `${x.toFixed(1)}px`);
-    style?.setProperty("--image-edit-bar-y", `${y.toFixed(1)}px`);
   }
   function drawImageChrome(context) {
     const item = state.imageEdit ? selectedImage() : null;
@@ -3372,6 +3370,7 @@
     move:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 9V3M9 6l3-3 3 3M12 15v6M9 18l3 3 3-3M9 12H3M6 9l-3 3 3 3M15 12h6M18 9l3 3-3 3"/></svg>',
     accept:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12.5 4.2 4.2L19 7"/></svg>',
     cancel:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>',
+    merge:'<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="11" rx="2"/><path d="m6.5 12 3.2-3.2 2.8 2.8 1.8-1.8 3.2 3.2M8 19c2-1.6 6-1.6 8 0"/></svg>',
     copy:'<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>',
     refine:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 1.3 4.2L17.5 8.5l-4.2 1.3L12 14l-1.3-4.2-4.2-1.3 4.2-1.3L12 3Z"/><path d="m18.5 14 .7 2.3 2.3.7-2.3.7-.7 2.3-.7-2.3-2.3-.7 2.3-.7.7-2.3Z"/></svg>',
     favorite:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3.6 2.5 5.2 5.7.7-4.2 3.9 1.1 5.6L12 16.2 6.9 19l1.1-5.6-4.2-3.9 5.7-.7Z"/></svg>',
@@ -3386,9 +3385,6 @@
       height:box.h * state.scale,
     };
   }
-  function widgetToolLabelWidth(label, minimum = 108) {
-    return Math.max(minimum, Math.min(220, 44 + String(label || "").length * 7.2));
-  }
   function addWidgetToolSpecs(specs, widget, options = {}) {
     if (!widget) return;
     const box = widgetBox(widget),
@@ -3398,14 +3394,16 @@
       key:`widget:${widget.id}:tool-copy`,
       kind:"copy",
       label:copyLabel,
-      baseWidth:widgetToolLabelWidth(copyLabel, 118),
+      baseWidth:28,
+      iconOnly:true,
       activate:() => void copyWidgetSource(widget),
     });
     if (options.refine && state.widgetRefineConfirmation?.widgetId !== widget.id) items.push({
       key:`widget:${widget.id}:tool-refine`,
       kind:"refine",
       label:t("widgetRefine"),
-      baseWidth:112,
+      baseWidth:28,
+      iconOnly:true,
       refineCandidate:options.refine,
       activate:(button) => void beginWidgetRefineConfirmation(options.refine, objectChromeAnchor(button)),
     });
@@ -3415,7 +3413,7 @@
         key:`widget:${widget.id}:tool-favorite`,
         kind:"favorite",
         label:window.PenEchoCommunityUI.label?.(favoriteLabelKey) || "Favorite",
-        baseWidth:36,
+        baseWidth:28,
         iconOnly:true,
         pressed:widget.favorite === true,
         busy:widget.favoriteBusy === true,
@@ -3428,7 +3426,7 @@
         key:`widget:${widget.id}:tool-share`,
         kind:"share",
         label:window.PenEchoCommunityUI.label?.("shareWidget") || "Share",
-        baseWidth:36,
+        baseWidth:28,
         iconOnly:true,
         activate:() => window.dispatchEvent(new CustomEvent("penecho:community-widget-action", { detail:{ action:"share", widgetId:widget.id } })),
       });
@@ -3437,7 +3435,7 @@
       key:`widget:${widget.id}:tool-download`,
       kind:"download",
       label:t("downloadWidget"),
-      baseWidth:36,
+      baseWidth:28,
       iconOnly:true,
       busy:widget.downloadBusy === true,
       activate:() => void downloadWidgetImage(widget),
@@ -3456,9 +3454,11 @@
         box,
         widget,
         widgetTool:true,
-        widgetToolPlacement:"inside-top",
-        widgetCoreMoveKey:options.widgetCoreMoveKey || "",
-        widgetCoreAcceptKey:options.widgetCoreAcceptKey || "",
+        objectToolbarItem:Boolean(options.objectToolbarKey),
+        objectToolbarKey:options.objectToolbarKey || "",
+        toolbarSlot:"tool",
+        toolbarOrder:index,
+        toolbarItemCount:items.length,
         widgetToolGroup,
         groupRefineCandidate:options.refine || null,
         groupItemCount:items.length,
@@ -3468,7 +3468,7 @@
         groupHorizontalOffset:horizontalOffset,
         groupVerticalOffset:index * (34 + gap),
         controlScale:1,
-        baseHeight:34,
+        baseHeight:options.objectToolbarKey ? 28 : 34,
         handToolbar:Boolean(options.handToolbar),
         handToolbarKey:options.handToolbarKey || "",
         handToolbarHiding:Boolean(options.handToolbarHiding),
@@ -3476,6 +3476,100 @@
       });
       horizontalOffset += item.baseWidth + gap;
     }
+  }
+  function objectToolbarMinimumWidth(toolCount = 0) {
+    const itemSize = 28,
+      itemGap = 4,
+      inset = 4,
+      itemCount = 2 + Math.max(0, Math.floor(Number(toolCount) || 0));
+    return itemCount * itemSize + (itemCount - 1) * itemGap + inset * 2;
+  }
+  function objectToolbarNeedsMove(toolCount = 0, availableWidth = 0) {
+    const minimumDragWidth = 28,
+      width = Math.max(0, Number(availableWidth) || 0);
+    return width < objectToolbarMinimumWidth(toolCount) + minimumDragWidth;
+  }
+  function finalizeObjectToolbarWidths(specs) {
+    const toolCounts = new Map(),
+      moveSpecs = [];
+    for (const spec of specs) {
+      if (!spec.objectToolbarItem || spec.toolbarSlot !== "tool") continue;
+      toolCounts.set(spec.objectToolbarKey, (toolCounts.get(spec.objectToolbarKey) || 0) + 1);
+    }
+    for (const spec of specs) {
+      if (!spec.objectToolbar) continue;
+      const toolCount = toolCounts.get(spec.key) || 0,
+        needsMove = objectToolbarNeedsMove(toolCount, screenObjectBox(spec.box).width);
+      spec.minimumWidth = objectToolbarMinimumWidth(toolCount + (needsMove ? 1 : 0));
+      if (!needsMove) continue;
+      moveSpecs.push({
+        key:`${spec.key}:move`,
+        kind:"move",
+        label:t("objectToolbarMove"),
+        box:spec.box,
+        target:spec.target,
+        object:spec.object,
+        objectToolbarItem:true,
+        objectToolbarKey:spec.key,
+        toolbarSlot:"move",
+        baseWidth:28,
+        baseHeight:28,
+        handToolbar:Boolean(spec.handToolbar),
+        handToolbarKey:spec.handToolbarKey || "",
+        handToolbarHiding:Boolean(spec.handToolbarHiding),
+        priority:(Number(spec.priority) || 4) + 1,
+      });
+    }
+    specs.push(...moveSpecs);
+    return specs;
+  }
+  function addObjectToolbarSpecs(specs, options) {
+    const toolbarKey = `${options.prefix}:toolbar`,
+      shared = options.shared || {},
+      priority = Number(options.priority) || 4;
+    specs.push({
+      key:toolbarKey,
+      kind:"toolbar",
+      label:t("objectToolbarMove"),
+      box:options.box,
+      target:options.target,
+      object:options.object,
+      objectToolbar:true,
+      minimumWidth:objectToolbarMinimumWidth(),
+      baseHeight:34,
+      ...shared,
+      priority,
+    });
+    specs.push({
+      key:`${options.prefix}:cancel`,
+      kind:"cancel",
+      label:options.cancelLabel,
+      box:options.box,
+      objectToolbarItem:true,
+      objectToolbarKey:toolbarKey,
+      toolbarSlot:"leading",
+      baseWidth:28,
+      baseHeight:28,
+      activate:options.cancel,
+      ...shared,
+      priority:priority + 1,
+    });
+    specs.push({
+      key:`${options.prefix}:accept`,
+      kind:"accept",
+      label:options.acceptLabel,
+      tooltip:options.acceptTooltip || "",
+      box:options.box,
+      objectToolbarItem:true,
+      objectToolbarKey:toolbarKey,
+      toolbarSlot:"trailing",
+      baseWidth:28,
+      baseHeight:28,
+      activate:options.accept,
+      ...shared,
+      priority:priority + 1,
+    });
+    return toolbarKey;
   }
   function objectChromePosition(box, kind, ignoreKey = "", spec = null, knownPositions = null) {
     const baseWidth = spec?.baseWidth || (kind === "move" ? 34 : kind === "refine" ? 112 : 36),
@@ -3492,6 +3586,34 @@
     if (viewportWidth <= 0 || viewportHeight <= 0 || right < -8 || bottom < -8 || screenBox.left > viewportWidth + 8 || screenBox.top > viewportHeight + 8) return null;
     const clampX = (value) => Math.max(6, Math.min(Math.max(6, viewportWidth - width - 6), value)),
       clampY = (value) => Math.max(6, Math.min(Math.max(6, viewportHeight - height - 6), value));
+    if (spec?.objectToolbar) {
+      const toolbarWidth = Math.max(spec.minimumWidth || 100, screenBox.width);
+      return { x:screenBox.left, y:screenBox.top - baseHeight, scale:1, baseWidth:toolbarWidth, baseHeight };
+    }
+    if (spec?.objectToolbarItem) {
+      const toolbar = knownPositions?.get?.(spec.objectToolbarKey);
+      if (!toolbar) return null;
+      const toolbarWidth = toolbar.baseWidth * (toolbar.scale || 1),
+        toolbarHeight = toolbar.baseHeight * (toolbar.scale || 1),
+        itemGap = 4,
+        inset = 4,
+        itemY = toolbar.y + (toolbarHeight - height) / 2,
+        leadingX = toolbar.x + inset,
+        trailingX = toolbar.x + toolbarWidth - inset - width;
+      let itemX;
+      if (spec.toolbarSlot === "leading") itemX = leadingX;
+      else if (spec.toolbarSlot === "move") itemX = leadingX + width + itemGap;
+      else if (spec.toolbarSlot === "trailing") itemX = trailingX;
+      else {
+        const itemCount = Math.max(1, Number(spec.toolbarItemCount) || 1),
+          itemOrder = Math.max(0, Math.min(itemCount - 1, Number(spec.toolbarOrder) || 0)),
+          groupWidth = itemCount * width + (itemCount - 1) * itemGap,
+          groupLeft = Math.max(leadingX + width + itemGap, trailingX - itemGap - groupWidth);
+        itemX = groupLeft + itemOrder * (width + itemGap);
+        if (itemX + width > trailingX - itemGap) return null;
+      }
+      return { x:itemX, y:itemY, scale:controlScale, baseWidth, baseHeight };
+    }
     if (spec?.widgetTool) {
       const horizontalWidth = spec.groupHorizontalWidth * controlScale,
         verticalWidth = spec.groupVerticalWidth * controlScale,
@@ -3501,42 +3623,6 @@
         insideLeft = screenBox.left + inset,
         insideRight = right - inset,
         insideTop = screenBox.top + inset;
-      if (spec.widgetCoreMoveKey && spec.widgetCoreAcceptKey) {
-        const movePosition = knownPositions?.get?.(spec.widgetCoreMoveKey),
-          acceptPosition = knownPositions?.get?.(spec.widgetCoreAcceptKey);
-        if (!movePosition || !acceptPosition) return null;
-        const moveWidth = movePosition.baseWidth * (movePosition.scale || 1),
-          acceptWidth = acceptPosition.baseWidth * (acceptPosition.scale || 1),
-          acceptHeight = acceptPosition.baseHeight * (acceptPosition.scale || 1),
-          preferred = {
-            side:"move",
-            layout:"horizontal",
-            x:movePosition.x + moveWidth + gap,
-            y:movePosition.y,
-            w:horizontalWidth,
-            h:height,
-          },
-          fitsBetweenCoreControls = Math.abs(movePosition.y - acceptPosition.y) <= 2
-            && preferred.x >= insideLeft
-            && preferred.x + preferred.w <= acceptPosition.x - gap,
-          belowAccept = {
-            side:"accept",
-            layout:"vertical",
-            x:Math.max(insideLeft, acceptPosition.x + acceptWidth - verticalWidth),
-            y:acceptPosition.y + acceptHeight + gap,
-            w:verticalWidth,
-            h:verticalHeight,
-          },
-          groupPosition = fitsBetweenCoreControls ? preferred : belowAccept,
-          vertical = groupPosition.layout === "vertical";
-        return {
-          x:groupPosition.x + (vertical ? groupPosition.w - width : spec.groupHorizontalOffset * controlScale),
-          y:groupPosition.y + (vertical ? spec.groupVerticalOffset * controlScale : 0),
-          scale:controlScale,
-          baseWidth,
-          baseHeight,
-        };
-      }
       const horizontalFits = horizontalWidth <= Math.max(0, insideRight - insideLeft),
         groupPosition = horizontalFits
           ? { side:"inside-top", layout:"horizontal", x:insideRight - horizontalWidth, y:insideTop, w:horizontalWidth, h:height }
@@ -3549,13 +3635,6 @@
         baseWidth,
         baseHeight,
       };
-    }
-    if (spec?.widgetCore) {
-      const inset = 8,
-        x = kind === "move"
-          ? screenBox.left + screenBox.width / 2 - width / 2
-          : kind === "cancel" ? screenBox.left + inset : right - width - inset;
-      return { x, y:screenBox.top + inset, scale:1, baseWidth, baseHeight };
     }
     const above = screenBox.top - height - chromeGap,
       y = clampY(above >= 6 ? above : screenBox.top + chromeGap);
@@ -3571,6 +3650,7 @@
     if (kind === "accept") return t("widgetAccept");
     if (kind === "cancel") return t("cancel");
     if (kind === "copy") return t("copyText");
+    if (kind === "merge") return t("imageMerge");
     if (kind === "refine") return t("widgetRefine");
     if (kind === "favorite") return window.PenEchoCommunityUI?.label?.("favoriteWidget") || "Favorite Widget";
     if (kind === "share") return window.PenEchoCommunityUI?.label?.("shareWidget") || "Share Widget";
@@ -3610,6 +3690,8 @@
       yes.className = "widget-refine-confirmation-button confirm";
       no.className = "widget-refine-confirmation-button cancel";
       yes.type = no.type = "button";
+      peButton(yes, "primary", "compact");
+      peButton(no, "secondary", "compact");
       yes.innerHTML = OBJECT_CHROME_ICONS.accept;
       no.innerHTML = OBJECT_CHROME_ICONS.cancel;
       yes.setAttribute("aria-label", t("widgetRefineConfirm"));
@@ -3655,13 +3737,6 @@
       started = beginImageGesture(event, point, { image:spec.object, hit:"move" });
     } else if (spec.target === "animation") {
       started = beginAnimationGesture(event, point, { animation:spec.object, hit:"move" });
-    } else if (spec.target === "text-box") {
-      const item = spec.object;
-      if (item && state.textBoxes.includes(item)) {
-        recordTextBoxesBefore();
-        state.textBoxGesture = { id:event.pointerId, item, startClientX:event.clientX, startClientY:event.clientY, startX:item.x, startY:item.y, changed:false };
-        started = true;
-      }
     }
     if (!started) return false;
     try { objectChromeLayer.setPointerCapture(event.pointerId); } catch {}
@@ -3678,62 +3753,27 @@
     if (state.widgetGesture?.id === event.pointerId) return finishWidgetGesture(event);
     if (state.imageGesture?.id === event.pointerId) return finishImageGesture(event);
     if (state.animationGesture?.id === event.pointerId) return finishAnimationGesture(event);
-    if (state.textBoxGesture?.id === event.pointerId) return finishTextBoxChromeGesture(event);
     return false;
-  }
-  function updateTextBoxChromeGesture(event) {
-    const gesture = state.textBoxGesture;
-    if (!gesture || gesture.id !== event.pointerId || !state.textBoxes.includes(gesture.item)) return false;
-    const item = gesture.item,
-      scale = Math.max(.03, state.scale),
-      delta = canvasClientDelta(event.clientX - gesture.startClientX, event.clientY - gesture.startClientY),
-      x = Math.max(0, Math.min(SIZE - item.w, gesture.startX + delta.x / scale)),
-      y = Math.max(0, Math.min(SIZE - item.h, gesture.startY + delta.y / scale));
-    if (x === item.x && y === item.y) return true;
-    item.x = x;
-    item.y = y;
-    gesture.changed = true;
-    requestRender();
-    return true;
-  }
-  function finishTextBoxChromeGesture(event) {
-    const gesture = state.textBoxGesture;
-    if (!gesture || gesture.id !== event.pointerId) return false;
-    state.textBoxGesture = null;
-    if (gesture.changed) {
-      state.userRevision++;
-      state.dirtyTextBoxIds.add(gesture.item.id);
-      recomputeDirtyBounds();
-      state.autoEligible = true;
-      saveUserCanvasChange();
-      const refineCandidate = latchWidgetRefineCandidate(gesture.item, "text-box");
-      if (state.auto && !refineCandidate) schedule(Math.max(1000, state.autoDelayMs));
-      if (refineCandidate) setStatusKey("widgetRefinePending");
-      refreshHandObjectToolbar();
-    } else {
-      state.textBoxHistoryBefore = null;
-      editTextBox(gesture.item);
-    }
-    requestRender();
-    return true;
   }
   function createObjectChromeButton(key, kind) {
     const button = document.createElement("button");
     button.type = "button";
-    button.className = `object-chrome-button ${kind}`;
+    if (kind !== "toolbar") peButton(button, kind === "delete" ? "danger" : "toolbar", "compact");
+    button.className = kind === "toolbar" ? "object-chrome-button" : `object-chrome-button ${kind}`;
     button.dataset.objectChromeKey = key;
-    button.innerHTML = ["copy", "refine", "favorite", "share", "download"].includes(kind) ? `${OBJECT_CHROME_ICONS[kind]}<span class="object-chrome-label"></span>${kind === "refine" ? '<span class="widget-refine-hint" hidden></span>' : ""}` : OBJECT_CHROME_ICONS[kind];
+    button.innerHTML = `${OBJECT_CHROME_ICONS[kind] || ""}${kind === "refine" ? '<span class="widget-refine-hint" hidden></span>' : ""}`;
     ensureObjectChromeStyleRule(button);
     button.addEventListener("pointerdown", (event) => {
       event.preventDefault();
       event.stopPropagation();
       finishStaleWidgetHostGesture(event);
+      const dragSurface = kind === "move" || kind === "toolbar";
       if (button.penechoSpec?.handToolbar) {
         beginHandToolbarOperation(event.pointerId, button.penechoSpec.handToolbarKey);
-        if (kind === "move") activateHandObjectToolbar(button.penechoSpec.handToolbarKey);
+        if (dragSurface) activateHandObjectToolbar(button.penechoSpec.handToolbarKey);
         refreshHandObjectToolbar(button.penechoSpec.handToolbarKey);
       }
-      if (kind !== "move") {
+      if (!dragSurface) {
         try { button.setPointerCapture(event.pointerId); } catch {}
         return;
       }
@@ -3742,7 +3782,7 @@
     button.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
-      if (kind === "move" || button.disabled) return;
+      if (kind === "move" || kind === "toolbar" || button.disabled) return;
       if (kind === "refine") triggerWidgetRefineClickPulse(button.penechoSpec?.refineCandidate?.widgetId);
       button.penechoSpec?.activate?.(button);
     });
@@ -3825,8 +3865,7 @@
   }
   function objectChromeSpecs() {
     const persistentCandidate = currentWidgetRefineCandidate(),
-      hoverCandidate = currentWidgetRefineHoverCandidate(),
-      editWidget = state.mode === "hand" && state.widgetEdit ? selectedWidget() : null;
+      hoverCandidate = currentWidgetRefineHoverCandidate();
     if (state.mode !== "hand") {
       const specs = [];
       if (persistentCandidate) addWidgetToolSpecs(specs, persistentCandidate.widget, { refine:persistentCandidate });
@@ -3838,16 +3877,42 @@
       const handTarget = handToolbarObject(record),
         shared = { handToolbar:true, handToolbarKey:key, handToolbarHiding:Boolean(record.hiding) };
       if (!handTarget) continue;
-      if (record.kind === "text-box" && !state.textEditors.size) {
-        specs.push({ key:`text-box:${handTarget.id}:move`, kind:"move", box:textBoxBox(handTarget), target:"text-box", object:handTarget, ...shared, priority:2 });
-      } else if (record.kind === "image") {
+      if (record.kind === "image") {
+        if (!record.expanded || state.handToolbarActiveKey !== key || state.pendingWidget) continue;
         const box = imageBox(handTarget),
-          imageToolGroup = `image-${handTarget.id}-tools`;
-        specs.push({ key:`image:${handTarget.id}:move`, kind:"move", box, target:"image", object:handTarget, widgetCore:true, widgetToolGroup:imageToolGroup, ...shared, priority:2 });
-        if (record.expanded && state.handToolbarActiveKey === key && state.imageEdit?.id === handTarget.id) {
-          specs.push({ key:`image:${handTarget.id}:cancel`, kind:"cancel", label:t("imageDelete"), box, widgetCore:true, widgetToolGroup:imageToolGroup, activate:() => deleteImage(handTarget), ...shared, priority:3 });
-          specs.push({ key:`image:${handTarget.id}:accept`, kind:"accept", label:t("imagePlace"), box, widgetCore:true, widgetToolGroup:imageToolGroup, activate:() => acceptImageEdit({ showHint:true }), ...shared, priority:3 });
-        }
+          toolbarKey = addObjectToolbarSpecs(specs, {
+            prefix:`image:${handTarget.id}`,
+            box,
+            target:"image",
+            object:handTarget,
+            cancelLabel:t("imageDelete"),
+            acceptLabel:t("imagePlace"),
+            acceptTooltip:t("imagePlaceHint"),
+            cancel:() => deleteImage(handTarget),
+            accept:() => {
+              if (state.imageEdit?.id !== handTarget.id) beginImageEdit(handTarget);
+              return acceptImageEdit({ showHint:true });
+            },
+            shared,
+            priority:2,
+          });
+        specs.push({
+          key:`image:${handTarget.id}:merge`,
+          kind:"merge",
+          label:t("imageMerge"),
+          tooltip:t("imageMergeHint"),
+          box,
+          objectToolbarItem:true,
+          objectToolbarKey:toolbarKey,
+          toolbarSlot:"tool",
+          toolbarOrder:0,
+          toolbarItemCount:1,
+          baseWidth:28,
+          baseHeight:28,
+          activate:() => mergeImage(handTarget, { showHint:true }),
+          ...shared,
+          priority:3,
+        });
       } else if (record.kind === "animation") {
         const box = animationBox(handTarget);
         specs.push({ key:`animation:${handTarget.id}:move`, kind:"move", box, target:"animation", object:handTarget, ...shared, priority:2 });
@@ -3856,59 +3921,88 @@
           specs.push({ key:`animation:${handTarget.id}:accept`, kind:"accept", box, activate:() => acceptAnimationEdit({ showHint:true }), ...shared, priority:3 });
         }
       } else if (record.kind === "widget") {
+        if (!record.expanded || state.handToolbarActiveKey !== key || state.pendingWidget) continue;
         const box = widgetBox(handTarget),
-          widgetToolGroup = `widget-${handTarget.id}-tools`;
-        specs.push({ key:`widget:${handTarget.id}:move`, kind:"move", box, target:"widget", object:handTarget, widgetCore:true, widgetToolGroup, ...shared, priority:2 });
-        if (record.expanded && state.handToolbarActiveKey === key && state.widgetEdit?.id === handTarget.id && editWidget === handTarget) {
-          specs.push({ key:`widget:${handTarget.id}:cancel`, kind:"cancel", box, widgetCore:true, widgetToolGroup, activate:() => deleteWidget(handTarget), ...shared, priority:3 });
-          specs.push({ key:`widget:${handTarget.id}:accept`, kind:"accept", box, widgetCore:true, widgetToolGroup, activate:() => acceptWidgetEdit({ showHint:true }), ...shared, priority:3 });
-          addWidgetToolSpecs(specs, handTarget, {
-            copy:true,
-            community:true,
-            download:true,
-            handToolbar:true,
-            handToolbarKey:key,
-            handToolbarHiding:Boolean(record.hiding),
-            widgetCoreMoveKey:`widget:${handTarget.id}:move`,
-            widgetCoreAcceptKey:`widget:${handTarget.id}:accept`,
+          toolbarKey = addObjectToolbarSpecs(specs, {
+            prefix:`widget:${handTarget.id}`,
+            box,
+            target:"widget",
+            object:handTarget,
+            cancelLabel:t("widgetDelete"),
+            acceptLabel:t("widgetAccept"),
+            cancel:() => deleteWidget(handTarget),
+            accept:() => {
+              if (state.widgetEdit?.id !== handTarget.id) beginWidgetEdit(handTarget);
+              return acceptWidgetEdit({ showHint:true });
+            },
+            shared,
+            priority:2,
           });
-        }
+        addWidgetToolSpecs(specs, handTarget, {
+          copy:true,
+          community:true,
+          download:true,
+          handToolbar:true,
+          handToolbarKey:key,
+          handToolbarHiding:Boolean(record.hiding),
+          objectToolbarKey:toolbarKey,
+        });
       }
     }
     pendingChromeSpecs(specs, state.pending);
     if (state.pendingWidget) {
       const widget = state.pendingWidget,
         box = widgetBox(widget),
-        widgetToolGroup = `widget-${widget.id}-tools`;
-      specs.push({ key:`pending-widget:${widget.id}:move`, kind:"move", box, target:"pending-widget", object:widget, widgetCore:true, widgetToolGroup, priority:4 });
-      specs.push({ key:`pending-widget:${widget.id}:cancel`, kind:"cancel", box, widgetCore:true, widgetToolGroup, activate:rejectPendingWidget, priority:5 });
-      specs.push({ key:`pending-widget:${widget.id}:accept`, kind:"accept", box, widgetCore:true, widgetToolGroup, activate:() => acceptPendingWidget({ showHint:true }), priority:5 });
+        toolbarKey = addObjectToolbarSpecs(specs, {
+          prefix:`pending-widget:${widget.id}`,
+          box,
+          target:"pending-widget",
+          object:widget,
+          cancelLabel:t("widgetDiscard"),
+          acceptLabel:t("widgetAccept"),
+          cancel:rejectPendingWidget,
+          accept:() => acceptPendingWidget({ showHint:true }),
+          priority:4,
+        });
       addWidgetToolSpecs(specs, widget, {
         copy:true,
         download:true,
-        widgetCoreMoveKey:`pending-widget:${widget.id}:move`,
-        widgetCoreAcceptKey:`pending-widget:${widget.id}:accept`,
+        objectToolbarKey:toolbarKey,
       });
     }
-    return specs;
+    return finalizeObjectToolbarWidths(specs);
   }
   function syncObjectChrome() {
     if (!objectChromeLayer) return;
     const active = new Set();
     const knownPositions = new Map();
+    const attachedWidgetShells = new Set();
+    let selectedWidgetMaterialRecord = null;
     let removedHoveredRefineButton = false;
     for (const spec of objectChromeSpecs()) {
       const button = objectChromeButtons.get(spec.key) || createObjectChromeButton(spec.key, spec.kind),
         position = objectChromePosition(spec.box, spec.kind, spec.key, spec, knownPositions);
       if (!position) continue;
       knownPositions.set(spec.key, position);
+      if (spec.objectToolbar && spec.object?.shell) {
+        attachedWidgetShells.add(spec.object.shell);
+        if (["widget", "pending-widget"].includes(spec.target)) selectedWidgetMaterialRecord = { spec, position };
+      }
       active.add(spec.key);
       const label = objectChromeLabel(spec.kind, spec),
         declaration = (button.penechoStyleRule || ensureObjectChromeStyleRule(button))?.["style"];
       button.penechoSpec = spec;
+      if (spec.objectToolbar) {
+        button.removeAttribute("data-pe-button");
+        button.removeAttribute("data-pe-density");
+      } else peButton(button, spec.kind === "delete" ? "danger" : "toolbar", "compact");
       button.classList.toggle("widget-tool", Boolean(spec.widgetTool));
-      button.classList.toggle("widget-chrome-control", Boolean(spec.widgetTool || spec.widgetCore));
-      button.classList.toggle("icon-only", Boolean(spec.iconOnly));
+      button.classList.toggle("widget-chrome-control", Boolean(spec.widgetTool || spec.objectToolbar || spec.objectToolbarItem));
+      button.classList.toggle("object-toolbar-surface", Boolean(spec.objectToolbar));
+      button.classList.toggle("object-toolbar-shell", Boolean(spec.objectToolbar));
+      button.classList.toggle("widget-object-toolbar", Boolean(spec.objectToolbar && ["widget", "pending-widget"].includes(spec.target)));
+      button.classList.toggle("object-toolbar-item", Boolean(spec.objectToolbarItem));
+      button.classList.toggle("icon-only", Boolean(spec.iconOnly || spec.objectToolbarItem));
       button.classList.toggle("solo-widget-tool", Boolean(spec.widgetTool && spec.groupItemCount === 1));
       button.classList.toggle("hand-toolbar-control", Boolean(spec.handToolbar));
       button.classList.toggle("hand-toolbar-hiding", Boolean(spec.handToolbar && spec.handToolbarHiding));
@@ -3924,9 +4018,8 @@
       else button.removeAttribute("aria-pressed");
       if (spec.busy) button.setAttribute("aria-busy", "true");
       else button.removeAttribute("aria-busy");
-      if (spec.kind === "refine") button.removeAttribute("title");
-      else button.title = label;
-      if (["copy", "refine", "favorite", "share", "download"].includes(spec.kind)) button.querySelector(".object-chrome-label").textContent = label;
+      if (spec.kind === "refine" || spec.objectToolbar) button.removeAttribute("title");
+      else button.title = spec.tooltip || label;
       if (spec.kind === "refine") {
         const hint = button.querySelector(".widget-refine-hint"),
           visible = widgetRefineHintVisible(spec.refineCandidate),
@@ -3943,6 +4036,10 @@
       declaration?.setProperty("--object-control-height", `${position.baseHeight}px`);
       declaration?.setProperty("z-index", String(spec.priority || 1));
     }
+    for (const widget of [...state.widgets, ...(state.pendingWidget ? [state.pendingWidget] : [])]) {
+      widget.shell?.classList.toggle("object-toolbar-attached", attachedWidgetShells.has(widget.shell));
+    }
+    syncSelectedWidgetMaterial(selectedWidgetMaterialRecord);
     for (const [key, button] of objectChromeButtons) {
       if (active.has(key)) continue;
       if (button.penechoSpec?.kind === "refine"
@@ -3957,6 +4054,34 @@
     if (removedHoveredRefineButton) requestInteractionLayerRender();
     syncWidgetRefineConfirmation();
   }
+  function syncSelectedWidgetMaterial(record) {
+    if (!selectedWidgetMaterial) return;
+    if (!record) {
+      selectedWidgetMaterial.hidden = true;
+      selectedWidgetMaterial.classList.remove("hand-toolbar-hiding");
+      syncWidgetLayerOrder();
+      syncCanvasObjectLayerOrder();
+      return;
+    }
+    const { spec, position } = record,
+      screenBox = screenObjectBox(spec.box),
+      toolbarWidth = Math.max(screenBox.width, position.baseWidth || 0),
+      toolbarHeight = position.baseHeight || 34,
+      widgetStackIndex = state.widgets.length + (state.pendingWidget ? 2 : 1),
+      declaration = runtimeElementStyle(selectedWidgetMaterial, "selected-widget-material");
+    selectedWidgetMaterial.hidden = false;
+    selectedWidgetMaterial.classList.toggle("hand-toolbar-hiding", Boolean(spec.handToolbar && spec.handToolbarHiding));
+    syncWidgetLayerOrder();
+    if (spec.object?.styleRule?.style) spec.object.styleRule.style.zIndex = String(widgetStackIndex);
+    syncCanvasObjectLayerOrder();
+    declaration?.setProperty("--selected-widget-material-x", `${position.x.toFixed(1)}px`);
+    declaration?.setProperty("--selected-widget-material-y", `${position.y.toFixed(1)}px`);
+    declaration?.setProperty("--selected-widget-material-width", `${toolbarWidth.toFixed(1)}px`);
+    declaration?.setProperty("--selected-widget-material-height", `${(toolbarHeight + screenBox.height).toFixed(1)}px`);
+    declaration?.setProperty("--selected-widget-body-width", `${screenBox.width.toFixed(1)}px`);
+    declaration?.setProperty("--selected-widget-toolbar-height", `${toolbarHeight.toFixed(1)}px`);
+    declaration?.setProperty("z-index", String(widgetStackIndex));
+  }
   objectChromeLayer?.addEventListener("pointermove", (event) => {
     if (finishReleasedWidgetGesture(event)) return;
     const overChromeControl = event.target?.closest?.(".object-chrome-button, .widget-refine-confirmation");
@@ -3965,7 +4090,6 @@
     else if (state.widgetGesture?.id === event.pointerId) updateWidgetGesture(event);
     else if (state.imageGesture?.id === event.pointerId) updateImageGesture(event);
     else if (state.animationGesture?.id === event.pointerId) updateAnimationGesture(event);
-    else if (state.textBoxGesture?.id === event.pointerId) updateTextBoxChromeGesture(event);
   });
   objectChromeLayer?.addEventListener("pointerup", finishObjectChromeGesture);
   objectChromeLayer?.addEventListener("pointercancel", finishObjectChromeGesture);
@@ -4039,7 +4163,7 @@
     drawImageChrome(interactionCtx);
     interactionCtx.restore();
     positionAnimationControls();
-    positionImageEditBar();
+    positionImageSelectionMaterial();
     syncObjectChrome();
   }
   function clientPoint(e) {
@@ -4255,8 +4379,13 @@
     return { left: editor.x * state.scale + state.panX, top: editor.y * state.scale + state.panY };
   }
   function textEditorViewportSize() {
-    const { width, height } = canvasViewportMetrics();
-    return { width, height };
+    const { width, height } = canvasViewportMetrics(),
+      agent = document.querySelector("#canvasAgentPanel"),
+      agentRect = agent && !agent.hidden && document.body.classList.contains("studio-agent-docked")
+        ? canvasElementLayoutRect(agent)
+        : null,
+      visibleWidth = agentRect?.left > 0 ? Math.min(width, agentRect.left) : width;
+    return { width:visibleWidth, height };
   }
   function resizeTextEditorDimensions(gesture, hit, dx, dy, minWidth, minHeight, maxWidth, maxHeight) {
     const startWidth = gesture.startWidth,
@@ -4415,6 +4544,7 @@
   }
   function textEditorButton(button, key, className) {
     button.type = "button";
+    peButton(button, "toolbar", "compact");
     button.className = `text-editor-button ${className || ""}`;
     button.dataset.i18nTitle = key;
     button.dataset.i18nAria = key;
@@ -4475,7 +4605,7 @@
       paddingRight = Number.parseFloat(style?.paddingRight) || 10,
       paddingTop = Number.parseFloat(style?.paddingTop) || 10,
       fallbackLeft = (body?.offsetLeft || 0) + paddingLeft,
-      fallbackTop = (body?.offsetTop || 40) + paddingTop,
+      fallbackTop = (body?.offsetTop || 34) + paddingTop,
       fallbackWidth = Math.max(1, editor.widthCss - paddingLeft - paddingRight - 2);
     if (!editorRect || !bodyRect) return { x:fallbackLeft, y:fallbackTop, width:fallbackWidth };
     return {
@@ -4510,9 +4640,9 @@
     let image,
       fallback = false;
     try {
-      image = await mixedTextImage(text, fontCss, color, maxWidth, 1.35, TEXT_EDITOR_FONT_FAMILY, Math.min(3, devicePixelRatio || 1));
+      image = await mixedTextImage(text, fontCss, color, maxWidth, 1.35, editor.fontFamily, Math.min(3, devicePixelRatio || 1));
     } catch {
-      image = textImage(text, fontCss, color, maxWidth, 1.35, TEXT_EDITOR_FONT_FAMILY, TEXT_INPUT_MAX_LENGTH, Math.min(3, devicePixelRatio || 1));
+      image = textImage(text, fontCss, color, maxWidth, 1.35, editor.fontFamily, TEXT_INPUT_MAX_LENGTH, Math.min(3, devicePixelRatio || 1));
       fallback = true;
     }
     if (editor.cancelled || editor.committing || !editor.mixedMode || editor.previewRevision !== revision || state.textEditors.get(editor.id) !== editor) return;
@@ -4611,7 +4741,7 @@
       let maxWidth = editor.sourceTextBoxId && !editor.resized ? editor.sourceMaxWidth : proposedMaxWidth,
         x,
         y;
-      const fitted = await fittedTextBoxContent(text, fontSize, color, maxWidth);
+      const fitted = await fittedTextBoxContent(text, fontSize, color, maxWidth, editor.fontFamily);
       if (editor.cancelled || state.textEditors.get(editor.id) !== editor) return;
       const image = fitted.image,
         mixedFallback = fitted.mixedFallback,
@@ -4638,6 +4768,7 @@
         h:height,
         maxWidth,
         fontSize,
+        fontFamily:fitted.fontFamily,
         color,
         text,
         image,
@@ -4735,6 +4866,7 @@
         sourceY:Number(options.sourceY),
         sourceMaxWidth:Number(options.sourceMaxWidth),
         sourceFontSize:Number(options.sourceFontSize),
+        fontFamily:normalizeTextBoxFontFamily(options.fontFamily),
         moved:false,
         resized:false,
         color:typeof options.color === "string" ? options.color : state.inkColor,
@@ -4759,12 +4891,13 @@
     root.dataset.i18nAria = "text";
     root.setAttribute("role", "dialog");
     root.setAttribute("aria-label", t("text"));
-    header.className = "text-editor-header";
+    header.className = "text-editor-header object-toolbar-shell";
     title.className = "text-editor-title";
     title.dataset.i18n = "text";
     title.textContent = t("text");
     mixedModeButton.className = "text-editor-button mixed-mode";
     mixedModeButton.type = "button";
+    peButton(mixedModeButton, "toolbar", "compact");
     mixedModeButton.dataset.i18n = "textMixedModeShort";
     mixedModeButton.dataset.i18nTitle = "textMixedMode";
     mixedModeButton.dataset.i18nAria = "textMixedMode";
@@ -4777,7 +4910,7 @@
     helpButton.textContent = "?";
     helpButton.setAttribute("aria-haspopup", "dialog");
     helpButton.setAttribute("aria-controls", "textHelpDialog");
-    header.append(title, helpButton, mixedModeButton, acceptButton, cancelButton);
+    header.append(cancelButton, title, helpButton, mixedModeButton, acceptButton);
     body.className = "text-editor-body";
     textarea.className = "text-editor-input";
     textarea.rows = 4;
@@ -4871,13 +5004,14 @@
       editor = createTextEditor({ x:item.x, y:item.y }, {
         text:item.text,
         widthCss:Math.max(TEXT_EDITOR_MIN_WIDTH, item.maxWidth * scale + 16),
-        heightCss:Math.max(TEXT_EDITOR_MIN_HEIGHT, item.h * scale + 48),
+        heightCss:Math.max(TEXT_EDITOR_MIN_HEIGHT, item.h * scale + 42),
         fontCss:Math.max(8, item.fontSize * scale),
         sourceTextBoxId:item.id,
         sourceX:item.x,
         sourceY:item.y,
         sourceMaxWidth:item.maxWidth,
         sourceFontSize:item.fontSize,
+        fontFamily:item.fontFamily,
         color:item.color,
         returnMode:"hand",
       });

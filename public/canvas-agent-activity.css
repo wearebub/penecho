@@ -3,7 +3,7 @@
   --canvas-agent-activity-accent: var(--studio-accent, #4f46e5);
   --canvas-agent-activity-accent-strong: var(--studio-accent-strong, #4338ca);
   --canvas-agent-activity-accent-soft: color-mix(in srgb, var(--canvas-agent-activity-accent) 12%, transparent);
-  --canvas-agent-activity-surface: color-mix(in srgb, var(--studio-agent-overlay, rgba(255,255,255,.88)) 50%, var(--studio-panel, #ffffff));
+  --canvas-agent-activity-surface: var(--studio-agent-overlay, rgba(255,255,255,.88));
   --canvas-agent-activity-surface-raised: color-mix(in srgb, var(--studio-agent-overlay, rgba(255,255,255,.88)) 25%, var(--studio-panel-raised, #f8fafc) 75%);
   --canvas-agent-activity-line: var(--studio-line, #d8dbe2);
   --canvas-agent-activity-text: var(--studio-text, #1f2937);
@@ -19,7 +19,7 @@
   transform: translate(-50%, -47%) scale(.965);
   pointer-events: none;
   user-select: none;
-  contain: layout paint style;
+  contain: layout style;
   transition:
     opacity .72s cubic-bezier(.22, .61, .36, 1),
     transform .72s cubic-bezier(.22, .61, .36, 1),
@@ -42,7 +42,6 @@
   visibility: visible;
   transform: translate(-50%, -50%) scale(1);
   transition-delay: 0s;
-  will-change: opacity, transform;
 }
 .canvas-agent-activity.is-suppressed {
   transition-duration: .18s, .18s, 0s;
@@ -79,13 +78,13 @@
   color: var(--canvas-agent-activity-text);
   border: 1px solid color-mix(in srgb, var(--canvas-agent-activity-accent) 20%, var(--canvas-agent-activity-line));
   border-radius: 16px;
-  background: rgba(255,255,255,.95);
+  background: rgba(255,255,255,.88);
   background: var(--canvas-agent-activity-surface);
   box-shadow: 0 8px 14px color-mix(in srgb, var(--canvas-agent-activity-text) 10%, transparent), inset 0 1px rgba(255,255,255,.58);
   text-align: center;
   transform: translate(-50%, -50%);
-  -webkit-backdrop-filter: saturate(1.12) blur(28px);
-  backdrop-filter: saturate(1.12) blur(28px);
+  -webkit-backdrop-filter: saturate(1.08) blur(30px);
+  backdrop-filter: saturate(1.08) blur(30px);
 }
 .canvas-agent-activity-kicker,
 .canvas-agent-activity-title,
@@ -97,7 +96,7 @@
   justify-content: center;
   gap: 7px;
   color: var(--canvas-agent-activity-accent-strong);
-  font: 750 9px/1.1 system-ui, sans-serif;
+  font: 400 9px/1.1 system-ui, sans-serif;
   letter-spacing: .12em;
   text-transform: uppercase;
 }
@@ -106,12 +105,13 @@
   height: 7px;
   border-radius: 50%;
   background: var(--canvas-agent-activity-accent);
-  box-shadow: 0 0 0 5px var(--canvas-agent-activity-accent-soft);
+  box-shadow: none;
+  opacity: .55;
   animation: canvas-agent-activity-pulse 1.55s ease-in-out infinite;
 }
 .canvas-agent-activity:not(.is-visible) .canvas-agent-activity-kicker > i { animation-play-state: paused; }
-.canvas-agent-activity-title { color: var(--canvas-agent-activity-text); font: 720 17px/1.25 system-ui, "Noto Sans SC", sans-serif; }
-.canvas-agent-activity-detail { color: var(--canvas-agent-activity-muted); font: 500 11px/1.35 system-ui, "Noto Sans SC", sans-serif; }
+.canvas-agent-activity-title { color: var(--canvas-agent-activity-text); font: 400 17px/1.25 system-ui, "Noto Sans SC", sans-serif; }
+.canvas-agent-activity-detail { color: var(--canvas-agent-activity-muted); font: 400 11px/1.35 system-ui, "Noto Sans SC", sans-serif; }
 .canvas-agent-activity-trail { display: flex; min-height: 20px; align-items: center; justify-content: center; gap: 5px; margin-top: 3px; overflow: hidden; }
 .canvas-agent-activity-step {
   overflow: hidden;
@@ -120,7 +120,7 @@
   color: var(--canvas-agent-activity-muted);
   border-radius: 999px;
   background: var(--canvas-agent-activity-surface-raised);
-  font: 650 8.5px/1.2 system-ui, "Noto Sans SC", sans-serif;
+  font: 400 8.5px/1.2 system-ui, "Noto Sans SC", sans-serif;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -139,7 +139,7 @@
   display: grid;
   max-width: 100%;
   grid-template-columns: 8px minmax(0, 1fr) auto;
-  align-items: center;
+  align-items: start;
   gap: 8px;
   margin: 2px 2px -3px;
   padding: 3px 5px;
@@ -148,14 +148,16 @@
 .canvas-agent-dialog-progress > i {
   width: 7px;
   height: 7px;
+  align-self: start;
+  margin-top: 4.5px;
   border-radius: 50%;
-  background: var(--studio-muted, #64748b);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--studio-muted, #64748b) 12%, transparent);
+  background: color-mix(in srgb, var(--studio-text, #1f2937) 42%, transparent);
+  box-shadow: none;
 }
 .canvas-agent-dialog-progress > span { display: grid; min-width: 0; gap: 1px; }
-.canvas-agent-dialog-progress strong { color: var(--studio-text, #1f2937); font-size: 11.5px; font-weight: 720; line-height: 1.3; }
-.canvas-agent-dialog-progress small { overflow: hidden; color: var(--studio-muted, #64748b); font-size: 10px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
-.canvas-agent-dialog-progress-meta { color: var(--studio-muted, #64748b); font-size: 9.5px; font-style: normal; font-weight: 650; line-height: 1.25; white-space: nowrap; }
+.canvas-agent-dialog-progress strong { color: var(--studio-text, #1f2937); font-size: 11.5px; font-weight: 400; line-height: 1.3; }
+.canvas-agent-dialog-progress small { overflow: visible; color: var(--studio-muted, #64748b); font-size: 10px; line-height: 1.35; text-overflow: clip; white-space: normal; overflow-wrap: anywhere; }
+.canvas-agent-dialog-progress-meta { color: var(--studio-muted, #64748b); font-size: 9.5px; font-style: normal; font-weight: 400; line-height: 1.25; white-space: nowrap; }
 .canvas-agent-message.assistant.canvas-agent-public-progress { max-width: 100%; }
 .canvas-agent-message.assistant.canvas-agent-public-progress .canvas-agent-message-role { display: none; }
 .canvas-agent-message.assistant.canvas-agent-public-progress .canvas-agent-message-body {
@@ -190,13 +192,13 @@
 
 .canvas-agent-activity-kicker {
   font-family: var(--canvas-agent-activity-font);
-  font-weight: 600;
+  font-weight: 400;
 }
 
 .canvas-agent-activity-title {
   color: color-mix(in srgb, var(--canvas-agent-activity-text) 82%, var(--canvas-agent-activity-muted));
   font-family: var(--canvas-agent-activity-font);
-  font-weight: 600;
+  font-weight: 400;
 }
 
 .canvas-agent-activity-detail {
@@ -207,13 +209,13 @@
 
 .canvas-agent-activity-step {
   font-family: var(--canvas-agent-activity-font);
-  font-weight: 500;
+  font-weight: 400;
 }
 
 .canvas-agent-dialog-progress strong {
   color: color-mix(in srgb, var(--studio-text, #1f2937) 68%, var(--studio-muted, #64748b));
   font-family: var(--canvas-agent-activity-font);
-  font-weight: 600;
+  font-weight: 400;
 }
 
 .canvas-agent-dialog-progress small {
@@ -225,11 +227,46 @@
 .canvas-agent-dialog-progress-meta {
   color: var(--studio-muted, #64748b);
   font-family: var(--canvas-agent-activity-font);
-  font-weight: 500;
+  font-weight: 400;
 }
 
 .canvas-agent-message.assistant.canvas-agent-public-progress .canvas-agent-message-body {
   color: color-mix(in srgb, var(--studio-text, #1f2937) 68%, var(--studio-muted, #64748b));
   font-family: var(--canvas-agent-activity-font);
   font-weight: 400;
+}
+
+/* PenEcho typography contract: this file loads after style.css, so the
+   activity surface closes its own legacy type cascade here. */
+:is(#pe-type-contract, .canvas-agent-activity) {
+  --canvas-agent-activity-font: var(--pe-font-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Noto Sans SC", "Segoe UI", sans-serif);
+  font: 400 13px/1.45 var(--canvas-agent-activity-font);
+}
+:is(#pe-type-contract, .canvas-agent-activity) .canvas-agent-activity-kicker {
+  font: 400 10.5px/1.3 var(--canvas-agent-activity-font);
+  letter-spacing: .035em;
+}
+:is(#pe-type-contract, .canvas-agent-activity) .canvas-agent-activity-title {
+  font: 400 13.5px/1.3 var(--canvas-agent-activity-font);
+  letter-spacing: normal;
+}
+:is(#pe-type-contract, .canvas-agent-activity) .canvas-agent-activity-detail {
+  font: 400 13px/1.45 var(--canvas-agent-activity-font);
+  letter-spacing: normal;
+}
+:is(#pe-type-contract, .canvas-agent-activity) .canvas-agent-activity-step {
+  font: 400 11.5px/1.3 var(--canvas-agent-activity-font);
+  letter-spacing: normal;
+}
+:is(#pe-type-contract, .canvas-agent-dialog-progress) strong {
+  font: 400 13px/1.25 var(--pe-font-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Noto Sans SC", "Segoe UI", sans-serif);
+}
+:is(#pe-type-contract, .canvas-agent-dialog-progress) small {
+  font: 400 13px/1.45 var(--pe-font-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Noto Sans SC", "Segoe UI", sans-serif);
+}
+:is(#pe-type-contract, .canvas-agent-dialog-progress) .canvas-agent-dialog-progress-meta {
+  font: 400 11.5px/1.3 var(--pe-font-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Noto Sans SC", "Segoe UI", sans-serif);
+}
+:is(#pe-type-contract, .canvas-agent-message.assistant.canvas-agent-public-progress) .canvas-agent-message-body {
+  font: 400 13px/1.45 var(--pe-font-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Noto Sans SC", "Segoe UI", sans-serif);
 }

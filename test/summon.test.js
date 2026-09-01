@@ -76,7 +76,8 @@ test("the request lifetime drives one restrained spatial echo with reduced-motio
   assert.match(source, /t\("summonUnderstanding"\)/);
   assert.doesNotMatch(source, /LOADER_TYPES|PHRASE_KEYS|TIP_KEYS|setInterval|create(?:Radial|Linear)Gradient|shadowBlur|hsla\(/);
   assert.match(css, /AI thinking: a spatial echo around the current input region/);
-  assert.match(css, /\.summon-caption\s*\{[^}]*var\(--summon-accent[^}]*font-family:\s*ui-rounded[^}]*animation:\s*summonStatusIn/);
+  assert.match(css, /\.summon-caption\s*\{[^}]*var\(--summon-accent[^}]*font-family:\s*var\(--pe-font-ui[^}]*animation:\s*summonStatusIn/);
+  assert.doesNotMatch(css, /font-family:\s*ui-rounded/);
   assert.doesNotMatch(css, /\.summon-hint|summonBlueGlow|summonTipIn/);
   assert.match(css, /prefers-reduced-motion: reduce[\s\S]*?\.summon-caption\s*\{[^}]*animation:\s*none/);
   assert.match(core, /getReducedMotion:\s*\(\)\s*=>\s*Boolean\(window\.matchMedia/);

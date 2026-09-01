@@ -1135,7 +1135,7 @@
 
   function textRasterMetrics(text, f, maxWidth = 900, lineHeight = 1.35, family = state.aiFont, maxLength = AI_TEXT_MAX_LENGTH, pixelRatio = 1) {
     const content = text.slice(0, maxLength),
-      fontFamily = family || "ui-rounded, system-ui, sans-serif";
+      fontFamily = family || AI_FONT_HANDWRITTEN;
     maxWidth = Math.max(f, Math.min(SIZE, maxWidth));
     const probe = offscreen(1, 1).getContext("2d");
     probe.font = `${f}px ${fontFamily}`;
@@ -1224,7 +1224,7 @@
   async function mixedTextImage(text, fontSize, color, maxWidth = 900, lineHeight = 1.35, family = state.aiFont, pixelRatio = sharpRenderRatio()) {
     if (!MIXED_TEXT?.parse) return textImage(text, fontSize, color, maxWidth, lineHeight, family, TEXT_INPUT_MAX_LENGTH, pixelRatio);
     const parsed = MIXED_TEXT.parse(text.slice(0, TEXT_INPUT_MAX_LENGTH)),
-      resolvedFamily = family || "ui-rounded, system-ui, sans-serif",
+      resolvedFamily = family || AI_FONT_HANDWRITTEN,
       widthLimit = Math.max(fontSize * 3, Math.min(SIZE, maxWidth)),
       probe = offscreen(1, 1).getContext("2d"),
       formulaCache = new Map(),

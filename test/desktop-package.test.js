@@ -246,6 +246,7 @@ test("desktop shell and Forge config keep the renderer isolated and package nati
     forge = fs.readFileSync(path.join(ROOT, "forge.config.js"), "utf8"),
     html = fs.readFileSync(path.join(ROOT, "desktop", "settings", "index.html"), "utf8"),
     settings = fs.readFileSync(path.join(ROOT, "desktop", "settings", "settings.js"), "utf8"),
+    settingsCss = fs.readFileSync(path.join(ROOT, "desktop", "settings", "settings.css"), "utf8"),
     rootPackage = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"));
   assert.match(main, /contextIsolation:true/);
   assert.match(main, /nodeIntegration:false/);
@@ -321,7 +322,7 @@ test("desktop shell and Forge config keep the renderer isolated and package nati
   assert.match(settings, /KIMI_MODELS = Object\.freeze\(\{ code:"k3", platform:"kimi-k3" \}\)/);
   assert.match(settings, /kimiProduct\.addEventListener\("change", \(\) => updateKimiEndpoint\(true, true\)\)/);
   assert.match(settings, /if \(activeProvider === "kimi"\) repairKimiPreset\(\)/);
-  assert.match(settings, /activeProvider = settings\.provider;[\s\S]*?repairKimiPreset\(\);[\s\S]*?captureApiDraft\(activeProvider\)/);
+  assert.match(settings, /activeProvider = provider\(\);[\s\S]*?repairKimiPreset\(\);[\s\S]*?captureApiDraft\(activeProvider\)/);
   assert.match(settings, /provider\(\) === "kimi" && value\("kimiProduct"\) === "platform"/);
   assert.match(settings, /anthropicOption\.disabled = kimiPlatform/);
   assert.match(html, /name="canvasAgentAutoOpen"[^>]*checked/);
@@ -377,22 +378,32 @@ test("desktop shell and Forge config keep the renderer isolated and package nati
   assert.doesNotMatch(html, /Sign in|data-login-cli/);
   assert.match(html, /PenEcho is a Kimi 2026 Open Source Partner/);
   assert.match(settings, /PenEcho 是 Kimi 2026 开源合作伙伴/);
-  assert.match(html, /value="kimi-cli"/);
-  assert.equal(html.match(/name="provider" value="([^"]+)"/)?.[1], "kimi");
-  const kimiGroup = html.match(/<section class="provider-group kimi-provider-group"[\s\S]*?<\/section>/)?.[0] || "",
-    otherGroup = html.match(/<section class="provider-group" aria-labelledby="otherProviderGroupTitle"[\s\S]*?<\/section>/)?.[0] || "";
-  assert.match(kimiGroup, /value="kimi"/);
-  assert.match(kimiGroup, /value="kimi-cli"/);
-  assert.match(otherGroup, /value="api"/);
-  assert.match(otherGroup, /value="codex-cli"/);
-  assert.match(otherGroup, /value="claude-cli"/);
-  assert.ok(html.indexOf("kimi-provider-group") < html.indexOf("otherProviderGroupTitle"));
+  const providerSelect = html.match(/<select id="providerSelect" name="provider"[\s\S]*?<\/select>/)?.[0] || "";
+  for (const provider of ["kimi", "kimi-cli", "api", "codex-cli", "claude-cli"]) assert.match(providerSelect, new RegExp(`value="${provider}"`));
+  assert.match(providerSelect, /value="api" selected/);
+  assert.match(html, /data-provider-context="kimi kimi-cli" hidden/);
+  assert.doesNotMatch(html, /welcome-panel|class="steps"|page-glow/);
+  assert.match(html, /data-pe-surface="form"[^>]*data-pe-size="l"[^>]*data-pe-layout="single"[^>]*data-pe-presentation="modal"/);
+  assert.match(settingsCss, /body\s*\{[^}]*overflow:\s*hidden/);
+  assert.match(settingsCss, /\.settings-body\s*\{[^}]*overflow-y:\s*auto/);
+  assert.match(settingsCss, /\.settings-body\s*\{[^}]*background:\s*transparent/);
+  assert.match(settingsCss, /\.setup-stage\s*\{[^}]*place-items:\s*stretch/);
+  assert.match(settingsCss, /\.setup-stage\s*\{[^}]*backdrop-filter:\s*blur\(14px\) saturate\(1\.12\)/);
+  assert.match(settingsCss, /--panel-material:\s*rgba\(255, 255, 255, \.88\)/);
+  assert.match(settingsCss, /\.settings-group\s*\{[^}]*background:\s*var\(--panel-material\)/);
+  assert.doesNotMatch(settingsCss, /\.settings-(?:body|group)\s*\{[^}]*backdrop-filter/);
+  assert.match(settingsCss, /label:not\(\.trace-limit\)\s*>\s*span:first-child/);
+  assert.match(settingsCss, /\.trace-limit\s*>\s*span\s*\{[^}]*margin:\s*0[^}]*font:\s*inherit[^}]*line-height:\s*1/);
+  assert.match(settingsCss, /\.settings-dialog\s*\{[^}]*width:\s*100%[^}]*height:\s*100%[^}]*max-height:\s*none[^}]*border:\s*0[^}]*border-radius:\s*0[^}]*box-shadow:\s*none/);
+  assert.match(main, /width:820,[\s\S]*?height:680,[\s\S]*?minWidth:660,[\s\S]*?minHeight:540/);
+  assert.match(main, /minHeight:540,[\s\S]*?useContentSize:true/);
+  assert.match(main, /vibrancy:"under-window"[\s\S]*?backgroundMaterial:"mica"/);
   assert.equal(rootPackage.version, "1.1.7");
   assert.equal(rootPackage.config.desktopVersion, "1.1.7");
   assert.match(html, /data-install-cli="kimi-cli"/);
   assert.match(html, /github\.com\/MoonshotAI\/kimi-code/);
   assert.match(html, /data-i18n="installGuide">Guide<\/a>/);
-  assert.match(fs.readFileSync(path.join(ROOT, "desktop", "settings", "settings.css"), "utf8"), /\.inline-primary,\.inline-secondary\{[^}]*display:inline-flex[^}]*text-decoration:none/);
+  assert.match(settingsCss, /\.inline-primary,[\s\S]*?\.inline-secondary,[\s\S]*?\{[^}]*display:\s*inline-flex[^}]*text-decoration:\s*none/);
   assert.match(settings, /\["kimi-cli", "codex-cli", "claude-cli"\]\.includes\(selected\)/);
   assert.match(settings, /"kimi-cli":"kimiCliPath"/);
   assert.ok(rootPackage.files.includes("src/"));
@@ -401,7 +412,7 @@ test("desktop shell and Forge config keep the renderer isolated and package nati
   }
   assert.ok(rootPackage.files.includes("public/desktop-update.css"));
   assert.ok(rootPackage.files.includes("public/penecho-mark.png"));
-  assert.match(html, /<img src="\.\.\/\.\.\/public\/penecho-mark\.png" alt="" width="48" height="48">/);
+  assert.match(html, /<img src="\.\.\/\.\.\/public\/penecho-mark\.png" alt="" width="32" height="32">/);
   assert.match(html, /value="0\.0\.0\.0" selected/);
   assert.match(html, /platform\.kimi\.com\?aff=penecho/);
   assert.match(html, /platform\.kimi\.ai\?aff=penecho/);

@@ -3828,8 +3828,15 @@ const server = http.createServer(async (req, res) => {
     const origins = url.searchParams.getAll("connect").map(exactHttpsOrigin),
       requestedParentOrigin = url.searchParams.get("parent-origin"),
       parentOrigin = requestedParentOrigin === null ? null : exactWidgetParentOrigin(requestedParentOrigin),
-      accessSessions = url.searchParams.getAll("access-session");
-    if (origins.length > MAX_PLUGIN_CONNECT_ORIGINS || origins.some(origin => !origin) || new Set(origins).size !== origins.length || requestedParentOrigin !== null && !parentOrigin || accessSessions.length > 1 || accessSessions.length === 1 && !matchesAiSessionToken(accessSessions[0])) return send(res, 400, "Invalid widget host origin", "text/plain; charset=utf-8");
+      accessSessions = url.searchParams.getAll("access-session"),
+      invalidAccessSession = accessSessions.length === 1 && !matchesAiSessionToken(accessSessions[0]);
+    if (origins.length > MAX_PLUGIN_CONNECT_ORIGINS || origins.some(origin => !origin) || new Set(origins).size !== origins.length || requestedParentOrigin !== null && !parentOrigin) return send(res, 400, "Invalid widget host origin", "text/plain; charset=utf-8");
+    if (accessSessions.length > 1) return send(res, 400, "Invalid widget host session", "text/plain; charset=utf-8");
+    // An open local Canvas can remain loaded while its server process restarts.
+    // Its old per-process token is harmless in open mode: the host document is
+    // public there and same-origin Widget fetches are authorized independently.
+    // Do not turn that recoverable stale page into a blank HTTP 400 iframe.
+    if (invalidAccessSession && localAccessMode !== "open") return send(res, 401, "Widget host session expired. Refresh PenEcho and unlock it again.", "text/plain; charset=utf-8");
     const file = path.join(PUBLIC, "widget-host.html"), policy = `default-src 'none'; script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' https:; style-src 'unsafe-inline' https:; connect-src 'self' https:; img-src data: blob: https:; font-src data: https:; media-src data: blob: https:; frame-src 'self' blob:; worker-src blob: https:; object-src 'none'; form-action 'none'; base-uri 'none'; frame-ancestors 'self'${parentOrigin ? ` ${parentOrigin}` : ""}`;
     res.writeHead(200, { "Content-Type":"text/html; charset=utf-8", "Cache-Control":"no-store", "Content-Security-Policy":policy, "Referrer-Policy":"no-referrer", "X-Content-Type-Options":"nosniff", "Cross-Origin-Resource-Policy":"same-origin" });
     if (req.method === "HEAD") return res.end();

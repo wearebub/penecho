@@ -50,46 +50,48 @@ test("PenEcho Agent keeps the Revise pencil seam inside its icon viewBox",()=>{
 });
 
 test("PenEcho Agent keeps its default introduction above the Try asking overlay",()=>{
-  assert.match(html,/class="canvas-agent-empty"[\s\S]*?class="canvas-agent-empty-icon"[\s\S]*?data-i18n="canvasAgentEmptyTitle"/);
+  assert.match(html,/class="canvas-agent-empty"><strong data-i18n="canvasAgentEmptyTitle"/);
+  assert.doesNotMatch(html,/class="canvas-agent-empty-icon"/);
+  assert.doesNotMatch(functionSource("canvasAgentRenderEmpty"),/canvas-agent-empty-icon|<svg/);
   assert.match(css,/\.canvas-agent-empty\s*\{[^}]*margin:\s*clamp\(22px, 11vh, 108px\) 8px auto[^}]*text-align:\s*left/);
-  assert.match(css,/\.canvas-agent-empty-icon\s*\{[^}]*width:\s*46px[^}]*background:\s*#ebeefe/);
+  assert.doesNotMatch(css,/\.canvas-agent-empty-icon/);
 });
 
-test("PenEcho Agent keeps a fixed Try asking row between attachments and the composer",()=>{
-  const {document}=parseHTML(html),form=document.querySelector("#canvasAgentForm"),suggestions=document.querySelector("#canvasAgentPromptSuggestions"),attachments=document.querySelector("#canvasAgentAttachments"),approval=document.querySelector("#canvasAgentApproval"),
-    popup=document.querySelector("#canvasAgentPromptPopup"),additional=document.querySelector("#canvasAgentAdditionalPromptList"),primary=document.querySelector("#canvasAgentPrimaryPromptList"),
-    children=[...suggestions.children],toggle=suggestions.querySelector("#canvasAgentPromptToggle"),additionalRule=css.match(/\.canvas-agent-prompt-additional\s*\{([^}]*)\}/)?.[1]||"";
-  assert.equal(suggestions.parentElement,form.parentElement);
+test("PenEcho Agent keeps Project, Try asking, and model in the composer toolbar",()=>{
+  const {document}=parseHTML(html),form=document.querySelector("#canvasAgentForm"),surface=form.querySelector(".canvas-agent-composer-surface"),toolbar=form.querySelector(".canvas-agent-composer-toolbar"),suggestions=document.querySelector("#canvasAgentPromptSuggestions"),project=document.querySelector("#canvasAgentProjectControl"),connection=document.querySelector("#canvasAgentConnection"),attachments=document.querySelector("#canvasAgentAttachments"),approval=document.querySelector("#canvasAgentApproval"),
+    popup=document.querySelector("#canvasAgentPromptPopup"),additionalGroup=document.querySelector("#canvasAgentAdditionalPromptGroup"),primaryGroup=document.querySelector("#canvasAgentPrimaryPromptGroup"),additional=document.querySelector("#canvasAgentAdditionalPromptList"),primary=document.querySelector("#canvasAgentPrimaryPromptList"),toggle=suggestions.querySelector("#canvasAgentPromptToggle"),additionalRule=css.match(/\.canvas-agent-prompt-additional\s*\{([^}]*)\}/)?.[1]||"";
   assert.equal(attachments.nextElementSibling,approval);
-  assert.equal(approval.nextElementSibling,suggestions,"attachments, references, and approvals stay visible above the prompt card");
-  assert.equal(suggestions.nextElementSibling,form,"the composer remains the fixed final panel item");
+  assert.equal(approval.nextElementSibling,form,"the composer remains the fixed final panel item");
+  assert.equal(toolbar.parentElement,surface);
+  assert.deepEqual([...toolbar.children],[project,suggestions,connection]);
+  assert.equal(form.querySelector(".canvas-agent-tool-actions").contains(project),false,"Project moved out of the lower action row");
+  assert.equal(document.querySelector("#canvasAgentProjectLabel").textContent,"No project");
+  assert.equal(connection.getAttribute("aria-controls"),"settingsPanel");
   assert.equal(suggestions.hasAttribute("hidden"),true);
-  assert.equal(suggestions.getAttribute("role"),"group");
-  assert.equal(children[0].tagName,"HEADER");
-  assert.equal(children[1],popup);
-  assert.deepEqual([...popup.children],[additional,primary]);
-  assert.equal(toggle.parentElement,children[0],"the full Try asking row is the disclosure button");
-  assert.equal(toggle.getAttribute("aria-expanded"),"false");
+  assert.deepEqual([...popup.children],[primaryGroup,additionalGroup]);
+  assert.equal(primary.parentElement,primaryGroup);assert.equal(additional.parentElement,additionalGroup);
+  assert.equal(primary.dataset.peList,"prompt-grid");assert.equal(additional.dataset.peList,"prompt-grid");
+  assert.equal(popup.querySelector('[data-pe-region="group-label"]'),null,"suggestions are title-only without category headings");
   assert.equal(toggle.getAttribute("aria-controls"),"canvasAgentPromptPopup");
-  assert.match(css,/\.canvas-agent-prompt-suggestions\s*\{[^}]*position:\s*relative;[^}]*min-height:\s*34px;[^}]*flex:\s*0 0 auto;[^}]*overflow:\s*visible/);
-  assert.match(toggle.innerHTML,/canvas-agent-prompt-toggle-copy[\s\S]*canvasAgentPromptDisclosureCopy/,"the disclosure shows Try asking and a localized More or Less label");
-  assert.match(css,/\.canvas-agent-prompt-suggestions\s*\{[^}]*border:\s*1px solid transparent;[^}]*background:\s*transparent;[^}]*box-shadow:\s*none/,"the collapsed disclosure stays quiet");
-  assert.match(css,/\.canvas-agent-prompt-suggestions > header > button\s*\{[^}]*width:\s*100%;[^}]*justify-content:\s*space-between;[^}]*border:\s*0/,"the relocated disclosure never exposes a browser-default black border");
-  assert.match(css,/\.canvas-agent-prompt-suggestions > header > button:hover,\s*\.canvas-agent-prompt-suggestions > header > button:active\s*\{[^}]*color:\s*#475569;[^}]*background:\s*transparent;[^}]*transform:\s*none/,"pointer interaction keeps the Try asking disclosure background neutral");
-  assert.match(css,/\.canvas-agent-prompt-suggestions > header > button:focus-visible\s*\{[^}]*color:\s*#475569;[^}]*background:\s*transparent;[^}]*outline:\s*2px solid #cbd5e1;[^}]*outline-offset:\s*1px/,"keyboard focus uses a neutral gray outline instead of purple highlighting");
-  assert.match(css,/\.canvas-agent-prompt-suggestions:not\(\[hidden\]\) \+ \.canvas-agent-composer\s*\{[^}]*padding-top:\s*5px/,"the prompt card stays close to the composer");
-  assert.match(css,/\.canvas-agent-prompt-popup\s*\{[^}]*position:\s*absolute;[^}]*z-index:\s*5;[^}]*bottom:\s*calc\(100% - 1px\);[^}]*max-height:\s*min\(455px, calc\(100cqh - 205px\)\);[^}]*overflow-y:\s*auto/);
-  assert.match(css,/\.canvas-agent-prompt-popup\s*\{[^}]*border:\s*1px solid #e0e4eb;[^}]*border-bottom:\s*0;[^}]*border-radius:\s*12px 12px 0 0;[^}]*background:\s*#f8f9fc;[^}]*box-shadow:\s*none/,"the floating rows form one quiet suggestion surface");
-  assert.match(css,/\.canvas-agent-prompt-suggestions\.prompt-rows-visible\s*\{[^}]*border-top-color:\s*transparent;[^}]*border-radius:\s*0 0 12px 12px;[^}]*box-shadow:\s*none;[^}]*filter:\s*drop-shadow/,"expanded rows and the fixed header read as one continuous card with a single unified shadow");
-  assert.match(css,/\.canvas-agent-history-popover\s*\{[^}]*z-index:\s*6/,"PenEcho Agent popovers remain above prompt options");
-  assert.match(css,/\.settings-layer\s*\{[^}]*z-index:\s*74/,"Settings remains above the PenEcho Agent panel and prompt options");
-  assert.match(css,/\.canvas-agent-prompt-list\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/);
-  assert.doesNotMatch(additionalRule,/position:|bottom:|max-height:|overflow|overscroll|scrollbar|border:|background:|box-shadow:/,"the floating prompt card must have one wheel-scroll owner");
-  assert.match(css,/\.canvas-agent-prompt-list > button\s*\{[^}]*height:\s*auto;[^}]*min-height:\s*76px;[^}]*border:\s*1px solid #dfe3ea;[^}]*border-radius:\s*12px;[^}]*background:\s*#ffffff/);
-  assert.match(css,/\.canvas-agent-prompt-list\[hidden\]\s*\{\s*display:\s*none;/,"both the additional rows and the default three must honor hidden");
-  assert.match(css,/\.canvas-agent-prompt-copy\s*\{[^}]*display:\s*grid;[^}]*gap:\s*3px;[^}]*overflow:\s*hidden/);
-  assert.match(css,/\.canvas-agent-prompt-icon\s*\{[^}]*width:\s*34px;[^}]*height:\s*34px;[^}]*border-radius:\s*10px/);
-  assert.match(css,/\.canvas-agent-prompt-copy strong\s*\{[^}]*font-weight:/);
+  assert.doesNotMatch(toggle.innerHTML,/canvas-agent-prompt-spark/);
+  assert.match(toggle.innerHTML,/canvas-agent-prompt-toggle-copy[\s\S]*canvas-agent-prompt-chevron/);
+  assert.equal(connection.dataset.peButton,"ghost");
+  assert.match(css,/\.canvas-agent-composer-toolbar\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\);[^}]*border-bottom:/);
+  assert.match(css,/\.canvas-agent-composer-toolbar:has\(\.canvas-agent-prompt-suggestions\[hidden\]\)\s*\{[^}]*grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\)/);
+  assert.match(css,/\.canvas-agent-prompt-suggestions\s*\{[^}]*position:\s*static;[^}]*min-height:\s*30px;[^}]*overflow:\s*visible/);
+  assert.match(css,/\.canvas-agent-prompt-popup\s*\{[^}]*position:\s*absolute;[^}]*right:\s*6px;[^}]*bottom:\s*calc\(100% \+ 6px\);[^}]*left:\s*6px;[^}]*overflow-y:\s*auto/);
+  assert.match(css,/\.canvas-agent-prompt-popup\s*\{[^}]*max-height:\s*min\(420px, max\(96px, calc\(100cqh - 160px\)\)\)/,"the popup stays inside the Agent panel at narrow heights");
+  assert.match(css,/\.canvas-agent-prompt-popup\s*\{[^}]*gap:\s*4px;[^}]*padding:\s*6px;[^}]*border-radius:\s*var\(--pe-r-popover[^}]*box-shadow:\s*none/);
+  assert.match(css,/\.canvas-agent-prompt-list\s*\{[^}]*grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\);[^}]*gap:\s*4px/);
+  assert.match(css,/@container \(max-width: 520px\)[\s\S]*?\.canvas-agent-prompt-list\s*\{\s*grid-template-columns:\s*minmax\(0, 1fr\)/);
+  assert.doesNotMatch(additionalRule,/position:|bottom:|max-height:|overflow|overscroll|scrollbar|border:|background:|box-shadow:/,"the popup keeps one scroll owner");
+  assert.match(css,/\.canvas-agent-prompt-list > button\s*\{[^}]*min-height:\s*48px;[^}]*grid-template-columns:\s*22px minmax\(0, 1fr\);[^}]*padding:\s*6px 7px;[^}]*border:\s*1px solid var\(--pe-line[^}]*border-radius:\s*7px/);
+  assert.match(css,/\.canvas-agent-prompt-list > button > \[data-pe-region="preview"\]\s*\{[^}]*width:\s*22px;[^}]*height:\s*22px;[^}]*border-radius:\s*5px/);
+  assert.match(css,/\.canvas-agent-prompt-copy > \[data-pe-region="title"\]\s*\{[^}]*font-size:\s*12px;[^}]*font-weight:\s*400;[^}]*line-height:\s*1\.45;[^}]*white-space:\s*normal/);
+  assert.match(css,/\.canvas-agent-project-button > span\s*\{[^}]*font-size:\s*12px;[^}]*font-weight:\s*400/);
+  assert.match(css,/\.canvas-agent-prompt-toggle-copy > \[data-pe-region="title"\]\s*\{[^}]*font-size:\s*12px;[^}]*font-weight:\s*400/);
+  assert.match(css,/\.canvas-agent-connection-button > span\s*\{[^}]*font-size:\s*12px;[^}]*font-weight:\s*400/);
+  assert.doesNotMatch(functionSource("canvasAgentRenderPromptSuggestions"),/createElement\("small"\)|data-pe-region="description"|Summary/);
 });
 
 test("PenEcho Agent keeps its fixed Try asking row whenever suggestions are available",()=>{
@@ -175,11 +177,11 @@ function interactiveScene(){
   const document={get activeElement(){return active.element;},set activeElement(value){active.element=value;},createElement:node,createElementNS(_namespace,tag){return node(tag);}},
     input={value:"",disabled:false,events:0,focused:false,selection:null,dispatchEvent(event){this.events++;if(event.type==="input")sync();},focus(){this.focused=true;active.element=this;active.insideForm=true;active.insideSuggestions=false;},setSelectionRange(start,end){this.selection=[start,end];}},
     form={contains(node){return node===input||node===active.element&&active.insideForm;},submitted:false},
-    suggestions={hidden:true,attributes:{},classList:{expanded:false,promptRowsVisible:false,toggle(name,value){if(name==="expanded")this.expanded=Boolean(value);if(name==="prompt-rows-visible")this.promptRowsVisible=Boolean(value);}},setAttribute(name,value){this.attributes[name]=String(value);},contains(node){return node===active.element&&active.insideSuggestions;}},
-    popup={hidden:true},makeList=()=>({hidden:false,children:[],replaceChildren(){this.children=[];},append(child){this.children.push(child);}}),additional=makeList(),primary=makeList(),toggle=node("button"),disclosure=node("span"),
+    suggestions={hidden:true,dataset:{},attributes:{},classList:{expanded:false,promptRowsVisible:false,toggle(name,value){if(name==="expanded")this.expanded=Boolean(value);if(name==="prompt-rows-visible")this.promptRowsVisible=Boolean(value);}},setAttribute(name,value){this.attributes[name]=String(value);},contains(node){return node===active.element&&active.insideSuggestions;}},
+    popup={hidden:true},makeList=()=>({hidden:false,children:[],replaceChildren(){this.children=[];},append(child){this.children.push(child);}}),additional=makeList(),primary=makeList(),additionalGroup={hidden:true},primaryGroup={hidden:false},toggle=node("button"),disclosure=node("span"),
     hint={hidden:false},canvasAgent={inputMode:"text",inkPresent:false,attachments:[],references:[],currentConversation:{items:[]},requestPending:false,running:false,viewingHistoryId:"",pendingApproval:null,attachmentBusy:false,projectUploadBusy:false,promptSuggestionsExpanded:false,promptSuggestionsManual:false,promptSuggestionsCollapsedAll:false,promptSuggestionContextKey:"",promptSuggestions:[]},
-    panel={hidden:false},referencePicker={hidden:true},approval={hidden:true},translations={canvasAgentPromptHandwriting:"Polished prompt",canvasAgentPromptFocusEnhance:"Enhance",canvasAgentPromptMore:"Show",canvasAgentPromptLess:"Hide",canvasAgentPromptDisclosureMore:"More",canvasAgentPromptDisclosureLess:"Less"};
-  const context={canvasAgentInput:input,canvasAgentInputHint:hint,canvasAgentPromptSuggestions:suggestions,canvasAgentPromptPopup:popup,canvasAgentAdditionalPromptList:additional,canvasAgentPrimaryPromptList:primary,
+    panel={hidden:false},referencePicker={hidden:true},approval={hidden:true},translations={canvasAgentPromptHandwriting:"Polished prompt",canvasAgentPromptHandwritingTitle:"Enhance My Handwritten Notes",canvasAgentPromptMore:"Show",canvasAgentPromptLess:"Hide",canvasAgentPromptDisclosureMore:"More",canvasAgentPromptDisclosureLess:"Less"};
+  const context={canvasAgentInput:input,canvasAgentInputHint:hint,canvasAgentPromptSuggestions:suggestions,canvasAgentPromptPopup:popup,canvasAgentAdditionalPromptGroup:additionalGroup,canvasAgentAdditionalPromptList:additional,canvasAgentPrimaryPromptGroup:primaryGroup,canvasAgentPrimaryPromptList:primary,
     canvasAgentPromptToggle:toggle,canvasAgentPromptDisclosureCopy:disclosure,canvasAgentPanel:panel,canvasAgentForm:form,canvasAgentReferencePicker:referencePicker,canvasAgentApproval:approval,document,canvasAgent,
     CANVAS_AGENT_PROMPT_ICON_PATHS:constants.iconPaths,t:key=>translations[key]||key,canvasAgentSyncInputHint(){},canvasAgentPromptSuggestionSet:()=>set,Event:class Event{constructor(type){this.type=type;}},
   };
@@ -209,15 +211,15 @@ function interactiveScene(){
     syncFocus=vm.runInNewContext(`(()=>{${functionSource("canvasAgentSyncPromptSuggestionsFocus")}return canvasAgentSyncPromptSuggestionsFocus;})()`,context),
     toggleExpanded=vm.runInNewContext(`(()=>{${functionSource("canvasAgentTogglePromptSuggestions")}return canvasAgentTogglePromptSuggestions;})()`,context),
     collapseFromPanel=vm.runInNewContext(`(()=>{${functionSource("canvasAgentCollapsePromptSuggestionsFromPanel")}return canvasAgentCollapsePromptSuggestionsFromPanel;})()`,context);
-  return {set,input,active,outside,document,form,suggestions,popup,additional,primary,toggle,canvasAgent,render,setExpanded,shouldShow,sync,choose,preventFocusLoss,expandOnEnter,collapseOnLeave,syncFocus,toggleExpanded,collapseFromPanel};
+  return {set,input,active,outside,document,form,suggestions,popup,additionalGroup,primaryGroup,additional,primary,toggle,canvasAgent,render,setExpanded,shouldShow,sync,choose,preventFocusLoss,expandOnEnter,collapseOnLeave,syncFocus,toggleExpanded,collapseFromPanel};
 }
 
-test("PenEcho Agent renders icons, bold focus words, and full clickable prompts",()=>{
+test("PenEcho Agent renders one flat expanded prompt grid and inserts the full prompt",()=>{
   const scene=interactiveScene();scene.render(scene.set);
-  assert.equal(scene.additional.children.length,9);assert.equal(scene.primary.children.length,3);
-  const button=scene.primary.children.at(-1),icon=button.children[0],copy=button.children[1],focus=copy.children[0],detail=copy.children[1];
-  assert.equal(icon.class,"canvas-agent-prompt-icon");assert.equal(icon.children.length>0,true);
-  assert.equal(copy.className,"canvas-agent-prompt-copy");assert.equal(focus.tag,"strong");assert.equal(focus.textContent,"Enhance");assert.equal(detail.textContent,"Polished prompt");assert.equal(button.title,"Polished prompt");
+  assert.equal(scene.additional.children.length,12);assert.equal(scene.primary.children.length,3);
+  const button=scene.primary.children.at(-1),preview=button.children[0],copy=button.children[1],title=copy.children[0];
+  assert.equal(button.dataset.peList,undefined);assert.equal(button.className,"canvas-agent-prompt-row list-row");assert.equal(preview.dataset.peRegion,"preview");assert.equal(preview.className,"canvas-agent-prompt-icon list-icon");assert.equal(preview.children[0].children.length>0,true);
+  assert.equal(copy.className,"canvas-agent-prompt-copy list-copy");assert.equal(title.tag,"span");assert.equal(copy.children.length,1);assert.equal(title.textContent,"Enhance My Handwritten Notes");assert.equal(button.title,"Enhance My Handwritten Notes");
   assert.equal(scene.choose("canvasAgentPromptHandwriting"),true);
   assert.equal(scene.input.value,"Polished prompt");assert.equal(scene.input.events,1);assert.equal(scene.input.focused,true);assert.deepEqual(scene.input.selection,[15,15]);assert.equal(scene.form.submitted,false);
   assert.match(runtime,/canvasAgentInput\.addEventListener\("input",\(\)=>\{[^}]*canvasAgentPromptHasDraft\(\)[^}]*canvasAgentSyncPromptSuggestions\(\)/);
@@ -226,10 +228,9 @@ test("PenEcho Agent renders icons, bold focus words, and full clickable prompts"
 test("Empty prompts expand as one card on hover and collapse immediately on leave",()=>{
   const scene=interactiveScene();scene.render(scene.set);scene.active.element=scene.input;scene.active.insideForm=true;scene.sync();
   assert.equal(scene.suggestions.hidden,false);assert.equal(scene.popup.hidden,false);assert.equal(scene.additional.hidden,true);assert.equal(scene.primary.hidden,false);
-  scene.expandOnEnter();assert.equal(scene.additional.hidden,false);assert.equal(scene.suggestions.classList.expanded,true);assert.equal(scene.toggle.getAttribute("aria-expanded"),"true");
+  scene.expandOnEnter();assert.equal(scene.additional.hidden,false);assert.equal(scene.primary.hidden,true);assert.equal(scene.suggestions.classList.expanded,true);assert.equal(scene.toggle.getAttribute("aria-expanded"),"true");
   scene.collapseOnLeave();assert.equal(scene.additional.hidden,true);
-  assert.match(css,/\.canvas-agent-prompt-suggestions > header svg\s*\{[^}]*transform:\s*rotate\(180deg\)/);
-  assert.match(css,/\.canvas-agent-prompt-suggestions\.prompt-rows-visible > header svg\s*\{[^}]*transform:\s*rotate\(0\)/);
+  assert.match(css,/\.canvas-agent-prompt-suggestions > header > button\[aria-expanded="true"\] \.canvas-agent-prompt-chevron\s*\{[^}]*transform:\s*rotate\(180deg\)/);
   assert.match(runtime,/canvasAgentPromptSuggestions\?\.addEventListener\("pointerenter",canvasAgentExpandPromptSuggestionsOnPointerEnter\)/);
   assert.doesNotMatch(functionSource("canvasAgentCollapsePromptSuggestionsOnPointerLeave"),/setTimeout|requestAnimationFrame/);
 });
@@ -239,7 +240,7 @@ test("The expanded arrow collapses every prompt row and keeps manual collapse st
   assert.equal(scene.primary.hidden,false);assert.equal(scene.additional.hidden,true);assert.equal(scene.toggle.getAttribute("aria-expanded"),"true","the default three rows make the arrow a collapse action");
   scene.toggleExpanded();assert.equal(scene.popup.hidden,true);assert.equal(scene.primary.hidden,true);assert.equal(scene.additional.hidden,true);assert.equal(scene.canvasAgent.promptSuggestionsCollapsedAll,true);assert.equal(scene.toggle.getAttribute("aria-expanded"),"false");
   scene.expandOnEnter();assert.equal(scene.primary.hidden,true,"hover must not undo an explicit full collapse");assert.equal(scene.additional.hidden,true);
-  scene.toggleExpanded();assert.equal(scene.primary.hidden,false);assert.equal(scene.additional.hidden,false);assert.equal(scene.canvasAgent.promptSuggestionsCollapsedAll,false);
+  scene.toggleExpanded();assert.equal(scene.primary.hidden,true);assert.equal(scene.additional.hidden,false);assert.equal(scene.canvasAgent.promptSuggestionsCollapsedAll,false);
   scene.toggleExpanded();assert.equal(scene.primary.hidden,true);assert.equal(scene.additional.hidden,true,"the same arrow collapses all rows from the fully expanded state");
 });
 
@@ -258,7 +259,7 @@ test("Drafts keep only the header until toggled and external blur always collaps
   const scene=interactiveScene();scene.render(scene.set);scene.input.value="draft";scene.active.element=scene.outside;scene.sync();
   assert.equal(scene.suggestions.hidden,false);assert.equal(scene.primary.hidden,true);assert.equal(scene.additional.hidden,true);
   scene.expandOnEnter();assert.equal(scene.additional.hidden,true,"hover must not auto-open a draft");
-  scene.toggleExpanded();assert.equal(scene.canvasAgent.promptSuggestionsManual,true);assert.equal(scene.primary.hidden,false);assert.equal(scene.additional.hidden,false);
+  scene.toggleExpanded();assert.equal(scene.canvasAgent.promptSuggestionsManual,true);assert.equal(scene.primary.hidden,true);assert.equal(scene.additional.hidden,false);
   scene.collapseOnLeave();assert.equal(scene.additional.hidden,false,"manual expansion survives pointerleave");
   scene.active.insideForm=false;scene.active.insideSuggestions=false;scene.syncFocus();
   assert.equal(scene.suggestions.hidden,false,"draft header remains after blur");assert.equal(scene.primary.hidden,true);assert.equal(scene.additional.hidden,true);assert.equal(scene.canvasAgent.promptSuggestionsManual,false);
@@ -270,7 +271,7 @@ test("Existing conversations stay collapsed on focus until the arrow is clicked"
   const scene=interactiveScene();scene.render(scene.set);scene.canvasAgent.currentConversation.items.push({role:"user",text:"Earlier message"});scene.active.element=scene.input;scene.active.insideForm=true;scene.sync();
   assert.equal(scene.suggestions.hidden,false);assert.equal(scene.primary.hidden,true);assert.equal(scene.additional.hidden,true);
   scene.expandOnEnter();assert.equal(scene.additional.hidden,true,"hover must not auto-open prompts after a conversation has started");
-  scene.toggleExpanded();assert.equal(scene.primary.hidden,false);assert.equal(scene.additional.hidden,false);assert.equal(scene.canvasAgent.promptSuggestionsManual,true);
+  scene.toggleExpanded();assert.equal(scene.primary.hidden,true);assert.equal(scene.additional.hidden,false);assert.equal(scene.canvasAgent.promptSuggestionsManual,true);
   scene.active.element=scene.outside;scene.active.insideForm=false;scene.syncFocus();assert.equal(scene.suggestions.hidden,false,"the fixed header remains after blur");assert.equal(scene.popup.hidden,true);
 });
 
@@ -282,8 +283,8 @@ test("PenEcho Agent suggestion pointer activation survives composer focusout",as
   button.click();assert.equal(scene.input.value,"Polished prompt");assert.equal(scene.suggestions.hidden,false);assert.equal(scene.primary.hidden,true);assert.equal(scene.form.submitted,false);
 });
 
-test("PenEcho Agent ships concise localized prompts and focus words for every intent",()=>{
-  const {library}=promptConstants(),items=Object.values(library),keys=[...new Set(items.map(item=>item.prompt))],focusKeys=[...new Set(items.map(item=>item.focus))];
+test("PenEcho Agent ships localized 3-to-5-word titles and full prompts for every intent",()=>{
+  const {library}=promptConstants(),items=Object.values(library),keys=[...new Set(items.map(item=>item.prompt))],titleKeys=[...new Set(items.map(item=>item.title))];
   assert.equal(keys.length>=30,true);
   for(const key of keys){
     const en=translation(english,key),zh=translation(chinese,key);
@@ -294,14 +295,21 @@ test("PenEcho Agent ships concise localized prompts and focus words for every in
       assert.equal(zh.length<=70,true,`Chinese ${key} should stay concise`);
     }
   }
-  for(const key of [...focusKeys,"canvasAgentPromptMore","canvasAgentPromptLess","canvasAgentPromptDisclosureMore","canvasAgentPromptDisclosureLess"]){assert.ok(translation(english,key));assert.ok(translation(chinese,key));}
+  for(const key of titleKeys){
+    const en=translation(english,key),zh=translation(chinese,key),words=en.trim().split(/\s+/);
+    assert.equal(words.length>=3&&words.length<=5,true,`English ${key} must be 3–5 words`);
+    assert.equal(zh.length>=4&&zh.length<=24,true,`Chinese ${key} should stay compact`);
+  }
+  for(const key of ["canvasAgentPromptMore","canvasAgentPromptLess","canvasAgentPromptDisclosureMore","canvasAgentPromptDisclosureLess","canvasAgentPromptCurrentCanvas","canvasAgentPromptMoreInspiration"]){assert.ok(translation(english,key));assert.ok(translation(chinese,key));}
   assert.equal(translation(english,"canvasAgentPromptHandwriting"),"Keep the current handwriting completely unchanged—do not edit, erase, or move it. Add a transparent explanatory layer over it; overlap is acceptable only if the original strokes remain clearly visible, and use annotations, connectors, links, graphics, or motion where appropriate to make the notes more vivid and intuitive.");
   assert.equal(translation(chinese,"canvasAgentPromptHandwriting"),"请保持当前手写笔迹完全不变：不修改、擦除或移动它；在其上添加一层背景透明的解释层，解释层可以适度覆盖但必须让原笔迹清晰透出，并在合适位置用标注、连线、链接、图形或动效让内容更生动直观。");
   assert.equal(translation(english,"canvasAgentPromptSequenceDiagramSource"),"Convert the current diagram into a sequence diagram and return editable diagram source code, such as Mermaid or PlantUML—not HTML.");
   assert.equal(translation(chinese,"canvasAgentPromptSequenceDiagramSource"),"请将当前图表转换为时序图，并返回可编辑的时序图源代码（如 Mermaid 或 PlantUML），不要返回 HTML。");
   assert.equal(translation(english,"canvasAgentPromptFollowCanvasCues"),"Follow my latest Canvas drawings, images, text boxes, and annotations. Continue and refine the work without changing unmarked content; ask if unclear.");
   assert.equal(translation(chinese,"canvasAgentPromptFollowCanvasCues"),"请把我刚在 Canvas 上新增的笔迹、手绘图形、图片、文本框和批注作为指示，按这些线索继续完善当前内容；不要改动未标注处，不清楚时先问我。");
-  for(const item of items){assert.ok(item.icon);assert.ok(item.focus);}
+  for(const item of items){assert.ok(item.icon);assert.ok(item.title);assert.ok(item.prompt);}
+  assert.match(functionSource("canvasAgentRenderPromptSuggestions"),/titleText=t\(suggestion\.title\)[\s\S]*?title\.textContent=titleText/);
+  assert.doesNotMatch(functionSource("canvasAgentRenderPromptSuggestions"),/Summary|createElement\("small"\)/);
   assert.doesNotMatch(runtime,/canvasAgentPrompt[A-Za-z]+Label/);
   assert.doesNotMatch(english,/canvasAgentPrompt[A-Za-z]+Label:/);
   assert.doesNotMatch(chinese,/canvasAgentPrompt[A-Za-z]+Label:/);

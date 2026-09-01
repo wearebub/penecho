@@ -35,7 +35,7 @@ test("Cloud Center exposes concise Projects, Favorites, and Echoes navigation", 
   assert.match(cloud, /localHostControlsAvailable = window\.PENECHO_CONFIG\?\.runtime !== "cloud"/);
   assert.match(cloud, /layout\.classList\.toggle\("remote-cloud-runtime", !localHostControlsAvailable\)/);
   assert.match(cloud, /cloud-local-controls/);
-  assert.match(cloud, /class:"cloud-navigation"/);
+  assert.match(cloud, /class:"cloud-navigation penecho-workbench-navigation"/);
   assert.match(cloud, /layout\.replaceChildren\(navigation, workspace\)/);
   assert.match(cloud, /x-penecho-session/);
   assert.match(cloud, /\/api\/cloud\/library/);

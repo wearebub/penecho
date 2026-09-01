@@ -13,6 +13,8 @@
     canvasAgentProjectButton = document.querySelector("#canvasAgentProject"),
     canvasAgentProjectClear = document.querySelector("#canvasAgentProjectClear"),
     canvasAgentProjectLabel = document.querySelector("#canvasAgentProjectLabel"),
+    canvasAgentConnectionButton = document.querySelector("#canvasAgentConnection"),
+    canvasAgentConnectionLabel = document.querySelector("#canvasAgentConnectionLabel"),
     canvasAgentProjectPopover = document.querySelector("#canvasAgentProjectPopover"),
     canvasAgentProjectClose = document.querySelector("#canvasAgentProjectClose"),
     canvasAgentProjectList = document.querySelector("#canvasAgentProjectList"),
@@ -56,7 +58,9 @@
     canvasAgentPromptToggle = document.querySelector("#canvasAgentPromptToggle"),
     canvasAgentPromptDisclosureCopy = document.querySelector("#canvasAgentPromptDisclosureCopy"),
     canvasAgentPromptPopup = document.querySelector("#canvasAgentPromptPopup"),
+    canvasAgentAdditionalPromptGroup = document.querySelector("#canvasAgentAdditionalPromptGroup"),
     canvasAgentAdditionalPromptList = document.querySelector("#canvasAgentAdditionalPromptList"),
+    canvasAgentPrimaryPromptGroup = document.querySelector("#canvasAgentPrimaryPromptGroup"),
     canvasAgentPrimaryPromptList = document.querySelector("#canvasAgentPrimaryPromptList"),
     canvasAgentInput = document.querySelector("#canvasAgentInput"),
     canvasAgentInkInput = document.querySelector("#canvasAgentInkInput"),
@@ -128,45 +132,45 @@
     CANVAS_AGENT_LAYOUT_CAPTURE_POLICY = Object.freeze({id:"canvas-layout-v1",maxLongEdge:1024,maxPixels:520000,quality:.72,maxBytes:700*1024}),
     CANVAS_AGENT_DETAIL_CAPTURE_POLICY = Object.freeze({id:"canvas-detail-v1",maxLongEdge:1440,maxPixels:1800000,quality:.88,maxBytes:1200*1024}),
     CANVAS_AGENT_PROMPT_LIBRARY = Object.freeze({
-      simpleDiagram:{prompt:"canvasAgentPromptSimpleDiagram",focus:"canvasAgentPromptFocusSimplify",icon:"visual"},
-      sequenceDiagramSource:{prompt:"canvasAgentPromptSequenceDiagramSource",focus:"canvasAgentPromptFocusSequence",icon:"architecture"},
-      organize:{prompt:"canvasAgentPromptOrganize",focus:"canvasAgentPromptFocusOrganize",icon:"organize"},
-      applyAnnotations:{prompt:"canvasAgentPromptApplyAnnotations",focus:"canvasAgentPromptFocusRevise",icon:"revise"},
-      followCanvasCues:{prompt:"canvasAgentPromptFollowCanvasCues",focus:"canvasAgentPromptFocusFollowCanvasCues",icon:"revise"},
-      ppt:{prompt:"canvasAgentPromptPpt",focus:"canvasAgentPromptFocusSlides",icon:"slides"},
-      excel:{prompt:"canvasAgentPromptExcel",focus:"canvasAgentPromptFocusAnalyze",icon:"data"},
-      transformer:{prompt:"canvasAgentPromptTransformer",focus:"canvasAgentPromptFocusLearn",icon:"study"},
-      ukTrip:{prompt:"canvasAgentPromptUkTrip",focus:"canvasAgentPromptFocusPlan",icon:"plan"},
-      file:{prompt:"canvasAgentPromptFile",focus:"canvasAgentPromptFocusExplain",icon:"file"},
-      architecture:{prompt:"canvasAgentPromptArchitecture",focus:"canvasAgentPromptFocusArchitecture",icon:"architecture"},
-      handwriting:{prompt:"canvasAgentPromptHandwriting",focus:"canvasAgentPromptFocusEnhance",icon:"handwriting"},
-      imageVisual:{prompt:"canvasAgentPromptImageVisual",focus:"canvasAgentPromptFocusVisual",icon:"visual"},
-      imageLayer:{prompt:"canvasAgentPromptImageLayer",focus:"canvasAgentPromptFocusLayer",icon:"layer"},
-      imagePublish:{prompt:"canvasAgentPromptImagePublish",focus:"canvasAgentPromptFocusPublish",icon:"publish"},
-      spreadsheetVisual:{prompt:"canvasAgentPromptSpreadsheetVisual",focus:"canvasAgentPromptFocusAnalyze",icon:"data"},
-      spreadsheetLayer:{prompt:"canvasAgentPromptSpreadsheetLayer",focus:"canvasAgentPromptFocusLayer",icon:"layer"},
-      spreadsheetPublish:{prompt:"canvasAgentPromptSpreadsheetPublish",focus:"canvasAgentPromptFocusPublish",icon:"publish"},
-      presentationVisual:{prompt:"canvasAgentPromptPresentationVisual",focus:"canvasAgentPromptFocusVisual",icon:"slides"},
-      presentationLayer:{prompt:"canvasAgentPromptPresentationLayer",focus:"canvasAgentPromptFocusEnhance",icon:"layer"},
-      presentationPublish:{prompt:"canvasAgentPromptPresentationPublish",focus:"canvasAgentPromptFocusPublish",icon:"publish"},
-      documentVisual:{prompt:"canvasAgentPromptDocumentVisual",focus:"canvasAgentPromptFocusVisual",icon:"visual"},
-      documentStudy:{prompt:"canvasAgentPromptDocumentStudy",focus:"canvasAgentPromptFocusLearn",icon:"study"},
-      documentPublish:{prompt:"canvasAgentPromptDocumentPublish",focus:"canvasAgentPromptFocusPublish",icon:"publish"},
-      codeVisual:{prompt:"canvasAgentPromptCodeVisual",focus:"canvasAgentPromptFocusVisual",icon:"architecture"},
-      codeLayer:{prompt:"canvasAgentPromptCodeLayer",focus:"canvasAgentPromptFocusExplain",icon:"layer"},
-      codePlan:{prompt:"canvasAgentPromptCodePlan",focus:"canvasAgentPromptFocusPlan",icon:"plan"},
-      fileLayer:{prompt:"canvasAgentPromptFileLayer",focus:"canvasAgentPromptFocusLayer",icon:"layer"},
-      filePublish:{prompt:"canvasAgentPromptFilePublish",focus:"canvasAgentPromptFocusPublish",icon:"publish"},
-      projectPlan:{prompt:"canvasAgentPromptProjectPlan",focus:"canvasAgentPromptFocusPlan",icon:"plan"},
-      projectPublish:{prompt:"canvasAgentPromptProjectPublish",focus:"canvasAgentPromptFocusPublish",icon:"publish"},
-      selectionVisual:{prompt:"canvasAgentPromptSelectionVisual",focus:"canvasAgentPromptFocusVisual",icon:"visual"},
-      selectionLayer:{prompt:"canvasAgentPromptSelectionLayer",focus:"canvasAgentPromptFocusLayer",icon:"layer"},
-      selectionPublish:{prompt:"canvasAgentPromptSelectionPublish",focus:"canvasAgentPromptFocusPublish",icon:"publish"},
-      notesVisual:{prompt:"canvasAgentPromptNotesVisual",focus:"canvasAgentPromptFocusVisual",icon:"study"},
-      notesPublish:{prompt:"canvasAgentPromptNotesPublish",focus:"canvasAgentPromptFocusOrganize",icon:"organize"},
-      canvasVisual:{prompt:"canvasAgentPromptCanvasVisual",focus:"canvasAgentPromptFocusVisual",icon:"visual"},
-      canvasLayer:{prompt:"canvasAgentPromptCanvasLayer",focus:"canvasAgentPromptFocusLayer",icon:"layer"},
-      canvasPublish:{prompt:"canvasAgentPromptCanvasPublish",focus:"canvasAgentPromptFocusPublish",icon:"publish"},
+      simpleDiagram:{prompt:"canvasAgentPromptSimpleDiagram",title:"canvasAgentPromptSimpleDiagramTitle",focus:"canvasAgentPromptFocusSimplify",icon:"visual"},
+      sequenceDiagramSource:{prompt:"canvasAgentPromptSequenceDiagramSource",title:"canvasAgentPromptSequenceDiagramSourceTitle",focus:"canvasAgentPromptFocusSequence",icon:"architecture"},
+      organize:{prompt:"canvasAgentPromptOrganize",title:"canvasAgentPromptOrganizeTitle",focus:"canvasAgentPromptFocusOrganize",icon:"organize"},
+      applyAnnotations:{prompt:"canvasAgentPromptApplyAnnotations",title:"canvasAgentPromptApplyAnnotationsTitle",focus:"canvasAgentPromptFocusRevise",icon:"revise"},
+      followCanvasCues:{prompt:"canvasAgentPromptFollowCanvasCues",title:"canvasAgentPromptFollowCanvasCuesTitle",focus:"canvasAgentPromptFocusFollowCanvasCues",icon:"revise"},
+      ppt:{prompt:"canvasAgentPromptPpt",title:"canvasAgentPromptPptTitle",focus:"canvasAgentPromptFocusSlides",icon:"slides"},
+      excel:{prompt:"canvasAgentPromptExcel",title:"canvasAgentPromptExcelTitle",focus:"canvasAgentPromptFocusAnalyze",icon:"data"},
+      transformer:{prompt:"canvasAgentPromptTransformer",title:"canvasAgentPromptTransformerTitle",focus:"canvasAgentPromptFocusLearn",icon:"study"},
+      ukTrip:{prompt:"canvasAgentPromptUkTrip",title:"canvasAgentPromptUkTripTitle",focus:"canvasAgentPromptFocusPlan",icon:"plan"},
+      file:{prompt:"canvasAgentPromptFile",title:"canvasAgentPromptFileTitle",focus:"canvasAgentPromptFocusExplain",icon:"file"},
+      architecture:{prompt:"canvasAgentPromptArchitecture",title:"canvasAgentPromptArchitectureTitle",focus:"canvasAgentPromptFocusArchitecture",icon:"architecture"},
+      handwriting:{prompt:"canvasAgentPromptHandwriting",title:"canvasAgentPromptHandwritingTitle",focus:"canvasAgentPromptFocusEnhance",icon:"handwriting"},
+      imageVisual:{prompt:"canvasAgentPromptImageVisual",title:"canvasAgentPromptImageVisualTitle",focus:"canvasAgentPromptFocusVisual",icon:"visual"},
+      imageLayer:{prompt:"canvasAgentPromptImageLayer",title:"canvasAgentPromptImageLayerTitle",focus:"canvasAgentPromptFocusLayer",icon:"layer"},
+      imagePublish:{prompt:"canvasAgentPromptImagePublish",title:"canvasAgentPromptImagePublishTitle",focus:"canvasAgentPromptFocusPublish",icon:"publish"},
+      spreadsheetVisual:{prompt:"canvasAgentPromptSpreadsheetVisual",title:"canvasAgentPromptSpreadsheetVisualTitle",focus:"canvasAgentPromptFocusAnalyze",icon:"data"},
+      spreadsheetLayer:{prompt:"canvasAgentPromptSpreadsheetLayer",title:"canvasAgentPromptSpreadsheetLayerTitle",focus:"canvasAgentPromptFocusLayer",icon:"layer"},
+      spreadsheetPublish:{prompt:"canvasAgentPromptSpreadsheetPublish",title:"canvasAgentPromptSpreadsheetPublishTitle",focus:"canvasAgentPromptFocusPublish",icon:"publish"},
+      presentationVisual:{prompt:"canvasAgentPromptPresentationVisual",title:"canvasAgentPromptPresentationVisualTitle",focus:"canvasAgentPromptFocusVisual",icon:"slides"},
+      presentationLayer:{prompt:"canvasAgentPromptPresentationLayer",title:"canvasAgentPromptPresentationLayerTitle",focus:"canvasAgentPromptFocusEnhance",icon:"layer"},
+      presentationPublish:{prompt:"canvasAgentPromptPresentationPublish",title:"canvasAgentPromptPresentationPublishTitle",focus:"canvasAgentPromptFocusPublish",icon:"publish"},
+      documentVisual:{prompt:"canvasAgentPromptDocumentVisual",title:"canvasAgentPromptDocumentVisualTitle",focus:"canvasAgentPromptFocusVisual",icon:"visual"},
+      documentStudy:{prompt:"canvasAgentPromptDocumentStudy",title:"canvasAgentPromptDocumentStudyTitle",focus:"canvasAgentPromptFocusLearn",icon:"study"},
+      documentPublish:{prompt:"canvasAgentPromptDocumentPublish",title:"canvasAgentPromptDocumentPublishTitle",focus:"canvasAgentPromptFocusPublish",icon:"publish"},
+      codeVisual:{prompt:"canvasAgentPromptCodeVisual",title:"canvasAgentPromptCodeVisualTitle",focus:"canvasAgentPromptFocusVisual",icon:"architecture"},
+      codeLayer:{prompt:"canvasAgentPromptCodeLayer",title:"canvasAgentPromptCodeLayerTitle",focus:"canvasAgentPromptFocusExplain",icon:"layer"},
+      codePlan:{prompt:"canvasAgentPromptCodePlan",title:"canvasAgentPromptCodePlanTitle",focus:"canvasAgentPromptFocusPlan",icon:"plan"},
+      fileLayer:{prompt:"canvasAgentPromptFileLayer",title:"canvasAgentPromptFileLayerTitle",focus:"canvasAgentPromptFocusLayer",icon:"layer"},
+      filePublish:{prompt:"canvasAgentPromptFilePublish",title:"canvasAgentPromptFilePublishTitle",focus:"canvasAgentPromptFocusPublish",icon:"publish"},
+      projectPlan:{prompt:"canvasAgentPromptProjectPlan",title:"canvasAgentPromptProjectPlanTitle",focus:"canvasAgentPromptFocusPlan",icon:"plan"},
+      projectPublish:{prompt:"canvasAgentPromptProjectPublish",title:"canvasAgentPromptProjectPublishTitle",focus:"canvasAgentPromptFocusPublish",icon:"publish"},
+      selectionVisual:{prompt:"canvasAgentPromptSelectionVisual",title:"canvasAgentPromptSelectionVisualTitle",focus:"canvasAgentPromptFocusVisual",icon:"visual"},
+      selectionLayer:{prompt:"canvasAgentPromptSelectionLayer",title:"canvasAgentPromptSelectionLayerTitle",focus:"canvasAgentPromptFocusLayer",icon:"layer"},
+      selectionPublish:{prompt:"canvasAgentPromptSelectionPublish",title:"canvasAgentPromptSelectionPublishTitle",focus:"canvasAgentPromptFocusPublish",icon:"publish"},
+      notesVisual:{prompt:"canvasAgentPromptNotesVisual",title:"canvasAgentPromptNotesVisualTitle",focus:"canvasAgentPromptFocusVisual",icon:"study"},
+      notesPublish:{prompt:"canvasAgentPromptNotesPublish",title:"canvasAgentPromptNotesPublishTitle",focus:"canvasAgentPromptFocusOrganize",icon:"organize"},
+      canvasVisual:{prompt:"canvasAgentPromptCanvasVisual",title:"canvasAgentPromptCanvasVisualTitle",focus:"canvasAgentPromptFocusVisual",icon:"visual"},
+      canvasLayer:{prompt:"canvasAgentPromptCanvasLayer",title:"canvasAgentPromptCanvasLayerTitle",focus:"canvasAgentPromptFocusLayer",icon:"layer"},
+      canvasPublish:{prompt:"canvasAgentPromptCanvasPublish",title:"canvasAgentPromptCanvasPublishTitle",focus:"canvasAgentPromptFocusPublish",icon:"publish"},
     }),
     CANVAS_AGENT_PROMPT_ICON_PATHS = Object.freeze({
       visual:["M3.5 12s3.1-5 8.5-5 8.5 5 8.5 5-3.1 5-8.5 5-8.5-5-8.5-5Z","M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"],
@@ -278,7 +282,7 @@
     viewRevision:0,
     viewSignature:"",
     latestChange:null,
-    hideOnFirstUserCanvasChange:false,
+    initialCanvasAutoHidePending:false,
   };
   sessionStorage.setItem(CANVAS_AGENT_CLIENT_KEY,canvasAgent.clientId);
   try {
@@ -333,7 +337,11 @@
   function canvasAgentSyncTriggerState() {
     const busy = canvasAgent.requestPending || canvasAgent.running;
     canvasAgentControl.classList.toggle("is-busy",busy);
-    canvasAgentToggle.setAttribute("aria-busy",String(busy));
+    // Agent activity belongs to the launcher status shell, not the navigation
+    // button. Shared busy-button styling intentionally blocks pointer input;
+    // marking the toggle itself busy would make a closed running Agent
+    // impossible to reopen.
+    canvasAgentControl.setAttribute("aria-busy",String(busy));
     canvasAgentSyncPromptSuggestions();
   }
   function canvasAgentBeginRequest() {
@@ -439,11 +447,15 @@
     const rowsVisible=canvasAgentPromptRowsVisible();
     canvasAgentPromptSuggestions?.classList.toggle("expanded",canvasAgent.promptSuggestionsExpanded);
     canvasAgentPromptSuggestions?.classList.toggle("prompt-rows-visible",rowsVisible);
+    if(canvasAgentPromptSuggestions)canvasAgentPromptSuggestions.dataset.peState=!rowsVisible?"collapsed":canvasAgent.promptSuggestionsExpanded?"expanded":"peek";
     if(canvasAgentPromptPopup)canvasAgentPromptPopup.hidden=!rowsVisible;
     if(canvasAgentAdditionalPromptList)canvasAgentAdditionalPromptList.hidden=!canvasAgent.promptSuggestionsExpanded;
-    if(canvasAgentPrimaryPromptList)canvasAgentPrimaryPromptList.hidden=canvasAgent.promptSuggestionsCollapsedAll||(canvasAgentPromptNeedsManualExpansion()&&!canvasAgent.promptSuggestionsExpanded);
+    if(canvasAgentPrimaryPromptList)canvasAgentPrimaryPromptList.hidden=canvasAgent.promptSuggestionsExpanded||canvasAgent.promptSuggestionsCollapsedAll||(canvasAgentPromptNeedsManualExpansion()&&!canvasAgent.promptSuggestionsExpanded);
+    if(canvasAgentAdditionalPromptGroup)canvasAgentAdditionalPromptGroup.hidden=Boolean(canvasAgentAdditionalPromptList?.hidden);
+    if(canvasAgentPrimaryPromptGroup)canvasAgentPrimaryPromptGroup.hidden=Boolean(canvasAgentPrimaryPromptList?.hidden);
     if(canvasAgentPromptToggle){
       const key=rowsVisible?"canvasAgentPromptLess":"canvasAgentPromptMore",label=t(key);
+      canvasAgentPromptToggle.dataset.peState=rowsVisible?"expanded":"collapsed";
       canvasAgentPromptToggle.setAttribute("aria-expanded",String(rowsVisible));
       canvasAgentPromptToggle.setAttribute("aria-label",label);
       canvasAgentPromptToggle.setAttribute("title",label);
@@ -451,8 +463,9 @@
     if(canvasAgentPromptDisclosureCopy)canvasAgentPromptDisclosureCopy.textContent=t(rowsVisible?"canvasAgentPromptDisclosureLess":"canvasAgentPromptDisclosureMore");
   }
   function canvasAgentCreatePromptIcon(iconName) {
-    const svg=document.createElementNS("http://www.w3.org/2000/svg","svg");
-    svg.setAttribute("class","canvas-agent-prompt-icon");
+    const preview=document.createElement("span"),svg=document.createElementNS("http://www.w3.org/2000/svg","svg");
+    preview.className="canvas-agent-prompt-icon list-icon";
+    preview.dataset.peRegion="preview";
     svg.setAttribute("viewBox","0 0 24 24");
     svg.setAttribute("aria-hidden","true");
     for(const d of CANVAS_AGENT_PROMPT_ICON_PATHS[iconName]||CANVAS_AGENT_PROMPT_ICON_PATHS.visual){
@@ -460,7 +473,8 @@
       path.setAttribute("d",d);
       svg.append(path);
     }
-    return svg;
+    preview.append(svg);
+    return preview;
   }
   function canvasAgentRenderPromptSuggestions(suggestionSet=canvasAgentPromptSuggestionSet()) {
     if(!canvasAgentPrimaryPromptList)return;
@@ -468,16 +482,19 @@
       if(!list)return;
       list.replaceChildren();
       for(const suggestion of suggestions){
-        const button=document.createElement("button"),copy=document.createElement("span"),focus=document.createElement("strong"),detail=document.createElement("span"),prompt=t(suggestion.prompt),focusText=t(suggestion.focus);
+        const button=document.createElement("button"),icon=canvasAgentCreatePromptIcon(suggestion.icon),copy=document.createElement("span"),title=document.createElement("span"),prompt=t(suggestion.prompt),titleText=t(suggestion.title);
         button.type="button";
+        button.className="canvas-agent-prompt-row list-row";
+        button.dataset.peItem="prompt-suggestion";
         button.dataset.promptKey=suggestion.prompt;
-        copy.className="canvas-agent-prompt-copy";
-        focus.textContent=focusText;
-        detail.textContent=prompt;
-        copy.append(focus,detail);
-        button.append(canvasAgentCreatePromptIcon(suggestion.icon),copy);
-        button.setAttribute("title",prompt);
-        button.setAttribute("aria-label",`${focusText}: ${prompt}`);
+        copy.className="canvas-agent-prompt-copy list-copy";
+        copy.dataset.peRegion="copy";
+        title.dataset.peRegion="title";
+        title.textContent=titleText;
+        copy.append(title);
+        button.append(icon,copy);
+        button.setAttribute("title",titleText);
+        button.setAttribute("aria-label",`${titleText}: ${prompt}`);
         button.addEventListener("click",()=>canvasAgentChoosePromptSuggestion(suggestion.prompt));
         list.append(button);
       }
@@ -485,7 +502,7 @@
     const suggestions=suggestionSet.suggestions,primaryStart=Math.max(0,suggestions.length-3);
     canvasAgent.promptSuggestionContextKey=suggestionSet.key;
     canvasAgent.promptSuggestions=suggestions;
-    renderList(canvasAgentAdditionalPromptList,suggestions.slice(0,primaryStart));
+    renderList(canvasAgentAdditionalPromptList,suggestions);
     renderList(canvasAgentPrimaryPromptList,suggestions.slice(primaryStart));
     canvasAgentPromptSuggestions.setAttribute("aria-label",t("canvasAgentPromptSuggestions"));
     canvasAgentSetPromptSuggestionsExpanded(canvasAgent.promptSuggestionsExpanded);
@@ -558,6 +575,17 @@
     canvasAgentInput.setSelectionRange?.(canvasAgentInput.value.length,canvasAgentInput.value.length);
     return true;
   }
+  function canvasAgentUpdateConnectionButton() {
+    if(!canvasAgentConnectionButton||!canvasAgentConnectionLabel)return;
+    const connection=settings.connections.find(item=>item.id===selectedAiConnectionId()),label=connection?connectionTitle(connection):t("canvasAgentModel"),action=t("canvasAgentChooseConnection");
+    canvasAgentConnectionLabel.textContent=label;
+    canvasAgentConnectionButton.setAttribute("aria-label",`${action}: ${label}`);
+    canvasAgentConnectionButton.setAttribute("title",`${action}: ${label}`);
+  }
+  function canvasAgentOpenConnectionSettings() {
+    selectSettingsPage("connections");
+    openSettings();
+  }
   function updateCanvasAgentLanguage() {
     canvasAgentSetComposerActionLabel(canvasAgentSend,canvasAgent.running ? "canvasAgentSteer" : "canvasAgentSend");
     canvasAgentSetComposerActionLabel(canvasAgentStop,"canvasAgentStop");
@@ -589,6 +617,7 @@
     canvasAgentAttachments.setAttribute("aria-label",t("canvasAgentAttachments"));
     canvasAgentProjectButton.setAttribute("aria-label",t("canvasAgentProject"));
     canvasAgentProjectButton.setAttribute("title",t("canvasAgentProject"));
+    canvasAgentUpdateConnectionButton();
     canvasAgentProjectClose.setAttribute("aria-label",t("canvasAgentProjectClose"));
     canvasAgentProjectRootBack.setAttribute("aria-label",t("canvasAgentRootBack"));
     canvasAgentProjectRootSelect.textContent=t("canvasAgentRootSelect");
@@ -687,6 +716,7 @@
   }
   function canvasAgentUpdateProjectButton() {
     const project=canvasAgentProjectById();
+    peButton(canvasAgentProjectButton,project?"secondary":"toolbar","compact");
     canvasAgentProjectLabel.textContent=project?.name||t("canvasAgentNoProject");
     canvasAgentProjectControl.classList.toggle("has-resource",Boolean(project));
     canvasAgentProjectButton.classList.toggle("has-project",Boolean(project));
@@ -744,13 +774,15 @@
   function canvasAgentProjectRow(project) {
     const row=document.createElement("div"),choice=document.createElement("button"),copy=document.createElement("span"),title=document.createElement("strong"),detail=document.createElement("small"),remove=document.createElement("button"),selected=project.id===canvasAgent.projectId,
       kindLabel=project.kind==="folder"?t("canvasAgentFolderProject"):project.source==="upload"?t("canvasAgentUploadedFile"):t("canvasAgentLocalFile");
-    row.className="canvas-agent-project-row";
+    row.className=`canvas-agent-project-row${selected?" selected":""}`;row.dataset.peList="double";row.dataset.peState=selected?"selected":"default";
     choice.className="canvas-agent-project-choice";choice.type="button";choice.setAttribute("aria-pressed",String(selected));
-    copy.className="canvas-agent-project-choice-copy";title.textContent=project.name;detail.textContent=`${kindLabel} · ${t("canvasAgentFileReadOnly")} · ${canvasAgentProjectDisplayPath(project)}`;copy.append(title,detail);
+    peChoice(choice);
+    copy.className="canvas-agent-project-choice-copy";copy.dataset.peRegion="copy";title.textContent=project.name;detail.textContent=`${kindLabel} · ${t("canvasAgentFileReadOnly")} · ${canvasAgentProjectDisplayPath(project)}`;copy.append(title,detail);
     choice.append(canvasAgentResourceIcon(project.kind),copy);
     if(selected){const current=document.createElement("span");current.className="canvas-agent-project-current";current.textContent=t("canvasAgentCurrentResource");choice.append(current);}
     choice.addEventListener("click",()=>void canvasAgentSelectProject(project.id));
     remove.className="canvas-agent-project-remove";remove.type="button";remove.textContent="×";remove.setAttribute("aria-label",`${t("canvasAgentRemoveProject")}: ${project.name}`);remove.title=t("canvasAgentRemoveProject");
+    peButton(remove,"icon","compact");
     remove.addEventListener("click",event=>{event.stopPropagation();void canvasAgentRemoveProject(project.id);});
     row.append(choice,remove);
     return row;
@@ -771,21 +803,22 @@
     canvasAgentProjectRootTruncated.hidden=!view?.truncated;
     if(canvasAgent.projectRootBusy){
       const loading=document.createElement("button"),title=document.createElement("strong");
-      loading.type="button";loading.disabled=true;title.textContent=t("canvasAgentRootLoading");loading.append(title);canvasAgentProjectRootList.append(loading);
+      loading.type="button";peChoice(loading);loading.disabled=true;title.textContent=t("canvasAgentRootLoading");loading.append(title);canvasAgentProjectRootList.append(loading);
       return;
     }
     if(view?.permissionDenied){
       const blocked=document.createElement("button"),title=document.createElement("strong"),detail=document.createElement("small");
-      blocked.type="button";blocked.disabled=true;title.textContent=view.relativePath.split("/").at(-1)||view.rootName;detail.textContent=t("canvasAgentRootPermissionDenied");blocked.append(title,detail);canvasAgentProjectRootList.append(blocked);return;
+      blocked.type="button";peChoice(blocked);blocked.disabled=true;title.textContent=view.relativePath.split("/").at(-1)||view.rootName;detail.textContent=t("canvasAgentRootPermissionDenied");blocked.append(title,detail);canvasAgentProjectRootList.append(blocked);return;
     }
     const entries=view?.entries||canvasAgent.projectRoots;
     if(!entries.length){
       const empty=document.createElement("button"),title=document.createElement("strong");
-      empty.type="button";empty.disabled=true;title.textContent=t("canvasAgentNoHostFolders");empty.append(title);canvasAgentProjectRootList.append(empty);return;
+      empty.type="button";peChoice(empty);empty.disabled=true;title.textContent=t("canvasAgentNoHostFolders");empty.append(title);canvasAgentProjectRootList.append(empty);return;
     }
     for(const entry of entries){
       const choice=document.createElement("button"),title=document.createElement("strong"),detail=document.createElement("small");
       choice.type="button";
+      peChoice(choice);
       title.textContent=entry.name;
       detail.textContent=entry.permissionDenied?t("canvasAgentRootPermissionDenied"):entry.approvalRequired?t("canvasAgentRootApprovalRequired"):view?entry.relativePath:t("canvasAgentServerFoldersDetail");
       choice.disabled=entry.permissionDenied===true;
@@ -800,11 +833,12 @@
     canvasAgentProjectList.replaceChildren();canvasAgentFileList.replaceChildren();
     canvasAgentProjectCount.textContent=String(folders.length);canvasAgentFileCount.textContent=String(files.length);
     const browserRow=document.createElement("div"),browser=document.createElement("button"),browserCopy=document.createElement("span"),browserTitle=document.createElement("strong"),browserDetail=document.createElement("small"),browserSelected=!canvasAgent.projectId;
-    browserRow.className="canvas-agent-project-row";
+    browserRow.className=`canvas-agent-project-row${browserSelected?" selected":""}`;browserRow.dataset.peList="double";browserRow.dataset.peState=browserSelected?"selected":"default";
     browser.className="canvas-agent-project-choice";
     browser.type="button";
+    peChoice(browser);
     browser.setAttribute("aria-pressed",String(browserSelected));
-    browserCopy.className="canvas-agent-project-choice-copy";
+    browserCopy.className="canvas-agent-project-choice-copy";browserCopy.dataset.peRegion="copy";
     browserTitle.textContent=t("canvasAgentBrowserSpace");
     browserDetail.textContent=t("canvasAgentBrowserSpaceDetail");
     browserCopy.append(browserTitle,browserDetail);browser.append(canvasAgentResourceIcon("browser"),browserCopy);
@@ -1238,14 +1272,11 @@
       : canvasAgentConversationHistory(canvasAgent.currentConversation);
   }
   function canvasAgentRenderEmpty() {
-    const empty=document.createElement("div"), icon=document.createElement("span"), title=document.createElement("strong"), body=document.createElement("span");
+    const empty=document.createElement("div"), title=document.createElement("strong"), body=document.createElement("span");
     empty.className="canvas-agent-empty";
-    icon.className="canvas-agent-empty-icon";
-    icon.setAttribute("aria-hidden","true");
-    icon.innerHTML='<svg viewBox="0 0 24 24"><path d="M12 3.5 13.7 8.6a2 2 0 0 0 1.2 1.2l5.1 1.7-5.1 1.7a2 2 0 0 0-1.2 1.2L12 19.5l-1.7-5.1a2 2 0 0 0-1.2-1.2L4 11.5l5.1-1.7a2 2 0 0 0 1.2-1.2Z"/></svg>';
     title.textContent=t("canvasAgentEmptyTitle");
     body.textContent=t("canvasAgentEmptyBody");
-    empty.append(icon,title,body);
+    empty.append(title,body);
     canvasAgentTranscript.replaceChildren(empty);
   }
   function canvasAgentHistoryTime(value) {
@@ -1267,6 +1298,7 @@
     for (const conversation of histories) {
       const button=document.createElement("button"), title=document.createElement("span"), meta=document.createElement("span"), current=conversation.id===canvasAgent.currentConversation?.id;
       button.type="button";
+      peChoice(button);
       button.dataset.conversationId=conversation.id;
       if(current)button.setAttribute("aria-current","page");
       title.className="canvas-agent-history-title";
@@ -1424,7 +1456,7 @@
   }
   function canvasAgentCanvasDidChange(identity = null,options = null) {
     const clearProject=options?.clearProject===true,deferConversationStart=options?.deferConversationStart===true;
-    canvasAgent.hideOnFirstUserCanvasChange=true;
+    canvasAgent.initialCanvasAutoHidePending=true;
     canvasAgentPersistCurrentConversation();
     if(clearProject){
       canvasAgent.projectSelectionRevision++;
@@ -1442,11 +1474,14 @@
       void canvasAgentStartNewConversation(selectedAiConnectionId(),{resetProjection:false}).catch(error=>canvasAgentSetStatus(String(error?.message||error),"error"));
     } else canvasAgentDropSessionIdentity();
     canvasAgentSyncPromptSuggestions();
-    if (state.canvasAgentAutoOpen && canvasAgentPanel.hidden) openCanvasAgent({focus:false});
+    if (state.canvasAgentAutoOpen && (canvasAgentPanel.hidden || !document.body.classList.contains("canvas-agent-open"))) openCanvasAgent({focus:false});
   }
-  function canvasAgentDidCommitUserCanvasChange(historyEntry) {
-    if (!historyEntry || !canvasAgent.hideOnFirstUserCanvasChange) return historyEntry;
-    canvasAgent.hideOnFirstUserCanvasChange=false;
+  function canvasAgentDidStartUserConversation() {
+    canvasAgent.initialCanvasAutoHidePending=false;
+  }
+  function canvasAgentDidCommitUserCanvasChange(historyEntry, options = null) {
+    if (!historyEntry || options?.allowAutoHide === false || !canvasAgent.initialCanvasAutoHidePending) return historyEntry;
+    canvasAgent.initialCanvasAutoHidePending=false;
     if (!canvasAgentPanel.hidden) closeCanvasAgent({focus:false});
     return historyEntry;
   }
@@ -1507,6 +1542,7 @@
     if (!selected) {
       const remove=document.createElement("button");
       remove.type="button";
+      peButton(remove,"icon","compact");
       remove.textContent="×";
       remove.setAttribute("aria-label",`${t("canvasAgentRemoveReference")} ${label.textContent}`);
       remove.addEventListener("click",()=>canvasAgentToggleReference(id,false));
@@ -1589,7 +1625,6 @@
     if (open) {
       canvasAgentReferenceSearch.value="";
       canvasAgentRenderReferencePicker("");
-      canvasAgentReferenceSearch.focus();
     }
     canvasAgentSyncPromptSuggestions();
   }
@@ -1603,6 +1638,7 @@
     for (const item of widgets) {
       const option=document.createElement("button"), icon=document.createElement("span"), label=document.createElement("span"), status=document.createElement("small"), referenced=canvasAgent.references.includes(item.id);
       option.type="button";
+      peButton(option,"menu-item","");
       option.setAttribute("role","option");
       option.setAttribute("aria-selected",String(referenced));
       icon.className="canvas-agent-reference-item-icon";
@@ -1653,7 +1689,7 @@
   function canvasAgentSyncToolbarLayout(theme = state.theme) {
     const body = document.body,
       toolbarAvailable = theme === "studio" && Boolean(window.matchMedia?.("(min-width: 701px)").matches) && canvasAgentToolbar && canvasAgentToolbarHome;
-    body.classList.remove("studio-toolbar-effort-compact", "studio-toolbar-controls-compact", "studio-agent-launcher-floating");
+    body.classList.remove("studio-toolbar-effort-compact", "studio-toolbar-controls-compact", "studio-toolbar-two-row", "studio-agent-launcher-floating");
     if (!toolbarAvailable) {
       if (canvasAgentControl.parentElement !== canvasAgentFrame) canvasAgentFrame.append(canvasAgentControl);
       body.classList.toggle("studio-agent-launcher-floating", theme === "studio");
@@ -1665,9 +1701,8 @@
     if (!canvasAgentToolbarOverflows()) return "effort-compact";
     body.classList.add("studio-toolbar-controls-compact");
     if (!canvasAgentToolbarOverflows()) return "controls-compact";
-    body.classList.add("studio-agent-launcher-floating");
-    canvasAgentFrame.append(canvasAgentControl);
-    return "floating";
+    body.classList.add("studio-toolbar-two-row");
+    return "two-row";
   }
   function canvasAgentScheduleToolbarLayout() {
     if (canvasAgentToolbarLayoutFrame) return;
@@ -1675,6 +1710,12 @@
       canvasAgentToolbarLayoutFrame = 0;
       canvasAgentSyncToolbarLayout();
     });
+  }
+  function canvasAgentWorkbenchNeedsSync(theme = state.theme) {
+    const docked = theme === "studio" && Boolean(window.matchMedia?.("(min-width: 701px)").matches),
+      dockedClass = document.body.classList.contains("studio-agent-docked"),
+      expectedParent = docked ? canvasAgentFrame : view;
+    return dockedClass !== docked || canvasAgentPanel.parentElement !== expectedParent;
   }
   function syncStudioWorkbench(theme = state.theme) {
     const docked = theme === "studio" && Boolean(window.matchMedia?.("(min-width: 701px)").matches);
@@ -1716,7 +1757,10 @@
     return Math.max(CANVAS_AGENT_HEIGHT_MIN,view.clientHeight);
   }
   function canvasAgentMaximumPanelWidth() {
-    if (canvasAgentDockedPanel()) return Math.max(CANVAS_AGENT_WIDTH_MIN,Math.min(640,canvasAgentFrame.clientWidth-560));
+    if (canvasAgentDockedPanel()) {
+      const navigatorReserve=Math.max(0,parseFloat(getComputedStyle(canvasAgentFrame).getPropertyValue("--studio-navigator-edge-shift"))||0);
+      return Math.max(CANVAS_AGENT_WIDTH_MIN,Math.min(640,canvasAgentFrame.clientWidth-16-navigatorReserve));
+    }
     return Math.max(CANVAS_AGENT_WIDTH_MIN,view.clientWidth-16);
   }
   function canvasAgentSyncResizeHandleValues() {
@@ -2018,8 +2062,12 @@
     for (const attachment of canvasAgent.attachments) {
       const chip = document.createElement("div"), remove = document.createElement("button");
       chip.className = "canvas-agent-attachment";
-      if(attachment.kind==="file")chip.classList.add("file");
+      if(attachment.kind==="file"){
+        chip.classList.add("file");
+        chip.dataset.peList="single";
+      }
       remove.type = "button";
+      peButton(remove,"icon","compact");
       remove.textContent = "×";
       remove.disabled=Boolean(attachment.removing);
       remove.setAttribute("aria-label",`${t("canvasAgentRemoveAttachment")} ${attachment.name}`);
@@ -2515,6 +2563,8 @@
       label.textContent=canvasAgentBlockLabel(segment.language);
       button.className="canvas-agent-copy-block-button";
       button.type="button";
+      button.dataset.peButton="secondary";
+      button.dataset.peDensity="compact";
       button.textContent=t("canvasAgentCopyBlock");
       code.textContent=segment.text;
       button.addEventListener("click",async()=>{
@@ -2536,9 +2586,9 @@
   function canvasAgentSetAssistantCopyState(button,state="idle") {
     const normalized=["copied","error"].includes(state)?state:"idle",key={idle:"canvasAgentCopyResponse",copied:"canvasAgentResponseCopied",error:"canvasAgentResponseCopyFailed"}[normalized];
     button.dataset.copyState=normalized;
+    button.dataset.peState=normalized==="idle"&&button.disabled?"disabled":{idle:"default",copied:"success",error:"error"}[normalized];
     button.classList.toggle("copied",normalized==="copied");
     button.classList.toggle("error",normalized==="error");
-    button.querySelector(".canvas-agent-message-copy-label").textContent=t(key);
     button.setAttribute("aria-label",t(key));
     button.setAttribute("title",t(key));
   }
@@ -2548,6 +2598,7 @@
     const generation=(button._copyGeneration||0)+1;
     button._copyGeneration=generation;
     button.disabled=true;
+    button.dataset.peState="busy";
     const copied=await writeClipboardText(text);
     if(button._copyGeneration!==generation)return copied;
     button.disabled=false;
@@ -2664,6 +2715,7 @@
     if (append) canvasAgentTranscript.querySelector(".canvas-agent-empty")?.remove();
     const row = document.createElement("article");
     row.className = `canvas-agent-message ${item.role}`;
+    if(item.role==="assistant")row.setAttribute("aria-label",t("canvasAgent"));
     const label = document.createElement("span"), body = document.createElement("div");
     label.className = "canvas-agent-message-role";
     label.textContent = item.role === "user" ? "You" : "Agent";
@@ -2672,14 +2724,19 @@
     row.append(label,body);
     const position=canvasAgentAssistantPosition(item),target={row,body,historyItem:item,messageText:item.text,turn:position.turn,step:position.step,copyActions:null,copyButton:null};
     if(item.role==="assistant"){
-      const actions=document.createElement("div"),button=document.createElement("button"),icon=document.createElement("span"),copyLabel=document.createElement("span");
+      const actions=document.createElement("div"),button=document.createElement("button"),icon=document.createElementNS("http://www.w3.org/2000/svg","svg"),front=document.createElementNS("http://www.w3.org/2000/svg","rect"),back=document.createElementNS("http://www.w3.org/2000/svg","path");
       actions.className="canvas-agent-message-actions";
       button.className="canvas-agent-message-copy";
       button.type="button";
+      button.dataset.peButton="icon";
+      button.dataset.peDensity="compact";
       icon.className="canvas-agent-message-copy-icon";
+      icon.setAttribute("viewBox","0 0 24 24");
       icon.setAttribute("aria-hidden","true");
-      copyLabel.className="canvas-agent-message-copy-label";
-      button.append(icon,copyLabel);
+      front.setAttribute("x","8");front.setAttribute("y","8");front.setAttribute("width","11");front.setAttribute("height","11");front.setAttribute("rx","2");
+      back.setAttribute("d","M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2");
+      icon.append(front,back);
+      button.append(icon);
       actions.append(button);
       row.append(actions);
       target.copyActions=actions;
@@ -3235,6 +3292,7 @@
     return canvasAgentConnectionProvider(selectedAiConnectionId());
   }
   function canvasAgentConnectionDidChange(force = false, nextProvider = canvasAgentSelectedConnectionProvider()) {
+    canvasAgentUpdateConnectionButton();
     const provider=String(nextProvider||"");
     const connectionActive = canvasAgent.socket?.readyState === WebSocket.OPEN || Boolean(canvasAgent.connectPromise);
     if (!connectionActive || !force && canvasAgent.connectionId === selectedAiConnectionId()) return;
@@ -3363,8 +3421,16 @@
       canvas = document.createElement("canvas"), context = canvas.getContext("2d");
     canvas.width = width;
     canvas.height = height;
-    await prepareVisibleWidgetSnapshots(region,true,signal);
+    await prepareVisibleWidgetSnapshots(region,false,signal);
     assertCurrent?.();
+    const unavailableWidgetIds=capturableWidgets(region)
+      .filter(widget=>!widget.snapshotImage||widget.snapshotVersion<widget.contentVersion)
+      .map(widget=>widget.id);
+    if(unavailableWidgetIds.length)throw canvasAgentToolError(
+      "WIDGET_CAPTURE_UNAVAILABLE",
+      "Canvas capture stopped because one or more Widgets did not become ready. Refresh the Canvas and retry.",
+      {objectIds:unavailableWidgetIds},
+    );
     context.fillStyle = state.paint.paper;
     context.fillRect(0,0,width,height);
     context.save();
@@ -3593,7 +3659,7 @@
       const type=String(raw?.type || "");
       if (type === "text") {
         const fontSize=Number.isFinite(Number(raw.fontSize))?Number(raw.fontSize):38,maxWidth=Number.isFinite(Number(raw.maxWidth))?Number(raw.maxWidth):Math.max(fontSize*3,Math.min(900,visible.w*.65));
-        const record=await renderedTextBoxRecord({text:String(raw.text||""),x:0,y:0,fontSize,maxWidth,color:typeof raw.color === "string"?raw.color:state.inkColor});
+        const record=await renderedTextBoxRecord({text:String(raw.text||""),x:0,y:0,fontSize,maxWidth,fontFamily:state.aiFont,color:typeof raw.color === "string"?raw.color:state.inkColor});
         if(!record)throw canvasAgentToolError("INVALID_TEXT","Text content or geometry was rejected.");
         const placed=canvasAgentPlacementBox(record.w,record.h,raw.placement,reserved);record.x=Math.round(placed.x);record.y=Math.round(placed.y);reserved.push(canvasAgentBox({kind:"text",item:record}));prepared.push({type,kind:"text",record,placed});
       } else if (type === "widget") {
@@ -3940,25 +4006,68 @@
       onFinish?.();
     }).catch(()=>{});
   }
+  let canvasAgentDockedOpenFrame=0,canvasAgentDockedOpenTimer=0;
+  function canvasAgentCancelDockedOpenWork() {
+    if(canvasAgentDockedOpenFrame)cancelAnimationFrame(canvasAgentDockedOpenFrame);
+    if(canvasAgentDockedOpenTimer)clearTimeout(canvasAgentDockedOpenTimer);
+    canvasAgentDockedOpenFrame=0;
+    canvasAgentDockedOpenTimer=0;
+  }
+  function canvasAgentFinishDockedOpen(focus,connect) {
+    if(canvasAgentPanel.hidden||!document.body.classList.contains("canvas-agent-open"))return;
+    canvasAgentRestorePanelSize();
+    canvasAgentRestorePanelPosition();
+    canvasAgentResizeInput();
+    syncCanvasModePresentation();
+    canvasAgentSyncTriggerState();
+    if(focus){
+      const focusTarget=canvasAgent.inputMode==="ink"?canvasAgentInkCanvas:canvasAgentInput;
+      try{focusTarget.focus({preventScroll:true});}catch{focusTarget.focus();}
+    }
+    if(connect){
+      canvasAgentSyncState();
+      void canvasAgentConnect().catch(error=>canvasAgentSetStatus(String(error?.message||error),"error"));
+    }else canvasAgentSyncSelection();
+  }
+  function canvasAgentScheduleDockedOpenWork(focus,connect) {
+    canvasAgentCancelDockedOpenWork();
+    canvasAgentDockedOpenFrame=requestAnimationFrame(()=>{
+      canvasAgentDockedOpenFrame=0;
+      canvasAgentDockedOpenTimer=setTimeout(()=>{
+        canvasAgentDockedOpenTimer=0;
+        canvasAgentFinishDockedOpen(focus,connect);
+      },0);
+    });
+  }
   function openCanvasAgent({focus=true}={}) {
     const options=arguments[0]||{},connect=options.connect!==false,animate=options.animate!==false;
     if (!canvasAgentAvailable()) return;
+    if(settings.connections.length)canvasAgentUpdateConnectionButton();
+    else void loadCanvasSettings();
     window.PenEchoStudioNavigator?.agentWillOpen?.();
-    syncStudioWorkbench();
+    if(canvasAgentWorkbenchNeedsSync())syncStudioWorkbench();
     canvasAgentCancelPanelMotion();
+    canvasAgentCancelDockedOpenWork();
     canvasAgentPanel.hidden = false;
     canvasAgentPanel.inert = false;
     canvasAgentPanel.setAttribute("aria-hidden","false");
     canvasAgentToggle.setAttribute("aria-expanded","true");
     const docked=canvasAgentDockedPanel();
+    // Expose the open state before synchronous geometry restoration. The
+    // inspector keeps its persisted width class while closed, so the slide can
+    // begin on the click frame instead of waiting for layout reads below.
+    document.body.classList.add("canvas-agent-open");
+    if(animate&&docked){
+      canvasAgentScheduleDockedOpenWork(focus,connect);
+      return;
+    }
     if(docked){
-      // Resolve the persisted inspector width while it is still offscreen so the
-      // slide and every control following its leading edge share one geometry.
+      // Reconcile persisted geometry while the already-visible opening state is
+      // moving toward that same retained width.
       canvasAgentRestorePanelSize();
       canvasAgentRestorePanelPosition();
       canvasAgentResizeInput();
     }
-    document.body.classList.add("canvas-agent-open");
     // Opening Agent changes workbench geometry, but never the selected Canvas
     // tool. Re-apply the authoritative mode presentation so a stale temporary
     // Hand/grab cursor or toolbar highlight cannot survive the transition.
@@ -3993,6 +4102,7 @@
   function closeCanvasAgent(options) {
     const focus=options?.focus!==false,animate=options?.animate!==false;
     canvasAgentCancelPanelMotion();
+    canvasAgentCancelDockedOpenWork();
     const docked=canvasAgentDockedPanel();
     const panelRect=canvasAgentPanel.hidden?null:pageLayoutRect(canvasAgentPanel);
     const dragPointerId = canvasAgent.panelDrag?.pointerId;
@@ -4027,6 +4137,7 @@
     canvasAgentShowProjectPopover();
     void canvasAgentEnsureProjects({refresh:true}).catch(error=>canvasAgentSetProjectError(String(error?.message||error)));
   });
+  canvasAgentConnectionButton?.addEventListener("click",canvasAgentOpenConnectionSettings);
   canvasAgentProjectClear.addEventListener("click",event=>{
     event.preventDefault();event.stopPropagation();
     if(canvasAgent.projectId)void canvasAgentSelectProject("");
@@ -4188,6 +4299,7 @@
       canvasAgentSetStatus(t("canvasAgentInkImageLimit"),"error");
       return false;
     }
+    canvasAgentDidStartUserConversation();
     let requestSent = false;
     let focusComposerAfterSubmit=true;
     canvasAgentInput.disabled = true;
@@ -4216,7 +4328,8 @@
       canvasAgentAssertSubmitExecution(submitExecution);
       canvasAgentSendRequest(canvasAgent.running ? "steer" : "user_turn",{text:prompt,references:canvasAgentTurnReferences(),images:outgoingAttachments.map(attachment=>attachment.wire),fileIds:fileAttachments.map(attachment=>attachment.projectId),initialState,webSearchEnabled:canvasAgent.searchEnabled,canvasTitleNeeded:currentCanvasNeedsAgentName()});
       requestSent = true;
-      focusComposerAfterSubmit=!hasInk;
+      focusComposerAfterSubmit=false;
+      if(canvasAgentForm.contains(document.activeElement))document.activeElement.blur();
       if(clearInput){canvasAgentInput.value = "";canvasAgentResizeInput();}
       if(includeDraftMedia){canvasAgentClearAttachments();canvasAgentClearInkDraft();canvasAgentClearReferences();}
       canvasAgentSetInputMode("text",focusComposerAfterSubmit);

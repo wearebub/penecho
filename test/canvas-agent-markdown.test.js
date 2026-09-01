@@ -48,9 +48,14 @@ function messageAppender(document,clipboardWrites){
 
 test("PenEcho Agent final replies use the quiet workbench typography hierarchy",()=>{
   assert.match(css,/\.canvas-agent-message\.assistant:not\(\.error\):not\(\.canvas-agent-public-progress\)\s*\{[\s\S]*?width:\s*min\(100%, 68ch\);[\s\S]*?max-width:\s*100%;/);
+  assert.match(css,/\.canvas-agent-message\.assistant:not\(\.error\):not\(\.canvas-agent-public-progress\) \.canvas-agent-message-role\s*\{[^}]*display:\s*none;/);
+  assert.match(css,/\.canvas-agent-message\.assistant:not\(\.error\):not\(\.canvas-agent-public-progress\) \.canvas-agent-message-body\s*\{[^}]*padding:\s*0;[^}]*border:\s*0;[^}]*border-radius:\s*0;[^}]*background:\s*transparent;/);
+  assert.match(css,/body\[data-theme="studio"\] \.canvas-agent-message\.assistant:not\(\.error\):not\(\.canvas-agent-public-progress\) \.canvas-agent-message-body\s*\{[^}]*border:\s*0;[^}]*background:\s*transparent;/);
   assert.match(css,/\.canvas-agent-message-body\.is-markdown strong\s*\{[^}]*font-weight:\s*500;/);
   assert.match(css,/\.canvas-agent-message-body\.is-markdown \.canvas-agent-markdown-heading\s*\{[^}]*font-size:\s*\.875rem;[^}]*font-weight:\s*600;/);
   assert.match(css,/\.canvas-agent-message-body\.is-markdown blockquote\s*\{[^}]*border-inline-start:\s*1px solid #cbd5e1;[^}]*background:\s*transparent;/);
+  assert.match(css,/\.canvas-agent-message-actions\s*\{[^}]*min-height:\s*28px;[^}]*justify-content:\s*flex-start;/);
+  assert.match(css,/\.canvas-agent-message\.assistant:not\(\.error\):not\(\.interrupted\):not\(\.canvas-agent-public-progress\)[\s\S]*?\.canvas-agent-markdown-heading,[\s\S]*?p > strong:first-child,[\s\S]*?li > strong:first-child[\s\S]*?color:\s*var\(--pe-accent-label\);/);
   assert.match(css,/\.canvas-agent-message\.interrupted \.canvas-agent-message-body\s*\{[^}]*opacity:\s*1;/);
   assert.doesNotMatch(css,/\.canvas-agent-message\.interrupted \.canvas-agent-message-body\s*\{[^}]*opacity:\s*\.68;/);
 });
@@ -278,6 +283,7 @@ test("PenEcho Agent restores copy only on final summaries from legacy history",(
 test("PenEcho Agent copies only the authoritative final assistant response",async()=>{
   const {document}=parseHTML("<!doctype html><html><body><div id=transcript><details>hidden tool execution and reasoning</details></div></body></html>"),clipboardWrites=[],renderer=messageAppender(document,clipboardWrites),append=renderer.append,transcript=document.querySelector("#transcript");
   const partial=append({role:"assistant",text:"temporary streamed draft",final:false},[],true);
+  assert.equal(partial.row.getAttribute("aria-label"),"canvasAgent","the visually quiet assistant row keeps an accessible role name");
   assert.equal(partial.copyActions.hasAttribute("hidden"),true,"streamed assistant deltas do not expose copy");
   assert.equal(partial.copyButton.disabled,true);
 
@@ -290,10 +296,16 @@ test("PenEcho Agent copies only the authoritative final assistant response",asyn
   const finalText="# Final summary\n\n- Completed the requested canvas change\n- Preserved the result exactly";
   const final=append({role:"assistant",text:finalText,final:true,copyable:true},[],true);
   assert.equal(final.copyActions.hasAttribute("hidden"),false);
-  assert.equal(final.copyButton.textContent,"Copy response");
+  assert.equal(final.copyButton.dataset.peButton,"icon");
+  assert.equal(final.copyButton.textContent,"");
+  assert.equal(final.copyButton.querySelector("svg")?.getAttribute("viewBox"),"0 0 24 24");
+  assert.equal(final.copyButton.getAttribute("aria-label"),"Copy response");
+  assert.equal(final.copyButton.dataset.peState,"default");
   await renderer.copy(final);
   assert.deepEqual(clipboardWrites,[finalText]);
-  assert.equal(final.copyButton.textContent,"Copied");
+  assert.equal(final.copyButton.textContent,"");
+  assert.equal(final.copyButton.getAttribute("aria-label"),"Copied");
+  assert.equal(final.copyButton.dataset.peState,"success");
   assert.doesNotMatch(clipboardWrites[0],/tool execution|reasoning|user prompt|temporary streamed draft|inspect the canvas/);
   assert.match(transcript.textContent,/hidden tool execution and reasoning/,"execution UI remains visible but outside the copied payload");
 });

@@ -1,6 +1,7 @@
 "use strict";
 
 const desktop = window.penechoDesktop;
+document.documentElement.dataset.platform = desktop?.platform || "browser";
 const form = document.getElementById("settingsForm");
 const submitButton = document.getElementById("submitButton");
 const statusBox = document.getElementById("statusBox");
@@ -38,9 +39,9 @@ const KIMI_PRESET_MODELS = new Set(Object.values(KIMI_MODELS));
 
 const translations = {
   zh:{
-    eyebrow:"几分钟内连接 AI 画布", title:"设置你的 AI 连接", subtitle:"PenEcho 在本机运行。选择 AI 模型来源，测试一次，然后就可以开始创作。",
+    eyebrow:"几分钟内连接 AI 画布", title:"设置你的 AI 连接", subtitle:"选择模型来源，测试连接，然后打开 PenEcho。",
     stepOneTitle:"选择模型来源", stepOneBody:"对大多数用户，API 是最简单的选择。", stepTwoTitle:"本地测试", stepTwoBody:"API Key 保存在仅当前用户可读的本地凭据文件中。", stepThreeTitle:"在画布上创作", stepThreeBody:"书写或绘画，让 AI 直接以视觉内容回应。",
-    localTitle:"本地桌面服务", localBody:"画布保留在你的电脑中，模型请求只发送给你选择的服务商。", configuration:"配置", settingsTitle:"连接你的模型", providerLegend:"AI 模型来源",
+    localTitle:"本地桌面服务", localBody:"画布保留在你的电脑中，模型请求只发送给你选择的服务商。", configuration:"配置", settingsTitle:"连接你的模型", providerLegend:"AI 模型来源", providerHelp:"选择 PenEcho 使用的连接。", apiProviderOption:"API · 推荐",
     apiTitle:"API", apiDescription:"推荐 · 无需安装命令行工具", recommended:"推荐", kimiDescription:"2026 开源合作伙伴 · Kimi K3", kimiCliDescription:"使用本机 Kimi Code 登录", codexDescription:"自动安装或使用已有账户", claudeDescription:"自动安装或使用已有账户",
     kimiPartnerTitle:"PenEcho 是 Kimi 2026 开源合作伙伴", otherProviders:"其他模型来源", kimiCodeLink:"Kimi Code", kimiChinaLink:"中国大陆", kimiGlobalLink:"全球", kimiOffering:"Kimi 服务", kimiRegion:"访问区域", kimiCodeOption:"Kimi Code · 订阅制", kimiPlatformOption:"开放平台 · 按量付费", globalOption:"全球", chinaOption:"中国大陆",
     apiType:"API 类型", model:"模型", baseUrl:"API 地址", apiKey:"API Key", savedLocally:"已保存在本机", apiKeyHelp:"保存在仅当前用户可读的本地凭据文件中，不会暴露给画布页面。",
@@ -60,7 +61,11 @@ function translate() {
     const value = currentLanguage === "en" ? element.dataset.english : translations[currentLanguage]?.[element.dataset.i18n];
     if (value) element.textContent = value;
   }
-  for (const button of document.querySelectorAll("[data-language]")) button.classList.toggle("active", button.dataset.language === currentLanguage);
+  for (const button of document.querySelectorAll("[data-language]")) {
+    const active = button.dataset.language === currentLanguage;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+  }
 }
 
 function setStatus(kind, title, message, action = null) {
@@ -76,6 +81,7 @@ function setStatus(kind, title, message, action = null) {
 
 function setBusy(busy) {
   submitButton.disabled = busy;
+  submitButton.setAttribute("aria-busy", String(busy));
   for (const button of cliButtons) button.disabled = busy;
 }
 
@@ -86,8 +92,13 @@ function provider() {
 function updateProviderPanels() {
   const selected = provider();
   for (const panel of document.querySelectorAll("[data-provider-panel]")) panel.hidden = !panel.dataset.providerPanel.split(/\s+/).includes(selected);
+  for (const context of document.querySelectorAll("[data-provider-context]")) context.hidden = !context.dataset.providerContext.split(/\s+/).includes(selected);
   for (const element of document.querySelectorAll("[data-kimi-only]")) element.hidden = selected !== "kimi";
   updateApiFormatAvailability();
+}
+
+function syncAgentAutoOpenSwitch() {
+  form.elements.canvasAgentAutoOpen.setAttribute("aria-checked", String(form.elements.canvasAgentAutoOpen.checked));
 }
 
 function updateLanAccessHint() {
@@ -171,6 +182,7 @@ function changeProvider() {
 
 async function initialize() {
   translate();
+  syncAgentAutoOpenSwitch();
   if (!desktop) {
     setStatus("error", translations[currentLanguage]?.failed || "Desktop setup unavailable", translations[currentLanguage]?.unexpected || "The secure desktop bridge is unavailable.");
     submitButton.disabled = true;
@@ -181,14 +193,15 @@ async function initialize() {
     detectedLanHosts = Array.isArray(settings.lanHosts) ? settings.lanHosts : [];
     document.getElementById("versionLabel").textContent = `Desktop v${settings.version}`;
     document.getElementById("configPath").textContent = settings.configFile;
-    const selected = form.querySelector(`input[name="provider"][value="${CSS.escape(settings.provider)}"]`) || form.elements.provider[0];
-    selected.checked = true;
+    assign("provider", settings.provider);
+    if (!provider()) assign("provider", "api");
     for (const name of ["apiFormat","apiUrl","apiModel","kimiProduct","kimiRegion","kimiCliModel","kimiCliPath","codexModel","codexPath","claudeModel","claudePath","effort","imageFormat","timeout","canvasAgentTurnLimit","autoDelay","host","port","traceLimit"]) assign(name, settings[name]);
     form.elements.canvasAgentAutoOpen.checked = settings.canvasAgentAutoOpen !== false;
+    syncAgentAutoOpenSwitch();
     form.elements.requestTrace.checked = settings.requestTrace === true;
     savedKeyBadge.hidden = !settings.apiKeySaved;
     form.elements.apiKey.placeholder = settings.apiKeySaved ? "Leave blank to keep saved key" : "Paste your API key";
-    activeProvider = settings.provider;
+    activeProvider = provider();
     updateProviderPanels();
     if (activeProvider === "kimi") repairKimiPreset();
     if (["api", "kimi"].includes(activeProvider)) captureApiDraft(activeProvider);
@@ -199,7 +212,8 @@ async function initialize() {
   }
 }
 
-for (const radio of form.elements.provider) radio.addEventListener("change", changeProvider);
+form.elements.provider.addEventListener("change", changeProvider);
+form.elements.canvasAgentAutoOpen.addEventListener("change", syncAgentAutoOpenSwitch);
 form.elements.host.addEventListener("change", updateLanAccessHint);
 form.elements.port.addEventListener("input", updateLanAccessHint);
 form.elements.kimiProduct.addEventListener("change", () => updateKimiEndpoint(true, true));

@@ -18,7 +18,8 @@
   --danger: #b4232f;
   --danger-soft: #fff5f5;
   --danger-line: #efc0c4;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --pe-font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Noto Sans SC", "Segoe UI", sans-serif;
+  font-family: var(--pe-font-ui);
 }
 
 [data-studio-palette="graphite"] { --page: #f6f7f8; --chrome: #f8f8f8; --panel: #ffffff; --panel-raised: #fafbfb; --line: #d7dade; --ink: #20242a; --muted: #666d76; --accent: #475569; --accent-strong: #334155; --accent-soft: #e7ebef; --accent-softer: #f2f4f6; --accent-border: #c5cdd6; }
@@ -49,10 +50,10 @@ svg { display: block; }
 .access-brand-mark { display: grid; width: 30px; height: 30px; place-items: center; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
 .access-brand img { width: 24px; height: 24px; object-fit: contain; }
 .access-brand > span:last-child { display: grid; gap: 1px; line-height: 1.05; }
-.access-brand strong { color: var(--ink); font-size: 14px; font-weight: 700; letter-spacing: -.01em; }
-.access-brand small { color: var(--muted); font-size: 10px; font-weight: 600; letter-spacing: .035em; text-transform: uppercase; }
+.access-brand strong { color: var(--ink); font-size: 14px; font-weight: 600; letter-spacing: normal; }
+.access-brand small { color: var(--muted); font-size: 11.5px; font-weight: 500; letter-spacing: normal; text-transform: none; }
 .access-language { display: inline-flex; padding: 2px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-raised); }
-.access-language button { min-width: 34px; min-height: 32px; padding: 4px 8px; color: var(--muted); border: 0; border-radius: 6px; background: transparent; font-size: 12px; font-weight: 650; cursor: pointer; transition: color .18s ease-out, background .18s ease-out, box-shadow .18s ease-out; }
+.access-language button { min-width: 34px; min-height: 32px; padding: 4px 8px; color: var(--muted); border: 0; border-radius: 6px; background: transparent; font-size: 13px; font-weight: 500; cursor: pointer; transition: color .18s ease-out, background .18s ease-out, box-shadow .18s ease-out; }
 .access-language button:hover { color: var(--ink); background: var(--accent-softer); }
 .access-language button[aria-pressed="true"] { color: var(--ink); background: var(--panel); box-shadow: 0 1px 3px rgba(28, 31, 39, .12); }
 .access-language button:active { background: var(--accent-soft); }
@@ -60,9 +61,9 @@ svg { display: block; }
 .access-shell { display: grid; min-height: calc(100vh - 52px); min-height: calc(100dvh - 52px); place-items: center; padding: 24px 16px max(24px, env(safe-area-inset-bottom)); }
 .access-panel { width: min(100%, 480px); padding: 28px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); box-shadow: 0 12px 30px rgba(25, 30, 42, .09); }
 .access-heading { display: grid; gap: 7px; margin-bottom: 22px; }
-.access-kicker { color: var(--accent-strong); font-size: 10.5px; font-weight: 750; letter-spacing: .08em; }
-.access-heading h1 { margin: 0; color: var(--ink); font-size: 23px; font-weight: 700; line-height: 1.2; letter-spacing: -.025em; text-wrap: balance; }
-.access-heading p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.55; text-wrap: pretty; }
+.access-kicker { color: var(--accent-strong); font-size: 10.5px; font-weight: 600; letter-spacing: .035em; }
+.access-heading h1 { margin: 0; color: var(--ink); font-size: 20px; font-weight: 600; line-height: 1.25; letter-spacing: normal; text-wrap: balance; }
+.access-heading p { margin: 0; color: var(--muted); font-size: 13px; font-weight: 400; line-height: 1.45; text-wrap: pretty; }
 
 .access-loading { display: flex; min-height: 54px; align-items: center; gap: 11px; color: var(--muted); font-size: 13px; }
 .access-loading span { width: 18px; height: 18px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: access-spin .8s linear infinite; }
@@ -73,8 +74,8 @@ svg { display: block; }
 .access-scope-note { display: grid; grid-template-columns: 30px minmax(0, 1fr); align-items: start; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 11px; background: var(--panel-raised); }
 .access-note-icon { display: grid; width: 30px; height: 30px; place-items: center; color: var(--accent-strong); border-radius: 8px; background: var(--accent-soft); }
 .access-note-icon svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-.access-scope-note strong { color: var(--ink); font-size: 12.5px; font-weight: 700; }
-.access-scope-note p { margin: 3px 0 0; color: var(--muted); font-size: 11.5px; line-height: 1.5; }
+.access-scope-note strong { color: var(--ink); font-size: 13px; font-weight: 500; line-height: 1.25; }
+.access-scope-note p { margin: 3px 0 0; color: var(--muted); font-size: 13px; font-weight: 400; line-height: 1.45; }
 
 .access-choice-list { display: grid; overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
 .access-choice { display: grid; grid-template-columns: 34px minmax(0, 1fr) 16px; min-height: 72px; align-items: center; gap: 10px; width: 100%; padding: 11px 12px; color: var(--ink); border: 0; background: var(--panel); text-align: left; cursor: pointer; transition: color .18s ease-out, background .18s ease-out; }
@@ -88,36 +89,36 @@ svg { display: block; }
 .access-choice-icon svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .access-choice-primary .access-choice-icon { color: #fff; }
 .access-choice > span:nth-child(2) { display: grid; gap: 3px; }
-.access-choice strong { font-size: 13.5px; font-weight: 700; line-height: 1.3; }
-.access-choice small { color: var(--muted); font-size: 11.5px; line-height: 1.4; }
+.access-choice strong { font-size: 13px; font-weight: 500; line-height: 1.25; }
+.access-choice small { color: var(--muted); font-size: 13px; font-weight: 400; line-height: 1.45; }
 .access-choice-primary small { color: rgba(255, 255, 255, .82); }
 .access-choice-chevron { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; opacity: .58; }
 
-.access-restart-note { margin: 0; padding: 0 2px; color: var(--muted); font-size: 11.5px; line-height: 1.5; }
-.access-restart-note b { color: var(--ink); font-weight: 650; }
+.access-restart-note { margin: 0; padding: 0 2px; color: var(--muted); font-size: 13px; font-weight: 400; line-height: 1.45; }
+.access-restart-note b { color: var(--ink); font-weight: 500; }
 .access-pin { justify-items: center; }
 .access-pin-entry { display: grid; justify-items: center; gap: 7px; width: 100%; padding: 4px 0 2px; }
 .access-pin-dots { display: grid; grid-template-columns: repeat(6, 18px); gap: 10px; justify-content: center; min-height: 22px; }
 .access-pin-dots i { width: 13px; height: 13px; align-self: center; border: 1.5px solid color-mix(in srgb, var(--muted) 66%, transparent); border-radius: 50%; background: var(--panel); transition: border-color .18s ease-out, background .18s ease-out, transform .18s ease-out; }
 .access-pin-dots i.filled { border-color: var(--accent); background: var(--accent); transform: scale(1.06); }
-.access-pin-step { min-height: 18px; margin: 0; color: var(--muted); font-size: 11.5px; font-weight: 550; text-align: center; }
+.access-pin-step { min-height: 18px; margin: 0; color: var(--muted); font-size: 11.5px; font-weight: 500; line-height: 1.3; text-align: center; }
 .access-keypad { display: grid; grid-template-columns: repeat(3, 68px); gap: 8px; width: max-content; }
-.access-keypad button { display: grid; width: 68px; height: 52px; place-items: center; padding: 0; color: var(--ink); border: 1px solid var(--line); border-radius: 10px; background: var(--panel-raised); font-size: 20px; font-weight: 650; cursor: pointer; touch-action: manipulation; transition: color .18s ease-out, border-color .18s ease-out, background .18s ease-out, transform .18s ease-out; }
+.access-keypad button { display: grid; width: 68px; height: 52px; place-items: center; padding: 0; color: var(--ink); border: 1px solid var(--line); border-radius: 10px; background: var(--panel-raised); font-size: 20px; font-weight: 500; cursor: pointer; touch-action: manipulation; transition: color .18s ease-out, border-color .18s ease-out, background .18s ease-out, transform .18s ease-out; }
 .access-keypad button:hover { color: var(--accent-strong); border-color: var(--accent-border); background: var(--accent-softer); }
 .access-keypad button:active { background: var(--accent-soft); transform: scale(.97); }
-.access-keypad .access-key-action { color: var(--muted); font-size: 16px; font-weight: 650; }
+.access-keypad .access-key-action { color: var(--muted); font-size: 16px; font-weight: 500; }
 .access-keypad .access-key-action svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 
-.access-primary { width: 100%; min-height: 44px; padding: 9px 14px; color: #fff; border: 1px solid var(--accent-strong); border-radius: 9px; background: var(--accent-strong); font-size: 13px; font-weight: 700; cursor: pointer; transition: border-color .18s ease-out, background .18s ease-out, transform .18s ease-out; }
+.access-primary { width: 100%; min-height: 44px; padding: 9px 14px; color: #fff; border: 1px solid var(--accent-strong); border-radius: 9px; background: var(--accent-strong); font-size: 13px; font-weight: 500; cursor: pointer; transition: border-color .18s ease-out, background .18s ease-out, transform .18s ease-out; }
 .access-primary:hover:not(:disabled) { border-color: color-mix(in srgb, var(--accent-strong) 88%, #000); background: color-mix(in srgb, var(--accent-strong) 88%, #000); }
 .access-primary:active:not(:disabled) { transform: scale(.99); }
-.access-text-button { min-height: 36px; padding: 6px 12px; color: var(--muted); border: 0; border-radius: 8px; background: transparent; font-size: 12.5px; font-weight: 650; cursor: pointer; transition: color .18s ease-out, background .18s ease-out; }
+.access-text-button { min-height: 36px; padding: 6px 12px; color: var(--muted); border: 0; border-radius: 8px; background: transparent; font-size: 13px; font-weight: 500; cursor: pointer; transition: color .18s ease-out, background .18s ease-out; }
 .access-text-button:hover { color: var(--ink); background: var(--accent-softer); }
 .access-text-button:active { background: var(--accent-soft); }
 .access-warning { padding: 13px; border: 1px solid var(--warning-line); border-radius: 11px; background: var(--warning-soft); }
-.access-warning strong { color: var(--warning); font-size: 13px; font-weight: 700; }
-.access-warning p { margin: 5px 0 0; color: color-mix(in srgb, var(--warning) 78%, var(--ink)); font-size: 12px; line-height: 1.55; }
-.access-error { margin-top: 14px; padding: 10px 12px; color: var(--danger); border: 1px solid var(--danger-line); border-radius: 9px; background: var(--danger-soft); font-size: 12px; line-height: 1.45; }
+.access-warning strong { color: var(--warning); font-size: 13.5px; font-weight: 600; line-height: 1.3; }
+.access-warning p { margin: 5px 0 0; color: color-mix(in srgb, var(--warning) 78%, var(--ink)); font-size: 13px; font-weight: 400; line-height: 1.45; }
+.access-error { margin-top: 14px; padding: 10px 12px; color: var(--danger); border: 1px solid var(--danger-line); border-radius: 9px; background: var(--danger-soft); font-size: 13px; font-weight: 400; line-height: 1.45; }
 
 button:focus-visible, a:focus-visible { position: relative; z-index: 1; outline: 2px solid var(--accent); outline-offset: 2px; }
 .access-choice:focus-visible { outline-offset: -3px; }

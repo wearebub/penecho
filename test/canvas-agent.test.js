@@ -237,11 +237,11 @@ test("PenEcho Agent hides its empty-state hint as soon as handwriting mode expan
   assert.equal(canvasAgentInputHint.hidden,false);
 });
 
-test("PenEcho Agent does not reopen the virtual keyboard after a successful handwriting send",()=>{
+test("PenEcho Agent dismisses the virtual keyboard after every successful send",()=>{
   const source=read("src/client/app/canvas-agent-runtime.js"),setMode=functionSource(source,"canvasAgentSetInputMode"),submit=functionSource(source,"canvasAgentSubmitMessage");
   assert.match(setMode,/canvasAgentSetInputMode\(mode,focus=true\)/);
   assert.match(setMode,/if\(focus\)\(ink\?canvasAgentInkCanvas:canvasAgentInput\)\.focus\?\.\(\)/);
-  assert.match(submit,/requestSent = true;\s*focusComposerAfterSubmit=!hasInk;/);
+  assert.match(submit,/requestSent = true;\s*focusComposerAfterSubmit=false;\s*if\(canvasAgentForm\.contains\(document\.activeElement\)\)document\.activeElement\.blur\(\);/);
   assert.match(submit,/canvasAgentSetInputMode\("text",focusComposerAfterSubmit\)/);
   assert.match(submit,/if\(focusComposerAfterSubmit\)\(canvasAgent\.inputMode==="ink"\?canvasAgentInkCanvas:canvasAgentInput\)\.focus\(\)/);
 });
@@ -2781,15 +2781,18 @@ test("PenEcho Agent UI and browser Facade support local and Cloud runtimes and a
   assert.doesNotMatch(readSource,/Math\.min\(start\+199/);
   assert.match(readSource,/maximum=200000[\s\S]*contentFormat:"nl -ba -w6 -s TAB"[\s\S]*originalEndsWithNewline[\s\S]*terminalBoundary/);
   assert.match(runtime,/Results include revision, hash, newline, truncation, and exact EOF facts/);
-  for (const id of ["canvasAgentToggle","canvasAgentPanel","canvasAgentHead","canvasAgentProjectControl","canvasAgentProject","canvasAgentProjectClear","canvasAgentProjectPopover","canvasAgentProjectTitle","canvasAgentProjectBoundary","canvasAgentProjectList","canvasAgentProjectCreate","canvasAgentProjectCount","canvasAgentFileList","canvasAgentFileCount","canvasAgentProjectRoots","canvasAgentProjectRootBack","canvasAgentProjectRootList","canvasAgentProjectRootApproval","canvasAgentProjectRootApprovalReject","canvasAgentProjectRootApprovalAllow","canvasAgentProjectRootSelect","canvasAgentApproval","canvasAgentApprovalAllow","canvasAgentApprovalReject","canvasAgentHistory","canvasAgentHistoryPopover","canvasAgentHistoryList","canvasAgentHistoryReturn","canvasAgentResizeTop","canvasAgentResizeBottom","canvasAgentResizeLeft","canvasAgentResizeRight","canvasAgentTranscript","canvasAgentAttachments","canvasAgentAttach","canvasAgentReference","canvasAgentWidgetPickerLayer","canvasAgentReferencePicker","canvasAgentReferenceHelp","canvasAgentReferenceSearch","canvasAgentReferenceList","canvasAgentTextMode","canvasAgentInkMode","canvasAgentInkInput","canvasAgentInkCanvas","canvasAgentClearInk","canvasAgentSearch","canvasAgentFileInput","canvasAgentInput","canvasAgentInputHint","canvasAgentSend","canvasAgentStop"]) assert.match(html,new RegExp(`id="${id}"`));
+  for (const id of ["canvasAgentToggle","canvasAgentPanel","canvasAgentHead","canvasAgentProjectControl","canvasAgentProject","canvasAgentProjectClear","canvasAgentConnection","canvasAgentConnectionLabel","canvasAgentProjectPopover","canvasAgentProjectTitle","canvasAgentProjectBoundary","canvasAgentProjectList","canvasAgentProjectCreate","canvasAgentProjectCount","canvasAgentFileList","canvasAgentFileCount","canvasAgentProjectRoots","canvasAgentProjectRootBack","canvasAgentProjectRootList","canvasAgentProjectRootApproval","canvasAgentProjectRootApprovalReject","canvasAgentProjectRootApprovalAllow","canvasAgentProjectRootSelect","canvasAgentApproval","canvasAgentApprovalAllow","canvasAgentApprovalReject","canvasAgentHistory","canvasAgentHistoryPopover","canvasAgentHistoryList","canvasAgentHistoryReturn","canvasAgentResizeTop","canvasAgentResizeBottom","canvasAgentResizeLeft","canvasAgentResizeRight","canvasAgentTranscript","canvasAgentAttachments","canvasAgentAttach","canvasAgentReference","canvasAgentWidgetPickerLayer","canvasAgentReferencePicker","canvasAgentReferenceHelp","canvasAgentReferenceSearch","canvasAgentReferenceList","canvasAgentTextMode","canvasAgentInkMode","canvasAgentInkInput","canvasAgentInkCanvas","canvasAgentClearInk","canvasAgentSearch","canvasAgentFileInput","canvasAgentInput","canvasAgentInputHint","canvasAgentSend","canvasAgentStop"]) assert.match(html,new RegExp(`id="${id}"`));
   for(const removed of ["canvasAgentSize","canvasAgentProjectAdd","canvasAgentProjectActions","canvasAgentProjectAddFile","canvasAgentProjectAccess","canvasAgentProjectControlled","canvasAgentProjectFull","canvasAgentProjectUpload","canvasAgentProjectUploadInput","canvasAgentImageInput"])assert.doesNotMatch(html,new RegExp(`id="${removed}"`));
   assert.match(html,/<dialog id="canvasAgentProjectPopover"[^>]*aria-labelledby="canvasAgentProjectTitle"/);
   assert.match(html,/<dialog id="canvasAgentProjectPopover"[^>]*aria-describedby="canvasAgentProjectDescription canvasAgentProjectBoundary"/);
   const projectDialog=html.slice(html.indexOf('<dialog id="canvasAgentProjectPopover"'),html.indexOf("</dialog>",html.indexOf('<dialog id="canvasAgentProjectPopover"'))+9);
   assert.match(projectDialog,/id="canvasAgentProjectBoundary"[\s\S]*?data-i18n="canvasAgentProjectBoundary"/);
   assert.doesNotMatch(projectDialog,/type="file"|Add local file|添加本地文件/);
-  assert.ok(html.indexOf('id="canvasAgentAttach"')<html.indexOf('id="canvasAgentProject"'));
-  assert.ok(html.indexOf('id="canvasAgentProject"')<html.indexOf('id="canvasAgentReference"'));
+  assert.ok(html.indexOf('id="canvasAgentProject"')<html.indexOf('id="canvasAgentPromptSuggestions"'));
+  assert.ok(html.indexOf('id="canvasAgentPromptSuggestions"')<html.indexOf('id="canvasAgentConnection"'));
+  assert.ok(html.indexOf('id="canvasAgentConnection"')<html.indexOf('id="canvasAgentInput"'));
+  assert.ok(html.indexOf('id="canvasAgentInput"')<html.indexOf('id="canvasAgentAttach"'));
+  assert.ok(html.indexOf('id="canvasAgentAttach"')<html.indexOf('id="canvasAgentReference"'));
   assert.match(html,/id="canvasAgentFileInput"[^>]*type="file"[^>]*\smultiple(?:\s|=|>)/);
   assert.doesNotMatch(html,/id="canvasAgentFileInput"[^>]*\saccept=/);
   assert.match(html,/id="canvasAgentInput"[^>]*aria-describedby="canvasAgentInputHint"/);
@@ -2810,7 +2813,10 @@ test("PenEcho Agent UI and browser Facade support local and Cloud runtimes and a
   assert.doesNotMatch(functionSource(source,"canvasAgentUploadProjectFile"),/localStorage|sessionStorage|indexedDB/);
   assert.doesNotMatch(functionSource(source,"canvasAgentUploadProjectFile"),/canvasAgentFileUnsupported|projectFileSupported/);
   assert.match(functionSource(source,"canvasAgentRenderProjects"),/project\.kind==="folder"[\s\S]*?project\.kind==="file"[\s\S]*?canvasAgentProjectList[\s\S]*?canvasAgentFileList/);
-  assert.match(functionSource(source,"canvasAgentProjectRow"),/canvasAgentFolderProject[\s\S]*?canvasAgentUploadedFile[\s\S]*?canvasAgentFileReadOnly/);
+  const projectRowSource=functionSource(source,"canvasAgentProjectRow");
+  assert.match(projectRowSource,/canvasAgentFolderProject[\s\S]*?canvasAgentUploadedFile[\s\S]*?canvasAgentFileReadOnly/);
+  assert.match(projectRowSource,/dataset\.peList="double"[\s\S]*?dataset\.peState=selected\?"selected":"default"[\s\S]*?dataset\.peRegion="copy"/);
+  assert.match(functionSource(source,"canvasAgentRenderProjects"),/browserRow\.dataset\.peList="double"[\s\S]*?browserRow\.dataset\.peState=browserSelected\?"selected":"default"[\s\S]*?browserCopy\.dataset\.peRegion="copy"/);
   assert.match(source,/canvasAgentProjectClear\.addEventListener\("click",event=>\{[\s\S]*?canvasAgentSelectProject\(""\)/);
   assert.doesNotMatch(source,/canvasAgentProjectClear\.addEventListener\("click"[\s\S]{0,240}?method:"DELETE"/);
   assert.match(functionSource(source,"canvasAgentHandleFiles"),/canvasAgentImageFile[\s\S]*?attachments\.length\+pending\.length>CANVAS_AGENT_MAX_ATTACHMENTS[\s\S]*?item\.image\?await canvasAgentAddAttachments\(\[item\.file\]\):await canvasAgentAddProjectAttachment\(item\.file\)/);
@@ -2829,6 +2835,11 @@ test("PenEcho Agent UI and browser Facade support local and Cloud runtimes and a
   assert.match(source,/function canvasAgentCreateFilePreview\([\s\S]*?openProjectFile[\s\S]*?dblclick[\s\S]*?canvasAgentOpenProjectFile/);
   assert.match(functionSource(source,"canvasAgentAppendMessageElement"),/item\.files[\s\S]*?fileAttachments[\s\S]*?canvasAgentCreateFilePreview/);
   assert.doesNotMatch(source,/canvasAgentFilePrompt|canvasAgentFileOnly|Analyze copied file/);
+  assert.match(css,/\.canvas-agent-project-list\s*\{[^}]*display:\s*block[^}]*overflow:\s*hidden[^}]*border:\s*1px solid var\(--pe-line[^}]*border-radius:\s*var\(--pe-r-group/);
+  assert.match(css,/\.canvas-agent-project-row\s*\{[^}]*min-height:\s*54px[^}]*grid-template-columns:\s*minmax\(0, 1fr\) 36px[^}]*border-bottom:\s*1px solid var\(--pe-line/);
+  assert.match(css,/\.canvas-agent-project-row:last-child\s*\{[^}]*border-bottom:\s*0/);
+  assert.match(css,/\.canvas-agent-resource-icon\s*\{[^}]*width:\s*24px[^}]*color:\s*var\(--pe-ink-2[^}]*background:\s*var\(--pe-surface-muted/);
+  assert.match(css,/\.canvas-agent-project-remove\s*\{[^}]*width:\s*28px[^}]*height:\s*28px[^}]*margin:\s*0[^}]*background:\s*transparent/);
   assert.match(core,/canvasAgentAttach: "Attach files and images"[\s\S]*?canvasAgentAttachTitle: "Attach up to five files and images"/);
   assert.match(core,/canvasAgentAttachmentLimit: "A message can include at most five files and images in any combination\."/);
   assert.match(zh,/canvasAgentAttach: "添加图片或文件"[\s\S]*?canvasAgentAttachTitle: "最多添加五个图片或文件"/);
@@ -2956,6 +2967,11 @@ test("PenEcho Agent UI and browser Facade support local and Cloud runtimes and a
   assert.match(functionSource(source,"canvasAgentConnectionDidChange"),/const connectionActive = canvasAgent\.socket\?\.readyState === WebSocket\.OPEN \|\| Boolean\(canvasAgent\.connectPromise\)/);
   assert.match(functionSource(source,"canvasAgentConnectionDidChange"),/canvasAgent\.running\|\|canvasAgent\.requestPending[\s\S]*canvasAgentChangeConnection\(selectedAiConnectionId\(\)\)/);
   assert.doesNotMatch(functionSource(source,"canvasAgentConnectionDidChange"),/canvasAgentStartNewConversation/);
+  assert.match(functionSource(source,"canvasAgentUpdateConnectionButton"),/connectionTitle\(connection\)/);
+  assert.doesNotMatch(functionSource(source,"canvasAgentUpdateConnectionButton"),/connectionSummary|apiUrl|provider/);
+  assert.match(functionSource(source,"canvasAgentOpenConnectionSettings"),/selectSettingsPage\("connections"\)[\s\S]*openSettings\(\)/);
+  assert.match(source,/canvasAgentConnectionButton\?\.addEventListener\("click",canvasAgentOpenConnectionSettings\)/);
+  assert.match(source,/function openCanvasAgent\([\s\S]{0,300}?settings\.connections\.length\)canvasAgentUpdateConnectionButton\(\);[\s\S]*?else void loadCanvasSettings\(\)/);
   assert.match(changeConnectionSource,/"change_connection"[\s\S]*webSearchEnabled:canvasAgent\.searchEnabled/);
   assert.doesNotMatch(changeConnectionSource,/canvasAgentClearTranscript|canvasAgentBeginLocalConversation|canvasAgentClearAttachments/);
   assert.match(http,/sendForHandshake[\s\S]*\["ready","error"\][\s\S]*handshakeId/);
@@ -3038,6 +3054,7 @@ test("PenEcho Agent UI and browser Facade support local and Cloud runtimes and a
   assert.match(functionSource(source,"canvasAgentRenderReferencePicker"),/canvas-agent-reference-item-icon[\s\S]*canvas-agent-reference-item-label[\s\S]*classList\.toggle\("has-message"[\s\S]*classList\.toggle\("is-message"[\s\S]*canvasAgentReferenceCountOne/);
   assert.match(source,/function canvasAgentCreateReferenceChip[\s\S]*?canvas-agent-reference-chip-icon[\s\S]*?dataset\.kind[\s\S]*?chip\.append\(icon,label,meta\)[\s\S]*?return chip;/);
   assert.match(functionSource(source,"canvasAgentToggleReferencePicker"),/canvasAgentForm\.classList\.toggle\("canvas-agent-reference-open",open\)[\s\S]*canvasAgentSyncInputHint\(\)/);
+  assert.doesNotMatch(functionSource(source,"canvasAgentToggleReferencePicker"),/canvasAgentReferenceSearch\.focus/);
   assert.match(core,/canvasAgentReferenceCountOne: "1 Widget"/);
   assert.match(zh,/canvasAgentReferenceCountOne: "1 个 Widget"/);
   assert.match(functionSource(source,"canvasAgentWidgetFromPickEvent"),/widgetPointerHit\(clientPoint\(event\),event\.pointerType\|\|"mouse",true\)/);
@@ -3081,7 +3098,7 @@ test("PenEcho Agent UI and browser Facade support local and Cloud runtimes and a
   assert.match(functionSource(persistence,"loadSnapshot"),/wantsConversationForCanvas\?\.\(\{ id:item\.id, location \}\)[\s\S]*?canvasAgentCanvasDidChange\(\{ id:item\.id, location \},\{clearProject:true,deferConversationStart:restoreStudioConversation\}\)/);
   assert.match(functionSource(persistence,"startBlankCanvas"),/canvasAgentCanvasDidChange\(null,\{clearProject:true\}\)/);
   assert.match(functionSource(source,"canvasAgentCanvasDidChange"),/clearProject[\s\S]*projectSelectionRevision\+\+[\s\S]*projectId=""[\s\S]*projectHistoryLoaded=true[\s\S]*localStorage\.removeItem\(CANVAS_AGENT_PROJECT_KEY\)[\s\S]*canvasAgentRenderProjects\(\)[\s\S]*canvasAgentHideProjectPopover\(\)/);
-  assert.match(functionSource(source,"canvasAgentCanvasDidChange"),/if \(state\.canvasAgentAutoOpen && canvasAgentPanel\.hidden\) openCanvasAgent\(\{focus:false\}\)/);
+  assert.match(functionSource(source,"canvasAgentCanvasDidChange"),/if \(state\.canvasAgentAutoOpen && \(canvasAgentPanel\.hidden \|\| !document\.body\.classList\.contains\("canvas-agent-open"\)\)\) openCanvasAgent\(\{focus:false\}\)/);
   assert.match(core,/canvasAgentNoProject: "No project"/);
   assert.match(zh,/canvasAgentNoProject: "无项目"/);
   assert.match(source,/function openCanvasAgent\(\{focus=true\}=\{\}\)[\s\S]*canvasAgent\.inputMode==="ink"\?canvasAgentInkCanvas:canvasAgentInput/);
@@ -3141,25 +3158,32 @@ test("PenEcho Agent UI and browser Facade support local and Cloud runtimes and a
   assert.match(css,/\.canvas-agent-reference-chip\s*\{[^}]*width: 100%[^}]*grid-template-columns: 26px minmax\(0, 1fr\) auto 28px[^}]*background: var\(--studio-panel, #fff\)/);
   assert.match(css,/\.canvas-agent-reference-chip em::before\s*\{[^}]*content: "\\2713"/);
   assert.match(css,/\.canvas-agent-reference-list > button\s*\{[^}]*min-height: 42px[^}]*grid-template-columns: 24px minmax\(0, 1fr\) auto/);
-  assert.match(css,/\.canvas-agent-composer-surface\s*\{[^}]*border: 1px solid #dfe3ea;[^}]*border-radius: 18px;[^}]*box-shadow:/);
+  assert.match(css,/\.canvas-agent-composer-surface\s*\{[^}]*border: 1px solid #dfe3ea;[^}]*border-radius: 12px;[^}]*box-shadow:/);
   const composerFocusRule=css.match(/\.canvas-agent-composer-surface:focus-within\s*\{([^}]*)\}/)?.[1]||"";
   assert.match(composerFocusRule,/border-color: #cbd5e1/);
   assert.match(composerFocusRule,/box-shadow: 0 1px 2px rgba\(15,23,42,\.05\), 0 8px 24px rgba\(15,23,42,\.055\)/);
   assert.doesNotMatch(composerFocusRule,/79,70,229|a5b4fc/,"composer focus must not add a purple ring");
+  const studioComposerFocusRule=css.match(/body\[data-theme="studio"\]\.studio-agent-docked \.canvas-agent-composer-surface:focus-within\s*\{([^}]*)\}/)?.[1]||"";
+  assert.match(studioComposerFocusRule,/border-color: color-mix\(in srgb, var\(--studio-line\) 82%, transparent\)/);
+  assert.match(studioComposerFocusRule,/box-shadow: 0 1px 2px rgba\(16, 24, 40, \.08\)/);
+  assert.doesNotMatch(studioComposerFocusRule,/studio-accent/,"this composer surface keeps the same appearance while focused");
   assert.match(css,/\.canvas-agent-composer textarea\s*\{[^}]*overflow-y: hidden;[^}]*border: 0;[^}]*resize: none/);
   assert.match(css,/\.canvas-agent-composer textarea\.canvas-agent-input-overflowing\s*\{[^}]*overflow-y: auto/);
   assert.match(css,/\.canvas-agent-composer \.canvas-agent-send,[\s\S]*?\.canvas-agent-composer \.canvas-agent-stop\s*\{[^}]*border-radius: 50%/);
+  assert.match(css,/\.canvas-agent-composer \.canvas-agent-send,[\s\S]*?\.canvas-agent-composer \.canvas-agent-stop\s*\{[^}]*width: 30px;[^}]*min-width: 30px;[^}]*height: 30px/);
+  assert.match(html,/id="canvasAgentStop"(?![^>]*data-pe-button)[^>]*hidden/);
+  assert.match(html,/id="canvasAgentSend"(?![^>]*data-pe-button)[^>]*type="submit"/);
   assert.match(css,/\.canvas-agent-composer-actions\s*\{[^}]*grid-template-columns: minmax\(0, 1fr\) auto;[^}]*align-items: end/);
   assert.match(css,/\.canvas-agent-tool-actions\s*\{[^}]*min-width: 0;[^}]*flex-wrap: nowrap/);
   assert.match(css,/\.canvas-agent-primary-actions\s*\{[^}]*flex: 0 0 auto;[^}]*align-self: end/);
   const compactComposerStart=css.indexOf("@container (max-width: 520px)"),compactComposerRule=css.slice(compactComposerStart,css.indexOf("@media (prefers-reduced-motion: reduce)",compactComposerStart));
   assert.match(compactComposerRule,/--canvas-agent-action-size: clamp\(22px, calc\(14\.2857cqw - 21px\), 30px\)/);
   assert.match(compactComposerRule,/\.canvas-agent-composer \.canvas-agent-stop\s*\{ width: var\(--canvas-agent-action-size\); min-width: var\(--canvas-agent-action-size\); height: var\(--canvas-agent-action-size\); \}/);
-  assert.match(compactComposerRule,/--canvas-agent-project-width: 112px/);
-  assert.match(compactComposerRule,/\.canvas-agent-project-control\.has-resource \.canvas-agent-project-button > span\s*\{[^}]*display: block;[^}]*width: 11em;[^}]*font-size: 9px/);
+  assert.match(compactComposerRule,/\.canvas-agent-composer-toolbar\s*\{[^}]*grid-template-columns: minmax\(0, 1fr\) minmax\(74px, \.82fr\) minmax\(0, 1fr\)/);
+  assert.match(compactComposerRule,/\.canvas-agent-project-button > span,[\s\S]*?\.canvas-agent-prompt-toggle-copy > \[data-pe-region="title"\]\s*\{ font-size: 11px; \}/);
   assert.match(css,/\.canvas-agent-composer \.canvas-agent-project-clear\s*\{[^}]*width: 16px;[^}]*opacity: 0;[^}]*pointer-events: none/);
   for(const panelWidth of [304,320,360,422,522]){
-    const actionSize=Math.min(30,Math.max(22,(panelWidth-149)/7)),requiredWidth=actionSize*7+112+7,availableWidth=panelWidth-30;
+    const actionSize=Math.min(30,Math.max(22,(panelWidth-149)/7)),requiredWidth=actionSize*6+7,availableWidth=panelWidth-30;
     assert.ok(requiredWidth<=availableWidth+.001,`compact composer actions must fit at ${panelWidth}px without wrapping or overlap`);
   }
   assert.match(css,/\.canvas-agent-action-label\s*\{[^}]*width: 1px;[^}]*overflow: hidden/);
@@ -3194,7 +3218,9 @@ test("PenEcho Agent focus and active turns suppress Auto AI while submitted turn
   }
   assert.match(agent,/canvasAgentPanel\.addEventListener\("focusin",canvasAgentPauseAutomaticAI\)/);
   assert.match(agent,/canvasAgentPanel\.addEventListener\("focusout",\(\)=>queueMicrotask\(canvasAgentResumeAutomaticAI\)\)/);
-  assert.match(functionSource(agent,"canvasAgentSyncTriggerState"),/busy = canvasAgent\.requestPending \|\| canvasAgent\.running[\s\S]*classList\.toggle\("is-busy",busy\)[\s\S]*aria-busy/);
+  const syncTriggerState=functionSource(agent,"canvasAgentSyncTriggerState");
+  assert.match(syncTriggerState,/busy = canvasAgent\.requestPending \|\| canvasAgent\.running[\s\S]*canvasAgentControl\.classList\.toggle\("is-busy",busy\)[\s\S]*canvasAgentControl\.setAttribute\("aria-busy",String\(busy\)\)/);
+  assert.doesNotMatch(syncTriggerState,/canvasAgentToggle\.setAttribute\("aria-busy"/);
   assert.doesNotMatch(functionSource(agent,"canvasAgentSyncTriggerState"),/canvasAgentPanel\.hidden/);
   assert.match(functionSource(agent,"canvasAgentAnimatePanel"),/pageLayoutRect\(canvasAgentToggle\)[\s\S]*document\.body\.append\(proxy\)[\s\S]*proxy\.animate/);
   assert.match(functionSource(agent,"closeCanvasAgent"),/pageLayoutRect\(canvasAgentPanel\)[\s\S]*canvasAgentPanel\.hidden = true[\s\S]*canvasAgentSyncTriggerState\(\)[\s\S]*canvasAgentAnimatePanel\(false,panelRect\)/);
@@ -3231,34 +3257,44 @@ test("PenEcho Agent explains each Auto AI pause reason and restores the prior to
   assert.equal(runtime.state.statusKey,"ready");
 });
 
-test("the first committed user Canvas change closes Agent once before Auto AI scheduling",()=>{
+test("only a Canvas-first post-load action auto-hides Agent once",()=>{
   const agent=read("src/client/app/canvas-agent-runtime.js"),persistence=read("src/client/app/persistence.js"),
     ai=read("src/client/app/ai-runtime.js"),canvas=read("src/client/app/canvas-runtime.js"),bootstrap=read("src/client/app/ui-bootstrap.js"),
     panel={hidden:false},calls=[],context={
-      canvasAgent:{hideOnFirstUserCanvasChange:true},
+      canvasAgent:{initialCanvasAutoHidePending:true},
       canvasAgentPanel:panel,
       closeCanvasAgent:options=>{calls.push(options);panel.hidden=true;},
-    },commit=vm.runInNewContext(`(${functionSource(agent,"canvasAgentDidCommitUserCanvasChange")})`,context),entry={id:"first"};
+    },commit=vm.runInNewContext(`(${functionSource(agent,"canvasAgentDidCommitUserCanvasChange")})`,context),conversation=vm.runInNewContext(`(${functionSource(agent,"canvasAgentDidStartUserConversation")})`,context),entry={id:"first"};
 
   assert.equal(commit(null),null,"cancelled or empty operations must keep the first-change gate armed");
-  assert.equal(context.canvasAgent.hideOnFirstUserCanvasChange,true);
+  assert.equal(context.canvasAgent.initialCanvasAutoHidePending,true);
+  assert.equal(commit(entry,{allowAutoHide:false}),entry,"Save-time finalization is a Canvas commit but not a Canvas-first user action");
+  assert.equal(context.canvasAgent.initialCanvasAutoHidePending,true,"Save must leave the real Canvas-first gate available");
+  assert.equal(calls.length,0);
   assert.equal(commit(entry),entry);
-  assert.equal(context.canvasAgent.hideOnFirstUserCanvasChange,false);
+  assert.equal(context.canvasAgent.initialCanvasAutoHidePending,false);
   assert.equal(calls.length,1);
   assert.equal(calls[0].focus,false,"automatic collapse must not steal Canvas focus");
   panel.hidden=false;
   commit({id:"second"});
   assert.equal(calls.length,1,"later Canvas changes must not close Agent again");
-  context.canvasAgent.hideOnFirstUserCanvasChange=true;
+  context.canvasAgent.initialCanvasAutoHidePending=true;
+  conversation();
+  assert.equal(context.canvasAgent.initialCanvasAutoHidePending,false,"starting Agent conversation permanently disarms auto-hide for this Canvas load");
+  commit({id:"after-agent"});
+  assert.equal(calls.length,1,"Canvas changes after Agent conversation never auto-hide the panel");
+  context.canvasAgent.initialCanvasAutoHidePending=true;
   panel.hidden=true;
   commit({id:"hidden-first"});
-  assert.equal(context.canvasAgent.hideOnFirstUserCanvasChange,false,"a first change still counts while Agent is already closed");
+  assert.equal(context.canvasAgent.initialCanvasAutoHidePending,false,"a first change still consumes the one-time gate while Agent is already closed");
   assert.equal(calls.length,1);
 
-  assert.match(functionSource(agent,"canvasAgentCanvasDidChange"),/canvasAgent\.hideOnFirstUserCanvasChange=true/);
+  assert.match(functionSource(agent,"canvasAgentCanvasDidChange"),/canvasAgent\.initialCanvasAutoHidePending=true/);
   for(const name of ["loadSnapshot","startBlankCanvas"])assert.match(functionSource(persistence,name),/canvasAgentCanvasDidChange\(/);
   assert.match(agent,/canvasAgentCanvasDidChange\(\);\s*$/);
-  assert.match(functionSource(persistence,"saveUserCanvasChange"),/canvasAgentDidCommitUserCanvasChange\(save\(\)\)/);
+  assert.match(functionSource(persistence,"saveUserCanvasChange"),/allowAutoHide:canvasSnapshotFinalizationDepth === 0/);
+  assert.match(functionSource(persistence,"finalizeCanvasForSnapshot"),/canvasSnapshotFinalizationDepth\+\+[\s\S]*?finally[\s\S]*?canvasSnapshotFinalizationDepth--/);
+  assert.match(functionSource(agent,"canvasAgentSubmitMessage"),/canvasAgentDidStartUserConversation\(\)[\s\S]*?canvasAgentBeginRequest\(\)/);
   const finishDrawing=functionSource(ai,"finishDrawing");
   assert.ok(finishDrawing.indexOf("saveUserCanvasChange()")<finishDrawing.indexOf("schedule()"),"the first stroke closes Agent before Auto AI is scheduled");
   for(const name of ["addImageFile","confirmTextEditor"])assert.match(functionSource(canvas,name),/saveUserCanvasChange\(\)/);
@@ -3292,7 +3328,7 @@ test("PenEcho Agent browser compression keeps reducing or rejects instead of ret
   }
 });
 
-test("PenEcho Agent validates capture delivery and browser target errors without widening ordinary canvas tools",()=>{
+test("PenEcho Agent validates capture delivery and browser target errors without widening ordinary canvas tools",async()=>{
   const source=read("src/client/app/canvas-agent-runtime.js"),css=read("public/style.css"),
     policy={maxBytes:1200*1024,maxLongEdge:1440},valid={
       attachment:{name:"../penecho canvas.png",mediaType:"image/png",bytes:4,width:2,height:2,dataUrl:"data:image/png;base64,AAAAAA=="}
@@ -3314,6 +3350,23 @@ test("PenEcho Agent validates capture delivery and browser target errors without
   assert.match(functionSource(source,"canvasAgentAssertToolKeys"),/canvas_inspect:\["scope","region","detail","kinds","cursor","limit","plannedWidget"\]/);
   assert.match(functionSource(source,"canvasAgentAssertToolKeys"),/canvas_read:\["objectId","artifactId","resource","startLine","endLine"\]/);
   assert.match(functionSource(source,"canvasAgentAssertToolKeys"),/canvas_capture:\["target","objectId","region","quality","coordinates","deliverToUser"\]/);
+  const browserCaptureSource=functionSource(source,"canvasAgentCapture");
+  assert.match(browserCaptureSource,/prepareVisibleWidgetSnapshots\(region,false,signal\)/);
+  assert.match(browserCaptureSource,/snapshotVersion<widget\.contentVersion[\s\S]*?WIDGET_CAPTURE_UNAVAILABLE/);
+  const unavailableCapture=vm.runInNewContext(`(${browserCaptureSource.replace(/^function /,"async function ")})`,{
+    CANVAS_AGENT_DETAIL_CAPTURE_POLICY:{maxLongEdge:1600,maxPixels:1600*1600},
+    CANVAS_AGENT_LAYOUT_CAPTURE_POLICY:{maxLongEdge:1600,maxPixels:1600*1600},
+    canvasAgentObject:()=>({kind:"widget"}),
+    canvasAgentTargetRegion:()=>({x:0,y:0,w:100,h:100}),
+    document:{createElement:()=>({getContext:()=>({})})},
+    prepareVisibleWidgetSnapshots:async()=>({total:1,captured:0,missing:1}),
+    capturableWidgets:()=>[{id:"widget-unready",snapshotImage:null,snapshotVersion:-1,contentVersion:0}],
+    canvasAgentToolError:(code,message,details)=>Object.assign(new Error(message),{code,details}),
+  });
+  await assert.rejects(
+    unavailableCapture({target:"object",objectId:"widget-unready",quality:"detail"},{}),
+    error=>error.code==="WIDGET_CAPTURE_UNAVAILABLE"&&error.details.objectIds[0]==="widget-unready",
+  );
 
   const runtime=read("src/server/canvas-agent/runtime.mjs");
   assert.match(runtime,/deliverToUser:\{ type:'boolean', default:false \}/);

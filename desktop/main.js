@@ -5,7 +5,7 @@ const fs = require("node:fs");
 const { spawn } = require("node:child_process");
 const { fileURLToPath, pathToFileURL } = require("node:url");
 const {
-  app, BrowserWindow, clipboard, dialog, ipcMain, Menu, net, safeStorage, shell,
+  app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, net, safeStorage, shell,
 } = require("electron");
 const {
   apiConfigurationIssues, parseArgs, resolveConfiguration, saveConfiguration, testConfiguredProvider,
@@ -175,12 +175,19 @@ function showSettings() {
     return settingsWindow;
   }
   settingsReadyToLaunch = false;
+  const settingsWindowMaterial = process.platform === "darwin"
+    ? { backgroundColor:"#00000000", vibrancy:"under-window", visualEffectState:"active" }
+    : process.platform === "win32"
+      ? { backgroundColor:nativeTheme.shouldUseDarkColors ? "#181b20" : "#eef2f7", backgroundMaterial:"mica" }
+      : {};
   settingsWindow = new BrowserWindow(secureWindowOptions({
     ...(parent ? { parent } : {}),
-    width:1120,
-    height:780,
-    minWidth:920,
-    minHeight:680,
+    ...settingsWindowMaterial,
+    width:820,
+    height:680,
+    minWidth:660,
+    minHeight:540,
+    useContentSize:true,
     title:"PenEcho Setup",
     autoHideMenuBar:true,
     webPreferences:{ preload:PRELOAD },

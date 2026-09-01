@@ -2199,6 +2199,15 @@ test("widget host CSP permits on-demand HTTPS resources inside the isolated widg
     const configScript = await fetch(`${origin}/api/config.js`).then(response => response.text()),
       accessSession = /"accessSessionToken":"([A-Za-z0-9_-]+)"/.exec(configScript)?.[1];
     assert.match(accessSession, /^[A-Za-z0-9_-]{40,}$/);
+    const staleSessionHost = await fetch(`${origin}/widget-host.html?access-session=${accessSession}stale`);
+    assert.equal(staleSessionHost.status, 200, "an open Canvas survives a server restart with its previous process token");
+    assert.match(await staleSessionHost.text(), /widget-host\.js/);
+    const duplicateSession = new URLSearchParams();
+    duplicateSession.append("access-session", accessSession);
+    duplicateSession.append("access-session", accessSession);
+    const duplicateSessionHost = await fetch(`${origin}/widget-host.html?${duplicateSession}`);
+    assert.equal(duplicateSessionHost.status, 400);
+    assert.match(await duplicateSessionHost.text(), /Invalid widget host session/);
     const sandboxedWidgetData = await fetch(`${origin}/api/widget-fetch`, {
       method:"POST",
       headers:{ "Content-Type":"application/json", "X-PenEcho-Session":accessSession },

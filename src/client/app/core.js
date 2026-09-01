@@ -1,5 +1,15 @@
 "use strict";
 (() => {
+  function peButton(element, type = "secondary", density = "standard") {
+    if (!element) return element;
+    element.dataset.peButton = type;
+    if (density) element.dataset.peDensity = density;
+    return element;
+  }
+  function peChoice(element) {
+    if (element) element.dataset.peHit = "choice";
+    return element;
+  }
   const SIZE = 20000,
     TILE = 512,
     DIRTY_MASK_SCALE = 0.25,
@@ -35,6 +45,7 @@
     animationLayer = document.querySelector("#animationLayer"),
     animationCtx = animationLayer.getContext("2d"),
     widgetLayer = document.querySelector("#widgetLayer"),
+    selectedWidgetMaterial = document.querySelector("#selectedWidgetMaterial"),
     placedContentLayer = document.querySelector("#placedContentLayer"),
     placedContentCtx = placedContentLayer.getContext("2d"),
     summonLayer = document.querySelector("#summonLayer"),
@@ -91,8 +102,6 @@
     imagePickerInput = document.querySelector("#imagePickerInput"),
     imageMaterialLayer = document.querySelector("#imageMaterialLayer"),
     imageSelectionMaterial = document.querySelector("#imageSelectionMaterial"),
-    imageEditBar = document.querySelector("#imageEditBar"),
-    imageMergeButton = document.querySelector("#imageMergeBtn"),
     textEditorLayer = document.querySelector("#textEditorLayer"),
     textInputHint = document.querySelector("#textInputHint"),
     tourMain = document.querySelector("main"),
@@ -230,6 +239,15 @@
   });
   const EFFORT_LEVELS = ["none", "low", "medium", "high", "max"],
     EFFORT_OPTIONS = ["config", ...EFFORT_LEVELS],
+    AI_FONT_STORAGE_KEY = "penecho-ai-font",
+    AI_FONT_HANDWRITTEN = "Bradley Hand, Segoe Print, Comic Sans MS, cursive",
+    AI_FONT_HANDWRITTEN_LEGACY = "Segoe Print, Comic Sans MS, cursive",
+    AI_FONT_OPTIONS = new Set([
+      "ui-rounded, system-ui, sans-serif",
+      AI_FONT_HANDWRITTEN,
+      "Georgia, serif",
+      "system-ui, sans-serif",
+    ]),
     TEXT_EDITOR_DEFAULT_WIDTH = 320,
     TEXT_EDITOR_DEFAULT_HEIGHT = 168,
     TEXT_EDITOR_MIN_WIDTH = 170,
@@ -304,8 +322,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       handAutoAIManual: "Hand mode pauses Auto AI · Use the AI button to run it manually.",
       handAutoAIResume: "Auto AI resumes when you leave Hand mode.",
       handWidgetConfirmedHint: "Widget confirmed · Tap it again to reveal its controls.",
-      handImageConfirmedHint: "Image confirmed · Tap it again to move, resize, merge, or delete.",
-      handImageMergedHint: "Image merged · It now behaves like canvas ink.",
+      handImageConfirmedHint: "Placed as a movable image · It stays separate from the canvas and can be moved again.",
+      handImageMergedHint: "Merged into the canvas · The eraser can erase it, but it can no longer move as an image.",
       handAnimationConfirmedHint: "Animation confirmed · Tap it again to move, resize, or play.",
       handTextConfirmedHint: "Text confirmed · Tap it again to edit, move, or resize.",
       handDraftConfirmedHint: "AI result confirmed · Auto AI remains paused in Hand.",
@@ -337,13 +355,13 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       clipboardReadFailed: "Could not read the clipboard. Allow clipboard access or use Ctrl/Cmd+V.",
       imageLoading: "Preparing image...",
       imageAdded: "Image added",
-      imageSelected: "Editing image: drag the top handle to move, use edge handles to resize, or choose a side action",
-      imageMerged: "Merged into canvas ink — the eraser now works on it",
-      imageEditBarLabel: "Image actions",
+      imageSelected: "Editing image: drag its top toolbar to move it, or use the edge handles to resize",
+      imagePlaced: "Placed as a movable image · It stays separate from the canvas and can be moved again",
+      imageMerged: "Merged into the canvas · The eraser can erase it, but it can no longer move as an image",
       imagePlace: "Place image",
-      imagePlaceHint: "Keep it as an image; tap it in Hand to reveal its edit controls",
+      imagePlaceHint: "Keep it separate from the canvas so it can be moved again later",
       imageMerge: "Merge into ink",
-      imageMergeHint: "Fuse into the canvas; the eraser then works on it",
+      imageMergeHint: "Fuse it into the canvas; the eraser can erase it, but it can no longer move as an image",
       imageDelete: "Delete image",
       imageDeleteHint: "Remove this image from the canvas",
       imageDeleted: "Image deleted",
@@ -441,7 +459,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       tourFullscreenTitle: "Give the canvas the whole screen",
       tourFullscreenBody: "Fullscreen hides surrounding browser space and expands the drawing area. Use the same button—or your browser's fullscreen shortcut—to return.",
       tourFavoritesTitle: "Add something from Favorites",
-      tourFavoritesBody: "Use + to open your Echoes favorites. Add a favorite Widget to the current Canvas, or open a favorite Canvas here as a new Canvas.",
+      tourFavoritesBody: "Use the star button to open your Echoes favorites. Add a favorite Widget to the current Canvas, or open a favorite Canvas here as a new Canvas.",
       tourShareCanvasTitle: "Publish this Canvas to Echoes",
       tourShareCanvasBody: "Share opens a preview and publishing form for the current Canvas. After signing in, review its details before making it public in Echoes, then copy its link or share it as an image. Use Cloud instead for private saves.",
       tourCloudTitle: "Keep private work in PenEcho Cloud",
@@ -619,8 +637,6 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       settingsDuckDuckGoReady: "DuckDuckGo fallback ready",
       settingsSaveSearch: "Save search",
       settingsSearchSaved: "Search settings saved. Internet search is on by default and can be turned off with the globe button.",
-      settingsSystemSection: "System",
-      settingsSystemDescription: "Simple defaults for requests and canvas behavior.",
       settingsEffort: "Reasoning",
       settingsMaxTokens: "Maximum response tokens",
       settingsMaxTokensHelp: "Includes thinking tokens. Default 20,000; must be larger than 15,000. Low limits may be exhausted during reasoning.",
@@ -690,7 +706,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       openLocalLog: "Open local server log",
       history: "Canvas Library",
       historyTitle: "Canvas Library",
-      historySearch: "Search Canvas Library",
+      historySearch: "Search",
+      historySearchLabel: "Search Canvas Library",
       historyLibraryLocation: "Library location",
       historyLibraryNavigation: "Canvas Library navigation",
       historyCanvasList: "Canvas Library content",
@@ -756,14 +773,14 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       storagePenEchoCloudDescription: "Private account storage, available on any client.",
       canvasProject: "Project",
       canvasProjectAll: "All projects",
-      canvasProjectUncategorized: "Uncategorized",
+      canvasProjectUncategorized: "No Project",
       canvasProjectNew: "New project",
       canvasProjectDelete: "Delete project",
       canvasProjectMove: "Move to project",
       canvasProjectName: "Project name",
       canvasProjectCreated: "Project created",
-      canvasProjectDeleted: "Project deleted; its canvases moved to Uncategorized",
-      deleteCloudProjectConfirm: "Delete project “{name}”? Its Canvases will move to Uncategorized and no saved content will be deleted.",
+      canvasProjectDeleted: "Project deleted; its canvases moved to No Project",
+      deleteCloudProjectConfirm: "Delete project “{name}”? Its Canvases will move to No Project and no saved content will be deleted.",
       canvasProjectMoved: "Canvas moved",
       closeHistory: "Close history",
       newCanvas: "New",
@@ -840,6 +857,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       exportError: "Export: ",
       snapshotError: "Canvas history: ",
       snapshotTiles: "canvas tiles",
+      historySnapshotTile: "tile",
+      historySnapshotTiles: "tiles",
       snapshotImages: "images",
       snapshotModified: "Modified {time}",
       deleteSnapshotConfirmDevice: "Delete this snapshot from this device?",
@@ -932,6 +951,9 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       savedCanvas: "Canvas",
       savedWidget: "Widget",
       savedRemoveTitle: "Remove from favorites",
+      savedRemoveConfirmTitle: "Remove from favorites?",
+      savedRemoveConfirmDescription: "“{name}” will no longer appear in Favorites.",
+      savedRemoveAction: "Remove",
       savedSourceLocal: "Local",
       savedSourceCloud: "Cloud",
       savedSourceCommunity: "Cloud community",
@@ -1053,8 +1075,12 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       canvasAgentInputHint: "Type or use the Pen button to write by hand. Reference a Widget, then ask Agent to extract canvas handwriting, inspect source, arrange content, or edit the Widget.",
       canvasAgentPlaceholder: "Ask PenEcho Agent…",
       canvasAgentMessage: "Message PenEcho Agent",
+      canvasAgentChooseConnection: "Choose AI connection",
+      canvasAgentModel: "AI model",
       canvasAgentPromptSuggestions: "Suggested prompts",
       canvasAgentPromptSuggestionsTitle: "Try asking",
+      canvasAgentPromptCurrentCanvas: "Current Canvas",
+      canvasAgentPromptMoreInspiration: "More inspiration",
       canvasAgentPromptDisclosureMore: "More",
       canvasAgentPromptDisclosureLess: "Less",
       canvasAgentPromptMore: "Show suggested prompts",
@@ -1074,6 +1100,45 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       canvasAgentPromptFocusLayer: "Layer",
       canvasAgentPromptFocusPublish: "Publish",
       canvasAgentPromptFocusFollowCanvasCues: "Follow canvas cues",
+      canvasAgentPromptSimpleDiagramTitle: "Simplify the Core Ideas",
+      canvasAgentPromptSequenceDiagramSourceTitle: "Create Editable Sequence Diagram",
+      canvasAgentPromptOrganizeTitle: "Organize the Current Canvas",
+      canvasAgentPromptApplyAnnotationsTitle: "Apply My Canvas Annotations",
+      canvasAgentPromptFollowCanvasCuesTitle: "Follow My Canvas Cues",
+      canvasAgentPromptPptTitle: "Create a Presentation Layout",
+      canvasAgentPromptExcelTitle: "Chart Spreadsheet Insights",
+      canvasAgentPromptTransformerTitle: "Explain Transformer Architecture",
+      canvasAgentPromptUkTripTitle: "Plan a UK Journey",
+      canvasAgentPromptFileTitle: "Explain the Current File",
+      canvasAgentPromptArchitectureTitle: "Map the Project Architecture",
+      canvasAgentPromptHandwritingTitle: "Enhance My Handwritten Notes",
+      canvasAgentPromptImageVisualTitle: "Explain the Current Image",
+      canvasAgentPromptImageLayerTitle: "Annotate the Image Clearly",
+      canvasAgentPromptImagePublishTitle: "Publish Insights from Image",
+      canvasAgentPromptSpreadsheetVisualTitle: "Visualize Key Spreadsheet Trends",
+      canvasAgentPromptSpreadsheetLayerTitle: "Build a Canvas Dashboard",
+      canvasAgentPromptSpreadsheetPublishTitle: "Publish Spreadsheet Findings",
+      canvasAgentPromptPresentationVisualTitle: "Map the Presentation Story",
+      canvasAgentPromptPresentationLayerTitle: "Improve the Presentation Structure",
+      canvasAgentPromptPresentationPublishTitle: "Publish the Presentation Summary",
+      canvasAgentPromptDocumentVisualTitle: "Map the Document Argument",
+      canvasAgentPromptDocumentStudyTitle: "Create Study Notes",
+      canvasAgentPromptDocumentPublishTitle: "Publish the Document Findings",
+      canvasAgentPromptCodeVisualTitle: "Map the Code Architecture",
+      canvasAgentPromptCodeLayerTitle: "Explain the Code Layers",
+      canvasAgentPromptCodePlanTitle: "Plan the Next Changes",
+      canvasAgentPromptFileLayerTitle: "Add a File Overview",
+      canvasAgentPromptFilePublishTitle: "Publish the File Findings",
+      canvasAgentPromptProjectPlanTitle: "Plan the Project Work",
+      canvasAgentPromptProjectPublishTitle: "Publish the Project Summary",
+      canvasAgentPromptSelectionVisualTitle: "Explain the Selected Content",
+      canvasAgentPromptSelectionLayerTitle: "Add Context to Selection",
+      canvasAgentPromptSelectionPublishTitle: "Publish the Selection Summary",
+      canvasAgentPromptNotesVisualTitle: "Structure My Handwritten Notes",
+      canvasAgentPromptNotesPublishTitle: "Organize and Publish Notes",
+      canvasAgentPromptCanvasVisualTitle: "Explain the Current Canvas",
+      canvasAgentPromptCanvasLayerTitle: "Add a Canvas Overview",
+      canvasAgentPromptCanvasPublishTitle: "Publish the Canvas Summary",
       canvasAgentPromptFile: "Explain the current file's purpose, structure, key relationships, and details with visuals. If there is no file, explain the canvas instead.",
       canvasAgentPromptArchitecture: "Map the current project's core modules, dependencies, data flow, and key directories.",
       canvasAgentPromptSimpleDiagram: "Make a separate, simple diagram of the core concepts, relationships, and essential labels.",
@@ -1113,6 +1178,45 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       canvasAgentPromptCanvasVisual: "Explain the current canvas with one overview of its content, structure, relationships, and gaps.",
       canvasAgentPromptCanvasLayer: "Keep the canvas meaning and objects, improve layout, and add transparent explanations in open space.",
       canvasAgentPromptCanvasPublish: "Organize the canvas summary, conclusions, and actions, then send a copy-ready recap in chat.",
+      canvasAgentPromptSimpleDiagramSummary: "Draw a simple diagram of the core concepts and relationships.",
+      canvasAgentPromptSequenceDiagramSourceSummary: "Convert this diagram to editable Mermaid or PlantUML sequence source.",
+      canvasAgentPromptOrganizeSummary: "Organize the canvas into clear visual notes and surface gaps.",
+      canvasAgentPromptApplyAnnotationsSummary: "Apply only clearly marked Canvas changes; ask if anything is unclear.",
+      canvasAgentPromptFollowCanvasCuesSummary: "Continue from the latest cues without changing unmarked content.",
+      canvasAgentPromptPptSummary: "Turn this view into a presentation layout and return the final image.",
+      canvasAgentPromptExcelSummary: "Chart the spreadsheet's key metrics, trends, anomalies, and conclusions.",
+      canvasAgentPromptTransformerSummary: "Explain Transformer with layers, data flow, shapes, and pseudocode.",
+      canvasAgentPromptUkTripSummary: "Map a 15-day UK trip with routes, transport, stays, and highlights.",
+      canvasAgentPromptFileSummary: "Explain this file's purpose, structure, relationships, and details visually.",
+      canvasAgentPromptArchitectureSummary: "Map project modules, dependencies, data flow, and key directories.",
+      canvasAgentPromptHandwritingSummary: "Preserve the handwriting and add a transparent visual explanation layer.",
+      canvasAgentPromptImageVisualSummary: "Explain the image's subjects, structure, relationships, and key details.",
+      canvasAgentPromptImageLayerSummary: "Keep the image unchanged and add a transparent explanation layer.",
+      canvasAgentPromptImagePublishSummary: "Extract key image information; put visuals on Canvas and summary in chat.",
+      canvasAgentPromptSpreadsheetVisualSummary: "Chart key metrics, trends, anomalies, relationships, and data quality.",
+      canvasAgentPromptSpreadsheetLayerSummary: "Keep source data and add a Canvas dashboard with charts and context.",
+      canvasAgentPromptSpreadsheetPublishSummary: "Put conclusions and risks in chat, with supporting charts on Canvas.",
+      canvasAgentPromptPresentationVisualSummary: "Connect the presentation's structure and conclusions in one diagram.",
+      canvasAgentPromptPresentationLayerSummary: "Preserve the meaning, unify the deck, and add essential diagrams.",
+      canvasAgentPromptPresentationPublishSummary: "Create a speaking outline, revision list, summary, and Canvas visuals.",
+      canvasAgentPromptDocumentVisualSummary: "Explain the document's structure, arguments, concepts, and conclusions.",
+      canvasAgentPromptDocumentStudySummary: "Turn the document into study notes with examples and review points.",
+      canvasAgentPromptDocumentPublishSummary: "Summarize actions and open questions; put useful diagrams on Canvas.",
+      canvasAgentPromptCodeVisualSummary: "Explain code entry points, logic, dependencies, data flow, and boundaries.",
+      canvasAgentPromptCodeLayerSummary: "Keep behavior unchanged; add a module map, flows, risks, and links.",
+      canvasAgentPromptCodePlanSummary: "Create an implementation summary, risks, phases, and architecture.",
+      canvasAgentPromptFileLayerSummary: "Keep the file unchanged and explain it visually in open Canvas space.",
+      canvasAgentPromptFilePublishSummary: "Organize the file's structure, conclusions, actions, and diagrams.",
+      canvasAgentPromptProjectPlanSummary: "Plan goals, milestones, dependencies, risks, and acceptance criteria.",
+      canvasAgentPromptProjectPublishSummary: "Map project entry points, directories, dependencies, risks, and run steps.",
+      canvasAgentPromptSelectionVisualSummary: "Explain only the selected content's purpose, structure, and relationships.",
+      canvasAgentPromptSelectionLayerSummary: "Keep the selection unchanged and add a nearby explanation layer.",
+      canvasAgentPromptSelectionPublishSummary: "Put selection conclusions in chat and supporting visuals on Canvas.",
+      canvasAgentPromptNotesVisualSummary: "Explain the notes' themes, hierarchy, relationships, and questions.",
+      canvasAgentPromptNotesPublishSummary: "Turn handwriting into a transcript, knowledge map, tasks, and review points.",
+      canvasAgentPromptCanvasVisualSummary: "Explain the canvas content, structure, relationships, and gaps at a glance.",
+      canvasAgentPromptCanvasLayerSummary: "Preserve canvas meaning, improve layout, and add explanations in open space.",
+      canvasAgentPromptCanvasPublishSummary: "Organize the canvas summary, conclusions, actions, and copy-ready recap.",
       canvasAgentType: "Type with keyboard",
       canvasAgentHandwrite: "Write by hand",
       canvasAgentClearInk: "Clear",
@@ -1301,6 +1405,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       widgetAccept: "Keep widget",
       widgetDiscard: "Discard widget",
       widgetMove: "Move widget",
+      objectToolbarMove: "Drag toolbar to move",
       widgetDelete: "Delete widget",
       widgetDeleted: "Widget deleted",
       widgetSourceCopied: "Widget source copied",
@@ -1330,6 +1435,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       widgetPluginUnavailable: "The plugin document could not be loaded",
       widgetLimitReached: "Live widget limit reached (100). Delete a widget before adding another.",
       snapshotWidgets: "live widgets",
+      historySnapshotWidget: "widget",
+      historySnapshotWidgets: "widgets",
       clearConfirm: "Clear the whole canvas?",
       timeout: "Request timed out",
       aiNoVisibleResponse: "AI returned no displayable content. Please retry or rephrase the request.",
@@ -1378,6 +1485,17 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   }
   const initialPlugins = storedPluginSettings();
   const ERASER_MODE_STORAGE_KEY = "penecho-eraser-mode";
+  function normalizeAiFont(value) {
+    const font = String(value || "").trim();
+    if (font === AI_FONT_HANDWRITTEN_LEGACY) return AI_FONT_HANDWRITTEN;
+    return AI_FONT_OPTIONS.has(font) ? font : AI_FONT_HANDWRITTEN;
+  }
+  function normalizeTextBoxFontFamily(value) {
+    const font = String(value || "").trim();
+    if (!font) return TEXT_EDITOR_FONT_FAMILY;
+    if (font === AI_FONT_HANDWRITTEN_LEGACY) return AI_FONT_HANDWRITTEN;
+    return AI_FONT_OPTIONS.has(font) ? font : TEXT_EDITOR_FONT_FAMILY;
+  }
   const storedPrimaryLanguage = localStorage.getItem("penecho-language"),
     storedLegacyLanguage = localStorage.getItem("ghostboard-language"),
     storedTheme = localStorage.getItem("penecho-theme") || localStorage.getItem("ghostboard-theme"),
@@ -1388,6 +1506,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     storedSummonEnabled = localStorage.getItem("penecho-summon-enabled"),
     storedCanvasAgentAutoOpen = localStorage.getItem("penecho-canvas-agent-auto-open"),
     storedWidgetShadowEnabled = localStorage.getItem("penecho-widget-shadow"),
+    storedAiFont = localStorage.getItem(AI_FONT_STORAGE_KEY),
     storedSnapshotLocation = localStorage.getItem("penecho-snapshot-location"),
     storedEraserMode = localStorage.getItem(ERASER_MODE_STORAGE_KEY),
     storedAiEffortText = String(localStorage.getItem("penecho-ai-effort") || "").trim().toLowerCase(),
@@ -1411,6 +1530,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       ? configuredCanvasAgentAutoOpen
       : storedCanvasAgentAutoOpen === null ? configuredCanvasAgentAutoOpen !== false : storedCanvasAgentAutoOpen === "true",
     initialWidgetShadowEnabled = storedWidgetShadowEnabled === "true",
+    initialAiFont = normalizeAiFont(storedAiFont),
     initialEraserMode = ["eraser", "area-eraser"].includes(storedEraserMode) ? storedEraserMode : "eraser",
     // The public viewer shares the Cloud origin (and therefore localStorage)
     // with editable Cloud Canvases. Never inherit their last-selected Cloud
@@ -1462,7 +1582,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       panY: 0,
       pen: 4,
       eraser: 35,
-      aiFont: "ui-rounded, system-ui, sans-serif",
+      aiFont: initialAiFont,
       inkColor: "#1f2937",
       aiColor: "#2563eb",
       drawing: null,
@@ -1489,7 +1609,6 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       nextTextEditorZ: 1,
       activeTextEditorId: null,
       selectedTextBoxId: null,
-      textBoxGesture: null,
       textBoxHistoryBefore: null,
       animations: [],
       nextAnimationId: 1,
@@ -2345,6 +2464,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       const option = document.createElement("button");
       option.type = "button";
       option.role = "option";
+      peButton(option, "menu-item", "");
       option.dataset.apiModelValue = model;
       option.textContent = model;
       return option;
@@ -2450,6 +2570,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     for (const connection of settings.connections) {
       const quick = document.createElement("button"), quickMark = document.createElement("span"), quickCopy = document.createElement("span"), quickName = document.createElement("strong"), quickSummary = document.createElement("small");
       quick.type = "button";
+      peChoice(quick);
       quick.className = `settings-connection-quick${connection.active ? " active" : ""}`;
       quick.dataset.connectionActivate = connection.id;
       quickMark.textContent = connection.active ? "✓" : "";
@@ -2478,18 +2599,21 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       if (!connection.active) {
         const use = document.createElement("button");
         use.type = "button";
+        peButton(use, "secondary", "compact");
         use.dataset.connectionActivate = connection.id;
         use.textContent = t("settingsUse");
         actions.append(use);
       }
       const edit = document.createElement("button");
       edit.type = "button";
+      peButton(edit, "secondary", "compact");
       edit.dataset.connectionEdit = connection.id;
       edit.textContent = t("settingsEdit");
       actions.append(edit);
       if (connection.removable) {
         const remove = document.createElement("button");
         remove.type = "button";
+        peButton(remove, "danger", "compact");
         remove.className = "danger";
         remove.dataset.connectionDelete = connection.id;
         remove.textContent = t("settingsDelete");
@@ -2500,6 +2624,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     }
     connectionLimitText.textContent = t("settingsConnectionCount").replace("{count}", String(settings.connections.length)).replace("{limit}", String(settings.connectionLimit));
     settingsAddConnection.disabled = settings.connections.length >= settings.connectionLimit;
+    if (typeof canvasAgentUpdateConnectionButton === "function") canvasAgentUpdateConnectionButton();
   }
   function fillConnectionEditor(connection = null) {
     settings.editingConnectionId = connection?.id || null;
@@ -2989,6 +3114,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     summonToggle.setAttribute("aria-checked", String(state.summonEnabled));
     settingsWidgetShadowToggle.classList.toggle("on", state.widgetShadowEnabled);
     settingsWidgetShadowToggle.setAttribute("aria-checked", String(state.widgetShadowEnabled));
+    document.querySelector("#aiFont").value = state.aiFont;
     void loadCanvasSettings();
   }
   function openSettings() {
@@ -3026,6 +3152,11 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     localStorage.setItem("penecho-summon-enabled", String(state.summonEnabled));
     if (!state.summonEnabled) hideSummon();
     updateSettingsPanel();
+  }
+  function setAiFont(value) {
+    state.aiFont = normalizeAiFont(value);
+    localStorage.setItem(AI_FONT_STORAGE_KEY, state.aiFont);
+    document.querySelector("#aiFont").value = state.aiFont;
   }
   function setCanvasAgentAutoOpen(enabled) {
     state.canvasAgentAutoOpen = Boolean(enabled);
@@ -3070,11 +3201,16 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     options ||= {};
     const control = document.querySelector(controlSelector),
       popover = document.querySelector(popoverSelector),
-      host = document.querySelector(".topbar");
+      host = document.querySelector(".topbar"),
+      toolbar = host?.querySelector(".toolbar");
     if (!control || !popover || !host || popover.hidden) return;
     if (popover.parentElement !== host) host.append(popover);
     const controlRect = control.getBoundingClientRect(),
       hostRect = host.getBoundingClientRect(),
+      toolbarRect = toolbar?.getBoundingClientRect(),
+      anchorBottom = document.body.classList.contains("studio-toolbar-two-row") && toolbarRect
+        ? Math.max(controlRect.bottom, toolbarRect.bottom)
+        : controlRect.bottom,
       scaleX = host.offsetWidth > 0 && hostRect.width > 0 ? hostRect.width / host.offsetWidth : 1,
       scaleY = host.offsetHeight > 0 && hostRect.height > 0 ? hostRect.height / host.offsetHeight : scaleX,
       inset = 6,
@@ -3084,7 +3220,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       maxLeft = Math.max(inset, host.offsetWidth - popover.offsetWidth - inset);
     popover.classList.add("toolbar-anchored-popover");
     popover.style.left = `${Math.max(inset, Math.min(desiredLeft, maxLeft))}px`;
-    popover.style.top = `${(controlRect.bottom - hostRect.top) / scaleY + (Number(options.gap) || 8)}px`;
+    popover.style.top = `${(anchorBottom - hostRect.top) / scaleY + (Number(options.gap) || 8)}px`;
   }
   function positionOpenToolbarPopovers() {
     positionToolbarPopover("#autoControl", "#autoDelayPopover");
@@ -3471,6 +3607,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
             documentView = document.createElement("pre");
           detailButton.className = "plugin-detail-button";
           detailButton.type = "button";
+          peButton(detailButton, "secondary", "compact");
           detailButton.dataset.pluginDetail = plugin.id;
           detailButton.setAttribute("aria-expanded", "false");
           detailButton.setAttribute("aria-controls", `plugin-detail-${plugin.id}`);
@@ -3485,6 +3622,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
             const copyButton = document.createElement("button");
             copyButton.className = "plugin-detail-copy";
             copyButton.type = "button";
+            peButton(copyButton, "secondary", "compact");
             copyButton.dataset.pluginCopy = plugin.id;
             copyButton.textContent = t("copyPluginMarkdown");
             detailBar.append(copyButton);
@@ -3498,6 +3636,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
           const duplicateButton = document.createElement("button");
           duplicateButton.className = "plugin-duplicate-button";
           duplicateButton.type = "button";
+          peButton(duplicateButton, "toolbar", "compact");
           duplicateButton.dataset.pluginDuplicate = plugin.id;
           duplicateButton.disabled = state.pluginAuthoringBusy;
           duplicateButton.setAttribute("aria-label", t("duplicatePlugin"));
@@ -3509,6 +3648,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
           const deleteButton = document.createElement("button");
           deleteButton.className = "plugin-delete-button";
           deleteButton.type = "button";
+          peButton(deleteButton, "danger", "compact");
           deleteButton.dataset.pluginDelete = plugin.id;
           deleteButton.disabled = Boolean(state.pluginDeleting);
           deleteButton.setAttribute("aria-label", t("deletePlugin"));
@@ -4088,6 +4228,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   function applyPageScale(scale) {
     state.pageScale = window.PenEchoPageScale?.apply?.(scale) || 1;
     updateAppearanceControls();
+    fit();
     window.dispatchEvent(new Event("resize"));
   }
   function setBusy(value) {

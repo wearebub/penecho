@@ -77,6 +77,8 @@
 
   const notice = document.createElement("button");
   notice.type = "button";
+  notice.dataset.peButton = "ghost";
+  notice.dataset.peDensity = "standard";
   notice.className = "viewer-notice";
   notice.textContent = copy.staticWidgetNotice;
   notice.title = copy.dismissNotice;
@@ -102,6 +104,8 @@
   function chip(label, hint, href, className = "") {
     const link = document.createElement("a");
     link.className = `viewer-chip${className ? ` ${className}` : ""}`;
+    link.dataset.peButton = "secondary";
+    link.dataset.peDensity = "compact";
     link.href = href;
     const text = document.createElement("span");
     text.className = "viewer-action-label";
@@ -114,6 +118,8 @@
   function primaryAction() {
     const link = document.createElement("a");
     link.className = "viewer-primary";
+    link.dataset.peButton = "primary";
+    link.dataset.peDensity = "standard";
     link.href = config.takeFurtherUrl;
     link.setAttribute("aria-label", copy.takeFurther);
     const text = document.createElement("span");

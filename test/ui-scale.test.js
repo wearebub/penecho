@@ -30,23 +30,29 @@ function runPageScale(config, storedScale = null) {
   return { classes, properties, storage, desktopCalls, browserWindow };
 }
 
-test("Canvas page scale exposes five validated choices with mutually exclusive desktop/web paths", () => {
+test("Canvas page scale exposes six validated choices with mutually exclusive desktop/web paths", () => {
   const desktop = runPageScale({ desktopApp:true });
   const web = runPageScale({ runtime:"cloud" }, 1.25);
   const main = read("desktop/main.js"), preload = read("desktop/canvas-preload.js"), css = read("public/style.css");
 
   assert.equal(CANVAS_PAGE_SCALE, 1);
-  assert.deepEqual(CANVAS_PAGE_SCALES, [1, 1.1, 1.25, 1.5, 1.75]);
-  assert.equal(normalizeCanvasPageScale(0.9), 1);
+  assert.deepEqual(CANVAS_PAGE_SCALES, [0.9, 1, 1.1, 1.25, 1.5, 1.75]);
+  assert.equal(normalizeCanvasPageScale(0.9), 0.9);
   assert.equal(normalizeCanvasPageScale(1.5), 1.5);
   assert.equal(normalizeCanvasPageScale("invalid"), 1);
   assert.deepEqual(desktop.classes, []);
   assert.deepEqual(desktop.desktopCalls, [1]);
   assert.deepEqual(web.classes, ["penecho-web-page-scale"]);
   assert.equal(web.properties.get("--penecho-canvas-page-scale"), "1.25");
+  assert.equal(web.properties.get("--penecho-canvas-page-viewport-width"), "80vw");
+  assert.equal(web.browserWindow.PenEchoPageScale.apply(0.9), 0.9);
+  assert.equal(web.storage.get(CANVAS_PAGE_SCALE_STORAGE_KEY), "0.9");
+  assert.equal(web.properties.get("--penecho-canvas-page-scale"), "0.9");
+  assert.equal(web.properties.get("--penecho-canvas-page-viewport-width"), `${100 / 0.9}vw`);
   assert.equal(web.browserWindow.PenEchoPageScale.apply(1.5), 1.5);
   assert.equal(web.storage.get(CANVAS_PAGE_SCALE_STORAGE_KEY), "1.5");
   assert.equal(web.properties.get("--penecho-canvas-page-scale"), "1.5");
+  assert.equal(web.properties.get("--penecho-canvas-page-viewport-width"), `${100 / 1.5}vw`);
   assert.match(main, /const \{ CANVAS_PAGE_SCALE, normalizeCanvasPageScale \} = require\("\.\.\/public\/page-scale\.js"\)/);
   assert.match(main, /webPreferences:\{ preload:CANVAS_PRELOAD, zoomFactor:CANVAS_PAGE_SCALE \}/);
   assert.match(main, /ipcMain\.handle\("penecho:set-page-scale"[\s\S]*?fromCanvas\(event\)[\s\S]*?setZoomFactor\(scale\)/);
@@ -70,6 +76,7 @@ test("web page scaling keeps Canvas layout coordinates aligned with screen input
 
   assert.match(core, /clientScaleX = rect\.width > 0 \? width \/ rect\.width : 1/);
   assert.match(core, /function canvasClientPosition\(clientX, clientY\)/);
+  assert.match(core, /function applyPageScale\(scale\)[\s\S]*?updateAppearanceControls\(\);[\s\S]*?fit\(\);[\s\S]*?dispatchEvent\(new Event\("resize"\)\)/);
   assert.match(canvas, /function fit\(\) \{\s*const metrics = canvasViewportMetrics\(\)/);
   assert.match(canvas, /function clientPoint\(e\) \{\s*const point = canvasClientPosition\(e\.clientX, e\.clientY\)/);
   assert.match(canvas, /const delta = canvasClientDelta\(dx, dy\)/);
