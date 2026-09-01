@@ -1193,8 +1193,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       canvasAgentErrorViewDetails: "View details",
       canvasAgentErrorCode: "Error code",
       canvasAgentErrorMessage: "Original message",
-      canvasAgentEmptyTitle: "Research, analyze, and create—all in one place.",
-      canvasAgentEmptyBody: "Analyze folders and files—including Excel, PowerPoint, PDF, and Word—and search the web. Use your current canvas as context for rich visual analyses and plans, or update it directly.",
+      canvasAgentEmptyTitle: "Understand what is here, then build on it.",
+      canvasAgentEmptyBody: "Use the Canvas, handwriting, Widgets, folders, files, and the web as context. Ask Agent to explain, organize, plan, or update the work directly.",
       canvasAgentInputHint: "Type or use the Pen button to write by hand. Reference a Widget, then ask Agent to extract canvas handwriting, inspect source, arrange content, or edit the Widget.",
       canvasAgentPlaceholder: "Ask PenEcho Agent…",
       canvasAgentMessage: "Message PenEcho Agent",
@@ -1202,6 +1202,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       canvasAgentModel: "AI model",
       canvasAgentPromptSuggestions: "Suggested prompts",
       canvasAgentPromptSuggestionsTitle: "Try asking",
+      canvasAgentPromptSuggestionsHint: "Suggestions adapt to the current context.",
       canvasAgentPromptCurrentCanvas: "Current Canvas",
       canvasAgentPromptMoreInspiration: "More inspiration",
       canvasAgentPromptDisclosureMore: "More",
@@ -16141,13 +16142,12 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     canvasAgentApprovalAllow = document.querySelector("#canvasAgentApprovalAllow"),
     canvasAgentForm = document.querySelector("#canvasAgentForm"),
     canvasAgentInputHint = document.querySelector("#canvasAgentInputHint"),
+    canvasAgentPromptControl = document.querySelector("#canvasAgentPromptControl"),
     canvasAgentPromptSuggestions = document.querySelector("#canvasAgentPromptSuggestions"),
     canvasAgentPromptToggle = document.querySelector("#canvasAgentPromptToggle"),
     canvasAgentPromptDisclosureCopy = document.querySelector("#canvasAgentPromptDisclosureCopy"),
     canvasAgentPromptPopup = document.querySelector("#canvasAgentPromptPopup"),
-    canvasAgentAdditionalPromptGroup = document.querySelector("#canvasAgentAdditionalPromptGroup"),
     canvasAgentAdditionalPromptList = document.querySelector("#canvasAgentAdditionalPromptList"),
-    canvasAgentPrimaryPromptGroup = document.querySelector("#canvasAgentPrimaryPromptGroup"),
     canvasAgentPrimaryPromptList = document.querySelector("#canvasAgentPrimaryPromptList"),
     canvasAgentInput = document.querySelector("#canvasAgentInput"),
     canvasAgentInkInput = document.querySelector("#canvasAgentInkInput"),
@@ -16327,7 +16327,6 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     inputMode:"text",
     promptSuggestionsExpanded:false,
     promptSuggestionsManual:false,
-    promptSuggestionsCollapsedAll:false,
     promptSuggestionContextKey:"",
     promptSuggestions:[],
     inkPresent:false,
@@ -16523,33 +16522,23 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   function canvasAgentPromptHasDraft() {
     return Boolean(canvasAgentInput.value.trim()||canvasAgent.inkPresent||canvasAgent.attachments.length||canvasAgent.references.length);
   }
-  function canvasAgentPromptNeedsManualExpansion() {
-    return canvasAgentPromptHasDraft()||Boolean(canvasAgent.currentConversation?.items?.length);
-  }
-  function canvasAgentPromptRowsVisible() {
-    return canvasAgent.promptSuggestionsExpanded||(!canvasAgent.promptSuggestionsCollapsedAll&&!canvasAgentPromptNeedsManualExpansion());
-  }
-  function canvasAgentSetPromptSuggestionsExpanded(expanded,{manual=canvasAgent.promptSuggestionsManual,collapseAll=canvasAgent.promptSuggestionsCollapsedAll}={}) {
+  function canvasAgentSetPromptSuggestionsExpanded(expanded,{manual=canvasAgent.promptSuggestionsManual}={}) {
     canvasAgent.promptSuggestionsExpanded=Boolean(expanded);
     canvasAgent.promptSuggestionsManual=canvasAgent.promptSuggestionsExpanded&&Boolean(manual);
-    canvasAgent.promptSuggestionsCollapsedAll=!canvasAgent.promptSuggestionsExpanded&&Boolean(collapseAll);
-    const rowsVisible=canvasAgentPromptRowsVisible();
     canvasAgentPromptSuggestions?.classList.toggle("expanded",canvasAgent.promptSuggestionsExpanded);
-    canvasAgentPromptSuggestions?.classList.toggle("prompt-rows-visible",rowsVisible);
-    if(canvasAgentPromptSuggestions)canvasAgentPromptSuggestions.dataset.peState=!rowsVisible?"collapsed":canvasAgent.promptSuggestionsExpanded?"expanded":"peek";
-    if(canvasAgentPromptPopup)canvasAgentPromptPopup.hidden=!rowsVisible;
-    if(canvasAgentAdditionalPromptList)canvasAgentAdditionalPromptList.hidden=!canvasAgent.promptSuggestionsExpanded;
-    if(canvasAgentPrimaryPromptList)canvasAgentPrimaryPromptList.hidden=canvasAgent.promptSuggestionsExpanded||canvasAgent.promptSuggestionsCollapsedAll||(canvasAgentPromptNeedsManualExpansion()&&!canvasAgent.promptSuggestionsExpanded);
-    if(canvasAgentAdditionalPromptGroup)canvasAgentAdditionalPromptGroup.hidden=Boolean(canvasAgentAdditionalPromptList?.hidden);
-    if(canvasAgentPrimaryPromptGroup)canvasAgentPrimaryPromptGroup.hidden=Boolean(canvasAgentPrimaryPromptList?.hidden);
+    if(canvasAgentPromptSuggestions){
+      canvasAgentPromptSuggestions.dataset.peState=canvasAgent.promptSuggestionsExpanded?"expanded":"collapsed";
+      canvasAgentPromptSuggestions.hidden=!canvasAgent.promptSuggestionsExpanded;
+    }
+    canvasAgentPanel.dataset.promptSuggestionsOpen=String(canvasAgent.promptSuggestionsExpanded);
     if(canvasAgentPromptToggle){
-      const key=rowsVisible?"canvasAgentPromptLess":"canvasAgentPromptMore",label=t(key);
-      canvasAgentPromptToggle.dataset.peState=rowsVisible?"expanded":"collapsed";
-      canvasAgentPromptToggle.setAttribute("aria-expanded",String(rowsVisible));
+      const key=canvasAgent.promptSuggestionsExpanded?"canvasAgentPromptLess":"canvasAgentPromptMore",label=t(key);
+      canvasAgentPromptToggle.dataset.peState=canvasAgent.promptSuggestionsExpanded?"expanded":"collapsed";
+      canvasAgentPromptToggle.setAttribute("aria-expanded",String(canvasAgent.promptSuggestionsExpanded));
       canvasAgentPromptToggle.setAttribute("aria-label",label);
       canvasAgentPromptToggle.setAttribute("title",label);
     }
-    if(canvasAgentPromptDisclosureCopy)canvasAgentPromptDisclosureCopy.textContent=t(rowsVisible?"canvasAgentPromptDisclosureLess":"canvasAgentPromptDisclosureMore");
+    if(canvasAgentPromptDisclosureCopy)canvasAgentPromptDisclosureCopy.textContent=t(canvasAgent.promptSuggestionsExpanded?"canvasAgentPromptDisclosureLess":"canvasAgentPromptDisclosureMore");
   }
   function canvasAgentCreatePromptIcon(iconName) {
     const preview=document.createElement("span"),svg=document.createElementNS("http://www.w3.org/2000/svg","svg");
@@ -16569,21 +16558,26 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     if(!canvasAgentPrimaryPromptList)return;
     const renderList=(list,suggestions)=>{
       if(!list)return;
-      list.replaceChildren();
+      const label=list.querySelector?.('[data-pe-region="group-label"]');
+      list.replaceChildren(...(label?[label]:[]));
       for(const suggestion of suggestions){
-        const button=document.createElement("button"),icon=canvasAgentCreatePromptIcon(suggestion.icon),copy=document.createElement("span"),title=document.createElement("span"),prompt=t(suggestion.prompt),titleText=t(suggestion.title);
+        const button=document.createElement("button"),icon=canvasAgentCreatePromptIcon(suggestion.icon),copy=document.createElement("span"),title=document.createElement("strong"),description=document.createElement("small"),prompt=t(suggestion.prompt),titleText=t(suggestion.title),descriptionText=t(`${suggestion.prompt}Summary`);
         button.type="button";
-        button.className="canvas-agent-prompt-row list-row";
-        button.dataset.peItem="prompt-suggestion";
+        button.className="canvas-agent-prompt-row";
+        button.dataset.peItem="icon-copy-action";
+        button.dataset.peState="default";
         button.dataset.promptKey=suggestion.prompt;
-        copy.className="canvas-agent-prompt-copy list-copy";
+        icon.dataset.peRegion="media";
+        copy.className="canvas-agent-prompt-copy";
         copy.dataset.peRegion="copy";
         title.dataset.peRegion="title";
+        description.dataset.peRegion="description";
         title.textContent=titleText;
-        copy.append(title);
+        description.textContent=descriptionText;
+        copy.append(title,description);
         button.append(icon,copy);
         button.setAttribute("title",titleText);
-        button.setAttribute("aria-label",`${titleText}: ${prompt}`);
+        button.setAttribute("aria-label",`${titleText}: ${descriptionText}`);
         button.addEventListener("click",event=>canvasAgentActivatePromptSuggestion(suggestion.prompt,event));
         list.append(button);
       }
@@ -16591,8 +16585,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     const suggestions=suggestionSet.suggestions,primaryStart=Math.max(0,suggestions.length-3);
     canvasAgent.promptSuggestionContextKey=suggestionSet.key;
     canvasAgent.promptSuggestions=suggestions;
-    renderList(canvasAgentAdditionalPromptList,suggestions);
     renderList(canvasAgentPrimaryPromptList,suggestions.slice(primaryStart));
+    renderList(canvasAgentAdditionalPromptList,suggestions.slice(0,primaryStart));
     canvasAgentPromptSuggestions.setAttribute("aria-label",t("canvasAgentPromptSuggestions"));
     canvasAgentSetPromptSuggestionsExpanded(canvasAgent.promptSuggestionsExpanded);
   }
@@ -16608,21 +16602,18 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     canvasAgentClearPromptSuggestionPointer();
     canvasAgent.promptSuggestionPointerType=event.pointerType||"";
     canvasAgent.promptSuggestionPointerButton=button;
-    canvasAgent.promptSuggestionPointerActive=event.pointerType==="touch"||event.pointerType==="pen";
     if(event.pointerType==="mouse"&&button!==canvasAgentPromptToggle){event.preventDefault();return;}
-    if(canvasAgent.promptSuggestionPointerActive){
+    if(event.pointerType==="touch"||event.pointerType==="pen"){
       try{button.focus({preventScroll:true});}catch{button.focus();}
     }
   }
   function canvasAgentFinishPromptSuggestionPointer(event) {
-    canvasAgent.promptSuggestionPointerActive=false;
     if(event?.type==="pointercancel"){canvasAgentClearPromptSuggestionPointer();return;}
     if(canvasAgent.promptSuggestionPointerClearTimer)clearTimeout(canvasAgent.promptSuggestionPointerClearTimer);
     canvasAgent.promptSuggestionPointerClearTimer=setTimeout(canvasAgentClearPromptSuggestionPointer,700);
   }
   function canvasAgentPromptSuggestionsAvailable() {
     return Boolean(canvasAgentPromptSuggestions
-      && !canvasAgentPanel.hidden
       && canvasAgent.inputMode==="text"
       && !canvasAgent.inkPresent
       && !canvasAgent.requestPending
@@ -16643,66 +16634,44 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     const suggestionSet=canvasAgentPromptSuggestionSet();
     if(suggestionSet.key!==canvasAgent.promptSuggestionContextKey)canvasAgentRenderPromptSuggestions(suggestionSet);
     const visible=canvasAgentShouldShowPromptSuggestions();
-    canvasAgentPromptSuggestions.hidden=!visible;
+    if(canvasAgentPromptControl)canvasAgentPromptControl.hidden=!visible;
     if(visible){
       canvasAgentInputHint.hidden=true;
       canvasAgentSetPromptSuggestionsExpanded(canvasAgent.promptSuggestionsExpanded);
     }
     else{
-      canvasAgentSetPromptSuggestionsExpanded(false,{collapseAll:false});
+      canvasAgentSetPromptSuggestionsExpanded(false,{manual:false});
       canvasAgentSyncInputHint();
     }
   }
-  function canvasAgentExpandPromptSuggestionsOnPointerEnter(event) {
-    if(event?.pointerType==="touch"||event?.pointerType==="pen")return;
-    if(!canvasAgent.promptSuggestionsCollapsedAll&&!canvasAgentPromptNeedsManualExpansion())canvasAgentSetPromptSuggestionsExpanded(true,{manual:false});
-  }
-  function canvasAgentCollapsePromptSuggestionsOnPointerLeave() {
-    if(canvasAgent.promptSuggestionsManual)return;
-    if(canvasAgentPromptSuggestions?.contains(document.activeElement))return;
-    canvasAgentSetPromptSuggestionsExpanded(false);
-  }
-  function canvasAgentSyncPromptSuggestionsFocus() {
-    if(!canvasAgentPromptSuggestions)return;
-    if(canvasAgent.promptSuggestionPointerActive)return;
-    if(!canvasAgentForm.contains(document.activeElement)&&!canvasAgentPromptSuggestions.contains(document.activeElement))canvasAgentSetPromptSuggestionsExpanded(false);
-    else if(!canvasAgentPromptSuggestions.contains(document.activeElement)&&!canvasAgent.promptSuggestionsManual)canvasAgentSetPromptSuggestionsExpanded(false);
-    canvasAgentSyncPromptSuggestions();
-  }
   function canvasAgentTogglePromptSuggestions() {
-    if(canvasAgentPromptRowsVisible())canvasAgentSetPromptSuggestionsExpanded(false,{collapseAll:true});
+    if(canvasAgent.promptSuggestionsExpanded)canvasAgentSetPromptSuggestionsExpanded(false,{manual:false});
     else{
       const composerFocused=document.activeElement===canvasAgentInput;
       if(composerFocused)canvasAgentInput.blur();
-      canvasAgentSetPromptSuggestionsExpanded(true,{manual:true,collapseAll:false});
+      canvasAgentSetPromptSuggestionsExpanded(true,{manual:true});
       if(composerFocused){
         try{canvasAgentPromptToggle.focus({preventScroll:true});}catch{canvasAgentPromptToggle.focus();}
       }
     }
   }
-  function canvasAgentCollapsePromptSuggestionsFromPanel(event) {
-    if(canvasAgentPromptSuggestions?.hidden||!canvasAgentPromptRowsVisible()||canvasAgentPromptSuggestions.contains(event.target))return;
-    canvasAgentSetPromptSuggestionsExpanded(false,{collapseAll:true});
-  }
-  function canvasAgentChoosePromptSuggestion(promptKey) {
+  function canvasAgentChoosePromptSuggestion(promptKey,{focus=true}={}) {
     const suggestion=canvasAgent.promptSuggestions.find(item=>item.prompt===promptKey);
     if(!suggestion||canvasAgentInput.disabled)return false;
     canvasAgentInput.value=t(suggestion.prompt);
-    canvasAgentSetPromptSuggestionsExpanded(false);
+    canvasAgentSetPromptSuggestionsExpanded(false,{manual:false});
     canvasAgentInput.dispatchEvent(new Event("input",{bubbles:true}));
-    canvasAgentInput.focus();
-    canvasAgentInput.setSelectionRange?.(canvasAgentInput.value.length,canvasAgentInput.value.length);
+    if(focus){
+      canvasAgentInput.focus();
+      canvasAgentInput.setSelectionRange?.(canvasAgentInput.value.length,canvasAgentInput.value.length);
+    }
     return true;
   }
   function canvasAgentActivatePromptSuggestion(promptKey,event) {
     const button=event?.currentTarget||event?.target?.closest?.("button"),
       pointerType=event?.pointerType||(button===canvasAgent.promptSuggestionPointerButton?canvasAgent.promptSuggestionPointerType:"");
     canvasAgentClearPromptSuggestionPointer();
-    if((pointerType==="touch"||pointerType==="pen")&&canvasAgentPrimaryPromptList?.contains(button)){
-      canvasAgentSetPromptSuggestionsExpanded(true,{manual:true,collapseAll:false});
-      return false;
-    }
-    return canvasAgentChoosePromptSuggestion(promptKey);
+    return canvasAgentChoosePromptSuggestion(promptKey,{focus:pointerType!=="touch"&&pointerType!=="pen"});
   }
   function canvasAgentUpdateConnectionButton() {
     if(!canvasAgentConnectionButton||!canvasAgentConnectionLabel)return;
@@ -17490,6 +17459,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     canvasAgentSetHistoryViewing("");
     canvasAgentDropSessionIdentity();
     canvasAgentClearTranscript();
+    canvasAgentSetPromptSuggestionsExpanded(false,{manual:false});
     canvasAgentRenderConversation(conversation,false);
     canvasAgentClearAttachments();
     canvasAgentClearReferences();
@@ -17504,6 +17474,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   function canvasAgentReturnToCurrentConversation() {
     canvasAgentHideHistoryPopover();
     canvasAgentSetHistoryViewing("");
+    canvasAgentSetPromptSuggestionsExpanded(false,{manual:false});
     canvasAgentRenderConversation(canvasAgent.currentConversation,true);
     if(!canvasAgent.running&&canvasAgent.lastTurnError)canvasAgentSetStatus(canvasAgentErrorSummary(canvasAgent.lastTurnError),"error");
     else canvasAgentSetStatus(t(canvasAgent.running?"canvasAgentWorking":canvasAgent.socket?.readyState===WebSocket.OPEN&&canvasAgent.sessionReady?"canvasAgentReady":"canvasAgentReadyConnect"),canvasAgent.running?"running":"ready");
@@ -17526,6 +17497,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       canvasAgentClearInkDraft();
     }
     canvasAgentRenderHistoryList();
+    canvasAgentSetPromptSuggestionsExpanded(true,{manual:false});
+    canvasAgentSyncPromptSuggestions();
   }
   function canvasAgentDropSessionIdentity() {
     canvasAgent.sessionId="";
@@ -20399,6 +20372,12 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   document.addEventListener("keydown",event=>{
     if (event.key !== "Escape" || canvasAgentPanel.hidden) return;
     if (canvasAgentProjectRemoveDialog.open) return;
+    if (canvasAgent.promptSuggestionsExpanded) {
+      event.preventDefault();
+      canvasAgentSetPromptSuggestionsExpanded(false,{manual:false});
+      try{canvasAgentPromptToggle.focus({preventScroll:true});}catch{canvasAgentPromptToggle.focus();}
+      return;
+    }
     if (!canvasAgentReferencePicker.hidden) {
       event.preventDefault();
       canvasAgentToggleReferencePicker(false);
@@ -20423,7 +20402,6 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     if (!canvasAgentHistoryPopover.hidden&&!canvasAgentHistoryPopover.contains(event.target)&&!canvasAgentHistory.contains(event.target)) canvasAgentHideHistoryPopover();
     if (canvasAgentProjectDialogOpen()&&!canvasAgentProjectPopover.contains(event.target)&&!canvasAgentProjectRemoveDialog.contains(event.target)&&!canvasAgentProjectButton.contains(event.target)) canvasAgentHideProjectPopover();
     if (!canvasAgentReferencePicker.hidden&&!canvasAgentReferencePicker.contains(event.target)&&!canvasAgentReference.contains(event.target)) canvasAgentToggleReferencePicker(false);
-    if (canvasAgent.promptSuggestionsExpanded&&!canvasAgentForm.contains(event.target)&&!canvasAgentPromptSuggestions?.contains(event.target)) canvasAgentSetPromptSuggestionsExpanded(false);
   });
   canvasAgentStop.addEventListener("click",()=>{
     canvasAgentResolveApproval(false);
@@ -20481,10 +20459,6 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   canvasAgentPromptSuggestions?.addEventListener("pointerdown",canvasAgentPreventPromptSuggestionFocusLoss);
   canvasAgentPromptSuggestions?.addEventListener("pointerup",canvasAgentFinishPromptSuggestionPointer);
   canvasAgentPromptSuggestions?.addEventListener("pointercancel",canvasAgentFinishPromptSuggestionPointer);
-  canvasAgentPromptSuggestions?.addEventListener("pointerenter",canvasAgentExpandPromptSuggestionsOnPointerEnter);
-  canvasAgentPromptSuggestions?.addEventListener("pointerleave",canvasAgentCollapsePromptSuggestionsOnPointerLeave);
-  canvasAgentPromptSuggestions?.addEventListener("focusin",canvasAgentExpandPromptSuggestionsOnPointerEnter);
-  canvasAgentPromptSuggestions?.addEventListener("focusout",()=>queueMicrotask(canvasAgentSyncPromptSuggestionsFocus));
   canvasAgentPromptToggle?.addEventListener("click",canvasAgentTogglePromptSuggestions);
   canvasAgentClearInkButton.addEventListener("click",()=>canvasAgentClearInkDraft());
   canvasAgentInkCanvas.addEventListener("pointerdown",canvasAgentInkPointerDown);
@@ -20608,9 +20582,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     void canvasAgentHandleFiles(files);
   });
   for (const type of ["pointerdown","pointermove","pointerup","pointercancel","wheel"]) canvasAgentPanel.addEventListener(type,event=>event.stopPropagation(),{passive:type === "wheel"});
-  canvasAgentPanel.addEventListener("click",canvasAgentCollapsePromptSuggestionsFromPanel);
   canvasAgentForm.addEventListener("focusin",canvasAgentSyncPromptSuggestions);
-  canvasAgentForm.addEventListener("focusout",()=>queueMicrotask(canvasAgentSyncPromptSuggestionsFocus));
   canvasAgentPanel.addEventListener("focusin",canvasAgentPauseAutomaticAI);
   canvasAgentPanel.addEventListener("focusout",()=>queueMicrotask(canvasAgentResumeAutomaticAI));
   canvasAgentTranscript.addEventListener("scroll",canvasAgentSyncFollowLatest,{passive:true});

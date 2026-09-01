@@ -615,8 +615,26 @@
             <span data-i18n="canvasAgentHistoryViewing">Viewing saved conversation</span>
             <button id="canvasAgentHistoryReturn" type="button" data-i18n="canvasAgentHistoryReturn" data-pe-button="ghost" data-pe-density="compact">Back to current conversation</button>
           </div>
+          <section id="canvasAgentPromptSuggestions" class="canvas-agent-prompt-suggestions" role="region" data-i18n-aria="canvasAgentPromptSuggestions" aria-label="Suggested prompts" data-pe-container="surface" data-pe-state="expanded" hidden>
+            <header class="canvas-agent-empty canvas-agent-prompt-intro">
+              <strong data-i18n="canvasAgentEmptyTitle">Understand what is here, then build on it.</strong>
+              <span data-i18n="canvasAgentEmptyBody">Use the Canvas, handwriting, Widgets, folders, files, and the web as context. Ask Agent to explain, organize, plan, or update the work directly.</span>
+            </header>
+            <header class="canvas-agent-prompt-section-head">
+              <strong data-i18n="canvasAgentPromptSuggestionsTitle">Try asking</strong>
+              <small data-i18n="canvasAgentPromptSuggestionsHint">Suggestions adapt to the current context.</small>
+            </header>
+            <div id="canvasAgentPromptPopup" class="canvas-agent-prompt-popup" data-pe-list="icon-copy" data-pe-material="opaque">
+              <section id="canvasAgentPrimaryPromptList" class="canvas-agent-prompt-group" data-pe-region="group" aria-labelledby="canvasAgentPrimaryPromptLabel">
+                <h3 id="canvasAgentPrimaryPromptLabel" data-pe-region="group-label" data-i18n="canvasAgentPromptCurrentCanvas">Current Canvas</h3>
+              </section>
+              <section id="canvasAgentAdditionalPromptList" class="canvas-agent-prompt-group canvas-agent-prompt-additional" data-pe-region="group" aria-labelledby="canvasAgentAdditionalPromptLabel">
+                <h3 id="canvasAgentAdditionalPromptLabel" data-pe-region="group-label" data-i18n="canvasAgentPromptMoreInspiration">More inspiration</h3>
+              </section>
+            </div>
+          </section>
           <div id="canvasAgentTranscript" class="canvas-agent-transcript" role="log" aria-live="polite" aria-relevant="additions text">
-            <div class="canvas-agent-empty"><strong data-i18n="canvasAgentEmptyTitle">Research, analyze, and create—all in one place.</strong><span data-i18n="canvasAgentEmptyBody">Analyze folders and files—including Excel, PowerPoint, PDF, and Word—and search the web. Use your current canvas as context for rich visual analyses and plans, or update it directly.</span></div>
+            <div class="canvas-agent-empty"><strong data-i18n="canvasAgentEmptyTitle">Understand what is here, then build on it.</strong><span data-i18n="canvasAgentEmptyBody">Use the Canvas, handwriting, Widgets, folders, files, and the web as context. Ask Agent to explain, organize, plan, or update the work directly.</span></div>
           </div>
           <div id="canvasAgentSelection" class="canvas-agent-selection" data-i18n-aria="canvasAgentReferences" aria-label="Referenced canvas objects" hidden></div>
           <div id="canvasAgentAttachments" class="canvas-agent-attachments" data-i18n-aria="canvasAgentAttachments" aria-label="Attachments" hidden></div>
@@ -634,21 +652,14 @@
                   <button id="canvasAgentProject" class="canvas-agent-project-button" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="canvasAgentProjectPopover" data-i18n-title="canvasAgentProject" title="Manage projects and files" data-i18n-aria="canvasAgentProject" aria-label="Manage projects and files" data-pe-button="toolbar" data-pe-density="compact">
                     <svg class="canvas-agent-project-folder-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 7.5h6l2-2h9v13h-17z"/><path d="M3.5 9.5h17"/></svg>
                     <svg class="canvas-agent-project-file-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v5h5"/></svg>
-                    <span id="canvasAgentProjectLabel" data-i18n="canvasAgentNoProject">No project</span>
+                    <span class="canvas-agent-project-label-clip"><span id="canvasAgentProjectLabel" data-i18n="canvasAgentNoProject">No project</span></span>
                   </button>
                   <button id="canvasAgentProjectClear" class="canvas-agent-project-clear" type="button" aria-label="Clear selected resource" title="Clear selected resource" hidden data-pe-button="icon" data-pe-density="compact"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17"/></svg></button>
                 </div>
-                <section id="canvasAgentPromptSuggestions" class="canvas-agent-prompt-suggestions" role="group" data-i18n-aria="canvasAgentPromptSuggestions" aria-label="Suggested prompts" data-pe-surface="prompt-suggestions" data-pe-size="m" data-pe-layout="single" data-pe-state="collapsed" data-pe-placement="top" hidden>
-                  <header data-pe-region="header"><button id="canvasAgentPromptToggle" type="button" aria-expanded="false" aria-controls="canvasAgentPromptPopup" data-i18n-title="canvasAgentPromptMore" title="Show suggested prompts" data-i18n-aria="canvasAgentPromptMore" aria-label="Show suggested prompts" data-pe-control="disclosure" data-pe-button="ghost" data-pe-density="compact" data-pe-state="collapsed"><span class="canvas-agent-prompt-toggle-copy" data-pe-region="copy"><span data-i18n="canvasAgentPromptSuggestionsTitle" data-pe-region="title">Try asking</span><span id="canvasAgentPromptDisclosureCopy" class="canvas-agent-visually-hidden" data-i18n="canvasAgentPromptDisclosureMore">More</span></span><svg class="canvas-agent-prompt-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m8 10 4 4 4-4"/></svg></button></header>
-                  <div id="canvasAgentPromptPopup" class="canvas-agent-prompt-popup" role="region" data-i18n-aria="canvasAgentPromptSuggestions" aria-label="Suggested prompts" data-pe-region="body" data-pe-material="popover-glass" hidden>
-                    <div id="canvasAgentPrimaryPromptGroup" class="canvas-agent-prompt-group" data-pe-region="group">
-                      <div id="canvasAgentPrimaryPromptList" class="canvas-agent-prompt-list" data-pe-list="prompt-grid"></div>
-                    </div>
-                    <div id="canvasAgentAdditionalPromptGroup" class="canvas-agent-prompt-group" data-pe-region="group" hidden>
-                      <div id="canvasAgentAdditionalPromptList" class="canvas-agent-prompt-list canvas-agent-prompt-additional" data-pe-list="prompt-grid" hidden></div>
-                    </div>
-                  </div>
-                </section>
+                <div id="canvasAgentPromptControl" class="canvas-agent-prompt-control" hidden>
+                  <button id="canvasAgentPromptToggle" type="button" aria-expanded="false" aria-controls="canvasAgentPromptSuggestions" data-i18n-title="canvasAgentPromptMore" title="Show suggested prompts" data-i18n-aria="canvasAgentPromptMore" aria-label="Show suggested prompts" data-pe-control="disclosure" data-pe-button="ghost" data-pe-density="compact" data-pe-state="collapsed"><span class="canvas-agent-prompt-toggle-copy" data-pe-region="copy"><span data-i18n="canvasAgentPromptSuggestionsTitle" data-pe-region="title">Try asking</span><span id="canvasAgentPromptDisclosureCopy" class="canvas-agent-visually-hidden" data-i18n="canvasAgentPromptDisclosureMore">More</span></span><svg class="canvas-agent-prompt-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m8 10 4 4 4-4"/></svg>
+                  </button>
+                </div>
                 <button id="canvasAgentConnection" class="canvas-agent-connection-button" type="button" aria-haspopup="dialog" aria-controls="settingsPanel" data-i18n-title="canvasAgentChooseConnection" title="Choose AI connection" data-i18n-aria="canvasAgentChooseConnection" aria-label="Choose AI connection" data-pe-button="ghost" data-pe-density="compact">
                   <span id="canvasAgentConnectionLabel" data-i18n="canvasAgentModel">AI model</span>
                   <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 10 4 4 4-4"/></svg>

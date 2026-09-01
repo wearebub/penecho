@@ -136,11 +136,18 @@ test("Agent composer keeps the scale90 button set and layout while adopting tint
   ]);
   const toolbarIds = Array.from(document.querySelectorAll(".canvas-agent-composer-toolbar button"), (button) => button.id);
   assert.deepEqual(toolbarIds, ["canvasAgentProject","canvasAgentProjectClear","canvasAgentPromptToggle","canvasAgentConnection"]);
+  assert.equal(document.querySelector("#canvasAgentProjectLabel")?.parentElement?.className, "canvas-agent-project-label-clip");
   const genericSvgRule = css.match(/:is\(#pe-button-contract, \[data-pe-button\]\) > svg\s*\{([^}]*)\}/)?.[1] || "";
   assert.match(css, /:where\(\[data-pe-button\]\) > svg \{ display: block; \}/);
   assert.doesNotMatch(genericSvgRule, /display:\s*block/, "state-owned SVG visibility must beat generic icon normalization");
   assert.match(css, /\.canvas-agent-tool-actions,\s*\.canvas-agent-primary-actions\s*\{ display: flex; align-items: center; gap: 2px; \}/);
   assert.match(css, /:is\(#pe-button-contract, \.canvas-agent-composer-toolbar\) \.canvas-agent-project-control > \.canvas-agent-project-button\[data-pe-button\]\s*\{[^}]*width: 100%;[^}]*min-width: 0;[^}]*max-width: 100%;[^}]*flex: 1 1 auto;/s);
+  assert.match(css, /\.canvas-agent-project-button > span\s*\{[^}]*text-overflow:\s*clip;[^}]*mask-image:\s*linear-gradient\(to right,/s);
+  assert.match(css, /\.canvas-agent-composer \.canvas-agent-project-clear\s*\{[^}]*right:\s*3px;[^}]*left:\s*auto;/s);
+  assert.match(css, /\.canvas-agent-project-control\.has-resource:is\(:hover, :focus-within\) > \.canvas-agent-project-button\[data-pe-button\]\s*\{[^}]*gap:\s*0;[^}]*padding-inline:\s*8px 24px;/s);
+  assert.match(css, /\.canvas-agent-project-button\[data-pe-button\] > :is\(\.canvas-agent-project-folder-icon, \.canvas-agent-project-file-icon\)\s*\{[^}]*width:\s*0;[^}]*flex-basis:\s*0;/s);
+  assert.match(css, /@media \(hover: none\)[\s\S]*?\.canvas-agent-project-control\.has-resource > \.canvas-agent-project-clear\[data-pe-button\]\s*\{[^}]*opacity:\s*1;[^}]*pointer-events:\s*auto;/s);
+  assert.match(css, /@media \(pointer: coarse\)[\s\S]*?\.canvas-agent-project-clear::before\s*\{[^}]*inset:\s*-14px 0 -14px -28px;/s);
   assert.match(css, /\.canvas-agent-composer-toolbar\s*\{[^}]*grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/);
   assert.match(css, /@container \(max-width: 520px\)[\s\S]*?\.canvas-agent-primary-actions\) \{ gap: 1px; \}/);
   assert.doesNotMatch(css, /\.canvas-agent-primary-actions\s*\) \{ gap: 4px; \}/);
