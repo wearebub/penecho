@@ -179,7 +179,7 @@ function interactiveScene(){
     form={contains(node){return node===input||node===active.element&&active.insideForm;},submitted:false},
     suggestions={hidden:true,dataset:{},attributes:{},classList:{expanded:false,promptRowsVisible:false,toggle(name,value){if(name==="expanded")this.expanded=Boolean(value);if(name==="prompt-rows-visible")this.promptRowsVisible=Boolean(value);}},setAttribute(name,value){this.attributes[name]=String(value);},contains(node){return node===active.element&&active.insideSuggestions;}},
     popup={hidden:true},makeList=()=>({hidden:false,children:[],replaceChildren(){this.children=[];},append(child){this.children.push(child);}}),additional=makeList(),primary=makeList(),additionalGroup={hidden:true},primaryGroup={hidden:false},toggle=node("button"),disclosure=node("span"),
-    hint={hidden:false},canvasAgent={inputMode:"text",inkPresent:false,attachments:[],references:[],currentConversation:{items:[]},requestPending:false,running:false,viewingHistoryId:"",pendingApproval:null,attachmentBusy:false,projectUploadBusy:false,promptSuggestionsExpanded:false,promptSuggestionsManual:false,promptSuggestionsCollapsedAll:false,promptSuggestionContextKey:"",promptSuggestions:[]},
+    hint={hidden:false},canvasAgent={inputMode:"text",inkPresent:false,attachments:[],references:[],currentConversation:{items:[]},requestPending:false,running:false,viewingHistoryId:"",pendingApproval:null,attachmentBusy:false,projectUploadBusy:false,promptSuggestionsExpanded:false,promptSuggestionsManual:false,promptSuggestionsCollapsedAll:false,promptSuggestionPointerActive:false,promptSuggestionContextKey:"",promptSuggestions:[]},
     panel={hidden:false},referencePicker={hidden:true},approval={hidden:true},translations={canvasAgentPromptHandwriting:"Polished prompt",canvasAgentPromptHandwritingTitle:"Enhance My Handwritten Notes",canvasAgentPromptMore:"Show",canvasAgentPromptLess:"Hide",canvasAgentPromptDisclosureMore:"More",canvasAgentPromptDisclosureLess:"Less"};
   const context={canvasAgentInput:input,canvasAgentInputHint:hint,canvasAgentPromptSuggestions:suggestions,canvasAgentPromptPopup:popup,canvasAgentAdditionalPromptGroup:additionalGroup,canvasAgentAdditionalPromptList:additional,canvasAgentPrimaryPromptGroup:primaryGroup,canvasAgentPrimaryPromptList:primary,
     canvasAgentPromptToggle:toggle,canvasAgentPromptDisclosureCopy:disclosure,canvasAgentPanel:panel,canvasAgentForm:form,canvasAgentReferencePicker:referencePicker,canvasAgentApproval:approval,document,canvasAgent,
@@ -206,12 +206,13 @@ function interactiveScene(){
   const choose=vm.runInNewContext(`(()=>{${functionSource("canvasAgentChoosePromptSuggestion")}return canvasAgentChoosePromptSuggestion;})()`,context);
   context.canvasAgentChoosePromptSuggestion=choose;
   const preventFocusLoss=vm.runInNewContext(`(()=>{${functionSource("canvasAgentPreventPromptSuggestionFocusLoss")}return canvasAgentPreventPromptSuggestionFocusLoss;})()`,context),
+    finishPointer=vm.runInNewContext(`(()=>{${functionSource("canvasAgentFinishPromptSuggestionPointer")}return canvasAgentFinishPromptSuggestionPointer;})()`,context),
     expandOnEnter=vm.runInNewContext(`(()=>{${functionSource("canvasAgentExpandPromptSuggestionsOnPointerEnter")}return canvasAgentExpandPromptSuggestionsOnPointerEnter;})()`,context),
     collapseOnLeave=vm.runInNewContext(`(()=>{${functionSource("canvasAgentCollapsePromptSuggestionsOnPointerLeave")}return canvasAgentCollapsePromptSuggestionsOnPointerLeave;})()`,context),
     syncFocus=vm.runInNewContext(`(()=>{${functionSource("canvasAgentSyncPromptSuggestionsFocus")}return canvasAgentSyncPromptSuggestionsFocus;})()`,context),
     toggleExpanded=vm.runInNewContext(`(()=>{${functionSource("canvasAgentTogglePromptSuggestions")}return canvasAgentTogglePromptSuggestions;})()`,context),
     collapseFromPanel=vm.runInNewContext(`(()=>{${functionSource("canvasAgentCollapsePromptSuggestionsFromPanel")}return canvasAgentCollapsePromptSuggestionsFromPanel;})()`,context);
-  return {set,input,active,outside,document,form,suggestions,popup,additionalGroup,primaryGroup,additional,primary,toggle,canvasAgent,render,setExpanded,shouldShow,sync,choose,preventFocusLoss,expandOnEnter,collapseOnLeave,syncFocus,toggleExpanded,collapseFromPanel};
+  return {set,input,active,outside,document,form,suggestions,popup,additionalGroup,primaryGroup,additional,primary,toggle,canvasAgent,render,setExpanded,shouldShow,sync,choose,preventFocusLoss,finishPointer,expandOnEnter,collapseOnLeave,syncFocus,toggleExpanded,collapseFromPanel};
 }
 
 test("PenEcho Agent renders one flat expanded prompt grid and inserts the full prompt",()=>{
@@ -284,9 +285,12 @@ test("PenEcho Agent suggestions preserve mouse activation without blocking iPad 
     toggleEvent={pointerType:"mouse",target:scene.toggle,defaultPrevented:false,preventDefault(){this.defaultPrevented=true;}};
   scene.preventFocusLoss(touchEvent);scene.preventFocusLoss(penEvent);scene.preventFocusLoss(mouseEvent);scene.preventFocusLoss(toggleEvent);
   assert.equal(touchEvent.defaultPrevented,false,"touch panning stays native");assert.equal(penEvent.defaultPrevented,false,"pen panning stays native");assert.equal(mouseEvent.defaultPrevented,true,"mouse selection keeps the composer stable");assert.equal(toggleEvent.defaultPrevented,false,"the disclosure may take non-text focus");
-  if(!mouseEvent.defaultPrevented)scene.active.element=scene.outside;
-  queueMicrotask(scene.sync);await Promise.resolve();assert.equal(scene.suggestions.hidden,false);
+  assert.equal(scene.canvasAgent.promptSuggestionPointerActive,true,"touch and pen activation survive the input focusout checkpoint");assert.equal(scene.document.activeElement,button,"the touched non-text option receives focus without opening the keyboard");
+  scene.active.element=scene.outside;scene.active.insideSuggestions=false;queueMicrotask(scene.syncFocus);await Promise.resolve();assert.equal(scene.popup.hidden,false,"focusout cannot hide the option before its click");
+  scene.active.element=button;scene.active.insideSuggestions=true;scene.finishPointer();assert.equal(scene.canvasAgent.promptSuggestionPointerActive,false);
   button.click();assert.equal(scene.input.value,"Polished prompt");assert.equal(scene.suggestions.hidden,false);assert.equal(scene.primary.hidden,true);assert.equal(scene.form.submitted,false);
+  assert.match(runtime,/canvasAgentPromptSuggestions\?\.addEventListener\("pointerup",canvasAgentFinishPromptSuggestionPointer\)/);
+  assert.match(runtime,/canvasAgentPromptSuggestions\?\.addEventListener\("pointercancel",canvasAgentFinishPromptSuggestionPointer\)/);
 });
 
 test("PenEcho Agent ships localized 3-to-5-word titles and full prompts for every intent",()=>{

@@ -142,7 +142,7 @@
 .cloud-section-tab.active .cloud-nav-icon { color: var(--ai-accent); opacity: 1; }
 .cloud-section-tab:hover:not(.active) { background: var(--ai-hover); color: var(--ai-ink); }
 .penecho-cloud-dialog .cloud-section-tab:focus-visible { outline-offset: 0; }
-.cloud-explore-link { margin-top: .125rem; }
+.cloud-explore-link { margin-top: 0; }
 .cloud-section-refresh-indicator { color: var(--ai-accent); display: grid; height: 1.5rem; place-items: center; pointer-events: none; position: absolute; right: .35rem; top: .375rem; width: 1.5rem; }
 .cloud-section-refresh-indicator[hidden] { display: none; }
 .cloud-section-refresh-indicator > span { animation: cloud-section-refresh-spin .8s linear infinite; font: 700 1rem/1 var(--ai-font); }

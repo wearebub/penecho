@@ -51,7 +51,6 @@
       explore:"Echoes",
       exploreHint:"Browse public Canvases and Widgets.",
       cloudNavLibrary:"Library",
-      cloudNavThisDevice:"This device",
       cloudAccount:"Cloud account",
       accountHint:"Manage your identity, Cloud storage, and project activity.",
       accountOverview:"Account overview",
@@ -258,7 +257,6 @@
       explore:"Echoes",
       exploreHint:"浏览公开画布与组件。",
       cloudNavLibrary:"内容库",
-      cloudNavThisDevice:"这台设备",
       cloudAccount:"Cloud 账户",
       accountHint:"管理账户身份、Cloud 空间与项目活动。",
       accountOverview:"账户概览",
@@ -1405,6 +1403,11 @@
       if (localHostControlsAvailable) {
         const accountName = accountSignedIn() ? String(state.status?.account?.name || cloudT("cloudUser")) : cloudT("signIn");
         appendSection("account", "cloudAccount", accountName);
+        const device = state.status?.device || {};
+        const deviceMeta = device.configured
+          ? String(device.name || (device.connected ? cloudT("connected") : device.enabled ? cloudT("connecting") : cloudT("paused")))
+          : accountSignedIn() ? cloudT("notLinked") : cloudT("signIn");
+        appendSection("device", "linkThisDevice", deviceMeta);
       }
       const definitions = [
         ["projects", "cloudProjects"],
@@ -1420,13 +1423,6 @@
         "data-pe-button":"menu-item",
         "data-pe-state":"default",
       }, [el("span", { class:"cloud-nav-icon", "aria-hidden":"true" }), el("span", { class:"cloud-nav-copy" }, el("strong", { text:`${cloudT("explore")} ↗` }))]));
-      if (localHostControlsAvailable) {
-        const device = state.status?.device || {};
-        const deviceMeta = device.configured
-          ? String(device.name || (device.connected ? cloudT("connected") : device.enabled ? cloudT("connecting") : cloudT("paused")))
-          : accountSignedIn() ? cloudT("notLinked") : cloudT("signIn");
-        appendSection("device", "linkThisDevice", deviceMeta, cloudT("cloudNavThisDevice"));
-      }
       sections.addEventListener("keydown", (event) => {
         if (!["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key) || event.target?.getAttribute?.("role") !== "tab") return;
         const tabs = [...sections.querySelectorAll('[role="tab"]')], current = tabs.indexOf(event.target);

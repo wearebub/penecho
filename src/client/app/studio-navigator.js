@@ -5,6 +5,7 @@
       STUDIO_EDGE_SWIPE_COMMIT_PX = 56,
       STUDIO_EDGE_SWIPE_CANCEL_PX = 36,
       STUDIO_EDGE_SWIPE_DIRECTION_RATIO = 1.25,
+      STUDIO_NAVIGATOR_SETTLE_FALLBACK_MS = 320,
       studioNavigatorToggle = document.querySelector("#studioNavigatorToggle"),
       studioNavigator = document.querySelector("#studioNavigator"),
       studioNavigatorClose = document.querySelector("#studioNavigatorClose"),
@@ -27,7 +28,9 @@
       canvasDocumentMeta = document.querySelector("#canvasDocumentMeta"),
       canvasDocumentName = document.querySelector("#canvasDocumentName"),
       canvasDocumentNameLabel = document.querySelector("#canvasDocumentNameLabel"),
+      canvasDocumentNameEditor = document.querySelector("#canvasDocumentNameEditor"),
       canvasDocumentNameInput = document.querySelector("#canvasDocumentNameInput"),
+      canvasDocumentNameConfirm = document.querySelector("#canvasDocumentNameConfirm"),
       canvasDocumentSaveState = document.querySelector("#canvasDocumentSaveState"),
       canvasDocumentSaveLabel = document.querySelector("#canvasDocumentSaveLabel"),
       saveCanvasLabel = document.querySelector("#saveCanvasLabel"),
@@ -49,7 +52,7 @@
       studioSessionDeletePending = null,
       canvasDocumentRenameActive = false,
       canvasDocumentRenameCommitting = false,
-      studioNavigatorOpenFrame = 0,
+      studioNavigatorTransitionHandler = null,
       studioNavigatorOpenTimer = 0,
       studioEdgeSwipe = null;
 
@@ -88,6 +91,8 @@
       canvasDocumentName.setAttribute("aria-label", t("canvasRenameNamed").replace("{name}", documentName));
       canvasDocumentNameInput.disabled = snapshotSaveInProgress;
       canvasDocumentNameInput.setAttribute("aria-busy", String(snapshotSaveInProgress));
+      canvasDocumentNameConfirm.disabled = snapshotSaveInProgress;
+      canvasDocumentNameConfirm.setAttribute("aria-busy", String(snapshotSaveInProgress));
       canvasDocumentSaveState.dataset.state = stateKey;
       canvasDocumentSaveLabel.textContent = t(copyKey);
       saveCanvasLabel.textContent = t(snapshotSaveInProgress ? "snapshotSavingShort" : "saveCurrentSnapshot");
@@ -96,8 +101,10 @@
     function finishCanvasDocumentRename({ focus = false } = {}) {
       canvasDocumentRenameActive = false;
       canvasDocumentRenameCommitting = false;
+      canvasDocumentNameEditor.hidden = true;
       canvasDocumentNameInput.hidden = true;
       canvasDocumentNameInput.disabled = false;
+      canvasDocumentNameConfirm.disabled = false;
       canvasDocumentNameInput.setCustomValidity("");
       canvasDocumentName.hidden = false;
       updateStudioDocumentState();
@@ -109,6 +116,7 @@
       canvasDocumentNameInput.value = currentCanvasDisplayName() || "";
       canvasDocumentNameInput.setCustomValidity("");
       canvasDocumentName.hidden = true;
+      canvasDocumentNameEditor.hidden = false;
       canvasDocumentNameInput.hidden = false;
       canvasDocumentNameInput.focus({ preventScroll:true });
       canvasDocumentNameInput.select();
@@ -128,11 +136,13 @@
       }
       canvasDocumentRenameCommitting = true;
       canvasDocumentNameInput.disabled = true;
+      canvasDocumentNameConfirm.disabled = true;
       const saved = await renameCurrentCanvasFromTitle(name);
       if (saved) finishCanvasDocumentRename();
       else {
         canvasDocumentRenameCommitting = false;
         canvasDocumentNameInput.disabled = false;
+        canvasDocumentNameConfirm.disabled = false;
         canvasDocumentNameInput.focus({ preventScroll:true });
         canvasDocumentNameInput.select();
       }
@@ -147,24 +157,26 @@
         delete view.dataset.studioNavigatorInert;
       }
     }
-    function updateStudioNavigatorA11y() {
+    function updateStudioNavigatorA11y({ deferSurface = false } = {}) {
       const active = studioNavigatorIsStudio(), open = active && studioNavigatorIsOpen(), unavailable = !active || !open || state.viewMode;
       studioNavigatorToggle.hidden = !active;
       studioNavigator.hidden = !active;
-      studioNavigator.inert = unavailable;
-      studioNavigator.setAttribute("aria-hidden", String(unavailable));
+      if (!deferSurface) {
+        studioNavigator.inert = unavailable;
+        studioNavigator.setAttribute("aria-hidden", String(unavailable));
+      }
       studioNavigatorToggle.setAttribute("aria-expanded", String(open));
       studioNavigatorToggle.classList.toggle("active", open);
       const toggleKey = open ? "studioNavigatorClose" : "studioNavigatorOpen";
       studioNavigatorToggle.setAttribute("aria-label", t(toggleKey));
       studioNavigatorToggle.setAttribute("title", t(toggleKey));
       studioNavigatorScrim.hidden = !(active && open && studioNavigatorIsCompact() && !state.viewMode);
-      updateStudioNavigatorSurfaceInert();
+      if (!deferSurface) updateStudioNavigatorSurfaceInert();
     }
     function suspendStudioAgentForNavigator() {
       if (!studioNavigatorIsCompact() || canvasAgentPanel.hidden || !document.body.classList.contains("canvas-agent-open")) return false;
       studioNavigatorSuspendedAgent = true;
-      closeCanvasAgent({ focus:false, animate:false });
+      closeCanvasAgent({ focus:false });
       return true;
     }
     function restoreStudioAgentAfterNavigator() {
@@ -174,32 +186,40 @@
       return true;
     }
     function cancelStudioNavigatorOpenWork() {
-      if (studioNavigatorOpenFrame) cancelAnimationFrame(studioNavigatorOpenFrame);
+      if (studioNavigatorTransitionHandler) studioNavigator.removeEventListener("transitionend", studioNavigatorTransitionHandler);
       if (studioNavigatorOpenTimer) clearTimeout(studioNavigatorOpenTimer);
-      studioNavigatorOpenFrame = 0;
+      studioNavigatorTransitionHandler = null;
       studioNavigatorOpenTimer = 0;
     }
-    function scheduleStudioNavigatorOpenWork() {
+    function scheduleStudioNavigatorOpenWork(open, options) {
+      const restoreAgent = options?.restoreAgent !== false;
       cancelStudioNavigatorOpenWork();
-      studioNavigatorOpenFrame = requestAnimationFrame(() => {
-        studioNavigatorOpenFrame = 0;
-        studioNavigatorOpenTimer = setTimeout(() => {
-          studioNavigatorOpenTimer = 0;
-          if (!studioNavigatorIsOpen()) return;
+      const settle = () => {
+        cancelStudioNavigatorOpenWork();
+        if (studioNavigatorIsOpen() !== Boolean(open)) return;
+        updateStudioNavigatorA11y();
+        if (open) {
           renderStudioNavigator();
           void refreshStudioNavigatorSources();
-        }, 0);
-      });
+        } else if (restoreAgent) restoreStudioAgentAfterNavigator();
+      };
+      if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches || !studioNavigatorIsStudio()) {
+        settle();
+        return;
+      }
+      studioNavigatorTransitionHandler = event => {
+        if (event.target === studioNavigator && event.propertyName === "transform") settle();
+      };
+      studioNavigator.addEventListener("transitionend", studioNavigatorTransitionHandler);
+      studioNavigatorOpenTimer = setTimeout(settle, STUDIO_NAVIGATOR_SETTLE_FALLBACK_MS);
     }
     function setStudioNavigatorOpen(open, { restoreAgent = true } = {}) {
       studioNavigatorOpenPreference = Boolean(open);
-      if (open) suspendStudioAgentForNavigator();
       document.body.classList.toggle("studio-navigator-open", studioNavigatorIsStudio() && studioNavigatorOpenPreference);
-      updateStudioNavigatorA11y();
-      if (open && studioNavigatorIsStudio()) scheduleStudioNavigatorOpenWork();
-      else cancelStudioNavigatorOpenWork();
+      updateStudioNavigatorA11y({ deferSurface:studioNavigatorIsStudio() });
       if (!open && studioNavigator.contains(document.activeElement)) studioNavigatorToggle.focus({ preventScroll:true });
-      if (!open && restoreAgent) restoreStudioAgentAfterNavigator();
+      if (open) suspendStudioAgentForNavigator();
+      scheduleStudioNavigatorOpenWork(open, { restoreAgent });
     }
     function syncStudioNavigatorTheme(theme = state.theme) {
       const active = theme === "studio", wasActive = document.body.classList.contains("studio-navigator-enabled");
@@ -771,9 +791,12 @@
     studioNavigatorManage.addEventListener("click", openStudioCanvasHistoryManager);
     canvasDocumentName.addEventListener("click", beginCanvasDocumentRename);
     canvasDocumentNameInput.addEventListener("input", () => canvasDocumentNameInput.setCustomValidity(""));
-    canvasDocumentNameInput.addEventListener("blur", () => void commitCanvasDocumentRename());
+    canvasDocumentNameEditor.addEventListener("focusout", (event) => {
+      if (!canvasDocumentNameEditor.contains(event.relatedTarget)) void commitCanvasDocumentRename();
+    });
+    canvasDocumentNameConfirm.addEventListener("click", () => void commitCanvasDocumentRename());
     canvasDocumentNameInput.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") {
+      if (event.key === "Enter" && !event.isComposing) {
         event.preventDefault();
         void commitCanvasDocumentRename();
       } else if (event.key === "Escape") {

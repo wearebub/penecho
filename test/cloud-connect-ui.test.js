@@ -1036,10 +1036,10 @@ test("Cloud Center uses History-style vertical navigation with Account and Link 
   await run.flush();
   const overlay = await openCloudCenter(run);
   const tabs = flatten(overlay).filter((node) => node.getAttribute("role") === "tab");
-  assert.deepEqual(tabs.map((tab) => tab.getAttribute("data-cloud-section")), ["account", "projects", "favorites", "device"]);
-  assert.equal(tabs[1].getAttribute("aria-selected"), "true");
+  assert.deepEqual(tabs.map((tab) => tab.getAttribute("data-cloud-section")), ["account", "device", "projects", "favorites"]);
+  assert.equal(tabs[2].getAttribute("aria-selected"), "true");
   assert.ok(tabs[0].textContent.includes("Test User"), "the Account entry exposes the signed-in name");
-  assert.ok(tabs[3].textContent.includes("My PenEcho"), "the Link device entry exposes the configured device name");
+  assert.ok(tabs[1].textContent.includes("My PenEcho"), "the Link device entry exposes the configured device name");
   const tablist = flatten(overlay).find((node) => node.getAttribute("role") === "tablist");
   assert.equal(tablist.getAttribute("aria-orientation"), "vertical");
   const explore = flatten(overlay).find((node) => node.tagName === "A" && node.className.includes("cloud-explore-link"));
@@ -1050,7 +1050,7 @@ test("Cloud Center uses History-style vertical navigation with Account and Link 
   assert.equal(explore.getAttribute("rel"), "noopener");
   const navigation = flatten(overlay).find((node) => node.className.includes("cloud-navigation"));
   assert.ok(navigation, "the Cloud Center keeps a dedicated navigation column");
-  assert.deepEqual(tablist.children.map((node) => node.getAttribute("data-cloud-section")), ["account", "projects", "favorites", "echoes", "device"]);
+  assert.deepEqual(tablist.children.map((node) => node.getAttribute("data-cloud-section")), ["account", "device", "projects", "favorites", "echoes"]);
 });
 
 test("Cloud Center preserves long account names in both the navigation and Account page", async () => {
@@ -1092,7 +1092,7 @@ test("Cloud Center keeps the concise account and device copy bilingual", async (
   assert.ok(overlay.textContent.includes("登录后即可使用私有项目和收藏；API 密钥仍保存在此设备。"));
   selectCloudSection(overlay, "device");
   assert.ok(overlay.textContent.includes("登录后输入一次性配对密钥，即可从 Cloud 安全访问此主机。"));
-  assert.deepEqual(flatten(overlay).filter((node) => node.getAttribute("role") === "tab").map((node) => node.getAttribute("data-cloud-section")), ["account", "projects", "favorites", "device"]);
+  assert.deepEqual(flatten(overlay).filter((node) => node.getAttribute("role") === "tab").map((node) => node.getAttribute("data-cloud-section")), ["account", "device", "projects", "favorites"]);
   assert.ok(flatten(overlay).some((node) => node.tagName === "A" && node.textContent === "Echoes ↗"));
   assert.ok(!overlay.textContent.includes("Sign in for private projects"));
 });

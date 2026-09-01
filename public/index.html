@@ -34,7 +34,12 @@
         </div>
         <div id="canvasDocumentMeta" class="canvas-document-meta">
           <button id="canvasDocumentName" class="canvas-document-name" type="button" data-i18n-aria="canvasRenameCurrent" aria-label="Rename current canvas" data-pe-button="ghost" data-pe-density="compact"><span id="canvasDocumentNameLabel" data-i18n="canvasUntitledName">Untitled canvas</span></button>
-          <input id="canvasDocumentNameInput" class="canvas-document-name-input" type="text" maxlength="48" autocomplete="off" data-i18n-placeholder="canvasNamePlaceholder" placeholder="Canvas name" data-i18n-aria="canvasNamePlaceholder" aria-label="Canvas name" hidden>
+          <span id="canvasDocumentNameEditor" class="canvas-document-name-editor" hidden>
+            <input id="canvasDocumentNameInput" class="canvas-document-name-input" type="text" maxlength="48" autocomplete="off" data-i18n-placeholder="canvasNamePlaceholder" placeholder="Canvas name" data-i18n-aria="canvasNamePlaceholder" aria-label="Canvas name" hidden>
+            <button id="canvasDocumentNameConfirm" class="canvas-document-name-confirm" type="button" data-i18n-aria="canvasRenameConfirm" aria-label="Confirm rename" data-i18n-title="canvasRenameConfirm" title="Confirm rename" data-pe-button="toolbar" data-pe-density="compact">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>
+            </button>
+          </span>
           <span id="canvasDocumentSaveState" class="canvas-document-save-state" data-state="unsaved" role="status" aria-live="polite">
             <span class="canvas-document-save-dot" aria-hidden="true"></span>
             <span id="canvasDocumentSaveLabel" data-i18n="canvasSaveStateUnsaved">Not saved</span>
@@ -507,7 +512,6 @@
           </div>
         </div>
         <div id="textEditorLayer" class="text-editor-layer" aria-live="polite"></div>
-        <div id="textInputHint" class="text-input-hint" hidden><kbd>Ctrl/Cmd</kbd> + <kbd>Enter</kbd> <span data-i18n="textConfirmHint">to confirm</span></div>
         <div id="aiEmbodiment" class="ai-embodiment" data-theme="studio" role="group" data-i18n-aria="aiGuide" aria-label="AI knowledge guide" aria-busy="false">
           <div class="orb-aura" aria-hidden="true"></div>
           <div class="orb-runes" aria-hidden="true"></div>
@@ -521,7 +525,6 @@
             <span class="ai-stop-icon" aria-hidden="true"></span>
           </button>
         </div>
-        <div id="canvasNavigationLockHint" class="canvas-navigation-lock-hint" data-i18n="canvasNavigationLockedHint">Canvas view locked · Click the top-left lock to unlock</div>
         <canvas id="canvasAgentWidgetPickerLayer" class="canvas-agent-widget-picker-layer" width="1" height="1" aria-hidden="true" hidden></canvas>
         <span id="canvasAgentHome" hidden></span>
         <section id="canvasAgentPanel" class="canvas-agent-panel" role="dialog" data-i18n-aria="canvasAgent" aria-label="PenEcho Agent" aria-hidden="true" hidden inert>
@@ -660,6 +663,9 @@
                 <header class="canvas-agent-reference-head">
                   <span class="canvas-agent-reference-heading"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6.5h14v11H5z"/><path d="M9 10h6M12 7v6"/></svg><strong data-i18n="canvasAgentReferenceWidget">Reference a Widget</strong></span>
                   <span id="canvasAgentReferenceNote" class="canvas-agent-reference-note"></span>
+                  <button id="canvasAgentReferenceCollapse" class="canvas-agent-reference-collapse" type="button" data-i18n-aria="canvasAgentReferenceCollapse" aria-label="Collapse Widget picker" data-i18n-title="canvasAgentReferenceCollapse" title="Collapse Widget picker" data-pe-button="toolbar" data-pe-density="compact">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 10 4 4 4-4"/></svg>
+                  </button>
                 </header>
                 <p id="canvasAgentReferenceHelp" class="canvas-agent-reference-help" data-i18n="canvasAgentReferenceHelp">Choose one from the list, or click it directly on the canvas.</p>
                 <label class="canvas-agent-reference-search-field">
@@ -703,8 +709,6 @@
           </form>
           <div id="canvasAgentResizeBottom" class="canvas-agent-resize-edge bottom" role="separator" aria-orientation="horizontal" aria-controls="canvasAgentPanel" aria-valuemin="320" tabindex="0" data-edge="bottom" data-i18n-aria="canvasAgentResizeBottom" aria-label="Resize PenEcho Agent from the bottom edge"></div>
         </section>
-        <span id="canvasHint" class="canvas-hint" role="status" aria-live="polite" hidden></span>
-        <div id="tip" data-i18n="tip">Pan: middle-mouse drag, Hand tool, or one finger · Zoom: wheel or pinch</div>
       </section>
     </section>
 
@@ -715,6 +719,12 @@
 
     <footer>
       <span id="coords">x 10000 · y 10000 · 100%</span>
+      <div id="pageHintSlot" class="page-hint-slot">
+        <div id="textInputHint" class="text-input-hint" hidden><kbd>Ctrl/Cmd</kbd> + <kbd>Enter</kbd> <span data-i18n="textConfirmHint">to confirm</span></div>
+        <div id="canvasNavigationLockHint" class="canvas-navigation-lock-hint" data-i18n="canvasNavigationLockedHint">Canvas view locked · Click the top-left lock to unlock</div>
+        <div id="tip" data-i18n="tip">Pan: middle-mouse drag, Hand tool, or one finger · Zoom: wheel or pinch</div>
+        <span id="canvasHint" class="canvas-hint" role="status" aria-live="polite" hidden></span>
+      </div>
     </footer>
   </main>
   <div id="craftsPopover" class="plugin-modal-layer" hidden aria-hidden="true">

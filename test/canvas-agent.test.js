@@ -2781,7 +2781,7 @@ test("PenEcho Agent UI and browser Facade support local and Cloud runtimes and a
   assert.doesNotMatch(readSource,/Math\.min\(start\+199/);
   assert.match(readSource,/maximum=200000[\s\S]*contentFormat:"nl -ba -w6 -s TAB"[\s\S]*originalEndsWithNewline[\s\S]*terminalBoundary/);
   assert.match(runtime,/Results include revision, hash, newline, truncation, and exact EOF facts/);
-  for (const id of ["canvasAgentToggle","canvasAgentPanel","canvasAgentHead","canvasAgentProjectControl","canvasAgentProject","canvasAgentProjectClear","canvasAgentConnection","canvasAgentConnectionLabel","canvasAgentProjectPopover","canvasAgentProjectTitle","canvasAgentProjectBoundary","canvasAgentProjectList","canvasAgentProjectCreate","canvasAgentProjectCount","canvasAgentFileList","canvasAgentFileCount","canvasAgentProjectRoots","canvasAgentProjectRootBack","canvasAgentProjectRootList","canvasAgentProjectRootApproval","canvasAgentProjectRootApprovalReject","canvasAgentProjectRootApprovalAllow","canvasAgentProjectRootSelect","canvasAgentApproval","canvasAgentApprovalAllow","canvasAgentApprovalReject","canvasAgentHistory","canvasAgentHistoryPopover","canvasAgentHistoryList","canvasAgentHistoryReturn","canvasAgentResizeTop","canvasAgentResizeBottom","canvasAgentResizeLeft","canvasAgentResizeRight","canvasAgentTranscript","canvasAgentAttachments","canvasAgentAttach","canvasAgentReference","canvasAgentWidgetPickerLayer","canvasAgentReferencePicker","canvasAgentReferenceHelp","canvasAgentReferenceSearch","canvasAgentReferenceList","canvasAgentTextMode","canvasAgentInkMode","canvasAgentInkInput","canvasAgentInkCanvas","canvasAgentClearInk","canvasAgentSearch","canvasAgentFileInput","canvasAgentInput","canvasAgentInputHint","canvasAgentSend","canvasAgentStop"]) assert.match(html,new RegExp(`id="${id}"`));
+  for (const id of ["canvasAgentToggle","canvasAgentPanel","canvasAgentHead","canvasAgentProjectControl","canvasAgentProject","canvasAgentProjectClear","canvasAgentConnection","canvasAgentConnectionLabel","canvasAgentProjectPopover","canvasAgentProjectTitle","canvasAgentProjectBoundary","canvasAgentProjectList","canvasAgentProjectCreate","canvasAgentProjectCount","canvasAgentFileList","canvasAgentFileCount","canvasAgentProjectRoots","canvasAgentProjectRootBack","canvasAgentProjectRootList","canvasAgentProjectRootApproval","canvasAgentProjectRootApprovalReject","canvasAgentProjectRootApprovalAllow","canvasAgentProjectRootSelect","canvasAgentApproval","canvasAgentApprovalAllow","canvasAgentApprovalReject","canvasAgentHistory","canvasAgentHistoryPopover","canvasAgentHistoryList","canvasAgentHistoryReturn","canvasAgentResizeTop","canvasAgentResizeBottom","canvasAgentResizeLeft","canvasAgentResizeRight","canvasAgentTranscript","canvasAgentAttachments","canvasAgentAttach","canvasAgentReference","canvasAgentWidgetPickerLayer","canvasAgentReferencePicker","canvasAgentReferenceHelp","canvasAgentReferenceSearch","canvasAgentReferenceList","canvasAgentReferenceCollapse","canvasAgentTextMode","canvasAgentInkMode","canvasAgentInkInput","canvasAgentInkCanvas","canvasAgentClearInk","canvasAgentSearch","canvasAgentFileInput","canvasAgentInput","canvasAgentInputHint","canvasAgentSend","canvasAgentStop"]) assert.match(html,new RegExp(`id="${id}"`));
   for(const removed of ["canvasAgentSize","canvasAgentProjectAdd","canvasAgentProjectActions","canvasAgentProjectAddFile","canvasAgentProjectAccess","canvasAgentProjectControlled","canvasAgentProjectFull","canvasAgentProjectUpload","canvasAgentProjectUploadInput","canvasAgentImageInput"])assert.doesNotMatch(html,new RegExp(`id="${removed}"`));
   assert.match(html,/<dialog id="canvasAgentProjectPopover"[^>]*aria-labelledby="canvasAgentProjectTitle"/);
   assert.match(html,/<dialog id="canvasAgentProjectPopover"[^>]*aria-describedby="canvasAgentProjectDescription canvasAgentProjectBoundary"/);
@@ -2880,6 +2880,7 @@ test("PenEcho Agent UI and browser Facade support local and Cloud runtimes and a
   assert.match(functionSource(source,"canvasAgentRemoveProject"),/canvasAgentRemoveFolderConfirm[\s\S]*?canvasAgentRemoveUploadConfirm[\s\S]*?canvasAgentProjectRemoveDialog\.showModal\(\)/);
   assert.doesNotMatch(functionSource(source,"canvasAgentRemoveProject"),/window\.confirm/);
   assert.match(functionSource(source,"canvasAgentConfirmProjectRemoval"),/canvasAgentSelectProject\(""\)[\s\S]*?method:"DELETE"[\s\S]*?canvasAgentProjectRemoveDialog\.close\("removed"\)/);
+  assert.match(source,/if \(canvasAgentProjectRemoveDialog\.open\) return;[\s\S]*?canvasAgentProjectDialogOpen\(\)[\s\S]*?!canvasAgentProjectRemoveDialog\.contains\(event\.target\)/);
   for(const key of ["canvasAgentRemoveProjectTitle","canvasAgentRemoveFolderConfirm","canvasAgentRemoveNativeFileConfirm","canvasAgentRemoveUploadConfirm"]){assert.match(core,new RegExp(`${key}:`));assert.match(zh,new RegExp(`${key}:`));}
   assert.match(runtime,/session\.project\?\.kind === 'folder'\) await agentCtx\.plugin\(PenEchoProjectPlugin/);
   assert.match(runtime,/session\.project\?\.kind === 'file'\) await agentCtx\.plugin\(PenEchoFilePlugin/);
@@ -3055,12 +3056,15 @@ test("PenEcho Agent UI and browser Facade support local and Cloud runtimes and a
   assert.match(functionSource(source,"canvasAgentTurnReferences"),/canvasAgentReferencedIds\(\)/);
   assert.match(functionSource(source,"canvasAgentReferencedIds"),/canvasAgent\.references[\s\S]*canvasAgentSelectionIds\(\)/);
   assert.match(source,/canvasAgentReferenceSearch\.addEventListener\("input"[\s\S]*canvasAgentRenderReferencePicker/);
+  assert.match(source,/canvasAgentReferenceCollapse\.addEventListener\("click"[\s\S]*canvasAgentToggleReferencePicker\(false\)[\s\S]*canvasAgentReference\.focus\(\{preventScroll:true\}\)/);
   assert.match(functionSource(source,"canvasAgentRenderReferencePicker"),/canvas-agent-reference-item-icon[\s\S]*canvas-agent-reference-item-label[\s\S]*classList\.toggle\("has-message"[\s\S]*classList\.toggle\("is-message"[\s\S]*canvasAgentReferenceCountOne/);
   assert.match(source,/function canvasAgentCreateReferenceChip[\s\S]*?canvas-agent-reference-chip-icon[\s\S]*?dataset\.kind[\s\S]*?chip\.append\(icon,label,meta\)[\s\S]*?return chip;/);
   assert.match(functionSource(source,"canvasAgentToggleReferencePicker"),/canvasAgentForm\.classList\.toggle\("canvas-agent-reference-open",open\)[\s\S]*canvasAgentSyncInputHint\(\)/);
   assert.doesNotMatch(functionSource(source,"canvasAgentToggleReferencePicker"),/canvasAgentReferenceSearch\.focus/);
   assert.match(core,/canvasAgentReferenceCountOne: "1 Widget"/);
   assert.match(zh,/canvasAgentReferenceCountOne: "1 个 Widget"/);
+  assert.match(core,/canvasAgentReferenceCollapse: "Collapse Widget picker"/);
+  assert.match(zh,/canvasAgentReferenceCollapse: "收起 Widget 选择器"/);
   assert.match(functionSource(source,"canvasAgentWidgetFromPickEvent"),/widgetPointerHit\(clientPoint\(event\),event\.pointerType\|\|"mouse",true\)/);
   assert.match(source,/canvasAgentWidgetPickerLayer\.addEventListener\("pointerdown"[\s\S]*canvasAgentToggleReference\(widget\.id,true\)[\s\S]*canvasAgentToggleReferencePicker\(false\)/);
   assert.match(source,/canvasAgentSendRequest\(canvasAgent\.running \? "steer" : "user_turn"[\s\S]*images:outgoingAttachments\.map[\s\S]*canvasAgentClearReferences\(\)/);
@@ -3131,15 +3135,13 @@ test("PenEcho Agent UI and browser Facade support local and Cloud runtimes and a
     footerStart = html.lastIndexOf("<footer>", html.indexOf('id="coords"')), footerEnd = html.indexOf("</footer>", footerStart), footer = html.slice(footerStart, footerEnd);
   assert.ok(html.slice(toolbarStart, toolbarEnd).includes('id="canvasAgentControl"'));
   assert.ok(!viewport.includes('id="canvasAgentControl"'));
-  assert.ok(viewport.includes('id="canvasHint"') && viewport.includes('id="tip"'));
-  assert.ok(footer.includes('id="coords"') && !footer.includes('id="canvasHint"') && !footer.includes('id="canvasAgentControl"'));
+  for (const id of ["textInputHint", "canvasNavigationLockHint", "canvasHint", "tip"]) assert.ok(!viewport.includes(`id="${id}"`));
+  assert.ok(footer.includes('id="coords"') && footer.includes('id="pageHintSlot"') && footer.includes('id="canvasHint"') && footer.includes('id="tip"') && !footer.includes('id="canvasAgentControl"'));
   assert.match(css,/main > footer\s*\{[^}]*display: grid;[^}]*grid-template-columns: minmax\(0, 1fr\) minmax\(0, 1fr\)/);
+  assert.match(css,/\.page-hint-slot\s*\{[^}]*position: relative;[^}]*grid-column: 2;[^}]*pointer-events: none/);
   assert.match(css,/\.canvas-agent-control\s*\{[^}]*position: absolute;[^}]*right: max\(16px, env\(safe-area-inset-right\)\);[^}]*bottom: max\(18px, calc\(env\(safe-area-inset-bottom\) \+ 12px\)\)/s);
   assert.match(css,/@media \(pointer: coarse\)\s*\{[\s\S]*?\.canvas-agent-control\s*\{[^}]*height: 46px;[^}]*min-height: 46px[\s\S]*?\.canvas-agent-trigger\s*\{[^}]*min-height: 44px/);
-  assert.match(css,/studio-agent-launcher-floating #tip,[\s\S]*?right: calc\(176px \+ var\(--studio-agent-edge-shift\)\)/);
-  assert.match(css,/studio-agent-launcher-floating \.canvas-navigation-lock-hint\s*\{[^}]*right: calc\(176px \+ var\(--studio-agent-edge-shift\)\)/);
-  assert.match(css,/#tip\s*\{[^}]*z-index: 0/);
-  assert.match(css,/\.canvas-navigation-lock-hint\s*\{[^}]*z-index: 0/);
+  assert.doesNotMatch(css,/studio-agent-launcher-floating [^{]*(?:\.canvas-hint|#tip|\.canvas-navigation-lock-hint|\.text-input-hint)/);
   assert.match(css,/body\[data-theme="studio"\] \.canvas-agent-control\s*\{[^}]*background: var\(--studio-panel\)[^}]*backdrop-filter: none/);
   assert.match(css,/\.canvas-agent-trigger\[aria-expanded="true"\]\s*\{[^}]*color: var\(--gold-bright\)/);
   assert.match(css,/body\[data-theme="studio"\] \.canvas-agent-trigger\[aria-expanded="true"\]\s*\{[^}]*color: var\(--studio-accent\)/);
@@ -3157,12 +3159,14 @@ test("PenEcho Agent UI and browser Facade support local and Cloud runtimes and a
   assert.match(css,/\.canvas-agent-composer\.canvas-agent-ink-expanded \.canvas-agent-ink-input[\s\S]*height:\s*min\(352px, max\(48px, calc\(100cqh - 152px\)\)\)/);
   assert.match(css,/height:\s*min\(384px, max\(48px, calc\(100cqh - 168px\)\)\)/);
   assert.match(css,/\.canvas-agent-reference-list\s*\{[^}]*overflow-y: auto/);
-  assert.match(html,/class="canvas-agent-reference-head"[\s\S]*?class="canvas-agent-reference-search-field"[\s\S]*?id="canvasAgentReferenceList"/);
+  assert.match(html,/class="canvas-agent-reference-head"[\s\S]*?id="canvasAgentReferenceNote"[\s\S]*?id="canvasAgentReferenceCollapse"[\s\S]*?class="canvas-agent-reference-search-field"[\s\S]*?id="canvasAgentReferenceList"/);
   assert.match(html,/id="canvasAgentReferencePicker"[^>]*aria-describedby="canvasAgentReferenceHelp"/);
   assert.match(css,/\.canvas-agent-reference-picker\s*\{[^}]*border: 1px solid[^}]*border-radius: 12px[^}]*background: var\(--studio-panel, #fff\)/);
   assert.match(css,/\.canvas-agent-composer\.canvas-agent-reference-open textarea,[\s\S]*?\.canvas-agent-ink-input\s*\{ display: none; \}/);
   assert.match(css,/\.canvas-agent-reference-chip\s*\{[^}]*width: 100%[^}]*grid-template-columns: 26px minmax\(0, 1fr\) auto 28px[^}]*background: var\(--studio-panel, #fff\)/);
   assert.match(css,/\.canvas-agent-reference-chip em::before\s*\{[^}]*content: "\\2713"/);
+  assert.match(css,/\.canvas-agent-reference-chip > \.canvas-agent-reference-remove\[data-pe-button="icon"\][\s\S]*?border-color: transparent;[\s\S]*?background: transparent;/);
+  assert.match(css,/\.canvas-agent-reference-head\s*\{[^}]*grid-template-columns: minmax\(0, 1fr\) auto 28px/);
   assert.match(css,/\.canvas-agent-reference-list > button\s*\{[^}]*min-height: 42px[^}]*grid-template-columns: 24px minmax\(0, 1fr\) auto/);
   assert.match(css,/\.canvas-agent-composer-surface\s*\{[^}]*border: 1px solid #dfe3ea;[^}]*border-radius: 12px;[^}]*box-shadow:/);
   const composerFocusRule=css.match(/\.canvas-agent-composer-surface:focus-within\s*\{([^}]*)\}/)?.[1]||"";

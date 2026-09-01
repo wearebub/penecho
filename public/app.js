@@ -908,6 +908,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       canvasRename: "Rename",
       canvasRenameCurrent: "Rename current canvas",
       canvasRenameNamed: "Rename canvas “{name}”",
+      canvasRenameConfirm: "Confirm rename",
       canvasNamePlaceholder: "Canvas name",
       canvasNameRequired: "Enter a canvas name.",
       canvasRenamed: "Canvas renamed",
@@ -1355,6 +1356,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       canvasAgentReferenceWidgetTitle: "Pick a Widget to reference",
       canvasAgentReferenceHelp: "Choose one from the list, or click it directly on the canvas.",
       canvasAgentReferenceSearch: "Search canvas Widgets",
+      canvasAgentReferenceCollapse: "Collapse Widget picker",
       canvasAgentReferenceAdd: "Reference",
       canvasAgentRemoveReference: "Remove reference",
       canvasAgentReferenceLimit: "You can reference up to 20 Widgets in one message.",
@@ -5121,17 +5123,11 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     if (animation) return { kind:"animation", object:animation };
     return null;
   }
-  function updateHandObjectHover(point) {
-    if (state.mode !== "hand") point = null;
-    const hovered = point && valid(point) ? handObjectToolbarTargetAtPoint(point) : null,
-      target = ["widget", "text-box"].includes(hovered?.kind) ? null : hovered,
-      nextKey = target ? handToolbarKey(target.kind, target.object.id) : "",
-      previousKey = state.handHoverKey || "";
-    if (previousKey === nextKey) return Boolean(nextKey);
+  function updateHandObjectHover() {
+    const previousKey = state.handHoverKey || "";
+    state.handHoverKey = "";
     if (previousKey) releaseHandObjectFocus(previousKey, "canvas-hover");
-    state.handHoverKey = nextKey;
-    if (target) focusHandObject(target.kind, target.object, "canvas-hover");
-    return Boolean(nextKey);
+    return false;
   }
   function beginHandObjectFocus(event, point) {
     if (state.mode !== "hand" || Number(event.button) !== 0) return false;
@@ -7370,10 +7366,9 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     context.strokeStyle = "rgba(38, 121, 184, 0.42)";
     context.lineWidth = unit;
     for (const record of state.handToolbarTargets.values()) {
-      if (!record.expanded) continue;
+      if (!record.expanded || record.kind === "widget") continue;
       const object = handToolbarObject(record),
-        box = object && (record.kind === "widget" ? widgetBox(object)
-          : record.kind === "image" ? imageBox(object)
+        box = object && (record.kind === "image" ? imageBox(object)
           : record.kind === "animation" ? animationBox(object)
           : record.kind === "text-box" ? textBoxBox(object)
           : null);
@@ -16168,6 +16163,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     canvasAgentReferenceSearch = document.querySelector("#canvasAgentReferenceSearch"),
     canvasAgentReferenceList = document.querySelector("#canvasAgentReferenceList"),
     canvasAgentReferenceNote = document.querySelector("#canvasAgentReferenceNote"),
+    canvasAgentReferenceCollapse = document.querySelector("#canvasAgentReferenceCollapse"),
     canvasAgentSearch = document.querySelector("#canvasAgentSearch"),
     canvasAgentFileInput = document.querySelector("#canvasAgentFileInput"),
     canvasAgentAttachmentCount = document.querySelector("#canvasAgentAttachmentCount"),
@@ -16602,7 +16598,15 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   }
   function canvasAgentPreventPromptSuggestionFocusLoss(event) {
     const button=event.target?.closest?.("button");
-    if(event.pointerType==="mouse"&&button&&button!==canvasAgentPromptToggle)event.preventDefault();
+    if(!button)return;
+    if(event.pointerType==="mouse"&&button!==canvasAgentPromptToggle){event.preventDefault();return;}
+    if(event.pointerType==="touch"||event.pointerType==="pen"){
+      canvasAgent.promptSuggestionPointerActive=true;
+      try{button.focus({preventScroll:true});}catch{button.focus();}
+    }
+  }
+  function canvasAgentFinishPromptSuggestionPointer() {
+    canvasAgent.promptSuggestionPointerActive=false;
   }
   function canvasAgentPromptSuggestionsAvailable() {
     return Boolean(canvasAgentPromptSuggestions
@@ -16647,6 +16651,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   }
   function canvasAgentSyncPromptSuggestionsFocus() {
     if(!canvasAgentPromptSuggestions)return;
+    if(canvasAgent.promptSuggestionPointerActive)return;
     if(!canvasAgentForm.contains(document.activeElement)&&!canvasAgentPromptSuggestions.contains(document.activeElement))canvasAgentSetPromptSuggestionsExpanded(false);
     else if(!canvasAgentPromptSuggestions.contains(document.activeElement)&&!canvasAgent.promptSuggestionsManual)canvasAgentSetPromptSuggestionsExpanded(false);
     canvasAgentSyncPromptSuggestions();
@@ -16706,6 +16711,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     canvasAgentReferenceHelp.textContent=t("canvasAgentReferenceHelp");
     canvasAgentReferenceSearch.setAttribute("placeholder",t("canvasAgentReferenceSearch"));
     canvasAgentReferenceSearch.setAttribute("aria-label",t("canvasAgentReferenceSearch"));
+    canvasAgentReferenceCollapse.setAttribute("aria-label",t("canvasAgentReferenceCollapse"));
+    canvasAgentReferenceCollapse.setAttribute("title",t("canvasAgentReferenceCollapse"));
     canvasAgentSelection.setAttribute("aria-label",t("canvasAgentReferences"));
     canvasAgentHead.setAttribute("title",t("canvasAgentMove"));
     canvasAgentResizeTop.setAttribute("aria-label",t("canvasAgentResizeTop"));
@@ -17669,6 +17676,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     if (!selected) {
       const remove=document.createElement("button");
       remove.type="button";
+      remove.className="canvas-agent-reference-remove";
       peButton(remove,"icon","compact");
       remove.textContent="×";
       remove.setAttribute("aria-label",`${t("canvasAgentRemoveReference")} ${label.textContent}`);
@@ -20133,15 +20141,37 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       onFinish?.();
     }).catch(()=>{});
   }
-  let canvasAgentDockedOpenFrame=0,canvasAgentDockedOpenTimer=0;
+  const CANVAS_AGENT_DOCKED_SETTLE_FALLBACK_MS=320;
+  let canvasAgentDockedTransitionHandler=null,canvasAgentDockedOpenTimer=0;
   function canvasAgentCancelDockedOpenWork() {
-    if(canvasAgentDockedOpenFrame)cancelAnimationFrame(canvasAgentDockedOpenFrame);
+    if(canvasAgentDockedTransitionHandler)canvasAgentPanel.removeEventListener("transitionend",canvasAgentDockedTransitionHandler);
     if(canvasAgentDockedOpenTimer)clearTimeout(canvasAgentDockedOpenTimer);
-    canvasAgentDockedOpenFrame=0;
+    canvasAgentDockedTransitionHandler=null;
     canvasAgentDockedOpenTimer=0;
+  }
+  function canvasAgentRunAfterDockedTransition(work) {
+    canvasAgentCancelDockedOpenWork();
+    const finish=()=>{
+      canvasAgentCancelDockedOpenWork();
+      work();
+    };
+    if(window.matchMedia?.("(prefers-reduced-motion: reduce)").matches){finish();return;}
+    canvasAgentDockedTransitionHandler=event=>{
+      if(event.target===canvasAgentPanel&&event.propertyName==="transform")finish();
+    };
+    canvasAgentPanel.addEventListener("transitionend",canvasAgentDockedTransitionHandler);
+    canvasAgentDockedOpenTimer=setTimeout(finish,CANVAS_AGENT_DOCKED_SETTLE_FALLBACK_MS);
+  }
+  function canvasAgentPrepareOpenState() {
+    if(settings.connections.length)canvasAgentUpdateConnectionButton();
+    else void loadCanvasSettings();
+    if(canvasAgentWorkbenchNeedsSync())syncStudioWorkbench();
   }
   function canvasAgentFinishDockedOpen(focus,connect) {
     if(canvasAgentPanel.hidden||!document.body.classList.contains("canvas-agent-open"))return;
+    canvasAgentPanel.inert=false;
+    canvasAgentPanel.setAttribute("aria-hidden","false");
+    canvasAgentPrepareOpenState();
     canvasAgentRestorePanelSize();
     canvasAgentRestorePanelPosition();
     canvasAgentResizeInput();
@@ -20157,37 +20187,77 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     }else canvasAgentSyncSelection();
   }
   function canvasAgentScheduleDockedOpenWork(focus,connect) {
-    canvasAgentCancelDockedOpenWork();
-    canvasAgentDockedOpenFrame=requestAnimationFrame(()=>{
-      canvasAgentDockedOpenFrame=0;
-      canvasAgentDockedOpenTimer=setTimeout(()=>{
-        canvasAgentDockedOpenTimer=0;
-        canvasAgentFinishDockedOpen(focus,connect);
-      },0);
-    });
+    canvasAgentRunAfterDockedTransition(()=>canvasAgentFinishDockedOpen(focus,connect));
+  }
+  function canvasAgentFinishFloatingOpen(focus,connect) {
+    if(canvasAgentPanel.hidden||!document.body.classList.contains("canvas-agent-open"))return;
+    canvasAgentPanel.inert=false;
+    canvasAgentPanel.setAttribute("aria-hidden","false");
+    canvasAgentPrepareOpenState();
+    syncCanvasModePresentation();
+    canvasAgentSyncTriggerState();
+    if(focus){
+      const focusTarget=canvasAgent.inputMode==="ink"?canvasAgentInkCanvas:canvasAgentInput;
+      try{focusTarget.focus({preventScroll:true});}catch{focusTarget.focus();}
+    }
+    if(connect){
+      canvasAgentSyncState();
+      void canvasAgentConnect().catch(error=>canvasAgentSetStatus(String(error?.message||error),"error"));
+    }else canvasAgentSyncSelection();
+  }
+  function canvasAgentFinishDockedClose() {
+    if(document.body.classList.contains("canvas-agent-open"))return;
+    const dragPointerId=canvasAgent.panelDrag?.pointerId,resize=canvasAgent.panelResize;
+    canvasAgent.panelDrag=null;
+    canvasAgent.panelResize=null;
+    canvasAgentPanel.classList.remove("dragging","resizing","resizing-top","resizing-bottom","resizing-left","resizing-right");
+    canvasAgentFrame.classList.remove("canvas-agent-resizing");
+    if(dragPointerId!==undefined&&canvasAgentHead.hasPointerCapture?.(dragPointerId))canvasAgentHead.releasePointerCapture(dragPointerId);
+    if(resize?.handle.hasPointerCapture?.(resize.pointerId))resize.handle.releasePointerCapture(resize.pointerId);
+    canvasAgentPanel.hidden=true;
+    canvasAgentPanel.setAttribute("aria-hidden","true");
+    canvasAgentPanel.inert=true;
+    canvasAgentSyncTriggerState();
+    canvasAgentHideHistoryPopover();
+    canvasAgentHideProjectPopover();
+    canvasAgentToggleReferencePicker(false);
+    canvasAgentPersistCurrentConversation();
+  }
+  function canvasAgentScheduleDockedCloseWork() {
+    canvasAgentRunAfterDockedTransition(canvasAgentFinishDockedClose);
   }
   function openCanvasAgent({focus=false}={}) {
     const options=arguments[0]||{},connect=options.connect!==false,animate=options.animate!==false;
     if (!canvasAgentAvailable()) return;
-    if(settings.connections.length)canvasAgentUpdateConnectionButton();
-    else void loadCanvasSettings();
-    window.PenEchoStudioNavigator?.agentWillOpen?.();
-    if(canvasAgentWorkbenchNeedsSync())syncStudioWorkbench();
     canvasAgentCancelPanelMotion();
     canvasAgentCancelDockedOpenWork();
     canvasAgentPanel.hidden = false;
-    canvasAgentPanel.inert = false;
-    canvasAgentPanel.setAttribute("aria-hidden","false");
     canvasAgentToggle.setAttribute("aria-expanded","true");
     const docked=canvasAgentDockedPanel();
     // Expose the open state before synchronous geometry restoration. The
     // inspector keeps its persisted width class while closed, so the slide can
     // begin on the click frame instead of waiting for layout reads below.
     document.body.classList.add("canvas-agent-open");
+    window.PenEchoStudioNavigator?.agentWillOpen?.();
     if(animate&&docked){
       canvasAgentScheduleDockedOpenWork(focus,connect);
       return;
     }
+    if(animate&&!docked){
+      canvasAgentPanel.classList.add("canvas-agent-motion-target");
+      canvasAgent.panelMotionFrame=requestAnimationFrame(()=>{
+        canvasAgent.panelMotionFrame=0;
+        if(canvasAgentPanel.hidden||!document.body.classList.contains("canvas-agent-open"))return;
+        canvasAgentRestorePanelSize();
+        canvasAgentRestorePanelPosition();
+        canvasAgentResizeInput();
+        canvasAgentAnimatePanel(true,pageLayoutRect(canvasAgentPanel),()=>canvasAgentFinishFloatingOpen(focus,connect));
+      });
+      return;
+    }
+    canvasAgentPanel.inert=false;
+    canvasAgentPanel.setAttribute("aria-hidden","false");
+    canvasAgentPrepareOpenState();
     if(docked){
       // Reconcile persisted geometry while the already-visible opening state is
       // moving toward that same retained width.
@@ -20200,26 +20270,14 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     // Hand/grab cursor or toolbar highlight cannot survive the transition.
     syncCanvasModePresentation();
     canvasAgentSyncTriggerState();
-    if(animate&&!docked){
-      canvasAgentPanel.classList.add("canvas-agent-motion-target");
-      canvasAgent.panelMotionFrame=requestAnimationFrame(()=>{
-        canvasAgent.panelMotionFrame=0;
-        canvasAgentRestorePanelSize();
-        canvasAgentRestorePanelPosition();
-        canvasAgentResizeInput();
-        canvasAgentAnimatePanel(true,pageLayoutRect(canvasAgentPanel),focus?()=>
-          (canvasAgent.inputMode==="ink"?canvasAgentInkCanvas:canvasAgentInput).focus():null);
-      });
-    }else{
-      if(!docked){
-        canvasAgentRestorePanelSize();
-        canvasAgentRestorePanelPosition();
-        canvasAgentResizeInput();
-      }
-      if(focus){
-        const focusTarget=canvasAgent.inputMode==="ink"?canvasAgentInkCanvas:canvasAgentInput;
-        try{focusTarget.focus({preventScroll:true});}catch{focusTarget.focus();}
-      }
+    if(!docked){
+      canvasAgentRestorePanelSize();
+      canvasAgentRestorePanelPosition();
+      canvasAgentResizeInput();
+    }
+    if(focus){
+      const focusTarget=canvasAgent.inputMode==="ink"?canvasAgentInkCanvas:canvasAgentInput;
+      try{focusTarget.focus({preventScroll:true});}catch{focusTarget.focus();}
     }
     if(connect){
       canvasAgentSyncState();
@@ -20231,31 +20289,29 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     canvasAgentCancelPanelMotion();
     canvasAgentCancelDockedOpenWork();
     const docked=canvasAgentDockedPanel();
+    if(docked){
+      canvasAgentToggle.setAttribute("aria-expanded","false");
+      document.body.classList.remove("canvas-agent-open");
+      if(focus)canvasAgentToggle.focus();
+      else if(canvasAgentPanel.contains(document.activeElement))document.activeElement.blur();
+      if(animate){canvasAgentScheduleDockedCloseWork();return;}
+      canvasAgentFinishDockedClose();
+      return;
+    }
     const panelRect=canvasAgentPanel.hidden?null:pageLayoutRect(canvasAgentPanel);
-    const dragPointerId = canvasAgent.panelDrag?.pointerId;
-    const resize = canvasAgent.panelResize;
-    canvasAgent.panelDrag = null;
-    canvasAgent.panelResize = null;
-    canvasAgentPanel.classList.remove("dragging","resizing","resizing-top","resizing-bottom","resizing-left","resizing-right");
-    canvasAgentFrame.classList.remove("canvas-agent-resizing");
-    if (dragPointerId !== undefined && canvasAgentHead.hasPointerCapture?.(dragPointerId)) canvasAgentHead.releasePointerCapture(dragPointerId);
-    if (resize?.handle.hasPointerCapture?.(resize.pointerId)) resize.handle.releasePointerCapture(resize.pointerId);
-    canvasAgentPanel.hidden = true;
-    canvasAgentPanel.setAttribute("aria-hidden","true");
     canvasAgentToggle.setAttribute("aria-expanded","false");
     document.body.classList.remove("canvas-agent-open");
-    canvasAgentSyncTriggerState();
-    canvasAgentHideHistoryPopover();
-    canvasAgentHideProjectPopover();
-    canvasAgentToggleReferencePicker(false);
-    canvasAgentPersistCurrentConversation();
     if(focus)canvasAgentToggle.focus();
     else if(canvasAgentPanel.contains(document.activeElement))document.activeElement.blur();
-    canvasAgentPanel.inert = true;
-    if(animate&&!docked)canvasAgentAnimatePanel(false,panelRect);
+    if(animate){
+      canvasAgentPanel.classList.add("canvas-agent-motion-target");
+      canvasAgentAnimatePanel(false,panelRect,canvasAgentFinishDockedClose);
+      return;
+    }
+    canvasAgentFinishDockedClose();
   }
   canvasAgentToggle.hidden = !canvasAgentAvailable();
-  canvasAgentToggle.addEventListener("click",()=>canvasAgentPanel.hidden ? openCanvasAgent({focus:false}) : closeCanvasAgent());
+  canvasAgentToggle.addEventListener("click",()=>canvasAgentPanel.hidden||!document.body.classList.contains("canvas-agent-open") ? openCanvasAgent({focus:false}) : closeCanvasAgent());
   canvasAgentClose.addEventListener("click",closeCanvasAgent);
   canvasAgentProjectButton.addEventListener("click",()=>{
     if(canvasAgentProjectDialogOpen()){canvasAgentHideProjectPopover({restoreFocus:true});return;}
@@ -20355,6 +20411,10 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     canvasAgentFileInput.click();
   });
   canvasAgentReference.addEventListener("click",()=>canvasAgentToggleReferencePicker());
+  canvasAgentReferenceCollapse.addEventListener("click",()=>{
+    canvasAgentToggleReferencePicker(false);
+    canvasAgentReference.focus({preventScroll:true});
+  });
   canvasAgentReferenceSearch.addEventListener("input",()=>canvasAgentRenderReferencePicker(canvasAgentReferenceSearch.value));
   canvasAgentWidgetPickerLayer.addEventListener("pointermove",event=>{
     if (!canvasAgent.referencePickActive) return;
@@ -20395,6 +20455,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   canvasAgentTextMode.addEventListener("click",()=>canvasAgentSetInputMode("text"));
   canvasAgentInkMode.addEventListener("click",()=>canvasAgentSetInputMode("ink"));
   canvasAgentPromptSuggestions?.addEventListener("pointerdown",canvasAgentPreventPromptSuggestionFocusLoss);
+  canvasAgentPromptSuggestions?.addEventListener("pointerup",canvasAgentFinishPromptSuggestionPointer);
+  canvasAgentPromptSuggestions?.addEventListener("pointercancel",canvasAgentFinishPromptSuggestionPointer);
   canvasAgentPromptSuggestions?.addEventListener("pointerenter",canvasAgentExpandPromptSuggestionsOnPointerEnter);
   canvasAgentPromptSuggestions?.addEventListener("pointerleave",canvasAgentCollapsePromptSuggestionsOnPointerLeave);
   canvasAgentPromptSuggestions?.addEventListener("focusin",canvasAgentExpandPromptSuggestionsOnPointerEnter);
@@ -20561,6 +20623,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       STUDIO_EDGE_SWIPE_COMMIT_PX = 56,
       STUDIO_EDGE_SWIPE_CANCEL_PX = 36,
       STUDIO_EDGE_SWIPE_DIRECTION_RATIO = 1.25,
+      STUDIO_NAVIGATOR_SETTLE_FALLBACK_MS = 320,
       studioNavigatorToggle = document.querySelector("#studioNavigatorToggle"),
       studioNavigator = document.querySelector("#studioNavigator"),
       studioNavigatorClose = document.querySelector("#studioNavigatorClose"),
@@ -20583,7 +20646,9 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       canvasDocumentMeta = document.querySelector("#canvasDocumentMeta"),
       canvasDocumentName = document.querySelector("#canvasDocumentName"),
       canvasDocumentNameLabel = document.querySelector("#canvasDocumentNameLabel"),
+      canvasDocumentNameEditor = document.querySelector("#canvasDocumentNameEditor"),
       canvasDocumentNameInput = document.querySelector("#canvasDocumentNameInput"),
+      canvasDocumentNameConfirm = document.querySelector("#canvasDocumentNameConfirm"),
       canvasDocumentSaveState = document.querySelector("#canvasDocumentSaveState"),
       canvasDocumentSaveLabel = document.querySelector("#canvasDocumentSaveLabel"),
       saveCanvasLabel = document.querySelector("#saveCanvasLabel"),
@@ -20605,7 +20670,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       studioSessionDeletePending = null,
       canvasDocumentRenameActive = false,
       canvasDocumentRenameCommitting = false,
-      studioNavigatorOpenFrame = 0,
+      studioNavigatorTransitionHandler = null,
       studioNavigatorOpenTimer = 0,
       studioEdgeSwipe = null;
 
@@ -20644,6 +20709,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       canvasDocumentName.setAttribute("aria-label", t("canvasRenameNamed").replace("{name}", documentName));
       canvasDocumentNameInput.disabled = snapshotSaveInProgress;
       canvasDocumentNameInput.setAttribute("aria-busy", String(snapshotSaveInProgress));
+      canvasDocumentNameConfirm.disabled = snapshotSaveInProgress;
+      canvasDocumentNameConfirm.setAttribute("aria-busy", String(snapshotSaveInProgress));
       canvasDocumentSaveState.dataset.state = stateKey;
       canvasDocumentSaveLabel.textContent = t(copyKey);
       saveCanvasLabel.textContent = t(snapshotSaveInProgress ? "snapshotSavingShort" : "saveCurrentSnapshot");
@@ -20652,8 +20719,10 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     function finishCanvasDocumentRename({ focus = false } = {}) {
       canvasDocumentRenameActive = false;
       canvasDocumentRenameCommitting = false;
+      canvasDocumentNameEditor.hidden = true;
       canvasDocumentNameInput.hidden = true;
       canvasDocumentNameInput.disabled = false;
+      canvasDocumentNameConfirm.disabled = false;
       canvasDocumentNameInput.setCustomValidity("");
       canvasDocumentName.hidden = false;
       updateStudioDocumentState();
@@ -20665,6 +20734,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       canvasDocumentNameInput.value = currentCanvasDisplayName() || "";
       canvasDocumentNameInput.setCustomValidity("");
       canvasDocumentName.hidden = true;
+      canvasDocumentNameEditor.hidden = false;
       canvasDocumentNameInput.hidden = false;
       canvasDocumentNameInput.focus({ preventScroll:true });
       canvasDocumentNameInput.select();
@@ -20684,11 +20754,13 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       }
       canvasDocumentRenameCommitting = true;
       canvasDocumentNameInput.disabled = true;
+      canvasDocumentNameConfirm.disabled = true;
       const saved = await renameCurrentCanvasFromTitle(name);
       if (saved) finishCanvasDocumentRename();
       else {
         canvasDocumentRenameCommitting = false;
         canvasDocumentNameInput.disabled = false;
+        canvasDocumentNameConfirm.disabled = false;
         canvasDocumentNameInput.focus({ preventScroll:true });
         canvasDocumentNameInput.select();
       }
@@ -20703,24 +20775,26 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
         delete view.dataset.studioNavigatorInert;
       }
     }
-    function updateStudioNavigatorA11y() {
+    function updateStudioNavigatorA11y({ deferSurface = false } = {}) {
       const active = studioNavigatorIsStudio(), open = active && studioNavigatorIsOpen(), unavailable = !active || !open || state.viewMode;
       studioNavigatorToggle.hidden = !active;
       studioNavigator.hidden = !active;
-      studioNavigator.inert = unavailable;
-      studioNavigator.setAttribute("aria-hidden", String(unavailable));
+      if (!deferSurface) {
+        studioNavigator.inert = unavailable;
+        studioNavigator.setAttribute("aria-hidden", String(unavailable));
+      }
       studioNavigatorToggle.setAttribute("aria-expanded", String(open));
       studioNavigatorToggle.classList.toggle("active", open);
       const toggleKey = open ? "studioNavigatorClose" : "studioNavigatorOpen";
       studioNavigatorToggle.setAttribute("aria-label", t(toggleKey));
       studioNavigatorToggle.setAttribute("title", t(toggleKey));
       studioNavigatorScrim.hidden = !(active && open && studioNavigatorIsCompact() && !state.viewMode);
-      updateStudioNavigatorSurfaceInert();
+      if (!deferSurface) updateStudioNavigatorSurfaceInert();
     }
     function suspendStudioAgentForNavigator() {
       if (!studioNavigatorIsCompact() || canvasAgentPanel.hidden || !document.body.classList.contains("canvas-agent-open")) return false;
       studioNavigatorSuspendedAgent = true;
-      closeCanvasAgent({ focus:false, animate:false });
+      closeCanvasAgent({ focus:false });
       return true;
     }
     function restoreStudioAgentAfterNavigator() {
@@ -20730,32 +20804,40 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       return true;
     }
     function cancelStudioNavigatorOpenWork() {
-      if (studioNavigatorOpenFrame) cancelAnimationFrame(studioNavigatorOpenFrame);
+      if (studioNavigatorTransitionHandler) studioNavigator.removeEventListener("transitionend", studioNavigatorTransitionHandler);
       if (studioNavigatorOpenTimer) clearTimeout(studioNavigatorOpenTimer);
-      studioNavigatorOpenFrame = 0;
+      studioNavigatorTransitionHandler = null;
       studioNavigatorOpenTimer = 0;
     }
-    function scheduleStudioNavigatorOpenWork() {
+    function scheduleStudioNavigatorOpenWork(open, options) {
+      const restoreAgent = options?.restoreAgent !== false;
       cancelStudioNavigatorOpenWork();
-      studioNavigatorOpenFrame = requestAnimationFrame(() => {
-        studioNavigatorOpenFrame = 0;
-        studioNavigatorOpenTimer = setTimeout(() => {
-          studioNavigatorOpenTimer = 0;
-          if (!studioNavigatorIsOpen()) return;
+      const settle = () => {
+        cancelStudioNavigatorOpenWork();
+        if (studioNavigatorIsOpen() !== Boolean(open)) return;
+        updateStudioNavigatorA11y();
+        if (open) {
           renderStudioNavigator();
           void refreshStudioNavigatorSources();
-        }, 0);
-      });
+        } else if (restoreAgent) restoreStudioAgentAfterNavigator();
+      };
+      if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches || !studioNavigatorIsStudio()) {
+        settle();
+        return;
+      }
+      studioNavigatorTransitionHandler = event => {
+        if (event.target === studioNavigator && event.propertyName === "transform") settle();
+      };
+      studioNavigator.addEventListener("transitionend", studioNavigatorTransitionHandler);
+      studioNavigatorOpenTimer = setTimeout(settle, STUDIO_NAVIGATOR_SETTLE_FALLBACK_MS);
     }
     function setStudioNavigatorOpen(open, { restoreAgent = true } = {}) {
       studioNavigatorOpenPreference = Boolean(open);
-      if (open) suspendStudioAgentForNavigator();
       document.body.classList.toggle("studio-navigator-open", studioNavigatorIsStudio() && studioNavigatorOpenPreference);
-      updateStudioNavigatorA11y();
-      if (open && studioNavigatorIsStudio()) scheduleStudioNavigatorOpenWork();
-      else cancelStudioNavigatorOpenWork();
+      updateStudioNavigatorA11y({ deferSurface:studioNavigatorIsStudio() });
       if (!open && studioNavigator.contains(document.activeElement)) studioNavigatorToggle.focus({ preventScroll:true });
-      if (!open && restoreAgent) restoreStudioAgentAfterNavigator();
+      if (open) suspendStudioAgentForNavigator();
+      scheduleStudioNavigatorOpenWork(open, { restoreAgent });
     }
     function syncStudioNavigatorTheme(theme = state.theme) {
       const active = theme === "studio", wasActive = document.body.classList.contains("studio-navigator-enabled");
@@ -21327,9 +21409,12 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     studioNavigatorManage.addEventListener("click", openStudioCanvasHistoryManager);
     canvasDocumentName.addEventListener("click", beginCanvasDocumentRename);
     canvasDocumentNameInput.addEventListener("input", () => canvasDocumentNameInput.setCustomValidity(""));
-    canvasDocumentNameInput.addEventListener("blur", () => void commitCanvasDocumentRename());
+    canvasDocumentNameEditor.addEventListener("focusout", (event) => {
+      if (!canvasDocumentNameEditor.contains(event.relatedTarget)) void commitCanvasDocumentRename();
+    });
+    canvasDocumentNameConfirm.addEventListener("click", () => void commitCanvasDocumentRename());
     canvasDocumentNameInput.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") {
+      if (event.key === "Enter" && !event.isComposing) {
         event.preventDefault();
         void commitCanvasDocumentRename();
       } else if (event.key === "Escape") {

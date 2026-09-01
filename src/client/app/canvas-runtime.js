@@ -661,17 +661,11 @@
     if (animation) return { kind:"animation", object:animation };
     return null;
   }
-  function updateHandObjectHover(point) {
-    if (state.mode !== "hand") point = null;
-    const hovered = point && valid(point) ? handObjectToolbarTargetAtPoint(point) : null,
-      target = ["widget", "text-box"].includes(hovered?.kind) ? null : hovered,
-      nextKey = target ? handToolbarKey(target.kind, target.object.id) : "",
-      previousKey = state.handHoverKey || "";
-    if (previousKey === nextKey) return Boolean(nextKey);
+  function updateHandObjectHover() {
+    const previousKey = state.handHoverKey || "";
+    state.handHoverKey = "";
     if (previousKey) releaseHandObjectFocus(previousKey, "canvas-hover");
-    state.handHoverKey = nextKey;
-    if (target) focusHandObject(target.kind, target.object, "canvas-hover");
-    return Boolean(nextKey);
+    return false;
   }
   function beginHandObjectFocus(event, point) {
     if (state.mode !== "hand" || Number(event.button) !== 0) return false;
@@ -2910,10 +2904,9 @@
     context.strokeStyle = "rgba(38, 121, 184, 0.42)";
     context.lineWidth = unit;
     for (const record of state.handToolbarTargets.values()) {
-      if (!record.expanded) continue;
+      if (!record.expanded || record.kind === "widget") continue;
       const object = handToolbarObject(record),
-        box = object && (record.kind === "widget" ? widgetBox(object)
-          : record.kind === "image" ? imageBox(object)
+        box = object && (record.kind === "image" ? imageBox(object)
           : record.kind === "animation" ? animationBox(object)
           : record.kind === "text-box" ? textBoxBox(object)
           : null);
