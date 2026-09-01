@@ -18,6 +18,17 @@ test("toolbar ships a left-navigation Favorites workbench with list and grid vie
   assert.match(page, /<aside class="crafts-sidebar">[\s\S]*?<section class="crafts-workspace">/);
   assert.match(page, /id="craftsSubtitle"[^>]*data-i18n="savedCraftsSubtitle"/);
   assert.match(page, /id="craftsRefreshStatus"[^>]*role="status"[^>]*aria-live="polite"[^>]*hidden/);
+  assert.match(page, /class="crafts-head"[^>]*data-pe-region="toolbar"[\s\S]*?id="craftsSearch"[^>]*type="search"[^>]*autocomplete="off"[^>]*data-pe-control="input"[^>]*data-i18n-placeholder="savedSearch"[^>]*data-i18n-aria="savedSearchLabel"/);
+  assert.doesNotMatch(page, /id="craftsSearch"[^>]*autofocus/);
+  const titleRowStart = page.indexOf('<div class="crafts-title-row">');
+  const countStart = page.indexOf('id="craftsCount"', titleRowStart);
+  const refreshStart = page.indexOf('id="craftsRefreshStatus"', countStart);
+  const headActionsStart = page.indexOf('<div class="crafts-head-actions">', refreshStart);
+  const searchStart = page.indexOf('class="crafts-search"', headActionsStart);
+  const viewSwitchStart = page.indexOf('id="craftsViewSwitch"', searchStart);
+  const closeStart = page.indexOf('id="craftsClose"', viewSwitchStart);
+  assert.ok(titleRowStart < countStart && countStart < refreshStart && refreshStart < headActionsStart, "Favorites count and refresh status should remain in the left toolbar group");
+  assert.ok(headActionsStart < searchStart && searchStart < viewSwitchStart && viewSwitchStart < closeStart, "Favorites search should sit directly before the List/Grid switch in the right toolbar group");
   assert.match(page, /id="craftsFilterAll" class="crafts-nav-item active"[^>]*role="tab"[^>]*aria-selected="true"[\s\S]*?data-crafts-filter-label data-i18n="all"/);
   assert.match(page, /id="craftsFilterWidgets" class="crafts-nav-item"[^>]*role="tab"[\s\S]*?data-crafts-filter-label data-i18n="widgets"/);
   assert.match(page, /id="craftsFilterCanvases" class="crafts-nav-item"[^>]*role="tab"[\s\S]*?data-crafts-filter-label data-i18n="canvases"/);
@@ -43,6 +54,10 @@ test("toolbar ships a left-navigation Favorites workbench with list and grid vie
   assert.match(script, /let selectedCraftKind = "all"/);
   assert.match(script, /let selectedCraftView = "list"/);
   assert.match(script, /function filteredFavoriteCrafts/);
+  assert.match(script, /function craftSearchQuery/);
+  assert.match(script, /function favoriteCraftSearchText/);
+  assert.match(script, /craftsSearch\?\.addEventListener\("input"/);
+  assert.doesNotMatch(script, /craftsSearch[^\n]*\.focus/);
   assert.match(script, /function updateCraftView/);
   assert.match(script, /function updateCraftsEchoesLink/);
   assert.match(script, /function favoriteCraftTime/);
@@ -74,6 +89,8 @@ test("toolbar ships a left-navigation Favorites workbench with list and grid vie
   assert.match(locale, /savedRemoveConfirmDescription: "“\{name\}”将不再出现在收藏中。"/);
   assert.match(locale, /savedLoading: "正在加载收藏…"/);
   assert.match(locale, /savedRefreshing: "正在刷新…"/);
+  assert.match(locale, /savedSearchLabel: "搜索收藏"/);
+  assert.match(locale, /savedNoMatches: "没有匹配的收藏。"/);
 
   const craftsCss = css.slice(css.indexOf("/* Favorite Crafts picker"), css.indexOf("/* Harness-backed PenEcho Agent"));
   assert.notEqual(craftsCss, "");
@@ -88,6 +105,9 @@ test("toolbar ships a left-navigation Favorites workbench with list and grid vie
   assert.match(craftsCss, /\.crafts-sidebar\s*\{[^}]*background:\s*var\(--penecho-dialog-raised-surface\)/);
   assert.match(craftsCss, /\.crafts-workspace\s*\{[^}]*grid-template-rows:\s*50px minmax\(0,\s*1fr\)/);
   assert.match(craftsCss, /\.crafts-workspace\s*\{[^}]*background:\s*var\(--penecho-dialog-body-surface\)/);
+  assert.match(craftsCss, /\.crafts-search\s*\{[^}]*height:\s*30px[^}]*border-radius:\s*5px/);
+  assert.match(craftsCss, /\.crafts-head-actions\s*\{[^}]*min-width:\s*0[^}]*flex:\s*0 1 384px/);
+  assert.match(craftsCss, /\.crafts-search input\[data-pe-control="input"\]\s*\{[^}]*height:\s*28px[^}]*border:\s*0/);
   assert.match(craftsCss, /\.crafts-nav-item\s*\{[^}]*min-height:\s*34px/);
   assert.match(craftsCss, /\.crafts-nav-item:focus-visible\s*\{[^}]*outline:\s*2px solid var\(--gold-bright\)/);
   assert.match(craftsCss, /\.crafts-view-switch\s*\{[^}]*height:\s*32px/);
@@ -106,7 +126,11 @@ test("toolbar ships a left-navigation Favorites workbench with list and grid vie
   assert.match(craftsCss, /\.crafts-list\.is-grid \.crafts-row\s*\{[^}]*grid-template-areas:\s*"preview" "title" "footer"[^}]*grid-template-rows:\s*auto 18px auto/);
   assert.match(craftsCss, /\.crafts-list\.is-grid \.crafts-card-title\s*\{[^}]*text-overflow:\s*ellipsis[^}]*white-space:\s*nowrap/);
   assert.match(craftsCss, /\.crafts-list\.is-grid \.crafts-copy small\s*\{[^}]*display:\s*none/);
-  assert.match(craftsCss, /\.crafts-list\.is-grid \.crafts-footer\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)[^}]*gap:\s*6px/);
+  assert.match(craftsCss, /\.crafts-list\.is-grid \.crafts-footer\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\) auto[^}]*align-items:\s*center[^}]*gap:\s*6px/);
+  assert.match(craftsCss, /\.crafts-list\.is-grid \.crafts-meta\s*\{[^}]*flex-wrap:\s*nowrap[^}]*gap:\s*4px[^}]*overflow:\s*hidden/);
+  assert.match(craftsCss, /:is\(#pe-type-contract, \.crafts-list\.is-grid\) :is\(\.crafts-kind-badge, \.crafts-source\)\s*\{[^}]*padding-inline:\s*4px[^}]*font-size:\s*10\.5px/);
+  assert.match(craftsCss, /\.crafts-list\.is-grid \.crafts-source\s*\{[^}]*min-width:\s*0[^}]*flex:\s*0 1 auto/);
+  assert.match(craftsCss, /\.crafts-list\.is-grid \.crafts-actions\s*\{[^}]*justify-self:\s*end[^}]*gap:\s*4px/);
   assert.match(craftsCss, /@media \(max-width: 760px\)\s*\{[\s\S]*?\.crafts-sidebar\s*\{[^}]*grid-template-areas:\s*"brand echoes" "filters filters"/);
   assert.match(craftsCss, /@media \(max-width: 760px\)\s*\{[\s\S]*?:is\(#pe-button-contract, \.crafts-modal\) \.crafts-nav-item\s*\{[^}]*display:\s*flex[^}]*flex:\s*1 1 0[^}]*line-height:\s*30px/);
   assert.match(craftsCss, /@media \(max-width: 560px\)\s*\{[\s\S]*?\.crafts-row\s*\{[^}]*grid-template-columns:\s*72px minmax\(0,\s*1fr\)/);
@@ -114,7 +138,7 @@ test("toolbar ships a left-navigation Favorites workbench with list and grid vie
   assert.match(css, /:is\(#pe-type-contract, \.crafts-modal, \.crafts-remove-dialog\) :where\(\*\)\s*\{\s*font-weight:\s*400;/);
 
   const bilingualKeys = [
-    "savedCrafts", "savedCraftsTitle", "savedCraftsSubtitle", "savedType", "savedView", "savedListView", "savedGridView", "browseEchoes", "savedCount", "savedLoading", "savedRefreshing", "savedEmptyIn", "savedEmptyOut",
+    "savedCrafts", "savedCraftsTitle", "savedCraftsSubtitle", "savedType", "savedSearch", "savedSearchLabel", "savedView", "savedListView", "savedGridView", "browseEchoes", "savedCount", "savedLoading", "savedRefreshing", "savedNoMatches", "savedEmptyIn", "savedEmptyOut",
     "savedAdd", "savedAdding", "savedOpen", "savedOpening", "savedCanvas", "savedWidget", "savedRemoveTitle", "savedRemoveConfirmTitle", "savedRemoveConfirmDescription", "savedRemoveAction", "savedSourceLocal", "savedSourceCloud", "savedSourceCommunity",
     "savedSourceSynced", "savedSourceSyncedTitle", "savedSourceLocalTitle", "savedSourceCloudTitle", "savedErrorAdd", "savedErrorOpen", "savedErrorToggle",
     "closeSavedCrafts", "shareCanvasCloud", "shareWidget", "snapshotCloudSignInRequired", "snapshotCloudSignInHint",

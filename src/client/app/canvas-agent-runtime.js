@@ -33,6 +33,11 @@
     canvasAgentProjectRootSelect = document.querySelector("#canvasAgentProjectRootSelect"),
     canvasAgentProjectRootTruncated = document.querySelector("#canvasAgentProjectRootTruncated"),
     canvasAgentProjectError = document.querySelector("#canvasAgentProjectError"),
+    canvasAgentProjectRemoveDialog = document.querySelector("#canvasAgentProjectRemoveDialog"),
+    canvasAgentProjectRemoveTitle = document.querySelector("#canvasAgentProjectRemoveTitle"),
+    canvasAgentProjectRemoveDescription = document.querySelector("#canvasAgentProjectRemoveDescription"),
+    canvasAgentProjectRemoveCancel = document.querySelector("#canvasAgentProjectRemoveCancel"),
+    canvasAgentProjectRemoveConfirm = document.querySelector("#canvasAgentProjectRemoveConfirm"),
     canvasAgentHistory = document.querySelector("#canvasAgentHistory"),
     canvasAgentHistoryPopover = document.querySelector("#canvasAgentHistoryPopover"),
     canvasAgentHistoryList = document.querySelector("#canvasAgentHistoryList"),
@@ -265,6 +270,7 @@
     projectHistoryLoaded:false,
     projectHistoryWrite:Promise.resolve(),
     projectSelectionRevision:0,
+    projectRemovePending:null,
     pendingApproval:null,
     followLatest:true,
     scrollLatestFrame:0,
@@ -508,7 +514,8 @@
     canvasAgentSetPromptSuggestionsExpanded(canvasAgent.promptSuggestionsExpanded);
   }
   function canvasAgentPreventPromptSuggestionFocusLoss(event) {
-    if(event.target?.closest?.("button"))event.preventDefault();
+    const button=event.target?.closest?.("button");
+    if(event.pointerType==="mouse"&&button&&button!==canvasAgentPromptToggle)event.preventDefault();
   }
   function canvasAgentPromptSuggestionsAvailable() {
     return Boolean(canvasAgentPromptSuggestions
@@ -559,7 +566,14 @@
   }
   function canvasAgentTogglePromptSuggestions() {
     if(canvasAgentPromptRowsVisible())canvasAgentSetPromptSuggestionsExpanded(false,{collapseAll:true});
-    else canvasAgentSetPromptSuggestionsExpanded(true,{manual:true,collapseAll:false});
+    else{
+      const composerFocused=document.activeElement===canvasAgentInput;
+      if(composerFocused)canvasAgentInput.blur();
+      canvasAgentSetPromptSuggestionsExpanded(true,{manual:true,collapseAll:false});
+      if(composerFocused){
+        try{canvasAgentPromptToggle.focus({preventScroll:true});}catch{canvasAgentPromptToggle.focus();}
+      }
+    }
   }
   function canvasAgentCollapsePromptSuggestionsFromPanel(event) {
     if(canvasAgentPromptSuggestions?.hidden||!canvasAgentPromptRowsVisible()||canvasAgentPromptSuggestions.contains(event.target))return;
@@ -627,6 +641,10 @@
     canvasAgentProjectRootApprovalReject.textContent=t("canvasAgentRootApprovalReject");
     canvasAgentProjectRootApprovalAllow.textContent=t("canvasAgentRootApprovalAllow");
     if(canvasAgent.projectRootApproval)canvasAgentProjectRootApprovalDetail.textContent=t("canvasAgentRootApprovalDetail").replace("{name}",canvasAgent.projectRootApproval.name);
+    canvasAgentProjectRemoveTitle.textContent=t("canvasAgentRemoveProjectTitle");
+    canvasAgentProjectRemoveCancel.textContent=t("cancel");
+    canvasAgentProjectRemoveConfirm.textContent=t("canvasAgentRemoveProject");
+    if(canvasAgent.projectRemovePending)canvasAgentProjectRemoveDescription.textContent=t(canvasAgent.projectRemovePending.confirmKey).replace("{name}",canvasAgent.projectRemovePending.name);
     canvasAgentApproval.setAttribute("aria-label",t("canvasAgentApproval"));
     const statusKey = { ready:"canvasAgentReady", connecting:"canvasAgentConnecting", running:"canvasAgentWorking", offline:"canvasAgentDisconnected", history:"canvasAgentHistoryViewing" }[canvasAgentPanel.dataset.status];
     if (statusKey) canvasAgentStatus.textContent = t(statusKey);
@@ -1004,14 +1022,36 @@
   }
   async function canvasAgentRemoveProject(projectId) {
     const project=canvasAgentProjectById(projectId);
-    if(!project)return;
+    if(!project||canvasAgent.projectRemovePending)return false;
     const confirmKey=project.kind==="folder"?"canvasAgentRemoveFolderConfirm":project.source==="upload"?"canvasAgentRemoveUploadConfirm":"canvasAgentRemoveNativeFileConfirm";
-    if(!window.confirm(t(confirmKey).replace("{name}",project.name)))return;
+    canvasAgent.projectRemovePending={projectId:project.id,name:project.name,confirmKey,restoreFocus:document.activeElement};
+    canvasAgentProjectRemoveTitle.textContent=t("canvasAgentRemoveProjectTitle");
+    canvasAgentProjectRemoveDescription.textContent=t(confirmKey).replace("{name}",project.name);
+    canvasAgentProjectRemoveConfirm.textContent=t("canvasAgentRemoveProject");
+    canvasAgentProjectRemoveConfirm.disabled=false;
+    canvasAgentProjectRemoveDialog.returnValue="";
+    if(!canvasAgentProjectRemoveDialog.open)canvasAgentProjectRemoveDialog.showModal();
+    requestAnimationFrame(()=>canvasAgentProjectRemoveCancel.focus({preventScroll:true}));
+    return true;
+  }
+  async function canvasAgentConfirmProjectRemoval() {
+    const pending=canvasAgent.projectRemovePending;
+    if(!pending)return false;
+    canvasAgentProjectRemoveConfirm.disabled=true;
+    canvasAgentProjectRemoveConfirm.setAttribute("aria-busy","true");
     try{
-      if(canvasAgent.projectId===projectId){await canvasAgentSelectProject("");await canvasAgent.projectHistoryWrite;}
-      await canvasAgentProjectRequest(`/api/canvas-agent/projects/${encodeURIComponent(projectId)}`,{method:"DELETE"});
+      if(canvasAgent.projectId===pending.projectId){await canvasAgentSelectProject("");await canvasAgent.projectHistoryWrite;}
+      await canvasAgentProjectRequest(`/api/canvas-agent/projects/${encodeURIComponent(pending.projectId)}`,{method:"DELETE"});
       await canvasAgentEnsureProjects({refresh:true});
-    }catch(error){canvasAgentSetProjectError(String(error?.message||error));}
+      canvasAgentProjectRemoveDialog.close("removed");
+      return true;
+    }catch(error){
+      const message=String(error?.message||error);
+      canvasAgentSetProjectError(message);
+      canvasAgentProjectRemoveDescription.textContent=message;
+      canvasAgentProjectRemoveConfirm.disabled=false;
+      return false;
+    }finally{canvasAgentProjectRemoveConfirm.removeAttribute("aria-busy");}
   }
   async function canvasAgentUploadProjectFile(file) {
     if(canvasAgent.projectUploadBusy||canvasAgent.attachmentBusy||!file)return;
@@ -4039,7 +4079,7 @@
       },0);
     });
   }
-  function openCanvasAgent({focus=true}={}) {
+  function openCanvasAgent({focus=false}={}) {
     const options=arguments[0]||{},connect=options.connect!==false,animate=options.animate!==false;
     if (!canvasAgentAvailable()) return;
     if(settings.connections.length)canvasAgentUpdateConnectionButton();
@@ -4128,7 +4168,7 @@
     if(animate&&!docked)canvasAgentAnimatePanel(false,panelRect);
   }
   canvasAgentToggle.hidden = !canvasAgentAvailable();
-  canvasAgentToggle.addEventListener("click",()=>canvasAgentPanel.hidden ? openCanvasAgent() : closeCanvasAgent());
+  canvasAgentToggle.addEventListener("click",()=>canvasAgentPanel.hidden ? openCanvasAgent({focus:false}) : closeCanvasAgent());
   canvasAgentClose.addEventListener("click",closeCanvasAgent);
   canvasAgentProjectButton.addEventListener("click",()=>{
     if(canvasAgentProjectDialogOpen()){canvasAgentHideProjectPopover({restoreFocus:true});return;}
@@ -4153,6 +4193,14 @@
     if(event.target!==canvasAgentProjectPopover)return;
     const bounds=canvasAgentProjectPopover.getBoundingClientRect();
     if(event.clientX<bounds.left||event.clientX>bounds.right||event.clientY<bounds.top||event.clientY>bounds.bottom)canvasAgentHideProjectPopover({restoreFocus:true});
+  });
+  canvasAgentProjectRemoveConfirm.addEventListener("click",()=>void canvasAgentConfirmProjectRemoval());
+  canvasAgentProjectRemoveDialog.addEventListener("close",()=>{
+    const pending=canvasAgent.projectRemovePending;
+    canvasAgent.projectRemovePending=null;
+    canvasAgentProjectRemoveConfirm.disabled=false;
+    canvasAgentProjectRemoveConfirm.removeAttribute("aria-busy");
+    if(canvasAgentProjectRemoveDialog.returnValue!=="removed"&&pending?.restoreFocus?.isConnected&&canvasAgentProjectDialogOpen())requestAnimationFrame(()=>pending.restoreFocus.focus({preventScroll:true}));
   });
   canvasAgentApprovalReject.addEventListener("click",()=>canvasAgentResolveApproval(false));
   canvasAgentApprovalAllow.addEventListener("click",()=>canvasAgentResolveApproval(true));
@@ -4183,6 +4231,7 @@
   canvasAgentHistoryReturn.addEventListener("click",canvasAgentReturnToCurrentConversation);
   document.addEventListener("keydown",event=>{
     if (event.key !== "Escape" || canvasAgentPanel.hidden) return;
+    if (canvasAgentProjectRemoveDialog.open) return;
     if (!canvasAgentReferencePicker.hidden) {
       event.preventDefault();
       canvasAgentToggleReferencePicker(false);
@@ -4205,7 +4254,7 @@
   });
   document.addEventListener("pointerdown",event=>{
     if (!canvasAgentHistoryPopover.hidden&&!canvasAgentHistoryPopover.contains(event.target)&&!canvasAgentHistory.contains(event.target)) canvasAgentHideHistoryPopover();
-    if (canvasAgentProjectDialogOpen()&&!canvasAgentProjectPopover.contains(event.target)&&!canvasAgentProjectButton.contains(event.target)) canvasAgentHideProjectPopover();
+    if (canvasAgentProjectDialogOpen()&&!canvasAgentProjectPopover.contains(event.target)&&!canvasAgentProjectRemoveDialog.contains(event.target)&&!canvasAgentProjectButton.contains(event.target)) canvasAgentHideProjectPopover();
     if (!canvasAgentReferencePicker.hidden&&!canvasAgentReferencePicker.contains(event.target)&&!canvasAgentReference.contains(event.target)) canvasAgentToggleReferencePicker(false);
     if (canvasAgent.promptSuggestionsExpanded&&!canvasAgentForm.contains(event.target)&&!canvasAgentPromptSuggestions?.contains(event.target)) canvasAgentSetPromptSuggestionsExpanded(false);
   });

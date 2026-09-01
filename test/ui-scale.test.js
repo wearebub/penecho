@@ -30,15 +30,16 @@ function runPageScale(config, storedScale = null) {
   return { classes, properties, storage, desktopCalls, browserWindow };
 }
 
-test("Canvas page scale exposes six validated choices with mutually exclusive desktop/web paths", () => {
+test("Canvas page scale exposes four validated choices with mutually exclusive desktop/web paths", () => {
   const desktop = runPageScale({ desktopApp:true });
   const web = runPageScale({ runtime:"cloud" }, 1.25);
   const main = read("desktop/main.js"), preload = read("desktop/canvas-preload.js"), css = read("public/style.css");
 
   assert.equal(CANVAS_PAGE_SCALE, 1);
-  assert.deepEqual(CANVAS_PAGE_SCALES, [0.9, 1, 1.1, 1.25, 1.5, 1.75]);
+  assert.deepEqual(CANVAS_PAGE_SCALES, [0.9, 1, 1.1, 1.25]);
   assert.equal(normalizeCanvasPageScale(0.9), 0.9);
-  assert.equal(normalizeCanvasPageScale(1.5), 1.5);
+  assert.equal(normalizeCanvasPageScale(1.25), 1.25);
+  assert.equal(normalizeCanvasPageScale(1.5), 1);
   assert.equal(normalizeCanvasPageScale("invalid"), 1);
   assert.deepEqual(desktop.classes, []);
   assert.deepEqual(desktop.desktopCalls, [1]);
@@ -49,10 +50,10 @@ test("Canvas page scale exposes six validated choices with mutually exclusive de
   assert.equal(web.storage.get(CANVAS_PAGE_SCALE_STORAGE_KEY), "0.9");
   assert.equal(web.properties.get("--penecho-canvas-page-scale"), "0.9");
   assert.equal(web.properties.get("--penecho-canvas-page-viewport-width"), `${100 / 0.9}vw`);
-  assert.equal(web.browserWindow.PenEchoPageScale.apply(1.5), 1.5);
-  assert.equal(web.storage.get(CANVAS_PAGE_SCALE_STORAGE_KEY), "1.5");
-  assert.equal(web.properties.get("--penecho-canvas-page-scale"), "1.5");
-  assert.equal(web.properties.get("--penecho-canvas-page-viewport-width"), `${100 / 1.5}vw`);
+  assert.equal(web.browserWindow.PenEchoPageScale.apply(1.25), 1.25);
+  assert.equal(web.storage.get(CANVAS_PAGE_SCALE_STORAGE_KEY), "1.25");
+  assert.equal(web.properties.get("--penecho-canvas-page-scale"), "1.25");
+  assert.equal(web.properties.get("--penecho-canvas-page-viewport-width"), `${100 / 1.25}vw`);
   assert.match(main, /const \{ CANVAS_PAGE_SCALE, normalizeCanvasPageScale \} = require\("\.\.\/public\/page-scale\.js"\)/);
   assert.match(main, /webPreferences:\{ preload:CANVAS_PRELOAD, zoomFactor:CANVAS_PAGE_SCALE \}/);
   assert.match(main, /ipcMain\.handle\("penecho:set-page-scale"[\s\S]*?fromCanvas\(event\)[\s\S]*?setZoomFactor\(scale\)/);

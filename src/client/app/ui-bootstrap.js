@@ -329,7 +329,11 @@
     state.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (e.pointerType === "touch") state.touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
     updateHandObjectFocus(e);
-    if (state.mode === "hand" && e.pointerType !== "touch" && Number(e.buttons) === 0) updateHandObjectHover(clientPoint(e));
+    if (state.mode === "hand" && e.pointerType !== "touch" && Number(e.buttons) === 0) {
+      const point = clientPoint(e);
+      updateHandObjectHover(point);
+      syncWidgetResizeCursor(point, e.pointerType);
+    }
     updateCanvasPointerPreview(e);
     if (e.pointerType !== "touch") updateWidgetRefinePointer(clientPoint(e));
     if (state.pendingGesture?.id === e.pointerId) {
@@ -521,6 +525,7 @@
   screen.addEventListener("pointerleave", () => {
     cancelCanvasWidgetGestureResetTap();
     updateHandObjectHover(null);
+    if (!state.widgetGesture) resetCanvasCursor();
     if (!state.pointerPreview) return;
     state.pointerPreview = null;
     requestInteractionLayerRender();

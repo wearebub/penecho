@@ -79,7 +79,7 @@ class FakeElement {
   }
   dispatch(type, event = {}) { for (const handler of this.listeners.get(type) || []) handler({ target:this, preventDefault() {}, ...event }); }
   click() { this.dispatch("click"); }
-  focus() {}
+  focus() { if (this.ownerDocument) this.ownerDocument.activeElement = this; }
   select() {}
   closest(selector) {
     let node = this;
@@ -208,6 +208,7 @@ function boot({ status, remoteCloudStatus = null, cloudOrigin = "https://interna
     craftsPopover = withCrafts ? new FakeElement("section", document) : null,
     craftsClose = withCrafts ? new FakeElement("button", document) : null,
     craftsList = withCrafts ? new FakeElement("div", document) : null,
+    craftsSearch = withCrafts ? new FakeElement("input", document) : null,
     craftsCount = withCrafts ? new FakeElement("strong", document) : null,
     craftsRefreshStatus = withCrafts ? new FakeElement("span", document) : null,
     craftsFilters = withCrafts ? new FakeElement("div", document) : null,
@@ -228,10 +229,10 @@ function boot({ status, remoteCloudStatus = null, cloudOrigin = "https://interna
     echoesLabel.className = "crafts-echoes-label";
     echoesLabel.attributes["data-crafts-echoes-label"] = "";
     craftsEchoesLink.append(echoesLabel);
-    craftsPopover.append(craftsFilters, craftsEchoesLink, craftsCount, craftsRefreshStatus, craftsViewSwitch, craftsClose, craftsList);
+    craftsPopover.append(craftsFilters, craftsEchoesLink, craftsSearch, craftsCount, craftsRefreshStatus, craftsViewSwitch, craftsClose, craftsList);
     document.body.append(craftsButton, craftsPopover);
   }
-  document.getElementById = (id) => ({ cloudAccountBtn:cloudButton, shareCanvasBtn:shareButton, craftsButton, craftsPopover, craftsClose, craftsList, craftsCount, craftsRefreshStatus, craftsFilters, craftsFilterAll, craftsFilterWidgets, craftsFilterCanvases, craftsViewSwitch, craftsViewList, craftsViewGrid, craftsEchoesLink })[id] || null;
+  document.getElementById = (id) => ({ cloudAccountBtn:cloudButton, shareCanvasBtn:shareButton, craftsButton, craftsPopover, craftsClose, craftsList, craftsSearch, craftsCount, craftsRefreshStatus, craftsFilters, craftsFilterAll, craftsFilterWidgets, craftsFilterCanvases, craftsViewSwitch, craftsViewList, craftsViewGrid, craftsEchoesLink })[id] || null;
 
   let statusPayload = status;
   let statusError = null;
@@ -369,7 +370,7 @@ function boot({ status, remoteCloudStatus = null, cloudOrigin = "https://interna
   vm.runInNewContext(cloudScript, context, { filename:"public/cloud-connect.js" });
   const statusCalls = () => fetchCalls.filter((call) => call.url === "/api/cloud/status").length;
   return {
-    document, cloudButton, shareButton, craftsButton, craftsPopover, craftsClose, craftsList, craftsCount, craftsRefreshStatus, craftsFilters, craftsFilterAll, craftsFilterWidgets, craftsFilterCanvases, craftsViewSwitch, craftsViewList, craftsViewGrid, craftsEchoesLink, timers, fetchCalls, statusCalls, alerts, clipboardWrites, imported, opened, openedLocal, favoriteStates, window:windowObject,
+    document, cloudButton, shareButton, craftsButton, craftsPopover, craftsClose, craftsList, craftsSearch, craftsCount, craftsRefreshStatus, craftsFilters, craftsFilterAll, craftsFilterWidgets, craftsFilterCanvases, craftsViewSwitch, craftsViewList, craftsViewGrid, craftsEchoesLink, timers, fetchCalls, statusCalls, alerts, clipboardWrites, imported, opened, openedLocal, favoriteStates, window:windowObject,
     overlay:() => document.querySelector(".penecho-cloud-overlay"),
     setStatus(next) { statusPayload = next; },
     setStatusError(error) { statusError = error; },
@@ -708,12 +709,20 @@ test("publication uses one consolidated PenEcho agreement link in browsers and d
 
     const overlay = run.overlay();
     const checkboxes = flatten(overlay).filter((node) => node.getAttribute("type") === "checkbox");
-    const agreement = flatten(overlay).find((node) => node.tagName === "A" && node.textContent === "Publication Agreement");
+    const agreement = flatten(overlay).find((node) => node.tagName === "A" && node.className === "cloud-publication-link");
     assert.equal(checkboxes.length, 1, "one agreement replaces the two overlapping confirmations");
     assert.ok(agreement);
+    assert.equal(checkboxes[0].getAttribute("data-pe-control"), "checkbox");
+    assert.equal(checkboxes[0].parentNode.getAttribute("data-pe-hit"), "choice");
     assert.equal(agreement.getAttribute("href"), `${options.cloudOrigin}/terms.html#public-crafts`);
     assert.equal(agreement.getAttribute("target"), "_blank");
     assert.equal(agreement.getAttribute("rel"), "noopener");
+    assert.equal(agreement.dataset.peButton, undefined, "the inline agreement link must not receive button styling");
+    assert.equal(agreement.children.at(-1)?.textContent, "↗");
+    assert.equal(agreement.children.at(-1)?.getAttribute("aria-hidden"), "true");
+    assert.match(cloudCss, /\.cloud-publication-consent\s*\{[^}]*align-items:\s*center[^}]*gap:\s*8px/);
+    assert.match(cloudCss, /\.cloud-publication-consent input\s*\{[^}]*flex:\s*0 0 15px[^}]*margin:\s*0/);
+    assert.match(cloudCss, /\.cloud-publication-consent \.cloud-publication-link\s*\{[^}]*border:\s*0[^}]*background:\s*transparent/);
     assert.doesNotMatch(overlay.textContent, /Public Craft ML License|CC BY-SA 4\.0|embedded source under MIT|including its open-license and model-training terms/);
     const preview = flatten(overlay).find((node) => node.className === "cloud-share-preview");
     assert.ok(preview);
@@ -1246,7 +1255,7 @@ test("the toolbar Favorites picker shows Widgets and opens favorite Canvases as 
   const rows = flatten(run.craftsList).filter((node) => node.className === "crafts-row"),
     actions = flatten(run.craftsList).filter((node) => node.tagName === "BUTTON").map((node) => node.textContent);
   assert.equal(rows.length, 2);
-  assert.deepEqual(actions, ["Open", "×", "Add", "×"]);
+  assert.deepEqual(actions, ["Open", "", "Add", ""]);
   flatten(run.craftsList).find((node) => node.tagName === "BUTTON" && node.textContent === "Open").click();
   await run.flush();
 
@@ -1262,7 +1271,7 @@ test("the toolbar Favorites tabs filter one time-descending mixed list", async (
     run = boot({ status:deviceStatus(), communityFavorites:[oldCanvas, middleWidget, newCanvas], withCrafts:true });
   const rowTitles = () => flatten(run.craftsList)
     .filter((node) => node.className === "crafts-row")
-    .map((row) => flatten(row).find((node) => node.tagName === "B")?.textContent);
+    .map((row) => flatten(row).find((node) => node.className === "crafts-card-title")?.textContent);
   await run.flush();
 
   run.craftsButton.click();
@@ -1285,6 +1294,34 @@ test("the toolbar Favorites tabs filter one time-descending mixed list", async (
   assert.deepEqual(rowTitles(), ["New Canvas", "Middle Widget", "Old Canvas"]);
 });
 
+test("the toolbar Favorites search filters visible rows without taking focus when the picker opens", async () => {
+  const canvas = { id:"123e4567-e89b-42d3-a456-426614174036", kind:"canvas", name:"Roadmap", description:"Release plan", artifactSha256:"a".repeat(64), publishedAt:300 },
+    widget = { id:"123e4567-e89b-42d3-a456-426614174037", kind:"widget", name:"Study Timer", artifactSha256:"b".repeat(64), publishedAt:200 },
+    run = boot({ status:deviceStatus(), communityFavorites:[canvas, widget], withCrafts:true });
+  const rowTitles = () => flatten(run.craftsList)
+    .filter((node) => node.className === "crafts-row")
+    .map((row) => flatten(row).find((node) => node.className === "crafts-card-title")?.textContent);
+  await run.flush();
+
+  run.document.activeElement = run.craftsButton;
+  run.craftsButton.click();
+  await run.flush();
+
+  assert.equal(run.document.activeElement, run.craftsFilterAll, "opening keeps initial focus on the selected non-text filter");
+  assert.notEqual(run.document.activeElement, run.craftsSearch, "opening must not summon a touch keyboard");
+  assert.deepEqual(rowTitles(), ["Roadmap", "Study Timer"]);
+
+  run.craftsSearch.value = "release";
+  run.craftsSearch.dispatch("input");
+  assert.deepEqual(rowTitles(), ["Roadmap"], "search includes a favorite's description");
+  assert.equal(run.craftsCount.textContent, "1 favorites");
+
+  run.craftsSearch.value = "missing";
+  run.craftsSearch.dispatch("input");
+  assert.deepEqual(rowTitles(), []);
+  assert.match(run.craftsList.textContent, /No matching favorites\./);
+});
+
 test("the toolbar Favorites picker switches between list and grid views without changing its items", async () => {
   const sharedSha = "7".repeat(64), localSha = "8".repeat(64), cloudSha = "9".repeat(64),
     localFavoriteItems = [
@@ -1298,7 +1335,7 @@ test("the toolbar Favorites picker switches between list and grid views without 
     run = boot({ status:deviceStatus(), communityFavorites, localFavoriteItems, withCrafts:true });
   const rowTitles = () => flatten(run.craftsList)
     .filter((node) => node.className === "crafts-row")
-    .map((row) => flatten(row).find((node) => node.tagName === "B")?.textContent);
+    .map((row) => flatten(row).find((node) => node.className === "crafts-card-title")?.textContent);
   await run.flush();
 
   run.craftsButton.click();
@@ -1515,6 +1552,7 @@ test("published Canvas closes the publication form and opens a link-first result
   assert.equal(publication.modelTrainingAccepted, true, "the consolidated agreement satisfies the existing server contract");
   assert.ok(overlay.textContent.includes("Published to Echoes"));
   assert.doesNotMatch(overlay.textContent, /Publish this stroke|Auto-fill with current AI/);
+  assert.match(cloudCss, /\.penecho-cloud-dialog\.publish-success\s*\{[^}]*--penecho-dialog-surface:\s*color-mix\(in srgb, var\(--studio-panel, #ffffff\) 88%, transparent\)[^}]*max-width:\s*560px/);
   const actions = flatten(overlay).filter((node) => node.tagName === "BUTTON" || node.tagName === "A");
   const linkIndex = actions.findIndex((node) => node.textContent === "Share as link");
   const imageIndex = actions.findIndex((node) => node.textContent === "Share as image");

@@ -529,8 +529,10 @@
           <div id="canvasAgentResizeLeft" class="canvas-agent-resize-edge left" role="separator" aria-orientation="vertical" aria-controls="canvasAgentPanel" aria-valuemin="360" tabindex="0" data-edge="left" data-i18n-aria="canvasAgentResizeLeft" aria-label="Resize PenEcho Agent from the left edge"></div>
           <div id="canvasAgentResizeRight" class="canvas-agent-resize-edge right" role="separator" aria-orientation="vertical" aria-controls="canvasAgentPanel" aria-valuemin="360" tabindex="0" data-edge="right" data-i18n-aria="canvasAgentResizeRight" aria-label="Resize PenEcho Agent from the right edge"></div>
           <header id="canvasAgentHead" class="canvas-agent-head" data-i18n-title="canvasAgentMove" title="Drag to move PenEcho Agent">
-            <span class="canvas-agent-mark" aria-hidden="true"></span>
-            <div><strong data-i18n="canvasAgent">PenEcho Agent</strong><small id="canvasAgentStatus" data-i18n="canvasAgentReadyConnect">Ready to connect</small></div>
+            <div class="canvas-agent-identity penecho-workbench-identity">
+              <span class="canvas-agent-mark" aria-hidden="true"></span>
+              <div class="canvas-agent-heading penecho-workbench-heading"><strong data-i18n="canvasAgent">PenEcho Agent</strong><small id="canvasAgentStatus" data-i18n="canvasAgentReadyConnect">Ready to connect</small></div>
+            </div>
             <button id="canvasAgentHistory" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="canvasAgentHistoryPopover" data-i18n-title="canvasAgentHistory" title="Sessions on this Canvas" data-i18n-aria="canvasAgentHistory" aria-label="Sessions on this Canvas" data-pe-button="toolbar" data-pe-density="compact"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2.3-5.7L4 8.5M4 4v4.5h4.5"/><path d="M12 8v4l2.5 1.5"/></svg></button>
             <button id="canvasAgentNew" type="button" data-i18n-title="newCanvasAgentConversation" title="New PenEcho Agent conversation" data-i18n-aria="newCanvasAgentConversation" aria-label="New PenEcho Agent conversation" data-pe-button="toolbar" data-pe-density="compact"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
             <button id="canvasAgentClose" type="button" data-i18n-title="closeCanvasAgent" title="Close PenEcho Agent" data-i18n-aria="closeCanvasAgent" aria-label="Close PenEcho Agent" data-pe-button="icon" data-pe-density="compact"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
@@ -585,6 +587,21 @@
               </section>
             </div>
             <p id="canvasAgentProjectError" class="canvas-agent-project-error" role="alert" hidden></p>
+          </dialog>
+          <dialog id="canvasAgentProjectRemoveDialog" class="studio-session-delete-dialog" role="alertdialog" aria-modal="true" aria-labelledby="canvasAgentProjectRemoveTitle" aria-describedby="canvasAgentProjectRemoveDescription" data-pe-surface="alert" data-pe-size="xs" data-pe-layout="single" data-pe-presentation="modal" data-pe-material="opaque" data-pe-state="default">
+            <form method="dialog">
+              <div class="studio-session-delete-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"/></svg>
+              </div>
+              <div class="studio-session-delete-copy">
+                <h2 id="canvasAgentProjectRemoveTitle" data-i18n="canvasAgentRemoveProjectTitle">Remove resource?</h2>
+                <p id="canvasAgentProjectRemoveDescription"></p>
+              </div>
+              <div class="studio-session-delete-actions">
+                <button id="canvasAgentProjectRemoveCancel" type="submit" value="cancel" data-i18n="cancel" data-pe-button="secondary" data-pe-density="standard">Cancel</button>
+                <button id="canvasAgentProjectRemoveConfirm" class="danger" type="button" data-i18n="canvasAgentRemoveProject" data-pe-button="danger-primary" data-pe-density="standard">Remove resource</button>
+              </div>
+            </form>
           </dialog>
           <div id="canvasAgentHistoryPopover" class="canvas-agent-history-popover" role="dialog" aria-labelledby="canvasAgentHistoryPopoverTitle" hidden>
             <header><strong id="canvasAgentHistoryPopoverTitle" data-i18n="canvasAgentHistory">Sessions on this Canvas</strong></header>
@@ -686,6 +703,7 @@
           </form>
           <div id="canvasAgentResizeBottom" class="canvas-agent-resize-edge bottom" role="separator" aria-orientation="horizontal" aria-controls="canvasAgentPanel" aria-valuemin="320" tabindex="0" data-edge="bottom" data-i18n-aria="canvasAgentResizeBottom" aria-label="Resize PenEcho Agent from the bottom edge"></div>
         </section>
+        <span id="canvasHint" class="canvas-hint" role="status" aria-live="polite" hidden></span>
         <div id="tip" data-i18n="tip">Pan: middle-mouse drag, Hand tool, or one finger · Zoom: wheel or pinch</div>
       </section>
     </section>
@@ -697,7 +715,6 @@
 
     <footer>
       <span id="coords">x 10000 · y 10000 · 100%</span>
-      <span id="canvasHint" class="canvas-hint" role="status" aria-live="polite" hidden></span>
     </footer>
   </main>
   <div id="craftsPopover" class="plugin-modal-layer" hidden aria-hidden="true">
@@ -730,7 +747,7 @@
         </a>
       </aside>
       <section class="crafts-workspace">
-        <header class="crafts-head">
+        <header class="crafts-head" data-pe-region="toolbar">
           <div class="crafts-title-row">
             <span id="craftsCount" class="crafts-count" aria-live="polite"></span>
             <span id="craftsRefreshStatus" class="crafts-refresh-status" role="status" aria-live="polite" hidden>
@@ -739,6 +756,10 @@
             </span>
           </div>
           <div class="crafts-head-actions">
+            <label class="crafts-search" for="craftsSearch">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg>
+              <input id="craftsSearch" type="search" autocomplete="off" data-pe-control="input" data-i18n-placeholder="savedSearch" placeholder="Search" data-i18n-aria="savedSearchLabel" aria-label="Search Favorites">
+            </label>
             <div id="craftsViewSwitch" class="crafts-view-switch" data-pe-control="segmented" role="group" data-i18n-aria="savedView" aria-label="View">
               <button id="craftsViewList" class="crafts-view-option active" type="button" aria-pressed="true" data-i18n-aria="savedListView" aria-label="List view" data-i18n-title="savedListView" title="List view" data-pe-button="segment" data-pe-density="segment">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 7h11M8 12h11M8 17h11"/><circle cx="5" cy="7" r=".7"/><circle cx="5" cy="12" r=".7"/><circle cx="5" cy="17" r=".7"/></svg>
@@ -943,8 +964,6 @@
               <button type="button" role="radio" data-page-scale="1" aria-checked="true" data-pe-button="segment" data-pe-density="segment">100%</button>
               <button type="button" role="radio" data-page-scale="1.1" aria-checked="false" data-pe-button="segment" data-pe-density="segment">110%</button>
               <button type="button" role="radio" data-page-scale="1.25" aria-checked="false" data-pe-button="segment" data-pe-density="segment">125%</button>
-              <button type="button" role="radio" data-page-scale="1.5" aria-checked="false" data-pe-button="segment" data-pe-density="segment">150%</button>
-              <button type="button" role="radio" data-page-scale="1.75" aria-checked="false" data-pe-button="segment" data-pe-density="segment">175%</button>
             </div>
           </div>
             </section>

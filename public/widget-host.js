@@ -62,6 +62,8 @@
       MAX_RUNTIME_ERRORS = 5,
       MOVE_TOLERANCE_PX = 8,
       CONTROL_RADIUS_PX = 26,
+      CONTROL_EDGE_PX = 7,
+      CONTROL_CORNER_PX = 16,
       MAX_SNAPSHOT_DIMENSION = 2400,
       MAX_SNAPSHOT_PIXELS = 4800000,
       HIGH_RESOLUTION_SNAPSHOT_SCALE = 1.5,
@@ -356,18 +358,26 @@
     }
     function controlHit(clientX, clientY, pointerType) {
       if (!widgetState.selected) return null;
-      const radius = (pointerType === "touch" ? CONTROL_RADIUS_PX : 16),
-        scaleX = Math.max(.0001, Number(widgetState.scaleX) || 1),
+      const scaleX = Math.max(.0001, Number(widgetState.scaleX) || 1),
         scaleY = Math.max(.0001, Number(widgetState.scaleY) || 1),
         width = Math.max(1, document.documentElement.clientWidth),
         height = Math.max(1, document.documentElement.clientHeight),
-        distance = (x, y) => Math.hypot((clientX - x) * scaleX, (clientY - y) * scaleY),
-        controls = [
-          { hit:"resize", distance:distance(width, height) },
-          { hit:"width", distance:distance(width, height / 2) },
-          { hit:"height", distance:distance(width / 2, height) },
-        ].filter((item) => item.distance <= radius).sort((a, b) => a.distance - b.distance);
-      return controls[0]?.hit || null;
+        rightDistance = (width - clientX) * scaleX,
+        bottomDistance = (height - clientY) * scaleY,
+        edge = pointerType === "touch" ? CONTROL_RADIUS_PX : CONTROL_EDGE_PX,
+        corner = pointerType === "touch" ? CONTROL_RADIUS_PX : CONTROL_CORNER_PX;
+      if (rightDistance >= 0 && rightDistance <= corner && bottomDistance >= 0 && bottomDistance <= corner) return "resize";
+      if (rightDistance >= 0 && rightDistance <= edge && clientY >= 0 && clientY <= height) return "width";
+      if (bottomDistance >= 0 && bottomDistance <= edge && clientX >= 0 && clientX <= width) return "height";
+      return null;
+    }
+    const RESIZE_CURSOR_CLASSES = ["penecho-widget-resize-width", "penecho-widget-resize-height", "penecho-widget-resize-corner"];
+    function setControlCursor(hit = null) {
+      for (const className of RESIZE_CURSOR_CLASSES) document.documentElement.classList.remove(className);
+      if (hit === "width") document.documentElement.classList.add(RESIZE_CURSOR_CLASSES[0]);
+      else if (hit === "height") document.documentElement.classList.add(RESIZE_CURSOR_CLASSES[1]);
+      else if (hit === "resize") document.documentElement.classList.add(RESIZE_CURSOR_CLASSES[2]);
+      return hit;
     }
     function capturePointer(press) {
       if (press.captured) return;
@@ -383,6 +393,7 @@
       suppressClickUntil = clock() + 1000;
       capturePointer(press);
       try { document.getSelection()?.removeAllRanges(); } catch {}
+      setControlCursor(press.hit);
       document.documentElement.classList.add("penecho-widget-dragging");
       pointerMessage(DRAG_START, press);
     }
@@ -423,6 +434,7 @@
       presses.delete(event.pointerId);
       if (press.captured) try { document.documentElement.releasePointerCapture(press.pointerId); } catch {}
       if (![...presses.values()].some((item) => item.active)) document.documentElement.classList.remove("penecho-widget-dragging");
+      if (press.pointerType !== "touch") setControlCursor(controlHit(press.clientX, press.clientY, press.pointerType));
     }
     addEventListener("pointerdown", (event) => {
       if (presses.has(event.pointerId) || Number(event.button) !== 0 || !["mouse", "pen", "touch"].includes(event.pointerType)) return;
@@ -468,7 +480,10 @@
     }, { capture:true, passive:false });
     addEventListener("pointermove", (event) => {
       const press = presses.get(event.pointerId);
-      if (!press) return;
+      if (!press) {
+        if (event.pointerType !== "touch") setControlCursor(controlHit(Number(event.clientX), Number(event.clientY), event.pointerType));
+        return;
+      }
       const clientX = Number(event.clientX), clientY = Number(event.clientY), screenX = Number(event.screenX), screenY = Number(event.screenY);
       if (![clientX, clientY, screenX, screenY].every(Number.isFinite)) return;
       press.clientX = clientX;
@@ -962,6 +977,7 @@
         const becameVisible = event.data.active && (!widgetStateReceived || !widgetState.active);
         widgetState = { selected:event.data.selected, active:event.data.active, navigationLocked:Boolean(event.data.navigationLocked), scaleX:event.data.scaleX, scaleY:event.data.scaleY };
         widgetStateReceived = true;
+        if (!widgetState.selected) setControlCursor();
         setRuntimeActive(widgetState.active);
         if (becameVisible) notifyVisibleViewport();
       }
@@ -1350,7 +1366,7 @@
       parsed.head.insertBefore(pluginStyle, parsed.head.querySelector("style, link"));
     }
     const bridgeStyle = parsed.createElement("style");
-    bridgeStyle.textContent = "html,body{background:transparent!important;color-scheme:light!important;font-size:clamp(36px,1.2cqw,52px);touch-action:none!important;overscroll-behavior:contain}html.penecho-widget-dragging,html.penecho-widget-dragging *{cursor:grabbing!important;user-select:none!important}html.penecho-widget-paused *,html.penecho-widget-paused *::before,html.penecho-widget-paused *::after{animation-play-state:paused!important}";
+    bridgeStyle.textContent = "html,body{background:transparent!important;color-scheme:light!important;font-size:clamp(36px,1.2cqw,52px);touch-action:none!important;overscroll-behavior:contain}html.penecho-widget-dragging,html.penecho-widget-dragging *{user-select:none!important}html.penecho-widget-resize-width,html.penecho-widget-resize-width *{cursor:ew-resize!important}html.penecho-widget-resize-height,html.penecho-widget-resize-height *{cursor:ns-resize!important}html.penecho-widget-resize-corner,html.penecho-widget-resize-corner *{cursor:nwse-resize!important}html.penecho-widget-paused *,html.penecho-widget-paused *::before,html.penecho-widget-paused *::after{animation-play-state:paused!important}";
     parsed.head.append(bridgeStyle);
     if (visualPlan && !scienceMode) {
       const visualReady = parsed.createElement("script");

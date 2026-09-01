@@ -79,7 +79,7 @@ test("PenEcho Agent keeps Project, Try asking, and model in the composer toolbar
   assert.match(css,/\.canvas-agent-composer-toolbar\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\);[^}]*border-bottom:/);
   assert.match(css,/\.canvas-agent-composer-toolbar:has\(\.canvas-agent-prompt-suggestions\[hidden\]\)\s*\{[^}]*grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\)/);
   assert.match(css,/\.canvas-agent-prompt-suggestions\s*\{[^}]*position:\s*static;[^}]*min-height:\s*30px;[^}]*overflow:\s*visible/);
-  assert.match(css,/\.canvas-agent-prompt-popup\s*\{[^}]*position:\s*absolute;[^}]*right:\s*6px;[^}]*bottom:\s*calc\(100% \+ 6px\);[^}]*left:\s*6px;[^}]*overflow-y:\s*auto/);
+  assert.match(css,/\.canvas-agent-prompt-popup\s*\{[^}]*position:\s*absolute;[^}]*right:\s*6px;[^}]*bottom:\s*calc\(100% \+ 6px\);[^}]*left:\s*6px;[^}]*overflow-y:\s*auto;[^}]*touch-action:\s*pan-y;[^}]*-webkit-overflow-scrolling:\s*touch/);
   assert.match(css,/\.canvas-agent-prompt-popup\s*\{[^}]*max-height:\s*min\(420px, max\(96px, calc\(100cqh - 160px\)\)\)/,"the popup stays inside the Agent panel at narrow heights");
   assert.match(css,/\.canvas-agent-prompt-popup\s*\{[^}]*gap:\s*4px;[^}]*padding:\s*6px;[^}]*border-radius:\s*var\(--pe-r-popover[^}]*box-shadow:\s*none/);
   assert.match(css,/\.canvas-agent-prompt-list\s*\{[^}]*grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\);[^}]*gap:\s*4px/);
@@ -88,9 +88,9 @@ test("PenEcho Agent keeps Project, Try asking, and model in the composer toolbar
   assert.match(css,/\.canvas-agent-prompt-list > button\s*\{[^}]*min-height:\s*48px;[^}]*grid-template-columns:\s*22px minmax\(0, 1fr\);[^}]*padding:\s*6px 7px;[^}]*border:\s*1px solid var\(--pe-line[^}]*border-radius:\s*7px/);
   assert.match(css,/\.canvas-agent-prompt-list > button > \[data-pe-region="preview"\]\s*\{[^}]*width:\s*22px;[^}]*height:\s*22px;[^}]*border-radius:\s*5px/);
   assert.match(css,/\.canvas-agent-prompt-copy > \[data-pe-region="title"\]\s*\{[^}]*font-size:\s*12px;[^}]*font-weight:\s*400;[^}]*line-height:\s*1\.45;[^}]*white-space:\s*normal/);
-  assert.match(css,/\.canvas-agent-project-button > span\s*\{[^}]*font-size:\s*12px;[^}]*font-weight:\s*400/);
-  assert.match(css,/\.canvas-agent-prompt-toggle-copy > \[data-pe-region="title"\]\s*\{[^}]*font-size:\s*12px;[^}]*font-weight:\s*400/);
-  assert.match(css,/\.canvas-agent-connection-button > span\s*\{[^}]*font-size:\s*12px;[^}]*font-weight:\s*400/);
+  assert.match(css,/\.canvas-agent-project-button > span\s*\{[^}]*font-size:\s*12\.5px;[^}]*font-weight:\s*500/);
+  assert.match(css,/\.canvas-agent-prompt-toggle-copy > \[data-pe-region="title"\]\s*\{[^}]*font-size:\s*12\.5px;[^}]*font-weight:\s*500/);
+  assert.match(css,/\.canvas-agent-connection-button > span\s*\{[^}]*font-size:\s*12\.5px;[^}]*font-weight:\s*500/);
   assert.doesNotMatch(functionSource("canvasAgentRenderPromptSuggestions"),/createElement\("small"\)|data-pe-region="description"|Summary/);
 });
 
@@ -168,14 +168,14 @@ test("PenEcho Agent chooses three context-specific primary intents",()=>{
 function interactiveScene(){
   const constants=promptConstants(),set={key:"blank",suggestions:[...constants.additional,...constants.primary.blank].map(id=>({id,...constants.library[id]}))},active={element:null,insideForm:false,insideSuggestions:false},outside={};
   function node(tag){
-    return {tag,handlers:{},children:[],dataset:{},className:"",attributes:{},hidden:false,_textContent:"",
+    return {tag,handlers:{},children:[],dataset:{},className:"",attributes:{},hidden:false,focusOptions:null,_textContent:"",
       get textContent(){return this.children.length?this.children.map(child=>child.textContent||"").join(""):this._textContent;},set textContent(value){this._textContent=String(value);this.children=[];},
       closest(selector){return selector==="button"&&this.tag==="button"?this:null;},append(...items){this.children.push(...items);},replaceChildren(...items){this.children=[...items];},
       setAttribute(name,value){this.attributes[name]=String(value);this[name]=String(value);},getAttribute(name){return this.attributes[name]??null;},
-      addEventListener(type,handler){this.handlers[type]=handler;},click(){this.handlers.click?.();}};
+      addEventListener(type,handler){this.handlers[type]=handler;},click(){this.handlers.click?.();},focus(options){this.focusOptions=options;active.element=this;active.insideForm=false;active.insideSuggestions=true;}};
   }
   const document={get activeElement(){return active.element;},set activeElement(value){active.element=value;},createElement:node,createElementNS(_namespace,tag){return node(tag);}},
-    input={value:"",disabled:false,events:0,focused:false,selection:null,dispatchEvent(event){this.events++;if(event.type==="input")sync();},focus(){this.focused=true;active.element=this;active.insideForm=true;active.insideSuggestions=false;},setSelectionRange(start,end){this.selection=[start,end];}},
+    input={value:"",disabled:false,events:0,focused:false,blurred:false,selection:null,dispatchEvent(event){this.events++;if(event.type==="input")sync();},focus(){this.focused=true;active.element=this;active.insideForm=true;active.insideSuggestions=false;},blur(){this.blurred=true;if(active.element===this){active.element=null;active.insideForm=false;}},setSelectionRange(start,end){this.selection=[start,end];}},
     form={contains(node){return node===input||node===active.element&&active.insideForm;},submitted:false},
     suggestions={hidden:true,dataset:{},attributes:{},classList:{expanded:false,promptRowsVisible:false,toggle(name,value){if(name==="expanded")this.expanded=Boolean(value);if(name==="prompt-rows-visible")this.promptRowsVisible=Boolean(value);}},setAttribute(name,value){this.attributes[name]=String(value);},contains(node){return node===active.element&&active.insideSuggestions;}},
     popup={hidden:true},makeList=()=>({hidden:false,children:[],replaceChildren(){this.children=[];},append(child){this.children.push(child);}}),additional=makeList(),primary=makeList(),additionalGroup={hidden:true},primaryGroup={hidden:false},toggle=node("button"),disclosure=node("span"),
@@ -241,6 +241,7 @@ test("The expanded arrow collapses every prompt row and keeps manual collapse st
   scene.toggleExpanded();assert.equal(scene.popup.hidden,true);assert.equal(scene.primary.hidden,true);assert.equal(scene.additional.hidden,true);assert.equal(scene.canvasAgent.promptSuggestionsCollapsedAll,true);assert.equal(scene.toggle.getAttribute("aria-expanded"),"false");
   scene.expandOnEnter();assert.equal(scene.primary.hidden,true,"hover must not undo an explicit full collapse");assert.equal(scene.additional.hidden,true);
   scene.toggleExpanded();assert.equal(scene.primary.hidden,true);assert.equal(scene.additional.hidden,false);assert.equal(scene.canvasAgent.promptSuggestionsCollapsedAll,false);
+  assert.equal(scene.input.blurred,true,"manual expansion dismisses the touch keyboard");assert.equal(scene.document.activeElement,scene.toggle,"the non-text disclosure keeps focus");assert.equal(scene.toggle.focusOptions?.preventScroll,true);
   scene.toggleExpanded();assert.equal(scene.primary.hidden,true);assert.equal(scene.additional.hidden,true,"the same arrow collapses all rows from the fully expanded state");
 });
 
@@ -272,13 +273,18 @@ test("Existing conversations stay collapsed on focus until the arrow is clicked"
   assert.equal(scene.suggestions.hidden,false);assert.equal(scene.primary.hidden,true);assert.equal(scene.additional.hidden,true);
   scene.expandOnEnter();assert.equal(scene.additional.hidden,true,"hover must not auto-open prompts after a conversation has started");
   scene.toggleExpanded();assert.equal(scene.primary.hidden,true);assert.equal(scene.additional.hidden,false);assert.equal(scene.canvasAgent.promptSuggestionsManual,true);
-  scene.active.element=scene.outside;scene.active.insideForm=false;scene.syncFocus();assert.equal(scene.suggestions.hidden,false,"the fixed header remains after blur");assert.equal(scene.popup.hidden,true);
+  scene.active.element=scene.outside;scene.active.insideForm=false;scene.active.insideSuggestions=false;scene.syncFocus();assert.equal(scene.suggestions.hidden,false,"the fixed header remains after blur");assert.equal(scene.popup.hidden,true);
 });
 
-test("PenEcho Agent suggestion pointer activation survives composer focusout",async()=>{
+test("PenEcho Agent suggestions preserve mouse activation without blocking iPad scrolling",async()=>{
   const scene=interactiveScene();scene.render(scene.set);const button=scene.primary.children.at(-1);scene.active.element=scene.input;scene.active.insideForm=true;scene.sync();
-  const pointerEvent={target:button,defaultPrevented:false,preventDefault(){this.defaultPrevented=true;}};
-  scene.preventFocusLoss(pointerEvent);if(!pointerEvent.defaultPrevented)scene.active.element=scene.outside;
+  const touchEvent={pointerType:"touch",target:button,defaultPrevented:false,preventDefault(){this.defaultPrevented=true;}},
+    penEvent={pointerType:"pen",target:button,defaultPrevented:false,preventDefault(){this.defaultPrevented=true;}},
+    mouseEvent={pointerType:"mouse",target:button,defaultPrevented:false,preventDefault(){this.defaultPrevented=true;}},
+    toggleEvent={pointerType:"mouse",target:scene.toggle,defaultPrevented:false,preventDefault(){this.defaultPrevented=true;}};
+  scene.preventFocusLoss(touchEvent);scene.preventFocusLoss(penEvent);scene.preventFocusLoss(mouseEvent);scene.preventFocusLoss(toggleEvent);
+  assert.equal(touchEvent.defaultPrevented,false,"touch panning stays native");assert.equal(penEvent.defaultPrevented,false,"pen panning stays native");assert.equal(mouseEvent.defaultPrevented,true,"mouse selection keeps the composer stable");assert.equal(toggleEvent.defaultPrevented,false,"the disclosure may take non-text focus");
+  if(!mouseEvent.defaultPrevented)scene.active.element=scene.outside;
   queueMicrotask(scene.sync);await Promise.resolve();assert.equal(scene.suggestions.hidden,false);
   button.click();assert.equal(scene.input.value,"Polished prompt");assert.equal(scene.suggestions.hidden,false);assert.equal(scene.primary.hidden,true);assert.equal(scene.form.submitted,false);
 });

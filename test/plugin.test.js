@@ -665,7 +665,7 @@ test("widget host keeps generated HTML in an opaque inner frame and snapshots it
   assert.doesNotMatch(host, /setTimeout\(\(\) => activateHold/);
   assert.doesNotMatch(host, /controls\[0\]\?\.hit \|\| "move"/);
   assert.match(host, /touchCount\(\) >= 2[\s\S]*?cancelAllHoldsForNavigation/);
-  assert.match(host, /hit:"resize"[\s\S]*?hit:"width"[\s\S]*?hit:"height"/);
+  assert.match(functionSource(host, "controlHit"), /return "resize"[\s\S]*?return "width"[\s\S]*?return "height"/);
   assert.match(host, /penecho-widget-state/);
   assert.match(host, /function setRuntimeActive\(active\)/);
   assert.doesNotMatch(snapshot, /setRuntimeActive|notifyVisibleViewport/);
@@ -846,8 +846,8 @@ test("widget iframe preserves native navigation while forwarding only focus and 
   assert.deepEqual(interactionMessages(selected).map((message) => message.type), ["penecho-widget-activate"]);
 
   for (const [hit, point] of Object.entries({
-    width:{ clientX:995, clientY:300, screenX:995, screenY:300 },
-    height:{ clientX:500, clientY:595, screenX:500, screenY:595 },
+    width:{ clientX:995, clientY:50, screenX:995, screenY:50 },
+    height:{ clientX:50, clientY:595, screenX:50, screenY:595 },
     resize:{ clientX:995, clientY:595, screenX:995, screenY:595 },
   })) {
     const control = widgetRuntimeHarness();
@@ -856,6 +856,17 @@ test("widget iframe preserves native navigation while forwarding only focus and 
     assert.equal(control.messages.at(-1).type, "penecho-widget-drag-start");
     assert.equal(control.messages.at(-1).hit, hit);
   }
+
+  const cursors = widgetRuntimeHarness();
+  cursors.select();
+  cursors.pointer("pointermove", { pointerType:"pen", clientX:995, clientY:50 });
+  assert.equal(cursors.classes.has("penecho-widget-resize-width"), true);
+  cursors.pointer("pointermove", { pointerType:"pen", clientX:50, clientY:595 });
+  assert.equal(cursors.classes.has("penecho-widget-resize-width"), false);
+  assert.equal(cursors.classes.has("penecho-widget-resize-height"), true);
+  cursors.pointer("pointermove", { pointerType:"pen", clientX:995, clientY:595 });
+  assert.equal(cursors.classes.has("penecho-widget-resize-height"), false);
+  assert.equal(cursors.classes.has("penecho-widget-resize-corner"), true);
 
   const pinch = widgetRuntimeHarness();
   pinch.pointer("pointerdown", { pointerId:1 });

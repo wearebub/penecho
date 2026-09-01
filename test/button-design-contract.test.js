@@ -61,6 +61,8 @@ test("the incremental stylesheet owns the canonical tint ladder without importin
   assert.match(css, /--pe-menu-item-h:\s*30px/);
   assert.match(css, /\[data-pe-button\]\)\s*\{[^}]*line-height:\s*var\(--pe-button-standard-h, 30px\);/s);
   assert.match(css, /\[data-pe-button="menu-item"\]\)\s*\{[^}]*height:\s*var\(--pe-menu-item-h, 30px\);[^}]*min-height:\s*var\(--pe-menu-item-h, 30px\);[^}]*line-height:\s*var\(--pe-menu-item-h, 30px\);/s);
+  assert.match(css, /\.snapshot-location-options input:checked \+ \[data-pe-button="menu-item"\][\s\S]*?color:\s*var\(--pe-accent-label\);[^}]*background:\s*var\(--pe-selected\);/);
+  assert.doesNotMatch(css, /\.snapshot-location-options label:hover span\s*\{/);
   assert.match(css, /--pe-control-radius:\s*5px/);
 });
 

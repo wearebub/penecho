@@ -282,16 +282,49 @@
       selectedWidgetMaterialActive = Boolean(selectedWidgetMaterial && !selectedWidgetMaterial.hidden),
       widgetStyle = runtimeElementStyle(widgetLayer, "widget-layer-stack"),
       imageMaterialStyle = runtimeElementStyle(imageMaterialLayer, "image-material-layer-stack"),
-      imageStyle = runtimeElementStyle(placedContentLayer, "placed-content-layer-stack");
+      imageStyle = runtimeElementStyle(placedContentLayer, "placed-content-layer-stack"),
+      textEditorStyle = runtimeElementStyle(textEditorLayer, "text-editor-layer-stack");
     if (widgetStyle) widgetStyle.zIndex = selectedWidgetMaterialActive ? "3" : widgetInFront ? "2" : "1";
     if (imageMaterialStyle) imageMaterialStyle.zIndex = widgetInFront ? "1" : "2";
     if (imageStyle) imageStyle.zIndex = widgetInFront ? "1" : "2";
+    if (textEditorStyle) textEditorStyle.setProperty("--text-editor-layer-z", state.frontCanvasObjectKind === "text-box" ? "6" : "1");
   }
   function setCanvasObjectFrontKind(kind) {
-    if (!["image", "widget"].includes(kind) || state.frontCanvasObjectKind === kind) return false;
+    if (!["image", "widget", "text-box"].includes(kind)) return false;
+    const frontChanged = state.frontCanvasObjectKind !== kind,
+      placedChanged = ["image", "text-box"].includes(kind) && state.frontPlacedCanvasObjectKind !== kind;
+    if (!frontChanged && !placedChanged) return false;
     state.frontCanvasObjectKind = kind;
+    if (["image", "text-box"].includes(kind)) state.frontPlacedCanvasObjectKind = kind;
     syncCanvasObjectLayerOrder();
     return true;
+  }
+  function restoreCanvasObjectFrontKinds(frontKind, placedKind) {
+    const nextPlacedKind = ["image", "text-box"].includes(placedKind) ? placedKind : "image",
+      nextFrontKind = ["image", "widget", "text-box"].includes(frontKind) ? frontKind : nextPlacedKind,
+      changed = state.frontCanvasObjectKind !== nextFrontKind || state.frontPlacedCanvasObjectKind !== nextPlacedKind;
+    if (!changed) return false;
+    state.frontCanvasObjectKind = nextFrontKind;
+    state.frontPlacedCanvasObjectKind = nextPlacedKind;
+    syncCanvasObjectLayerOrder();
+    return true;
+  }
+  function setTextBoxStackIndex(item, nextIndex) {
+    const currentIndex = state.textBoxes.indexOf(item);
+    if (currentIndex < 0 || !Number.isInteger(nextIndex)) return false;
+    nextIndex = Math.max(0, Math.min(state.textBoxes.length - 1, nextIndex));
+    if (currentIndex === nextIndex) return false;
+    state.textBoxes.splice(currentIndex, 1);
+    state.textBoxes.splice(nextIndex, 0, item);
+    return true;
+  }
+  function bringTextBoxToFront(item) {
+    if (!item || !state.textBoxes.includes(item)) return false;
+    const stackChanged = setTextBoxStackIndex(item, state.textBoxes.length - 1),
+      layerChanged = setCanvasObjectFrontKind("text-box"),
+      changed = stackChanged || layerChanged;
+    if (changed) requestRender();
+    return changed;
   }
   function setImageStackIndex(item, nextIndex) {
     const currentIndex = state.images.indexOf(item);
@@ -613,13 +646,15 @@
   }
   function handObjectToolbarTargetAtPoint(point) {
     if (!point || !valid(point)) return null;
-    const textBox = textBoxAtPoint(point);
-    if (textBox) return { kind:"text-box", object:textBox };
-    const image = imageAtPoint(point),
+    const textBox = textBoxAtPoint(point),
+      image = imageAtPoint(point),
       widget = widgetAtPoint(point),
+      placed = state.frontPlacedCanvasObjectKind === "text-box"
+        ? [{ kind:"text-box", object:textBox }, { kind:"image", object:image }]
+        : [{ kind:"image", object:image }, { kind:"text-box", object:textBox }],
       ordered = state.frontCanvasObjectKind === "widget"
-        ? [{ kind:"widget", object:widget }, { kind:"image", object:image }]
-        : [{ kind:"image", object:image }, { kind:"widget", object:widget }],
+        ? [{ kind:"widget", object:widget }, ...placed]
+        : [...placed, { kind:"widget", object:widget }],
       target = ordered.find(candidate => candidate.object);
     if (target) return target;
     const animation = animationPointerHit(point)?.animation;
@@ -642,6 +677,9 @@
     if (state.mode !== "hand" || Number(event.button) !== 0) return false;
     const target = handObjectToolbarTargetAtPoint(point);
     if (!target) return false;
+    if (target.kind === "widget") bringHtmlWidgetToFront(target.object);
+    else if (target.kind === "image") bringImageToFront(target.object);
+    else if (target.kind === "text-box") bringTextBoxToFront(target.object);
     const token = `pointer:${event.pointerId}`,
       key = focusHandObject(target.kind, target.object, token);
     if (!key) return false;
@@ -741,6 +779,7 @@
       before:imageLayout(item),
       beforeIndex:state.images.indexOf(item),
       beforeFrontCanvasObjectKind:state.frontCanvasObjectKind,
+      beforeFrontPlacedCanvasObjectKind:state.frontPlacedCanvasObjectKind,
       changed:false,
     };
     requestInteractionLayerRender();
@@ -778,7 +817,7 @@
     if (item) {
       Object.assign(item, edit.before);
       setImageStackIndex(item, edit.beforeIndex);
-      setCanvasObjectFrontKind(edit.beforeFrontCanvasObjectKind);
+      restoreCanvasObjectFrontKinds(edit.beforeFrontCanvasObjectKind, edit.beforeFrontPlacedCanvasObjectKind);
     }
     state.imageHistoryBefore = null;
     state.imageGesture = null;
@@ -1071,7 +1110,7 @@
     return true;
   }
   function bringHtmlWidgetToFront(widget) {
-    if (widget?.widgetType !== "html_widget" || !state.widgets.includes(widget)) return false;
+    if (!widget || !state.widgets.includes(widget)) return false;
     const stackChanged = setWidgetStackIndex(widget, state.widgets.length - 1),
       layerChanged = setCanvasObjectFrontKind("widget"),
       changed = stackChanged || layerChanged;
@@ -1298,6 +1337,35 @@
     for (const origin of manifest.connect) url.searchParams.append("connect", origin);
     return url.href;
   }
+  function createWidgetResizeHandle(widget, hit) {
+    const handle = document.createElement("div");
+    handle.className = `canvas-widget-resize-handle ${hit === "width" ? "width" : hit === "height" ? "height" : "corner"}`;
+    handle.setAttribute("aria-hidden", "true");
+    handle.addEventListener("pointerdown", (event) => {
+      if (state.viewMode || state.mode !== "hand" || Number(event.button) !== 0) return;
+      const pending = widget === state.pendingWidget && widget.pending === true;
+      if (!pending && !showHandObjectToolbar("widget", widget)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      finishStaleWidgetHostGesture(event);
+      if (!beginWidgetGesture(event, clientPoint(event), { widget, hit, pending })) return;
+      try { handle.setPointerCapture(event.pointerId); } catch {}
+    });
+    handle.addEventListener("pointermove", (event) => {
+      if (finishReleasedWidgetGesture(event) || state.widgetGesture?.id !== event.pointerId) return;
+      event.preventDefault();
+      updateWidgetGesture(event);
+    });
+    const finish = (event) => {
+      if (state.widgetGesture?.id !== event.pointerId) return;
+      event.preventDefault();
+      finishWidgetGesture(event);
+    };
+    handle.addEventListener("pointerup", finish);
+    handle.addEventListener("pointercancel", finish);
+    handle.addEventListener("lostpointercapture", finish);
+    return handle;
+  }
   function mountWidget(widget) {
     if (widget.shell || !pluginEnabled(widget.pluginId)) return;
     const manifest = pluginManifests.get(widget.pluginId);
@@ -1332,7 +1400,12 @@
     });
     frame.addEventListener("focus", () => focusHandObject("widget", widget, "widget-focus"));
     frame.addEventListener("blur", () => releaseHandObjectFocus(handToolbarKey("widget", widget.id), "widget-focus"));
-    shell.append(frame);
+    shell.append(
+      frame,
+      createWidgetResizeHandle(widget, "width"),
+      createWidgetResizeHandle(widget, "height"),
+      createWidgetResizeHandle(widget, "resize"),
+    );
     widgetLayer.append(shell);
     widget.shell = shell;
     widget.frame = frame;
@@ -1417,6 +1490,10 @@
       declaration.height = `${widget.contentH}px`;
     }
     declaration.transform = `translate3d(${screenX}px,${screenY}px,0) scale(${scaleX},${scaleY})`;
+    declaration.setProperty?.("--widget-resize-edge-x", `${14 / scaleX}px`);
+    declaration.setProperty?.("--widget-resize-edge-y", `${14 / scaleY}px`);
+    declaration.setProperty?.("--widget-resize-corner-x", `${18 / scaleX}px`);
+    declaration.setProperty?.("--widget-resize-corner-y", `${18 / scaleY}px`);
     updateWidgetRenderVisibility(widget, screenX, screenY);
     sendWidgetHostState(widget, scaleX, scaleY);
   }
@@ -1570,7 +1647,7 @@
     if (validWidgetHostActivate(message)) {
       if (state.mode === "hand") {
         const target = handObjectToolbarTargetFromWidgetMessage(widget, message);
-        if (target) focusHandObject(target.kind, target.object);
+        if (target && showHandObjectToolbar(target.kind, target.object) && target.kind === "widget") bringHtmlWidgetToFront(target.object);
       }
       return;
     }
@@ -1648,6 +1725,7 @@
       before:widgetLayout(widget),
       beforeIndex:state.widgets.indexOf(widget),
       beforeFrontCanvasObjectKind:state.frontCanvasObjectKind,
+      beforeFrontPlacedCanvasObjectKind:state.frontPlacedCanvasObjectKind,
       changed:false,
     };
     syncWidgetHostStates();
@@ -1678,7 +1756,7 @@
     if (widget) {
       Object.assign(widget, edit.before);
       setWidgetStackIndex(widget, edit.beforeIndex);
-      setCanvasObjectFrontKind(edit.beforeFrontCanvasObjectKind);
+      restoreCanvasObjectFrontKinds(edit.beforeFrontCanvasObjectKind, edit.beforeFrontPlacedCanvasObjectKind);
       positionWidget(widget);
     }
     state.widgetHistoryBefore = null;
@@ -1690,21 +1768,36 @@
     if (edit) setStatusKey("ready");
     return Boolean(edit);
   }
+  function widgetResizeHit(box, point, pointerType = "mouse") {
+    const scale = Math.max(.03, Number(state.scale) || 1),
+      edge = (pointerType === "touch" ? 22 : 7) / scale,
+      corner = (pointerType === "touch" ? 28 : 16) / scale,
+      right = box.x + box.w,
+      bottom = box.y + box.h,
+      nearCorner = point.x >= right - corner && point.x <= right + edge
+        && point.y >= bottom - corner && point.y <= bottom + edge,
+      nearRight = Math.abs(point.x - right) <= edge
+        && point.y >= box.y - edge && point.y <= bottom + edge,
+      nearBottom = Math.abs(point.y - bottom) <= edge
+        && point.x >= box.x - edge && point.x <= right + edge;
+    if (nearCorner) return "resize";
+    if (nearRight) return "width";
+    if (nearBottom) return "height";
+    return null;
+  }
   function widgetControlHit(widget, point, pointerType = "mouse") {
     const box = widgetBox(widget),
       handle = 14 / state.scale,
-      radius = (pointerType === "touch" ? 24 : 14) / state.scale,
       actionRadius = pointerType === "touch" ? 22 / state.scale : Math.max(handle * 0.8, 9 / state.scale),
       controls = [
         ...Object.entries(draftActionPoints(box, handle, false, true)).map(([hit, target]) => ({ hit, target, radius:actionRadius })),
-        { hit:"resize", target:{ x:box.x + box.w, y:box.y + box.h }, radius },
-        { hit:"width", target:{ x:box.x + box.w + handle * 0.08, y:box.y + box.h / 2 }, radius },
-        { hit:"height", target:{ x:box.x + box.w / 2, y:box.y + box.h + handle * 0.08 }, radius },
       ],
       control = controls
         .map((item) => ({ ...item, distance:Math.hypot(point.x - item.target.x, point.y - item.target.y) }))
         .filter((item) => item.distance <= item.radius)
         .sort((a, b) => a.distance - b.distance)[0];
+    const resizeHit = widgetResizeHit(box, point, pointerType);
+    if (resizeHit) return resizeHit;
     if (control) return control.hit;
     return point.x >= box.x && point.x <= box.x + box.w && point.y >= box.y && point.y <= box.y + box.h ? "move" : null;
   }
@@ -1730,6 +1823,20 @@
       }
     }
     return null;
+  }
+  function widgetResizeCursor(point, pointerType = "mouse") {
+    const hit = widgetPointerHit(point, pointerType, false)?.hit;
+    if (hit === "resize") return "nwse-resize";
+    if (hit === "width") return "ew-resize";
+    if (hit === "height") return "ns-resize";
+    return "";
+  }
+  function syncWidgetResizeCursor(point, pointerType = "mouse") {
+    if (state.mode !== "hand" || pointerType === "touch" || state.widgetGesture) return false;
+    const cursor = widgetResizeCursor(point, pointerType);
+    if (cursor) setCanvasCursor(cursor);
+    else resetCanvasCursor();
+    return Boolean(cursor);
   }
   function resizeWidgetBox(start, point, hit, minimumWidth = 300, minimumHeight = 200, limit = SIZE) {
     const contentW = start.contentW ?? start.w,
@@ -2682,9 +2789,17 @@
     placedContentCtx.beginPath();
     placedContentCtx.rect(0, 0, SIZE, SIZE);
     placedContentCtx.clip();
-    drawImagesToContext(placedContentCtx, visible, state.widgetShadowEnabled);
-    drawTextBoxesToContext(placedContentCtx, visible);
+    drawPlacedCanvasObjectsToContext(placedContentCtx, visible, state.widgetShadowEnabled);
     placedContentCtx.restore();
+  }
+  function drawPlacedCanvasObjectsToContext(context, region = null, withShadow = false) {
+    if (state.frontPlacedCanvasObjectKind === "text-box") {
+      drawImagesToContext(context, region, withShadow);
+      drawTextBoxesToContext(context, region);
+      return;
+    }
+    drawTextBoxesToContext(context, region);
+    drawImagesToContext(context, region, withShadow);
   }
   function renderInkLayer(region = null) {
     const d = devicePixelRatio || 1,
@@ -2956,10 +3071,6 @@
     }
     context.beginPath();
     drawResizeHandle(context, box, handle);
-    context.moveTo(box.x + box.w + handle * 0.08, box.y + box.h / 2 - handle * 0.48);
-    context.lineTo(box.x + box.w + handle * 0.08, box.y + box.h / 2 + handle * 0.48);
-    context.moveTo(box.x + box.w / 2 - handle * 0.48, box.y + box.h + handle * 0.08);
-    context.lineTo(box.x + box.w / 2 + handle * 0.48, box.y + box.h + handle * 0.08);
     context.stroke();
     context.restore();
   }
@@ -3484,43 +3595,16 @@
       itemCount = 2 + Math.max(0, Math.floor(Number(toolCount) || 0));
     return itemCount * itemSize + (itemCount - 1) * itemGap + inset * 2;
   }
-  function objectToolbarNeedsMove(toolCount = 0, availableWidth = 0) {
-    const minimumDragWidth = 28,
-      width = Math.max(0, Number(availableWidth) || 0);
-    return width < objectToolbarMinimumWidth(toolCount) + minimumDragWidth;
-  }
   function finalizeObjectToolbarWidths(specs) {
-    const toolCounts = new Map(),
-      moveSpecs = [];
+    const toolCounts = new Map();
     for (const spec of specs) {
       if (!spec.objectToolbarItem || spec.toolbarSlot !== "tool") continue;
       toolCounts.set(spec.objectToolbarKey, (toolCounts.get(spec.objectToolbarKey) || 0) + 1);
     }
     for (const spec of specs) {
       if (!spec.objectToolbar) continue;
-      const toolCount = toolCounts.get(spec.key) || 0,
-        needsMove = objectToolbarNeedsMove(toolCount, screenObjectBox(spec.box).width);
-      spec.minimumWidth = objectToolbarMinimumWidth(toolCount + (needsMove ? 1 : 0));
-      if (!needsMove) continue;
-      moveSpecs.push({
-        key:`${spec.key}:move`,
-        kind:"move",
-        label:t("objectToolbarMove"),
-        box:spec.box,
-        target:spec.target,
-        object:spec.object,
-        objectToolbarItem:true,
-        objectToolbarKey:spec.key,
-        toolbarSlot:"move",
-        baseWidth:28,
-        baseHeight:28,
-        handToolbar:Boolean(spec.handToolbar),
-        handToolbarKey:spec.handToolbarKey || "",
-        handToolbarHiding:Boolean(spec.handToolbarHiding),
-        priority:(Number(spec.priority) || 4) + 1,
-      });
+      spec.minimumWidth = objectToolbarMinimumWidth(toolCounts.get(spec.key) || 0);
     }
-    specs.push(...moveSpecs);
     return specs;
   }
   function addObjectToolbarSpecs(specs, options) {
@@ -3602,7 +3686,6 @@
         trailingX = toolbar.x + toolbarWidth - inset - width;
       let itemX;
       if (spec.toolbarSlot === "leading") itemX = leadingX;
-      else if (spec.toolbarSlot === "move") itemX = leadingX + width + itemGap;
       else if (spec.toolbarSlot === "trailing") itemX = trailingX;
       else {
         const itemCount = Math.max(1, Number(spec.toolbarItemCount) || 1),
@@ -4488,6 +4571,7 @@
   }
   function focusTextEditor(editor, input = false) {
     if (!editor) return;
+    setCanvasObjectFrontKind("text-box");
     state.activeTextEditorId = editor.id;
     editor.zIndex = ++state.nextTextEditorZ;
     positionTextEditors();
@@ -4999,6 +5083,7 @@
     if (state.widgetEdit) acceptWidgetEdit();
     if (state.imageEdit) acceptImageEdit({ restoreMode:false });
     if (state.animationEdit) acceptAnimationEdit();
+    bringTextBoxToFront(item);
     state.selectedTextBoxId = item.id;
     const scale = Math.max(.03, state.scale),
       editor = createTextEditor({ x:item.x, y:item.y }, {

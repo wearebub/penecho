@@ -50,6 +50,8 @@
       favoriteWidgetsHint:"Add one to this Canvas",
       explore:"Echoes",
       exploreHint:"Browse public Canvases and Widgets.",
+      cloudNavLibrary:"Library",
+      cloudNavThisDevice:"This device",
       cloudAccount:"Cloud account",
       accountHint:"Manage your identity, Cloud storage, and project activity.",
       accountOverview:"Account overview",
@@ -255,6 +257,8 @@
       favoriteWidgetsHint:"加入当前画布",
       explore:"Echoes",
       exploreHint:"浏览公开画布与组件。",
+      cloudNavLibrary:"内容库",
+      cloudNavThisDevice:"这台设备",
       cloudAccount:"Cloud 账户",
       accountHint:"管理账户身份、Cloud 空间与项目活动。",
       accountOverview:"账户概览",
@@ -564,7 +568,8 @@
       else if (key.startsWith("on") && typeof value === "function") node.addEventListener(key.slice(2), value);
       else if (value !== undefined && value !== null) node.setAttribute(key, String(value));
     }
-    if ((tag === "button" || tag === "a") && !node.dataset.peButton && !node.dataset.peHit) {
+    const isPublicationLink = tag === "a" && String(node.className || "").split(/\s+/).includes("cloud-publication-link");
+    if ((tag === "button" || tag === "a") && !node.dataset.peButton && !node.dataset.peHit && !isPublicationLink) {
       if (node.classList.contains("cloud-dialog-close")) {
         node.dataset.peButton = "icon";
         node.dataset.peDensity = "compact";
@@ -1265,7 +1270,7 @@
   function cloudFavoritesPanel(setRefreshing) {
     const panel = el("section", { class:"penecho-cloud-panel cloud-favorites-panel" });
     panel.append(el("header", { class:"cloud-content-heading" }, [
-      el("h3", { text:cloudT("favorites") }),
+      el("h3", { "data-pe-region":"title", text:cloudT("favorites") }),
       el("p", { class:"cloud-favorites-hint", text:cloudT("favoritesHint") }),
     ]));
     if (!accountSignedIn()) {
@@ -1371,20 +1376,22 @@
       workspace.dataset.peRegion = "content";
       if (!localHostControlsAvailable && !["projects", "favorites"].includes(state.cloudSection)) state.cloudSection = "projects";
       const sections = el("nav", { class:"cloud-section-tabs", role:"tablist", "aria-label":cloudT("cloudArea"), "aria-orientation":"vertical" });
-      const appendSection = (value, label, meta = "") => {
+      const appendSection = (value, label, meta = "", navHeading = "") => {
         const active = state.cloudSection === value;
+        const localOnly = value === "account" || value === "device";
         const copy = el("span", { class:"cloud-nav-copy" }, [
           el("strong", { text:cloudT(label) }),
           meta ? el("span", { class:"cloud-nav-meta", text:meta }) : null,
         ]);
         sections.append(el("button", {
           id:`cloud-tab-${value}`,
-          class:`cloud-section-tab cloud-section-tab-${value}${active ? " active" : ""}`,
+          class:`cloud-section-tab cloud-section-tab-${value}${localOnly ? " cloud-local-controls" : ""}${active ? " active" : ""}`,
           type:"button",
           role:"tab",
           "data-pe-button":"menu-item",
           "data-pe-state":active ? "selected" : "default",
           "data-cloud-section":value,
+          ...(navHeading ? { "data-nav-heading":navHeading } : {}),
           "aria-selected":String(active),
           "aria-controls":"cloud-section-panel",
           tabindex:active ? "0" : "-1",
@@ -1399,23 +1406,26 @@
         const accountName = accountSignedIn() ? String(state.status?.account?.name || cloudT("cloudUser")) : cloudT("signIn");
         appendSection("account", "cloudAccount", accountName);
       }
-      appendSection("projects", "cloudProjects");
-      appendSection("favorites", "favorites");
+      const definitions = [
+        ["projects", "cloudProjects"],
+        ["favorites", "favorites"],
+      ];
+      definitions.forEach(([value, label], index) => appendSection(value, label, "", index === 0 ? cloudT("cloudNavLibrary") : ""));
       sections.append(el("a", {
         class:"cloud-section-tab cloud-explore-link",
-        "data-cloud-section":"echoes",
-        "data-pe-button":"menu-item",
-        "data-pe-state":"default",
         href:new URL("/community.html", `${cloudOrigin()}/`).toString(),
         target:"_blank",
         rel:"noopener",
+        "data-cloud-section":"echoes",
+        "data-pe-button":"menu-item",
+        "data-pe-state":"default",
       }, [el("span", { class:"cloud-nav-icon", "aria-hidden":"true" }), el("span", { class:"cloud-nav-copy" }, el("strong", { text:`${cloudT("explore")} ↗` }))]));
       if (localHostControlsAvailable) {
         const device = state.status?.device || {};
         const deviceMeta = device.configured
           ? String(device.name || (device.connected ? cloudT("connected") : device.enabled ? cloudT("connecting") : cloudT("paused")))
           : accountSignedIn() ? cloudT("notLinked") : cloudT("signIn");
-        appendSection("device", "linkThisDevice", deviceMeta);
+        appendSection("device", "linkThisDevice", deviceMeta, cloudT("cloudNavThisDevice"));
       }
       sections.addEventListener("keydown", (event) => {
         if (!["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key) || event.target?.getAttribute?.("role") !== "tab") return;
@@ -1568,10 +1578,13 @@
     const autoFill=el("button", { class:"cloud-button cloud-ai-fill", type:"button", text:cloudT("autoFillCurrentAi"), disabled:"" });
     const contribution = el("textarea", { rows:"3", maxlength:"500", placeholder:cloudT("contributionPlaceholder") });
     const continuation = el("textarea", { rows:"3", maxlength:"500", placeholder:cloudT("continuationPlaceholder") });
-    const permission = el("input", { type:"checkbox" });
-    const permissionLabel = el("label", { class:"cloud-publication-consent" }, [permission, el("span", {}, [
+    const permission = el("input", { type:"checkbox", "data-pe-control":"checkbox" });
+    const permissionLabel = el("label", { class:"cloud-publication-consent", "data-pe-hit":"choice" }, [permission, el("span", {}, [
       document.createTextNode(cloudT("publicationAgreementBeforeLink")),
-      el("a", { href:new URL("/terms.html#public-crafts",`${cloudOrigin()}/`).toString(), target:"_blank", rel:"noopener", text:cloudT("publicationAgreementLink") }),
+      el("a", { class:"cloud-publication-link", href:new URL("/terms.html#public-crafts",`${cloudOrigin()}/`).toString(), target:"_blank", rel:"noopener" }, [
+        document.createTextNode(cloudT("publicationAgreementLink")),
+        el("span", { class:"cloud-external-link-mark", "aria-hidden":"true", text:"↗" }),
+      ]),
       document.createTextNode(cloudT("publicationAgreementAfterLink")),
     ])]);
     let artifact=null,lineage=null,draftKey=null,publish=null,publishing=false,validationAttempted=false;
@@ -1732,6 +1745,7 @@
   const craftsPopover = document.getElementById("craftsPopover");
   const craftsClose = document.getElementById("craftsClose");
   const craftsList = document.getElementById("craftsList");
+  const craftsSearch = document.getElementById("craftsSearch");
   const craftsCount = document.getElementById("craftsCount");
   const craftsRefreshStatus = document.getElementById("craftsRefreshStatus");
   const craftsFilters = document.getElementById("craftsFilters");
@@ -1774,8 +1788,27 @@
     }
   }
 
+  function craftSearchLocale() {
+    return document.documentElement.lang.startsWith("zh") ? "zh-CN" : "en";
+  }
+
+  function craftSearchQuery() {
+    return String(craftsSearch?.value || "").trim().toLocaleLowerCase(craftSearchLocale());
+  }
+
+  function favoriteCraftSearchText(craft) {
+    const fields = [savedT(craft.kind === "canvas" ? "savedCanvas" : "savedWidget", craft.kind === "canvas" ? "Canvas" : "Widget")];
+    for (const source of craft.sources || []) {
+      const entry = source.entry || {};
+      fields.push(entry.name, entry.description, entry.artifact?.widget?.title);
+    }
+    return fields.filter(Boolean).join("\n").toLocaleLowerCase(craftSearchLocale());
+  }
+
   function filteredFavoriteCrafts(entries) {
-    return entries.filter((entry) => selectedCraftKind === "all" || entry.kind === selectedCraftKind);
+    const query = craftSearchQuery();
+    return entries.filter((entry) => (selectedCraftKind === "all" || entry.kind === selectedCraftKind)
+      && (!query || favoriteCraftSearchText(entry).includes(query)));
   }
 
   function updateCraftView() {
@@ -1811,6 +1844,9 @@
   }
 
   for (const option of craftFilterOptions) option.button.addEventListener("click", () => selectCraftKind(option.kind));
+  craftsSearch?.addEventListener("input", () => {
+    if (craftsPager) renderCraftsList(favoritePagerEntries(craftsPager));
+  });
   craftsFilters?.addEventListener("keydown", (event) => {
     if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
     const current = Math.max(0, craftFilterOptions.findIndex((option) => option.kind === selectedCraftKind));
@@ -2286,13 +2322,15 @@
     if (!visibleEntries.length && craftsPager?.loading) {
       rows.push(el("p", { class:"crafts-empty", text:savedT("savedLoading", "Loading favorites…") }));
     } else if (!visibleEntries.length) {
-      const emptyText = selectedCraftKind === "canvas"
-        ? savedT("noFavoriteCanvases", cloudT("noFavoriteCanvases"))
-        : selectedCraftKind === "widget"
-          ? savedT("noFavoriteWidgets", cloudT("noFavoriteWidgets"))
-          : accountSignedIn()
-            ? savedT("savedEmptyIn", "No favorite Canvases or Widgets yet.")
-            : savedT("savedEmptyOut", "No local favorite Widgets yet. Sign in to see Cloud favorites.");
+      const emptyText = craftSearchQuery()
+        ? savedT("savedNoMatches", "No matching favorites.")
+        : selectedCraftKind === "canvas"
+          ? savedT("noFavoriteCanvases", cloudT("noFavoriteCanvases"))
+          : selectedCraftKind === "widget"
+            ? savedT("noFavoriteWidgets", cloudT("noFavoriteWidgets"))
+            : accountSignedIn()
+              ? savedT("savedEmptyIn", "No favorite Canvases or Widgets yet.")
+              : savedT("savedEmptyOut", "No local favorite Widgets yet. Sign in to see Cloud favorites.");
       rows.push(el("p", { class:"crafts-empty", text:craftsPager?.error?.message || emptyText }));
     }
     const removeFromCache = (key) => {

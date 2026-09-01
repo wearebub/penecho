@@ -2875,8 +2875,12 @@ test("PenEcho Agent UI and browser Facade support local and Cloud runtimes and a
   assert.match(selectProjectSource,/canvasAgentChangeContext\(\{submitExecution\}\)/);
   assert.doesNotMatch(selectProjectSource,/canvasAgentBeginLocalConversation|canvasAgentDropSessionIdentity|canvasAgentStartNewConversation/);
   assert.doesNotMatch(source,/function canvasAgentSetAccessMode|canvasAgentProjectFull\.addEventListener/);
-  assert.match(functionSource(source,"canvasAgentRemoveProject"),/canvasAgentRemoveFolderConfirm[\s\S]*?canvasAgentRemoveUploadConfirm[\s\S]*?window\.confirm/);
-  for(const key of ["canvasAgentRemoveFolderConfirm","canvasAgentRemoveNativeFileConfirm","canvasAgentRemoveUploadConfirm"]){assert.match(core,new RegExp(`${key}:`));assert.match(zh,new RegExp(`${key}:`));}
+  assert.match(html,/<dialog id="canvasAgentProjectRemoveDialog"[^>]*class="studio-session-delete-dialog"[^>]*role="alertdialog"[^>]*aria-modal="true"[^>]*data-pe-surface="alert"[^>]*data-pe-size="xs"[^>]*data-pe-layout="single"/);
+  assert.match(html,/id="canvasAgentProjectRemoveCancel"[^>]*data-pe-button="secondary"[\s\S]*?id="canvasAgentProjectRemoveConfirm"[^>]*data-pe-button="danger-primary"/);
+  assert.match(functionSource(source,"canvasAgentRemoveProject"),/canvasAgentRemoveFolderConfirm[\s\S]*?canvasAgentRemoveUploadConfirm[\s\S]*?canvasAgentProjectRemoveDialog\.showModal\(\)/);
+  assert.doesNotMatch(functionSource(source,"canvasAgentRemoveProject"),/window\.confirm/);
+  assert.match(functionSource(source,"canvasAgentConfirmProjectRemoval"),/canvasAgentSelectProject\(""\)[\s\S]*?method:"DELETE"[\s\S]*?canvasAgentProjectRemoveDialog\.close\("removed"\)/);
+  for(const key of ["canvasAgentRemoveProjectTitle","canvasAgentRemoveFolderConfirm","canvasAgentRemoveNativeFileConfirm","canvasAgentRemoveUploadConfirm"]){assert.match(core,new RegExp(`${key}:`));assert.match(zh,new RegExp(`${key}:`));}
   assert.match(runtime,/session\.project\?\.kind === 'folder'\) await agentCtx\.plugin\(PenEchoProjectPlugin/);
   assert.match(runtime,/session\.project\?\.kind === 'file'\) await agentCtx\.plugin\(PenEchoFilePlugin/);
   const folderPlugin=runtime.slice(runtime.indexOf("const PenEchoProjectPlugin"),runtime.indexOf("const PenEchoFilePlugin"));
@@ -3101,7 +3105,7 @@ test("PenEcho Agent UI and browser Facade support local and Cloud runtimes and a
   assert.match(functionSource(source,"canvasAgentCanvasDidChange"),/if \(state\.canvasAgentAutoOpen && \(canvasAgentPanel\.hidden \|\| !document\.body\.classList\.contains\("canvas-agent-open"\)\)\) openCanvasAgent\(\{focus:false\}\)/);
   assert.match(core,/canvasAgentNoProject: "No project"/);
   assert.match(zh,/canvasAgentNoProject: "无项目"/);
-  assert.match(source,/function openCanvasAgent\(\{focus=true\}=\{\}\)[\s\S]*canvasAgent\.inputMode==="ink"\?canvasAgentInkCanvas:canvasAgentInput/);
+  assert.match(source,/function openCanvasAgent\(\{focus=false\}=\{\}\)[\s\S]*canvasAgent\.inputMode==="ink"\?canvasAgentInkCanvas:canvasAgentInput/);
   assert.doesNotMatch(source,/canvasAgentSize|canvasAgentCyclePanelHeight/);
   assert.match(source,/\[canvasAgentResizeTop,canvasAgentResizeBottom,canvasAgentResizeLeft,canvasAgentResizeRight\][\s\S]*?pointerdown[\s\S]*?canvasAgentBeginPanelResize[\s\S]*?keydown[\s\S]*?canvasAgentKeyboardPanelResize/);
   assert.match(functionSource(source,"canvasAgentMovePanelResize"),/\["top","left"\]\.includes\(resize\.edge\)\?-delta:delta/);
@@ -3123,10 +3127,12 @@ test("PenEcho Agent UI and browser Facade support local and Cloud runtimes and a
   assert.doesNotMatch(css,/\.canvas-agent-panel\.resizing \.canvas-agent-resize-edge::after/);
   const toolbarStart = html.indexOf('<nav class="toolbar"'), toolbarEnd = html.indexOf('</nav>', toolbarStart),
     viewportStart = html.indexOf('<section id="viewport"'), viewportEnd = html.indexOf('<section id="debugPanel"'),
+    viewport = html.slice(viewportStart, viewportEnd),
     footerStart = html.lastIndexOf("<footer>", html.indexOf('id="coords"')), footerEnd = html.indexOf("</footer>", footerStart), footer = html.slice(footerStart, footerEnd);
   assert.ok(html.slice(toolbarStart, toolbarEnd).includes('id="canvasAgentControl"'));
-  assert.ok(!html.slice(viewportStart, viewportEnd).includes('id="canvasAgentControl"'));
-  assert.ok(footer.indexOf('id="coords"') < footer.indexOf('id="canvasHint"') && !footer.includes('id="canvasAgentControl"'));
+  assert.ok(!viewport.includes('id="canvasAgentControl"'));
+  assert.ok(viewport.includes('id="canvasHint"') && viewport.includes('id="tip"'));
+  assert.ok(footer.includes('id="coords"') && !footer.includes('id="canvasHint"') && !footer.includes('id="canvasAgentControl"'));
   assert.match(css,/main > footer\s*\{[^}]*display: grid;[^}]*grid-template-columns: minmax\(0, 1fr\) minmax\(0, 1fr\)/);
   assert.match(css,/\.canvas-agent-control\s*\{[^}]*position: absolute;[^}]*right: max\(16px, env\(safe-area-inset-right\)\);[^}]*bottom: max\(18px, calc\(env\(safe-area-inset-bottom\) \+ 12px\)\)/s);
   assert.match(css,/@media \(pointer: coarse\)\s*\{[\s\S]*?\.canvas-agent-control\s*\{[^}]*height: 46px;[^}]*min-height: 46px[\s\S]*?\.canvas-agent-trigger\s*\{[^}]*min-height: 44px/);
@@ -3188,6 +3194,9 @@ test("PenEcho Agent UI and browser Facade support local and Cloud runtimes and a
   }
   assert.match(css,/\.canvas-agent-action-label\s*\{[^}]*width: 1px;[^}]*overflow: hidden/);
   assert.match(css,/\.canvas-agent-widget-picker-layer\s*\{[^}]*z-index: 41;[^}]*cursor: copy;[^}]*touch-action: none/);
+  assert.match(html,/class="canvas-agent-identity penecho-workbench-identity"[\s\S]*?class="canvas-agent-mark"[\s\S]*?class="canvas-agent-heading penecho-workbench-heading"[\s\S]*?id="canvasAgentStatus"/);
+  assert.match(css,/\.canvas-agent-head\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) auto auto auto[^}]*align-items:\s*center/);
+  assert.match(css,/\.canvas-agent-identity\s*\{[^}]*top:\s*1px[^}]*align-self:\s*center[^}]*gap:\s*6px/);
   assert.match(css,/\.canvas-agent-composer \.canvas-agent-reference-list > button:hover,[\s\S]*?background: color-mix\(in srgb, var\(--studio-line, #d7dce5\) 35%, transparent\)/);
   assert.match(css,/\.canvas-agent-head button \{ width: 44px; height: 44px; \}/);
   assert.match(css,/@media \(max-width: 700px\)[\s\S]*?\.canvas-agent-panel\s*\{[^}]*height: 66\.6667%;[^}]*min-height: 0/s);
