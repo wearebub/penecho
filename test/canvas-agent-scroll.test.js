@@ -71,4 +71,5 @@ test("PenEcho Agent repairs bottom position after result, completion, and layout
   assert.match(handleEvent,/tool_result[\s\S]*?canvasAgentScheduleHistoryPersist\(0\);[\s\S]*?canvasAgentScrollToLatest\(\)/);
   assert.match(handleEvent,/turn_end[\s\S]*?canvasAgentMarkTurnSummaryCopyable[\s\S]*?canvasAgentSetRunning\(false\)[\s\S]*?canvasAgentScrollToLatest\(\)/);
   assert.match(runtime,/new ResizeObserver\(canvasAgentScheduleScrollToLatest\)\.observe\(canvasAgentTranscript\)/);
+  assert.match(runtime,/new MutationObserver\(canvasAgentScheduleScrollToLatest\)\.observe\(canvasAgentTranscript,\{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:\["class","hidden","open","style"\]\}\)/,"activity notes and other asynchronous transcript content changes keep the latest item visible");
 });

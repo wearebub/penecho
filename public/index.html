@@ -231,9 +231,9 @@
           <fieldset class="snapshot-location history-sidebar-section" aria-describedby="historyStorageDescription">
             <legend data-i18n="historyLocations">Locations</legend>
             <div class="snapshot-location-options">
-              <label><input type="radio" name="historyStorageLocation" value="device"><span data-pe-button="menu-item"><span class="history-location-label" data-i18n="storageThisDevice">Device</span><small class="history-location-count" data-location="device"></small></span></label>
-              <label><input type="radio" name="historyStorageLocation" value="server"><span data-pe-button="menu-item"><span class="history-location-label" data-i18n="storagePenEchoServer">Server</span><small class="history-location-count" data-location="server"></small></span></label>
-              <label><input type="radio" name="historyStorageLocation" value="cloud"><span data-pe-button="menu-item"><span class="history-location-label" data-i18n="storagePenEchoCloud">Cloud</span><small class="history-location-count" data-location="cloud"></small></span></label>
+              <label><input type="radio" name="historyStorageLocation" value="device"><span data-pe-button="menu-item"><span class="history-location-label" data-i18n="storageThisDevice">Device</span><small class="history-location-count" data-location="device" hidden></small></span></label>
+              <label><input type="radio" name="historyStorageLocation" value="server"><span data-pe-button="menu-item"><span class="history-location-label" data-i18n="storagePenEchoServer">Server</span><small class="history-location-count" data-location="server" hidden></small></span></label>
+              <label><input type="radio" name="historyStorageLocation" value="cloud"><span data-pe-button="menu-item"><span class="history-location-label" data-i18n="storagePenEchoCloud">Cloud</span><small class="history-location-count" data-location="cloud" hidden></small></span></label>
             </div>
           </fieldset>
           <section id="serverProjectManager" class="history-projects history-sidebar-section" hidden>
@@ -298,10 +298,6 @@
             <progress id="historyActivityProgress" max="100"></progress>
           </section>
           <div id="historyList" class="history-list" role="list" aria-live="polite"></div>
-          <footer id="historyGridActions" class="history-grid-actions" hidden>
-            <p class="history-grid-selection"><strong id="historyGridSelectionName"></strong><span data-i18n="historySelected">selected</span></p>
-            <button id="historyGridLoad" class="history-grid-load history-load" type="button" data-i18n="loadSnapshot" data-pe-button="primary" data-pe-density="standard">Load</button>
-          </footer>
         </section>
       </div>
     </aside>
@@ -616,21 +612,15 @@
             <button id="canvasAgentHistoryReturn" type="button" data-i18n="canvasAgentHistoryReturn" data-pe-button="ghost" data-pe-density="compact">Back to current conversation</button>
           </div>
           <section id="canvasAgentPromptSuggestions" class="canvas-agent-prompt-suggestions" role="region" data-i18n-aria="canvasAgentPromptSuggestions" aria-label="Suggested prompts" data-pe-container="surface" data-pe-state="expanded" hidden>
-            <header class="canvas-agent-empty canvas-agent-prompt-intro">
-              <strong data-i18n="canvasAgentEmptyTitle">Understand what is here, then build on it.</strong>
-              <span data-i18n="canvasAgentEmptyBody">Use the Canvas, handwriting, Widgets, folders, files, and the web as context. Ask Agent to explain, organize, plan, or update the work directly.</span>
-            </header>
-            <header class="canvas-agent-prompt-section-head">
-              <strong data-i18n="canvasAgentPromptSuggestionsTitle">Try asking</strong>
-              <small data-i18n="canvasAgentPromptSuggestionsHint">Suggestions adapt to the current context.</small>
-            </header>
+            <div id="canvasAgentPromptCategories" class="canvas-agent-prompt-categories" role="tablist" data-pe-control="tab" data-pe-behavior="product" data-i18n-aria="canvasAgentPromptCategories" aria-label="Prompt categories">
+              <button id="canvasAgentPromptNotesTab" type="button" role="tab" aria-selected="true" aria-controls="canvasAgentPromptNotesList" tabindex="0" data-prompt-category="notes" data-pe-state="selected" data-i18n="canvasAgentPromptCategoryNotes">Notes</button>
+              <button id="canvasAgentPromptFilesTab" type="button" role="tab" aria-selected="false" aria-controls="canvasAgentPromptFilesList" tabindex="-1" data-prompt-category="files" data-pe-state="default" data-i18n="canvasAgentPromptCategoryFiles">Files &amp; Projects</button>
+              <button id="canvasAgentPromptCreateTab" type="button" role="tab" aria-selected="false" aria-controls="canvasAgentPromptCreateList" tabindex="-1" data-prompt-category="create" data-pe-state="default" data-i18n="canvasAgentPromptCategoryCreate">Create</button>
+            </div>
             <div id="canvasAgentPromptPopup" class="canvas-agent-prompt-popup" data-pe-list="icon-copy" data-pe-material="opaque">
-              <section id="canvasAgentPrimaryPromptList" class="canvas-agent-prompt-group" data-pe-region="group" aria-labelledby="canvasAgentPrimaryPromptLabel">
-                <h3 id="canvasAgentPrimaryPromptLabel" data-pe-region="group-label" data-i18n="canvasAgentPromptCurrentCanvas">Current Canvas</h3>
-              </section>
-              <section id="canvasAgentAdditionalPromptList" class="canvas-agent-prompt-group canvas-agent-prompt-additional" data-pe-region="group" aria-labelledby="canvasAgentAdditionalPromptLabel">
-                <h3 id="canvasAgentAdditionalPromptLabel" data-pe-region="group-label" data-i18n="canvasAgentPromptMoreInspiration">More inspiration</h3>
-              </section>
+              <section id="canvasAgentPromptNotesList" class="canvas-agent-prompt-group" role="tabpanel" aria-labelledby="canvasAgentPromptNotesTab" data-prompt-category="notes" data-pe-region="group"></section>
+              <section id="canvasAgentPromptFilesList" class="canvas-agent-prompt-group" role="tabpanel" aria-labelledby="canvasAgentPromptFilesTab" data-prompt-category="files" data-pe-region="group" hidden></section>
+              <section id="canvasAgentPromptCreateList" class="canvas-agent-prompt-group" role="tabpanel" aria-labelledby="canvasAgentPromptCreateTab" data-prompt-category="create" data-pe-region="group" hidden></section>
             </div>
           </section>
           <div id="canvasAgentTranscript" class="canvas-agent-transcript" role="log" aria-live="polite" aria-relevant="additions text">

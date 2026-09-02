@@ -1390,6 +1390,7 @@ test("shared PenEcho server canvases retain up to one hundred widgets, images, a
       naturalW:1,
       naturalH:1,
       sourceName:"",
+      ...(index===0?{plotExpression:"x^2+1"}:{}),
       data:PNG,
     }));
   try {
@@ -1417,6 +1418,8 @@ test("shared PenEcho server canvases retain up to one hundred widgets, images, a
       imagesAcceptedBody=await imagesAccepted.json();
     assert.equal(imagesAccepted.status,201,JSON.stringify(imagesAcceptedBody));
     assert.equal(imagesAcceptedBody.canvas.imageCount,100);
+    const imagesStored=await fetch(`${origin}/api/canvases/${encodeURIComponent(imagesAcceptedBody.canvas.id)}`).then(response=>response.json());
+    assert.equal(imagesStored.canvas.assets.find(asset=>asset.metadata?.resourceId==="image-1").metadata.plotExpression,"x^2+1");
 
     const imagesRejected=await fetch(`${origin}/api/canvases`,{
       method:"POST",

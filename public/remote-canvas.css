@@ -5,7 +5,7 @@
   color: #d7dee8;
   display: inline-flex;
   flex: 0 0 auto;
-  font: 500 13px/1 -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Noto Sans SC", "Segoe UI", sans-serif;
+  font: 500 13px/1 -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
   min-height: 36px;
   padding: 0 10px;
   text-decoration: none;
@@ -31,7 +31,7 @@
   border-radius: 16px;
   box-shadow: 0 18px 48px rgb(15 23 42 / .18);
   color: #172033;
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Noto Sans SC", "Segoe UI", sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
   max-width: 480px;
   padding: 26px 28px;
   width: 100%;
@@ -60,7 +60,7 @@
   box-sizing: border-box;
   cursor: pointer;
   display: none;
-  font: 500 13px/1 -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Noto Sans SC", "Segoe UI", sans-serif;
+  font: 500 13px/1 -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
   justify-content: center;
   min-height: 36px;
   padding: 0 11px;

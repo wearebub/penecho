@@ -234,6 +234,7 @@
       sourceName:item.sourceName,
       blob:item.blob,
       image:item.image,
+      ...(item.plotExpression ? { plotExpression:item.plotExpression } : {}),
     };
   }
   function storedImageRecord(item) {
@@ -247,13 +248,16 @@
       naturalH:item.naturalH,
       sourceName:item.sourceName,
       blob:item.blob,
+      ...(item.plotExpression ? { plotExpression:item.plotExpression } : {}),
     };
   }
   function imageRecord(item) {
     if (!item || typeof item !== "object" || !(item.blob instanceof Blob) || !item.image || item.blob.size <= 0 || item.blob.size > MAX_IMAGE_SOURCE_BYTES) return null;
     if (!n(item.x) || !n(item.y) || !n(item.w, 80) || !n(item.h, 80) || item.x + item.w > SIZE || item.y + item.h > SIZE) return null;
     const naturalW = Number(item.naturalW) || item.image.naturalWidth || item.image.width,
-      naturalH = Number(item.naturalH) || item.image.naturalHeight || item.image.height;
+      naturalH = Number(item.naturalH) || item.image.naturalHeight || item.image.height,
+      plotExpression = typeof item.plotExpression === "string" ? item.plotExpression.trim() : "";
+    if (item.plotExpression !== undefined && (!plotExpression || plotExpression.length > 180)) return null;
     if (!n(naturalW, 1, MAX_IMAGE_DIMENSION) || !n(naturalH, 1, MAX_IMAGE_DIMENSION) || naturalW * naturalH > MAX_IMAGE_PIXELS) return null;
     return {
       id:typeof item.id === "string" && /^image-\d+$/.test(item.id) ? item.id : `image-${state.nextImageId++}`,
@@ -266,6 +270,7 @@
       sourceName:typeof item.sourceName === "string" ? item.sourceName.trim().slice(0, 160) : "",
       blob:item.blob,
       image:item.image,
+      ...(plotExpression ? { plotExpression } : {}),
     };
   }
   function imageHistoryState() {
@@ -3402,6 +3407,13 @@
     setStatusKey(copied ? "widgetSourceCopied" : "widgetSourceCopyFailed");
     return copied;
   }
+  async function copyPlotExpression(item) {
+    const expression = typeof item?.plotExpression === "string" ? item.plotExpression : "";
+    if (!expression) return false;
+    const copied = await writeClipboardText(expression);
+    setStatusKey(copied ? "textCopied" : "textCopyFailed");
+    return copied;
+  }
   function widgetImageFilename(widget) {
     const title = String(widget?.title || "penecho-widget")
       .replace(/[\u0000-\u001f<>:"/\\|?*]+/g, "-")
@@ -3931,6 +3943,39 @@
   function pendingChromeSpecs(specs, pending) {
     if (!pending) return;
     const add = (key, box, itemIndex = null, target = pending) => {
+      const plotExpression = target?.command?.tool === "plot_function" && typeof target.command.expression === "string"
+        ? target.command.expression.trim()
+        : "";
+      if (plotExpression) {
+        const toolbarKey = addObjectToolbarSpecs(specs, {
+          prefix:key,
+          box,
+          target:"pending",
+          object:target,
+          cancelLabel:t("cancel"),
+          acceptLabel:t("widgetAccept"),
+          cancel:() => itemIndex === null ? rejectPending() : rejectPendingItem(itemIndex),
+          accept:() => itemIndex === null ? acceptPending({ showHint:true }) : acceptPendingItem(itemIndex),
+          shared:{ itemIndex },
+          priority:4,
+        });
+        specs.push({
+          key:`${key}:copy`,
+          kind:"copy",
+          label:t("copyText"),
+          box,
+          objectToolbarItem:true,
+          objectToolbarKey:toolbarKey,
+          toolbarSlot:"tool",
+          toolbarOrder:0,
+          toolbarItemCount:1,
+          baseWidth:28,
+          baseHeight:28,
+          activate:() => void copyPendingText(itemIndex),
+          priority:6,
+        });
+        return;
+      }
       specs.push({ key:`${key}:move`, kind:"move", box, target:"pending", itemIndex, object:target, priority:4 });
       specs.push({ key:`${key}:cancel`, kind:"cancel", box, activate:() => itemIndex === null ? rejectPending() : rejectPendingItem(itemIndex), priority:5 });
       specs.push({ key:`${key}:accept`, kind:"accept", box, activate:() => itemIndex === null ? acceptPending({ showHint:true }) : acceptPendingItem(itemIndex), priority:5 });
@@ -3956,6 +4001,7 @@
       if (record.kind === "image") {
         if (!record.expanded || state.handToolbarActiveKey !== key || state.pendingWidget) continue;
         const box = imageBox(handTarget),
+          plotExpression = typeof handTarget.plotExpression === "string" ? handTarget.plotExpression : "",
           toolbarKey = addObjectToolbarSpecs(specs, {
             prefix:`image:${handTarget.id}`,
             box,
@@ -3972,23 +4018,42 @@
             shared,
             priority:2,
           });
-        specs.push({
-          key:`image:${handTarget.id}:merge`,
-          kind:"merge",
-          label:t("imageMerge"),
-          tooltip:t("imageMergeHint"),
-          box,
-          objectToolbarItem:true,
-          objectToolbarKey:toolbarKey,
-          toolbarSlot:"tool",
-          toolbarOrder:0,
-          toolbarItemCount:1,
-          baseWidth:28,
-          baseHeight:28,
-          activate:() => mergeImage(handTarget, { showHint:true }),
-          ...shared,
-          priority:3,
-        });
+        if (plotExpression) {
+          specs.push({
+            key:`image:${handTarget.id}:copy`,
+            kind:"copy",
+            label:t("copyText"),
+            box,
+            objectToolbarItem:true,
+            objectToolbarKey:toolbarKey,
+            toolbarSlot:"tool",
+            toolbarOrder:0,
+            toolbarItemCount:1,
+            baseWidth:28,
+            baseHeight:28,
+            activate:() => void copyPlotExpression(handTarget),
+            ...shared,
+            priority:3,
+          });
+        } else {
+          specs.push({
+            key:`image:${handTarget.id}:merge`,
+            kind:"merge",
+            label:t("imageMerge"),
+            tooltip:t("imageMergeHint"),
+            box,
+            objectToolbarItem:true,
+            objectToolbarKey:toolbarKey,
+            toolbarSlot:"tool",
+            toolbarOrder:0,
+            toolbarItemCount:1,
+            baseWidth:28,
+            baseHeight:28,
+            activate:() => mergeImage(handTarget, { showHint:true }),
+            ...shared,
+            priority:3,
+          });
+        }
       } else if (record.kind === "animation") {
         const box = animationBox(handTarget);
         specs.push({ key:`animation:${handTarget.id}:move`, kind:"move", box, target:"animation", object:handTarget, ...shared, priority:2 });

@@ -51,7 +51,7 @@
   --pe-button-standard-h: 30px;
 
   /* Type ramp (catalog role sizes). */
-  --pe-font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Noto Sans SC", "Segoe UI", sans-serif;
+  --pe-font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
   --pe-type-page: 20px;
   --pe-type-section: 13.5px;
   --pe-type-label: 13px;

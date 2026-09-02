@@ -22,7 +22,7 @@ test("PenEcho typography is embedded incrementally with no design stylesheet imp
 
   assert.doesNotMatch(html, /penecho-design-language\.css/);
   assert.doesNotMatch(css, /@import\b/);
-  assert.match(css, /--pe-font-ui:\s*-apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Noto Sans SC", "Segoe UI", sans-serif/);
+  assert.match(css, /--pe-font-ui:\s*-apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif/);
   assert.match(css, /--pe-font-mono:\s*ui-monospace, SFMono-Regular, Menlo, Consolas, monospace/);
   assert.match(css, /--pe-font-hand:\s*"Bradley Hand", "Segoe Print", "Comic Sans MS", cursive/);
 });
@@ -85,8 +85,9 @@ test("Studio uses one UI family with only handwriting and technical exceptions",
 test("Agent activity reserves heavier emphasis for parsed Markdown", () => {
   const css = read("public/style.css"), activity = read("public/canvas-agent-activity.css");
 
-  assert.match(activity, /:is\(#pe-type-contract, \.canvas-agent-dialog-progress\) strong\s*\{[^}]*font:\s*400 13px\/1\.25/);
-  assert.match(activity, /:is\(#pe-type-contract, \.canvas-agent-dialog-progress\) \.canvas-agent-dialog-progress-meta\s*\{[^}]*font:\s*400 11\.5px\/1\.3/);
+  assert.match(activity, /:is\(#pe-type-contract, \.canvas-agent-dialog-progress\) strong\s*\{[^}]*font:\s*400 11\.5px\/1\.3/);
+  assert.match(activity, /:is\(#pe-type-contract, \.canvas-agent-dialog-progress\) small\s*\{[^}]*font:\s*400 10px\/1\.35/);
+  assert.match(activity, /:is\(#pe-type-contract, \.canvas-agent-dialog-progress\) \.canvas-agent-dialog-progress-meta\s*\{[^}]*font:\s*400 9\.5px\/1\.25/);
   assert.match(css, /Activity and tool-call copy is ordinary transcript chrome[\s\S]*?font-weight:\s*var\(--pe-type-regular\)/);
   assert.match(css, /\.canvas-agent-message-body\.is-markdown strong\s*\{[^}]*font-weight:\s*500/);
   assert.match(css, /\.canvas-agent-message-body\.is-markdown \.canvas-agent-markdown-heading\s*\{[^}]*font-size:\s*\.875rem;[^}]*font-weight:\s*600/);

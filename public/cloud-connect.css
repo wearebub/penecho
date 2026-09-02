@@ -538,7 +538,7 @@
 /* PenEcho typography contract: cloud-connect.css loads after style.css and
    therefore closes its legacy text cascade locally. */
 :is(#pe-type-contract, .penecho-cloud-dialog) {
-  --ai-font: var(--pe-font-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Noto Sans SC", "Segoe UI", sans-serif);
+  --ai-font: var(--pe-font-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif);
   --ai-mono: var(--pe-font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
   font: 400 13px/1.45 var(--ai-font);
 }

@@ -218,8 +218,8 @@ test("closing Settings moves focus outside before hiding it from accessibility A
   assert.match(closeSettings, /restoreTarget\?\.focus\(\{ preventScroll:true \}\)/);
 });
 
-test("canvas photos use one picker, editable image records, unified top toolbar, and dirty Auto AI", () => {
-  const html = read("public/index.html"), app = read("public/app.js"), zh = read("public/locales/zh.js"), css = read("public/style.css"),
+test("canvas photos and function plots use editable image records, unified top toolbars, and dirty Auto AI", () => {
+  const html = read("public/index.html"), app = read("public/app.js"), zh = read("public/locales/zh.js"), css = read("public/style.css"), server = read("src/server/main.js"),
     end = functionSource(app, "end"),
     save = functionSource(app, "save"),
     loadSnapshot = functionSource(app, "loadSnapshot"),
@@ -244,6 +244,8 @@ test("canvas photos use one picker, editable image records, unified top toolbar,
     addImageFile = functionSource(app, "addImageFile"),
     imageControlHit = functionSource(app, "imageControlHit"),
     imageRecord = functionSource(app, "imageRecord"),
+    imageHistoryRecord = functionSource(app, "imageHistoryRecord"),
+    storedImageRecord = functionSource(app, "storedImageRecord"),
     resizeImageBox = functionSource(app, "resizeImageBox"),
     drawImageChrome = functionSource(app, "drawImageChrome"),
     renderInteractionLayer = functionSource(app, "renderInteractionLayer"),
@@ -271,6 +273,11 @@ test("canvas photos use one picker, editable image records, unified top toolbar,
   assert.deepEqual({ ...resizeImage(resizeStart, { x:15100, y:10200 }, "resize") }, { ...resizeStart, w:15000, h:10000 });
   assert.doesNotMatch(resizeImageBox, /6000|MAX_IMAGE_PIXELS/);
   assert.doesNotMatch(imageRecord, /n\(item\.(?:w|h), 80, 6000\)|item\.w \* item\.h > MAX_IMAGE_PIXELS/);
+  assert.match(imageRecord, /plotExpression = typeof item\.plotExpression === "string" \? item\.plotExpression\.trim\(\) : ""/);
+  assert.match(imageRecord, /plotExpression\.length > 180/);
+  assert.match(imageHistoryRecord, /plotExpression:item\.plotExpression/);
+  assert.match(storedImageRecord, /plotExpression:item\.plotExpression/);
+  assert.match(functionSource(server, "canonicalSharedCanvasV1"), /image\.plotExpression!==undefined[\s\S]*?plotExpression:image\.plotExpression\.trim\(\)/);
   for (const id of ["imageEditBar", "imageMergeBtn", "imagePlaceBtn", "imageDeleteBtn"]) assert.doesNotMatch(html, new RegExp(`id="${id}"`));
   assert.doesNotMatch(css, /\.image-edit-bar \{|\.image-action-hint \{/);
   assert.match(app, /function positionImageSelectionMaterial\(\)/);
@@ -279,6 +286,7 @@ test("canvas photos use one picker, editable image records, unified top toolbar,
   const imageChrome = functionSource(app, "objectChromeSpecs");
   assert.match(imageChrome, /record\.kind === "image"[\s\S]*?addObjectToolbarSpecs\(specs, \{[\s\S]*?cancelLabel:t\("imageDelete"\)[\s\S]*?acceptLabel:t\("imagePlace"\)[\s\S]*?acceptTooltip:t\("imagePlaceHint"\)[\s\S]*?deleteImage\(handTarget\)[\s\S]*?acceptImageEdit\(\{ showHint:true \}\)/);
   assert.match(imageChrome, /kind:"merge"[\s\S]*?label:t\("imageMerge"\)[\s\S]*?tooltip:t\("imageMergeHint"\)[\s\S]*?objectToolbarItem:true[\s\S]*?mergeImage\(handTarget, \{ showHint:true \}\)/);
+  assert.match(imageChrome, /plotExpression[\s\S]*?kind:"copy"[\s\S]*?copyPlotExpression\(handTarget\)[\s\S]*?else \{[\s\S]*?kind:"merge"/);
   assert.match(functionSource(app, "syncObjectChrome"), /button\.setAttribute\("aria-label", label\)[\s\S]*?spec\.kind === "refine" \|\| spec\.objectToolbar\) button\.removeAttribute\("title"\)[\s\S]*?button\.title = spec\.tooltip \|\| label/);
   assert.match(app, /images = storedImages\(\)/);
   assert.match(loadSnapshot, /decodeSnapshotImagesInBatches\(item\.images, loadIsCurrent/);
@@ -2351,8 +2359,7 @@ test("canvas history clearly separates device, server, and private cross-device 
   assert.match(html, /id="historyProjectDelete"[^>]*data-i18n-aria="canvasProjectDelete"[^>]*aria-label="Delete project"/);
   assert.match(html, /id="historyStorageDescription"[^>]*class="history-content-guidance"/);
   assert.match(html, /class="history-toolbar"[\s\S]*?id="historySavePanel"[^>]*class="history-toolbar-save"/);
-  assert.doesNotMatch(html, /class="history-footer"|id="historySelectionName"|id="historyCancel"|id="historyOpenCanvas"/);
-  assert.match(html, /id="historyList"[\s\S]*?id="historyGridActions"[^>]*class="history-grid-actions"[^>]*hidden[\s\S]*?id="historyGridSelectionName"[\s\S]*?id="historyGridLoad"[^>]*class="history-grid-load history-load"/);
+  assert.doesNotMatch(html, /class="history-footer"|id="historySelectionName"|id="historyCancel"|id="historyOpenCanvas"|id="historyGridActions"|id="historyGridSelectionName"|id="historyGridLoad"/);
   assert.match(html, /id="historyDeleteDialog"[^>]*class="studio-session-delete-dialog history-delete-dialog"[^>]*role="alertdialog"[^>]*aria-modal="true"[^>]*data-pe-surface="alert"[^>]*data-pe-size="xs"[^>]*data-pe-layout="single"[^>]*data-pe-presentation="modal"[^>]*data-pe-material="opaque"/);
   assert.doesNotMatch(html, /id="historyPanel"[\s\S]*?<span class="history-kicker">PenEcho<\/span>[\s\S]*?<div class="history-composer">/);
   assert.doesNotMatch(html, /data-i18n="historyDescription"/);
@@ -2418,8 +2425,8 @@ test("canvas history clearly separates device, server, and private cross-device 
   assert.match(renderSnapshotList, /releaseHistoryPreviewUrls\(\)[\s\S]*?historyPreviewUrls\.set\(url, image\)[\s\S]*?image\.onerror/);
   assert.doesNotMatch(renderSnapshotList, /image\.onload\s*=/);
   assert.match(renderSnapshotList, /dataset\.peItem = "card-action"[\s\S]*?history-card-select history-preview[\s\S]*?dataset\.peRegion = "media"[\s\S]*?dataset\.peMedia = "prompt-preview"[\s\S]*?dataset\.peMedia = "prompt-icon"/);
-  assert.match(renderSnapshotList, /history-card-content[\s\S]*?dataset\.peRegion = "content"[\s\S]*?dataset\.peRegion = "copy"[\s\S]*?dataset\.peRegion = "title"[\s\S]*?history-card-description[\s\S]*?dataset\.peRegion = "description"/);
-  assert.match(renderSnapshotList, /description\.append\(stats\)/);
+  assert.match(renderSnapshotList, /history-card-content[\s\S]*?dataset\.peRegion = "content"[\s\S]*?dataset\.peRegion = "copy"[\s\S]*?dataset\.peRegion = "title"[\s\S]*?title\.title = title\.textContent[\s\S]*?history-card-description[\s\S]*?dataset\.peRegion = "description"/);
+  assert.match(renderSnapshotList, /history-grid-date[\s\S]*?description\.append\(gridDate, stats\)/);
   assert.doesNotMatch(renderSnapshotList, /history-detail|description\.append\(detail/);
   const historyItemContentSummary = functionSource(app, "historyItemContentSummary");
   assert.match(historyItemContentSummary, /historySnapshotTile[\s\S]*?historySnapshotTiles[\s\S]*?historySnapshotWidget[\s\S]*?historySnapshotWidgets/);
@@ -2430,24 +2437,39 @@ test("canvas history clearly separates device, server, and private cross-device 
   assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-list:not\(\.grid-view\)\s*\{[^}]*grid-auto-rows:\s*max-content[^}]*align-content:\s*start/);
   assert.match(css, /\.history-panel\[data-pe-surface="manager"\]\s*\{[^}]*width:\s*min\(900px,[^}]*background:\s*var\(--penecho-dialog-surface\)[^}]*backdrop-filter:\s*var\(--penecho-dialog-surface-filter\)[^}]*container:\s*history-library \/ inline-size/);
   assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-library-sidebar\s*\{[^}]*padding:\s*13px 11px[^}]*background:\s*color-mix\(in srgb, var\(--studio-toolbar, #eef0f2\) 68%, transparent\)/);
+  assert.doesNotMatch(css, /\.history-panel\[data-pe-surface="manager"\] \.history-library-sidebar\s*\{[^}]*--pe-font-ui:/);
+  assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-library-sidebar\s*\{[^}]*font-family:\s*var\(--pe-font-ui\)/);
+  assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.snapshot-location\.history-sidebar-section legend,[\s\S]*?\.history-sidebar-heading\s*\{[^}]*font:\s*600 11px\/24px var\(--pe-font-ui\)[^}]*letter-spacing:\s*\.04em[^}]*text-transform:\s*uppercase/);
+  assert.match(css, /:is\(#pe-button-contract, body\[data-theme="studio"\]\)[\s\S]*?\.history-panel\[data-pe-surface="manager"\][\s\S]*?\.history-project-nav-item\[data-pe-button="menu-item"\][\s\S]*?grid-template-columns:\s*15px minmax\(0, 1fr\) auto[^}]*gap:\s*8px[^}]*font:\s*400 12\.5px\/var\(--pe-menu-item-h, 30px\) var\(--pe-font-ui\)/);
+  assert.match(css, /:is\(#pe-button-contract, body\[data-theme="studio"\]\)[\s\S]*?:is\(\.history-location-count, \.history-project-nav-item > small\)\s*\{[^}]*min-width:\s*20px[^}]*height:\s*20px[^}]*border-radius:\s*999px[^}]*background:\s*var\(--pe-surface-raised\)[^}]*font:\s*600 10\.5px\/1 var\(--pe-font-ui\)/);
+  assert.match(css, /:is\(#pe-button-contract, body\[data-theme="studio"\]\)[\s\S]*?\.history-location-count\[hidden\]\s*\{[^}]*display:\s*none/);
   assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-library-main\s*\{[^}]*background:\s*var\(--penecho-dialog-body-surface\)/);
   assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-library-browser\s*\{[^}]*grid-template-columns:\s*var\(--penecho-workbench-navigation-w\) minmax\(0, 1fr\)/);
-  assert.match(css, /History Grid keeps the catalog Action grid skeleton[\s\S]*?\.history-panel\[data-pe-surface="manager"\] \.history-list\.grid-view\s*\{[^}]*grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\)[^}]*gap:\s*var\(--pe-s6, 12px\)/);
-  assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-list\.grid-view \.history-card\s*\{[^}]*grid-template-rows:\s*auto minmax\(0, 1fr\)[^}]*gap:\s*var\(--pe-s5, 10px\)[^}]*padding:\s*8px[^}]*border-radius:\s*var\(--pe-r-group, 10px\)/);
-  assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-list\.grid-view \.history-meta \.history-card-title\s*\{[^}]*font:\s*400 13px\/1\.3 var\(--pe-font-ui\)[^}]*white-space:\s*nowrap/);
-  assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-list\.grid-view \.history-card-description\s*\{[^}]*min-height:\s*17px[^}]*font:\s*400 12px\/1\.4 var\(--pe-font-ui\)[^}]*text-overflow:\s*ellipsis[^}]*white-space:\s*nowrap/);
-  assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-list\.grid-view \.history-card-description \.history-stats\s*\{[^}]*display:\s*block[^}]*text-overflow:\s*ellipsis[^}]*white-space:\s*nowrap/);
-  assert.match(css, /:is\(#pe-type-contract, body\[data-theme="studio"\]\)\s*\.history-panel\[data-pe-surface="manager"\]\s*\.history-list\.grid-view\s*\.history-meta\s*\.history-card-title\s*\{[^}]*font-size:\s*12px[^}]*font-weight:\s*400/);
-  assert.match(css, /:is\(#pe-type-contract, body\[data-theme="studio"\]\)\s*\.history-panel\[data-pe-surface="manager"\]\s*\.history-list\.grid-view\s*\.history-card-description\s*\.history-stat\s*\{[^}]*font-size:\s*10\.5px[^}]*font-weight:\s*400/);
-  assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-list\.grid-view \.history-card \.history-card-select\s*\{[^}]*display:\s*block[^}]*aspect-ratio:\s*640 \/ 426[^}]*overflow:\s*visible[^}]*border:\s*0[^}]*border-radius:\s*0[^}]*background:\s*transparent/);
-  assert.match(css, /Catalog Action Grid:[\s\S]*?:is\(#pe-button-contract, body\[data-theme="studio"\]\)[\s\S]*?\.history-card-select\[data-pe-hit="choice"\]\s*\{[^}]*border:\s*0[^}]*outline:\s*0[^}]*background:\s*transparent[^}]*box-shadow:\s*none/);
-  assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-list\.grid-view \.history-card-select > :where\(\[data-pe-media="prompt-preview"\], \[data-pe-media="prompt-icon"\]\)\s*\{[^}]*position:\s*absolute[^}]*top:\s*calc\(-1 \* var\(--pe-s4, 8px\)\)[^}]*left:\s*calc\(-1 \* var\(--pe-s4, 8px\)\)[^}]*width:\s*calc\(100% \+ var\(--pe-s4, 8px\) \+ var\(--pe-s4, 8px\)\)[^}]*height:\s*calc\(100% \+ var\(--pe-s4, 8px\)\)/);
-  assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-list\.grid-view \.history-card-select > img\[data-pe-media="prompt-preview"\]\s*\{[^}]*background:\s*transparent[^}]*object-fit:\s*contain/);
+  assert.match(css, /History Grid follows the catalog card-action skeleton[\s\S]*?\.history-panel\[data-pe-surface="manager"\] \.history-list\.grid-view\s*\{[^}]*grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\)[^}]*gap:\s*var\(--pe-s6, 12px\)/);
+  assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-list\.grid-view \.history-card\s*\{[^}]*grid-template-rows:\s*auto auto[^}]*gap:\s*var\(--pe-s4, 8px\)[^}]*padding:\s*8px[^}]*border-radius:\s*var\(--pe-r-group, 10px\)/);
+  assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-list\.grid-view \.history-card\.selected\s*\{[^}]*border-color:\s*color-mix\(in srgb, var\(--pe-accent\) 42%, var\(--pe-line\)\)[^}]*0 6px 14px color-mix\(in srgb, var\(--pe-accent\) 18%, transparent\)/);
+  assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-list\.grid-view \.history-meta \.history-card-title\s*\{[^}]*font:\s*500 13px\/1\.3 var\(--pe-font-ui\)[^}]*text-overflow:\s*clip[^}]*white-space:\s*nowrap[^}]*-webkit-mask-image:\s*linear-gradient\(to right, #000 0, #000 calc\(100% - 24px\), transparent 100%\)[^}]*mask-image:\s*linear-gradient\(to right, #000 0, #000 calc\(100% - 24px\), transparent 100%\)/);
+  assert.match(css, /@media \(forced-colors: active\)[\s\S]*?\.history-panel\[data-pe-surface="manager"\] \.history-list\.grid-view \.history-meta \.history-card-title\s*\{[^}]*text-overflow:\s*ellipsis[^}]*-webkit-mask-image:\s*none[^}]*mask-image:\s*none/);
+  assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-list\.grid-view \.history-card-description\s*\{[^}]*display:\s*flex[^}]*min-height:\s*16px[^}]*font:\s*400 12px\/1\.4 var\(--pe-font-ui\)[^}]*white-space:\s*nowrap/);
+  assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-list\.grid-view \.history-grid-date::after\s*\{[^}]*content:\s*"·"/);
+  assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-list\.grid-view \.history-card-description \.history-stats\s*\{[^}]*display:\s*flex[^}]*min-width:\s*0[^}]*overflow:\s*hidden/);
+  assert.match(css, /:is\(#pe-type-contract, body\[data-theme="studio"\]\)\s*\.history-panel\[data-pe-surface="manager"\]\s*\.history-list\.grid-view\s*\.history-meta\s*\.history-card-title\s*\{[^}]*font-size:\s*13px[^}]*font-weight:\s*500/);
+  assert.match(css, /:is\(#pe-type-contract, body\[data-theme="studio"\]\)\s*\.history-panel\[data-pe-surface="manager"\]\s*\.history-list\.grid-view\s*\.history-card-description\s*\{[^}]*font-size:\s*12px[^}]*font-weight:\s*400/);
+  assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-list\.grid-view \.history-card \.history-card-select\s*\{[^}]*display:\s*block[^}]*aspect-ratio:\s*16 \/ 10[^}]*overflow:\s*hidden[^}]*border:\s*1px solid var\(--pe-line\)[^}]*border-radius:\s*6px[^}]*background:\s*var\(--pe-surface-muted\)/);
+  assert.match(css, /visible preview frame[\s\S]*?:is\(#pe-button-contract, body\[data-theme="studio"\]\)[\s\S]*?\.history-card-select\[data-pe-hit="choice"\]\s*\{[^}]*border:\s*1px solid var\(--pe-line\)[^}]*outline:\s*0[^}]*background:\s*var\(--pe-surface-muted\)[^}]*box-shadow:\s*none/);
+  assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-list\.grid-view \.history-card-select > :where\(\[data-pe-media="prompt-preview"\], \[data-pe-media="prompt-icon"\]\)\s*\{[^}]*position:\s*static[^}]*width:\s*100%[^}]*height:\s*100%[^}]*border-radius:\s*inherit/);
+  assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-list\.grid-view \.history-card-select > img\[data-pe-media="prompt-preview"\]\s*\{[^}]*background:\s*var\(--pe-surface\)[^}]*object-fit:\s*contain/);
   assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-list\.grid-view \.history-card:has\(\.history-card-select:focus-visible\)\s*\{[^}]*border-color:\s*color-mix\(in srgb, var\(--pe-accent\) 42%, var\(--pe-line\)\)[^}]*box-shadow:\s*0 0 0 1px/);
-  assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-more\s*\{[^}]*width:\s*28px[^}]*margin:\s*0[^}]*padding:\s*0/);
-  assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-more::before\s*\{[^}]*content:\s*"…"[^}]*font:\s*600 11px\/1 var\(--pe-font-ui\)[^}]*letter-spacing:\s*0/);
+  assert.match(css, /:is\(#pe-button-contract, body\[data-theme="studio"\]\)[\s\S]*?\.history-panel\[data-pe-surface="manager"\][\s\S]*?\.history-more\s*\{[^}]*inline-size:\s*22px[^}]*block-size:\s*22px[^}]*width:\s*22px[^}]*height:\s*22px[^}]*flex:\s*0 0 22px[^}]*margin:\s*0[^}]*padding:\s*0/);
+  assert.match(css, /:is\(#pe-button-contract, body\[data-theme="studio"\]\)[\s\S]*?\.history-panel\[data-pe-surface="manager"\][\s\S]*?\.history-more::before\s*\{[^}]*content:\s*none/);
+  assert.match(css, /:is\(#pe-button-contract, body\[data-theme="studio"\]\)[\s\S]*?\.history-panel\[data-pe-surface="manager"\][\s\S]*?\.history-more > svg\s*\{[^}]*width:\s*14px[^}]*height:\s*14px[^}]*fill:\s*currentColor[^}]*stroke:\s*none/);
   assert.match(css, /Catalog History Manager keeps Save and Load progress textual[\s\S]*?\.history-panel\[data-pe-surface="manager"\][\s\S]*?:is\(#historySaveCurrent, #historySave, \.history-save-current, \.history-load\)\[aria-busy="true"\]::before\s*\{[^}]*display:\s*none[^}]*content:\s*none[^}]*animation:\s*none/);
-  assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-list\.grid-view \.history-more\s*\{[^}]*top:\s*var\(--pe-s2, 4px\)[^}]*right:\s*var\(--pe-s2, 4px\)[^}]*margin:\s*0[^}]*background:\s*transparent/);
+  assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-list\.grid-view \.history-card-footer\s*\{[^}]*display:\s*contents/);
+  assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-list\.grid-view \.history-card-content\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) 22px[^}]*grid-template-rows:\s*auto auto auto[^}]*column-gap:\s*4px/);
+  assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-list\.grid-view \.history-meta\s*\{[^}]*display:\s*contents/);
+  assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-list\.grid-view \.history-card-description\s*\{[^}]*grid-column:\s*1 \/ -1[^}]*grid-row:\s*2/);
+  assert.match(css, /:is\(#pe-button-contract, body\[data-theme="studio"\]\)[\s\S]*?\.history-list\.grid-view[\s\S]*?:is\(\.history-item-load, \.history-item-save\)\s*\{[^}]*width:\s*100%[^}]*grid-column:\s*1 \/ -1[^}]*grid-row:\s*3/);
+  assert.match(css, /:is\(#pe-button-contract, body\[data-theme="studio"\]\)[\s\S]*?\.history-list\.grid-view[\s\S]*?\.history-more\s*\{[^}]*position:\s*relative[^}]*grid-column:\s*2[^}]*grid-row:\s*1[^}]*margin:\s*0[^}]*background:\s*transparent/);
   assert.match(css, /The shared card DOM also follows the catalog media-list skeleton[\s\S]*?\.history-panel\[data-pe-surface="manager"\] \.history-list:not\(\.grid-view\) \.history-card\s*\{[^}]*min-height:\s*80px[^}]*grid-template-columns:\s*96px minmax\(0, 1fr\)[^}]*gap:\s*var\(--pe-s5, 10px\)/);
   assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-list:not\(\.grid-view\)\s*\{[^}]*gap:\s*0[^}]*padding:\s*0[^}]*border:\s*0[^}]*border-radius:\s*0/);
   assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-list:not\(\.grid-view\) \.history-card\s*\{[^}]*border:\s*0[^}]*border-bottom:\s*1px solid var\(--pe-line\)[^}]*border-radius:\s*0/);
@@ -2459,8 +2481,8 @@ test("canvas history clearly separates device, server, and private cross-device 
   assert.match(css, /\.history-current-label\s*\{[^}]*position:\s*absolute[^}]*background:/);
   assert.match(css, /\.history-list\.grid-view \.history-item-save\s*\{[^}]*top:\s*auto[^}]*right:\s*10px[^}]*bottom:\s*10px[^}]*height:\s*26px[^}]*padding:\s*0 8px[^}]*font-size:\s*12px/);
   const updateHistorySelectionUi = functionSource(app, "updateHistorySelectionUi");
-  assert.match(updateHistorySelectionUi, /historyGridActions[\s\S]*?historyGridSelectionName[\s\S]*?historyGridLoad/);
-  assert.match(updateHistorySelectionUi, /selectedIsCurrent[\s\S]*?history-save-current[\s\S]*?saveCurrentHistoryItem[\s\S]*?loadHistorySnapshot/);
+  assert.match(updateHistorySelectionUi, /history-card[\s\S]*?classList\.toggle\("selected", selected\)[\s\S]*?dataset\.peState = selected \? "selected" : "default"[\s\S]*?aria-pressed/);
+  assert.doesNotMatch(updateHistorySelectionUi, /historyGridActions|historyGridSelectionName|historyGridLoad|grid-selection-active/);
   assert.match(app, /function selectHistorySnapshot[\s\S]*?grid-view[\s\S]*?historyGridSelectionActivated = true/);
   assert.match(functionSource(app, "setHistoryView"), /historyGridSelectionActivated = false[\s\S]*?updateHistorySelectionUi\(\)/);
   assert.match(functionSource(app, "closeHistoryRowActions"), /history-row-actions:not\(\[hidden\]\)[\s\S]*?aria-expanded", "false"/);
@@ -2567,8 +2589,7 @@ test("canvas history clearly separates device, server, and private cross-device 
   assert.match(css, /\.history-panel \.history-toolbar-action:hover:not\(:disabled\)\s*\{[^}]*background:\s*transparent/);
   assert.match(css, /\.history-library-main\.grid-view\s*\{[^}]*grid-template-rows:\s*50px 74px minmax\(0, 1fr\)/);
   assert.match(css, /\.history-more::after\s*\{[^}]*inset:\s*-3px/);
-  assert.match(css, /\.history-grid-actions\s*\{[^}]*justify-content:\s*space-between[^}]*border-top:\s*1px solid var\(--ai-line\)/);
-  assert.match(css, /\.history-panel \.history-grid-load\s*\{[^}]*height:\s*32px[^}]*border-radius:\s*6px[^}]*background:\s*var\(--ai-primary\)[^}]*font:\s*500 13px\/1 var\(--ai-font\)/);
+  assert.doesNotMatch(css, /\.history-grid-actions|\.history-grid-selection|\.history-grid-load|grid-selection-active/);
   assert.match(css, /\.history-list\.grid-view \.history-item-load\s*\{[^}]*display:\s*none/);
   assert.match(css, /\.history-list\.grid-view \.history-row-actions\s*\{[^}]*width:\s*min\(180px,[^}]*align-items:\s*stretch[^}]*gap:\s*2px/);
   assert.match(css, /\.history-list\.grid-view \.history-row-actions button,[\s\S]*?\.history-list\.grid-view \.history-move\s*\{[^}]*width:\s*100%[^}]*height:\s*32px[^}]*justify-content:\s*flex-start/);
@@ -3926,7 +3947,7 @@ test("AI write_text validates and rasterizes the same 1000 characters", () => {
   assert.match(imageSource, /maxLength = AI_TEXT_MAX_LENGTH/);
 });
 
-test("AI text and formula drafts expose copy and axis-resize controls", () => {
+test("AI text, formula, and function-plot drafts expose copy and axis-resize controls", () => {
   const app = read("public/app.js"),
     css = read("public/style.css"),
     zh = read("public/locales/zh.js"),
@@ -3944,7 +3965,7 @@ test("AI text and formula drafts expose copy and axis-resize controls", () => {
 
   assert.equal(copyTextForCommand({ tool: "write_text", text: "copy me" }), "copy me");
   assert.equal(copyTextForCommand({ tool: "draw_formula", latex: "x^2" }), "x^2");
-  assert.equal(copyTextForCommand({ tool: "plot_function", expression: "x^2" }), null);
+  assert.equal(copyTextForCommand({ tool: "plot_function", expression: "x^2" }), "x^2");
   assert.deepEqual(Object.keys(points(box, 14, false, true)).sort(), ["accept", "cancel"]);
   assert.deepEqual(Object.keys(points(box, 14, true, true)).sort(), ["accept", "cancel", "copy"]);
   assert.deepEqual(Object.keys(points(box, 14, false)).sort(), ["item-accept", "item-cancel"]);
@@ -3968,6 +3989,11 @@ test("AI text and formula drafts expose copy and axis-resize controls", () => {
   assert.match(update, /g\.hit === "width"[\s\S]*?p\.scaleX = Math\.max/);
   assert.match(update, /g\.hit === "height"[\s\S]*?p\.scaleY = Math\.max/);
   assert.match(functionSource(app, "pendingChromeSpecs"), /pendingCopyable\(target\)[\s\S]*?copyPendingText\(itemIndex\)/);
+  assert.match(functionSource(app, "pendingChromeSpecs"), /tool === "plot_function"[\s\S]*?addObjectToolbarSpecs[\s\S]*?kind:"copy"[\s\S]*?copyPendingText\(itemIndex\)/);
+  assert.match(functionSource(app, "acceptPending"), /tool === "plot_function"[\s\S]*?addPendingPlotImage\(p, draftBounds\(p\)\)/);
+  assert.match(functionSource(app, "commitPendingItem"), /tool === "plot_function"[\s\S]*?addPendingPlotImage\(item, box\)/);
+  assert.match(functionSource(app, "addPendingPlotImage"), /imageRecord\([\s\S]*?plotExpression:expression[\s\S]*?state\.images\.push\(record\)/);
+  assert.match(functionSource(app, "plotObjectImage"), /rendered = plot\(command\)[\s\S]*?MAX_IMAGE_DIMENSION[\s\S]*?canvasBlob\(image\)/);
   assert.match(css, /\.clipboard-copy-fallback\s*\{[^}]*left:\s*-10000px/);
   for (const key of ["copyText", "textCopied", "textCopyFailed"]) {
     assert.match(app, new RegExp(`${key}:`));

@@ -2022,7 +2022,9 @@
     if (windowSummary) windowSummary.textContent = `${locationText} · ${projectName} · ${countText}`;
     document.querySelectorAll(".history-location-count").forEach((node) => {
       const cachedCount = snapshotLocationCountCache.get(node.dataset.location);
-      node.textContent = Number.isFinite(cachedCount) ? String(cachedCount) : "";
+      const hasLoadedCount = Number.isFinite(cachedCount);
+      node.hidden = !hasLoadedCount;
+      node.textContent = hasLoadedCount ? String(cachedCount) : "";
     });
   }
   function updateHistorySelectionUi(items = snapshotItemsForCurrentView()) {
@@ -2044,27 +2046,6 @@
       card.dataset.peState = selected ? "selected" : "default";
       card.querySelector(".history-card-select")?.setAttribute("aria-pressed", String(selected));
     });
-    const actions = document.querySelector("#historyGridActions"),
-      main = document.querySelector(".history-library-main"),
-      name = document.querySelector("#historyGridSelectionName"),
-      load = document.querySelector("#historyGridLoad"),
-      showActions = Boolean(grid && visiblySelectedItem),
-      selectedIsCurrent = Boolean(showActions && visiblySelectedItem.id === state.currentSnapshotId && state.snapshotLocation === state.currentSnapshotLocation);
-    if (actions) actions.hidden = !showActions;
-    main?.classList.toggle("grid-selection-active", showActions);
-    if (name) name.textContent = showActions ? snapshotName(visiblySelectedItem) : "";
-    if (load) {
-      load.dataset.snapshotId = showActions ? visiblySelectedItem.id : "";
-      load.classList.toggle("history-load", !selectedIsCurrent);
-      load.classList.toggle("history-save-current", selectedIsCurrent);
-      load.disabled = !showActions || historyBusy();
-      load.textContent = t(selectedIsCurrent ? snapshotSaveInProgress ? "snapshotSavingShort" : "saveCurrentSnapshot" : snapshotLoadInProgress && load.dataset.snapshotId === snapshotLoadingId ? "snapshotLoadingShort" : "loadSnapshot");
-      load.setAttribute("aria-label", showActions ? `${t(selectedIsCurrent ? "saveCurrentSnapshot" : "loadSnapshot")}: ${snapshotName(visiblySelectedItem)}` : t("loadSnapshot"));
-      load.onclick = showActions ? selectedIsCurrent
-        ? () => saveCurrentHistoryItem(visiblySelectedItem, state.snapshotLocation)
-        : () => loadHistorySnapshot(visiblySelectedItem, state.snapshotLocation, load)
-        : null;
-    }
     return selectedItem;
   }
   function closeHistoryRowActions(except = null) {
@@ -2211,6 +2192,7 @@
         rename = document.createElement("button"),
         load = document.createElement("button"),
         description = document.createElement("p"),
+        gridDate = document.createElement("span"),
         footer = document.createElement("div"),
         advancedActions = document.createElement("div"),
         more = document.createElement("button"),
@@ -2260,6 +2242,7 @@
       title.className = "history-card-title";
       title.dataset.peRegion = "title";
       title.textContent = snapshotName(item);
+      title.title = title.textContent;
       rename.className = "history-rename";
       rename.type = "button";
       peButton(rename, "menu-item", "");
@@ -2278,7 +2261,9 @@
       load.textContent = t(isCurrent ? "saveCurrentSnapshot" : "loadSnapshot");
       load.setAttribute("aria-label", `${t(isCurrent ? "saveCurrentSnapshot" : "loadSnapshot")}: ${title.textContent}`);
       load.onclick = isCurrent ? () => saveCurrentHistoryItem(item, location) : () => loadHistorySnapshot(item, location, load);
-      const modified = new Intl.DateTimeFormat(state.language === "zh" ? "zh-CN" : "en", { dateStyle: "short", timeStyle: "short" }).format(item.updatedAt || item.createdAt);
+      const modifiedAt = item.updatedAt || item.createdAt,
+        modified = new Intl.DateTimeFormat(state.language === "zh" ? "zh-CN" : "en", { dateStyle: "short", timeStyle: "short" }).format(modifiedAt),
+        gridDateText = new Intl.DateTimeFormat(state.language === "zh" ? "zh-CN" : "en", { month:"short", day:"numeric" }).format(modifiedAt);
       const stats = document.createElement("div"),
         contentSummary = historyItemContentSummary(item);
       stats.className = "history-stats";
@@ -2290,14 +2275,16 @@
       }
       description.className = "history-card-description";
       description.dataset.peRegion = "description";
-      description.append(stats);
+      gridDate.className = "history-grid-date";
+      gridDate.textContent = gridDateText;
+      description.append(gridDate, stats);
       const modifiedColumn = document.createElement("div");
       modifiedColumn.className = "history-modified";
       modifiedColumn.textContent = modified;
       more.className = "history-more";
       more.type = "button";
       peButton(more, "toolbar", "compact");
-      more.textContent = "";
+      more.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>`;
       more.setAttribute("aria-expanded", "false");
       more.setAttribute("aria-label", t("historyMoreActions").replace("{name}", title.textContent));
       more.title = t("historyMoreActions").replace("{name}", title.textContent);

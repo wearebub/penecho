@@ -9,7 +9,7 @@
   border: 1px solid #c9d8ef;
   border-radius: 9px;
   background: rgba(245, 249, 255, .98);
-  font: 400 13px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Noto Sans SC", "Segoe UI", sans-serif;
+  font: 400 13px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
   box-shadow: 0 4px 12px rgba(24, 50, 79, .15);
   backdrop-filter: blur(10px);
 }
@@ -47,7 +47,7 @@ main > footer.penecho-desktop-update-visible { grid-template-columns: minmax(0, 
   border: 1px solid #afc2dc;
   border-radius: 8px;
   background: #fff;
-  font: 500 13px/1 -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Noto Sans SC", "Segoe UI", sans-serif;
+  font: 500 13px/1 -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
   letter-spacing: 0;
   cursor: pointer;
 }

@@ -37,7 +37,7 @@ html.viewer-mode, html.viewer-mode body { height: 100%; overflow: hidden; }
   justify-content: space-between;
   gap: 16px;
   pointer-events: none;
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Noto Sans SC", "Segoe UI", sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
 }
 .viewer-topbar > * { pointer-events: auto; }
 
@@ -151,7 +151,7 @@ html.viewer-mode, html.viewer-mode body { height: 100%; overflow: hidden; }
   border: 0;
   background: transparent;
   color: var(--muted, #5f6674);
-  font: 400 13px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Noto Sans SC", "Segoe UI", sans-serif;
+  font: 400 13px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
   letter-spacing: normal;
   text-align: center;
   white-space: nowrap;
@@ -213,7 +213,7 @@ html.viewer-mode, html.viewer-mode body { height: 100%; overflow: hidden; }
   place-items: center;
   background: #12100b;
   color: var(--ink, #e9ddbd);
-  font: 400 13px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Noto Sans SC", "Segoe UI", sans-serif;
+  font: 400 13px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
   text-align: center;
   padding: 24px;
 }

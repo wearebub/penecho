@@ -848,7 +848,6 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       historyMoreActions: "More actions for “{name}”",
       historyNoMatch: "No matching Canvases in this location.",
       historySelectionEmpty: "Select a Canvas to open",
-      historySelected: "selected",
       historyOpenCanvas: "Open Canvas",
       historyDeleteTitle: "Delete this Canvas?",
       studioNavigatorTitle: "Recent work",
@@ -1203,8 +1202,10 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       canvasAgentPromptSuggestions: "Suggested prompts",
       canvasAgentPromptSuggestionsTitle: "Try asking",
       canvasAgentPromptSuggestionsHint: "Suggestions adapt to the current context.",
-      canvasAgentPromptCurrentCanvas: "Current Canvas",
-      canvasAgentPromptMoreInspiration: "More inspiration",
+      canvasAgentPromptCategories: "Prompt categories",
+      canvasAgentPromptCategoryNotes: "Notes",
+      canvasAgentPromptCategoryFiles: "Files & Projects",
+      canvasAgentPromptCategoryCreate: "Create",
       canvasAgentPromptDisclosureMore: "More",
       canvasAgentPromptDisclosureLess: "Less",
       canvasAgentPromptMore: "Show suggested prompts",
@@ -4697,6 +4698,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       sourceName:item.sourceName,
       blob:item.blob,
       image:item.image,
+      ...(item.plotExpression ? { plotExpression:item.plotExpression } : {}),
     };
   }
   function storedImageRecord(item) {
@@ -4710,13 +4712,16 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       naturalH:item.naturalH,
       sourceName:item.sourceName,
       blob:item.blob,
+      ...(item.plotExpression ? { plotExpression:item.plotExpression } : {}),
     };
   }
   function imageRecord(item) {
     if (!item || typeof item !== "object" || !(item.blob instanceof Blob) || !item.image || item.blob.size <= 0 || item.blob.size > MAX_IMAGE_SOURCE_BYTES) return null;
     if (!n(item.x) || !n(item.y) || !n(item.w, 80) || !n(item.h, 80) || item.x + item.w > SIZE || item.y + item.h > SIZE) return null;
     const naturalW = Number(item.naturalW) || item.image.naturalWidth || item.image.width,
-      naturalH = Number(item.naturalH) || item.image.naturalHeight || item.image.height;
+      naturalH = Number(item.naturalH) || item.image.naturalHeight || item.image.height,
+      plotExpression = typeof item.plotExpression === "string" ? item.plotExpression.trim() : "";
+    if (item.plotExpression !== undefined && (!plotExpression || plotExpression.length > 180)) return null;
     if (!n(naturalW, 1, MAX_IMAGE_DIMENSION) || !n(naturalH, 1, MAX_IMAGE_DIMENSION) || naturalW * naturalH > MAX_IMAGE_PIXELS) return null;
     return {
       id:typeof item.id === "string" && /^image-\d+$/.test(item.id) ? item.id : `image-${state.nextImageId++}`,
@@ -4729,6 +4734,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       sourceName:typeof item.sourceName === "string" ? item.sourceName.trim().slice(0, 160) : "",
       blob:item.blob,
       image:item.image,
+      ...(plotExpression ? { plotExpression } : {}),
     };
   }
   function imageHistoryState() {
@@ -7865,6 +7871,13 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     setStatusKey(copied ? "widgetSourceCopied" : "widgetSourceCopyFailed");
     return copied;
   }
+  async function copyPlotExpression(item) {
+    const expression = typeof item?.plotExpression === "string" ? item.plotExpression : "";
+    if (!expression) return false;
+    const copied = await writeClipboardText(expression);
+    setStatusKey(copied ? "textCopied" : "textCopyFailed");
+    return copied;
+  }
   function widgetImageFilename(widget) {
     const title = String(widget?.title || "penecho-widget")
       .replace(/[\u0000-\u001f<>:"/\\|?*]+/g, "-")
@@ -8394,6 +8407,39 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   function pendingChromeSpecs(specs, pending) {
     if (!pending) return;
     const add = (key, box, itemIndex = null, target = pending) => {
+      const plotExpression = target?.command?.tool === "plot_function" && typeof target.command.expression === "string"
+        ? target.command.expression.trim()
+        : "";
+      if (plotExpression) {
+        const toolbarKey = addObjectToolbarSpecs(specs, {
+          prefix:key,
+          box,
+          target:"pending",
+          object:target,
+          cancelLabel:t("cancel"),
+          acceptLabel:t("widgetAccept"),
+          cancel:() => itemIndex === null ? rejectPending() : rejectPendingItem(itemIndex),
+          accept:() => itemIndex === null ? acceptPending({ showHint:true }) : acceptPendingItem(itemIndex),
+          shared:{ itemIndex },
+          priority:4,
+        });
+        specs.push({
+          key:`${key}:copy`,
+          kind:"copy",
+          label:t("copyText"),
+          box,
+          objectToolbarItem:true,
+          objectToolbarKey:toolbarKey,
+          toolbarSlot:"tool",
+          toolbarOrder:0,
+          toolbarItemCount:1,
+          baseWidth:28,
+          baseHeight:28,
+          activate:() => void copyPendingText(itemIndex),
+          priority:6,
+        });
+        return;
+      }
       specs.push({ key:`${key}:move`, kind:"move", box, target:"pending", itemIndex, object:target, priority:4 });
       specs.push({ key:`${key}:cancel`, kind:"cancel", box, activate:() => itemIndex === null ? rejectPending() : rejectPendingItem(itemIndex), priority:5 });
       specs.push({ key:`${key}:accept`, kind:"accept", box, activate:() => itemIndex === null ? acceptPending({ showHint:true }) : acceptPendingItem(itemIndex), priority:5 });
@@ -8419,6 +8465,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       if (record.kind === "image") {
         if (!record.expanded || state.handToolbarActiveKey !== key || state.pendingWidget) continue;
         const box = imageBox(handTarget),
+          plotExpression = typeof handTarget.plotExpression === "string" ? handTarget.plotExpression : "",
           toolbarKey = addObjectToolbarSpecs(specs, {
             prefix:`image:${handTarget.id}`,
             box,
@@ -8435,23 +8482,42 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
             shared,
             priority:2,
           });
-        specs.push({
-          key:`image:${handTarget.id}:merge`,
-          kind:"merge",
-          label:t("imageMerge"),
-          tooltip:t("imageMergeHint"),
-          box,
-          objectToolbarItem:true,
-          objectToolbarKey:toolbarKey,
-          toolbarSlot:"tool",
-          toolbarOrder:0,
-          toolbarItemCount:1,
-          baseWidth:28,
-          baseHeight:28,
-          activate:() => mergeImage(handTarget, { showHint:true }),
-          ...shared,
-          priority:3,
-        });
+        if (plotExpression) {
+          specs.push({
+            key:`image:${handTarget.id}:copy`,
+            kind:"copy",
+            label:t("copyText"),
+            box,
+            objectToolbarItem:true,
+            objectToolbarKey:toolbarKey,
+            toolbarSlot:"tool",
+            toolbarOrder:0,
+            toolbarItemCount:1,
+            baseWidth:28,
+            baseHeight:28,
+            activate:() => void copyPlotExpression(handTarget),
+            ...shared,
+            priority:3,
+          });
+        } else {
+          specs.push({
+            key:`image:${handTarget.id}:merge`,
+            kind:"merge",
+            label:t("imageMerge"),
+            tooltip:t("imageMergeHint"),
+            box,
+            objectToolbarItem:true,
+            objectToolbarKey:toolbarKey,
+            toolbarSlot:"tool",
+            toolbarOrder:0,
+            toolbarItemCount:1,
+            baseWidth:28,
+            baseHeight:28,
+            activate:() => mergeImage(handTarget, { showHint:true }),
+            ...shared,
+            priority:3,
+          });
+        }
       } else if (record.kind === "animation") {
         const box = animationBox(handTarget);
         specs.push({ key:`animation:${handTarget.id}:move`, kind:"move", box, target:"animation", object:handTarget, ...shared, priority:2 });
@@ -11864,7 +11930,9 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     if (windowSummary) windowSummary.textContent = `${locationText} · ${projectName} · ${countText}`;
     document.querySelectorAll(".history-location-count").forEach((node) => {
       const cachedCount = snapshotLocationCountCache.get(node.dataset.location);
-      node.textContent = Number.isFinite(cachedCount) ? String(cachedCount) : "";
+      const hasLoadedCount = Number.isFinite(cachedCount);
+      node.hidden = !hasLoadedCount;
+      node.textContent = hasLoadedCount ? String(cachedCount) : "";
     });
   }
   function updateHistorySelectionUi(items = snapshotItemsForCurrentView()) {
@@ -11886,27 +11954,6 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       card.dataset.peState = selected ? "selected" : "default";
       card.querySelector(".history-card-select")?.setAttribute("aria-pressed", String(selected));
     });
-    const actions = document.querySelector("#historyGridActions"),
-      main = document.querySelector(".history-library-main"),
-      name = document.querySelector("#historyGridSelectionName"),
-      load = document.querySelector("#historyGridLoad"),
-      showActions = Boolean(grid && visiblySelectedItem),
-      selectedIsCurrent = Boolean(showActions && visiblySelectedItem.id === state.currentSnapshotId && state.snapshotLocation === state.currentSnapshotLocation);
-    if (actions) actions.hidden = !showActions;
-    main?.classList.toggle("grid-selection-active", showActions);
-    if (name) name.textContent = showActions ? snapshotName(visiblySelectedItem) : "";
-    if (load) {
-      load.dataset.snapshotId = showActions ? visiblySelectedItem.id : "";
-      load.classList.toggle("history-load", !selectedIsCurrent);
-      load.classList.toggle("history-save-current", selectedIsCurrent);
-      load.disabled = !showActions || historyBusy();
-      load.textContent = t(selectedIsCurrent ? snapshotSaveInProgress ? "snapshotSavingShort" : "saveCurrentSnapshot" : snapshotLoadInProgress && load.dataset.snapshotId === snapshotLoadingId ? "snapshotLoadingShort" : "loadSnapshot");
-      load.setAttribute("aria-label", showActions ? `${t(selectedIsCurrent ? "saveCurrentSnapshot" : "loadSnapshot")}: ${snapshotName(visiblySelectedItem)}` : t("loadSnapshot"));
-      load.onclick = showActions ? selectedIsCurrent
-        ? () => saveCurrentHistoryItem(visiblySelectedItem, state.snapshotLocation)
-        : () => loadHistorySnapshot(visiblySelectedItem, state.snapshotLocation, load)
-        : null;
-    }
     return selectedItem;
   }
   function closeHistoryRowActions(except = null) {
@@ -12053,6 +12100,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
         rename = document.createElement("button"),
         load = document.createElement("button"),
         description = document.createElement("p"),
+        gridDate = document.createElement("span"),
         footer = document.createElement("div"),
         advancedActions = document.createElement("div"),
         more = document.createElement("button"),
@@ -12102,6 +12150,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       title.className = "history-card-title";
       title.dataset.peRegion = "title";
       title.textContent = snapshotName(item);
+      title.title = title.textContent;
       rename.className = "history-rename";
       rename.type = "button";
       peButton(rename, "menu-item", "");
@@ -12120,7 +12169,9 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       load.textContent = t(isCurrent ? "saveCurrentSnapshot" : "loadSnapshot");
       load.setAttribute("aria-label", `${t(isCurrent ? "saveCurrentSnapshot" : "loadSnapshot")}: ${title.textContent}`);
       load.onclick = isCurrent ? () => saveCurrentHistoryItem(item, location) : () => loadHistorySnapshot(item, location, load);
-      const modified = new Intl.DateTimeFormat(state.language === "zh" ? "zh-CN" : "en", { dateStyle: "short", timeStyle: "short" }).format(item.updatedAt || item.createdAt);
+      const modifiedAt = item.updatedAt || item.createdAt,
+        modified = new Intl.DateTimeFormat(state.language === "zh" ? "zh-CN" : "en", { dateStyle: "short", timeStyle: "short" }).format(modifiedAt),
+        gridDateText = new Intl.DateTimeFormat(state.language === "zh" ? "zh-CN" : "en", { month:"short", day:"numeric" }).format(modifiedAt);
       const stats = document.createElement("div"),
         contentSummary = historyItemContentSummary(item);
       stats.className = "history-stats";
@@ -12132,14 +12183,16 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       }
       description.className = "history-card-description";
       description.dataset.peRegion = "description";
-      description.append(stats);
+      gridDate.className = "history-grid-date";
+      gridDate.textContent = gridDateText;
+      description.append(gridDate, stats);
       const modifiedColumn = document.createElement("div");
       modifiedColumn.className = "history-modified";
       modifiedColumn.textContent = modified;
       more.className = "history-more";
       more.type = "button";
       peButton(more, "toolbar", "compact");
-      more.textContent = "";
+      more.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>`;
       more.setAttribute("aria-expanded", "false");
       more.setAttribute("aria-label", t("historyMoreActions").replace("{name}", title.textContent));
       more.title = t("historyMoreActions").replace("{name}", title.textContent);
@@ -13587,6 +13640,10 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
         debug("ai-deferred", { ...meta, reason: "user-revision-changed" });
         return;
       }
+      if (state.images.length + commands.filter((command) => command.tool === "plot_function").length > MAX_VISIBLE_IMAGES) {
+        setStatusKey("imageLimitReached");
+        throw Error(t("imageLimitReached"));
+      }
       if (commands.length) {
         if (!isolatedSelection) {
           state.dirty = null;
@@ -14229,6 +14286,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
         if (!accepted) throw Error(AI_REJECTED);
       } else {
         let image,
+          plotBlob = null,
           x = c.x,
           y = c.y,
           pendingCommand = c;
@@ -14237,7 +14295,9 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
         } else if (c.tool === "draw_formula") {
           image = await formulaImage(c.latex, c.fontSize, c.color);
         } else if (c.tool === "plot_function") {
-          image = plot(c);
+          const preparedPlot = await plotObjectImage(c);
+          image = preparedPlot.image;
+          plotBlob = preparedPlot.blob;
         } else if (c.tool === "animate_scene") {
           pendingCommand = ANIMATION.normalize(c, SIZE);
           image = pendingCommand ? ANIMATION.rasterize(pendingCommand, offscreen, 0, Math.min(2, sharpRenderRatio())) : null;
@@ -14251,7 +14311,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
           checkAI(revision, run);
           x = Math.max(0, Math.min(x, SIZE - Math.min(image.logicalWidth || image.width, SIZE)));
           y = Math.max(0, Math.min(y, SIZE - Math.min(image.logicalHeight || image.height, SIZE)));
-          const accepted = await startPending(image, x, y, revision, meta, pendingCommand);
+          const accepted = await startPending(image, x, y, revision, meta, pendingCommand, plotBlob);
           if (accepted === AI_CANCELLED) throw Error(AI_CANCELLED);
           if (accepted === AI_SUPERSEDED) throw Error(AI_SUPERSEDED);
           if (accepted === AI_REJECTED || !accepted) throw Error(AI_REJECTED);
@@ -14272,12 +14332,17 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       return { command: c, erase: true, bounds, image: eraseMask(c, bounds) };
     }
     let image,
+      plotBlob = null,
       x = c.x,
       y = c.y,
       pendingCommand = c;
     if (c.tool === "write_text") image = textImage(c.text, c.fontSize, c.color, c.maxWidth, c.lineHeight, state.aiFont, AI_TEXT_MAX_LENGTH, sharpRenderRatio());
     else if (c.tool === "draw_formula") image = await formulaImage(c.latex, c.fontSize, c.color);
-    else if (c.tool === "plot_function") image = plot(c);
+    else if (c.tool === "plot_function") {
+      const preparedPlot = await plotObjectImage(c);
+      image = preparedPlot.image;
+      plotBlob = preparedPlot.blob;
+    }
     else if (c.tool === "animate_scene") {
       pendingCommand = ANIMATION.normalize(c, SIZE);
       image = pendingCommand ? ANIMATION.rasterize(pendingCommand, offscreen, 0, Math.min(2, sharpRenderRatio())) : null;
@@ -14296,6 +14361,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       image,
       textCommand: c.tool === "write_text" ? { ...c } : null,
       copyText: copyTextForCommand(c),
+      plotBlob,
       animationScene: c.tool === "animate_scene" ? pendingCommand : null,
       animationPlayback: c.tool === "animate_scene" ? createAnimationPlayback() : null,
       x: Math.max(0, Math.min(x, SIZE - Math.min(logicalWidth, SIZE))),
@@ -14639,6 +14705,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   function copyTextForCommand(command) {
     if (command?.tool === "write_text" && typeof command.text === "string") return command.text;
     if (command?.tool === "draw_formula" && typeof command.latex === "string") return command.latex;
+    if (command?.tool === "plot_function" && typeof command.expression === "string") return command.expression;
     return null;
   }
   function pendingCopyValue(target) {
@@ -15117,6 +15184,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       const box = draftBounds(p);
       addAnimation(p.animationScene, box, p.animationPlayback);
     }
+    else if (p.command?.tool === "plot_function") addPendingPlotImage(p, draftBounds(p));
     else if (p.textCommand) {
       const box = draftBounds(p);
       blitClipped(p.image, p.x, p.y, (p.image.logicalWidth || p.image.width) * p.scaleX, (p.image.logicalHeight || p.image.height) * p.scaleY, box.w, box.h);
@@ -15264,6 +15332,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       animationScene: p.animationScene || null,
       animationPlayback: p.animationPlayback || null,
       copyText: pendingCopyValue(p),
+      plotBlob:p.plotBlob || null,
       x: p.x,
       y: p.y,
       scaleX: p.scaleX || 1,
@@ -15300,7 +15369,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     if (pendingAnimationControlTarget()) showAnimationControls();
     releaseSelectionAITransformLock();
   }
-  function startPending(image, x, y, revision, meta, command) {
+  function startPending(image, x, y, revision, meta, command, plotBlob = null) {
     return new Promise((resolve) => {
       enterAIDraftHandMode();
       const textCommand = command.tool === "write_text" ? { ...command } : null,
@@ -15309,7 +15378,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
         layoutWidth = textCommand ? command.maxWidth : image.logicalWidth || image.width,
         layoutHeight = image.logicalHeight || image.height;
       if (state.pending) {
-        appendPendingItems(state.pending, [{ command: { ...command }, image, textCommand, animationScene, copyText, x, y, layoutWidth, layoutHeight }], revision, meta, resolve);
+        appendPendingItems(state.pending, [{ command: { ...command }, image, textCommand, animationScene, copyText, plotBlob, x, y, layoutWidth, layoutHeight }], revision, meta, resolve);
         return;
       }
       const rows = image.revealRows || [image.logicalWidth || image.width],
@@ -15324,6 +15393,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
         scaleY: 1,
         textCommand,
         copyText,
+        plotBlob,
         animationScene,
         animationPlayback: animationScene ? createAnimationPlayback() : null,
         layoutWidth,
@@ -15387,11 +15457,32 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   function commitPendingBatch(p) {
     for (const item of p.items) commitPendingItem(item);
   }
+  function addPendingPlotImage(item, box = pendingItemBounds(item)) {
+    const expression = typeof item?.command?.expression === "string" ? item.command.expression.trim() : "";
+    if (!expression || !(item.plotBlob instanceof Blob) || state.images.length >= MAX_VISIBLE_IMAGES) throw Error("Plot object could not be committed");
+    recordImagesBefore();
+    const record = imageRecord({
+      image:item.image,
+      blob:item.plotBlob,
+      x:box.x,
+      y:box.y,
+      w:box.w,
+      h:box.h,
+      naturalW:item.image.width,
+      naturalH:item.image.height,
+      sourceName:"",
+      plotExpression:expression,
+    });
+    if (!record) throw Error("Plot object could not be committed");
+    state.images.push(record);
+    return record;
+  }
   function commitPendingItem(item) {
     const box = pendingItemBounds(item);
     if (item.erase) eraseWithMask(item.image, box.x, box.y, box.w, box.h);
     else if (item.textCommand) blitClipped(item.image, item.x, item.y, (item.image.logicalWidth || item.image.width) * item.scaleX, (item.image.logicalHeight || item.image.height) * item.scaleY, box.w, box.h);
     else if (item.animationScene) addAnimation(item.animationScene, box, item.animationPlayback);
+    else if (item.command?.tool === "plot_function") addPendingPlotImage(item, box);
     else blitSized(item.image, box.x, box.y, (item.image.logicalWidth || item.image.width) * item.scaleX, (item.image.logicalHeight || item.image.height) * item.scaleY);
   }
   function armPendingCopy(e, hit, itemIndex = null) {
@@ -15751,6 +15842,21 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       .replace(/√\s*\(([^()]*)\)/g, "sqrt($1)")
       .replace(/√\s*([A-Za-z0-9_.]+)/g, "sqrt($1)")
       .replace(/(\d|\)|x(?![A-Za-z_])|pi(?![A-Za-z_])|e(?![A-Za-z_]))\s*(?=x|pi|e(?![+\-]?\d)|sin|cos|tan|sqrt|abs|exp|log|ln|\()/gi, "$1*");
+  }
+  async function plotObjectImage(command) {
+    const rendered = plot(command),
+      logicalWidth = rendered.logicalWidth || rendered.width,
+      logicalHeight = rendered.logicalHeight || rendered.height,
+      scale = Math.min(1, MAX_IMAGE_DIMENSION / logicalWidth, MAX_IMAGE_DIMENSION / logicalHeight, Math.sqrt(MAX_IMAGE_PIXELS / (logicalWidth * logicalHeight)));
+    let image = rendered;
+    if (scale < 1) {
+      image = offscreen(Math.max(1, Math.round(logicalWidth * scale)), Math.max(1, Math.round(logicalHeight * scale)));
+      image.getContext("2d").drawImage(rendered, 0, 0, image.width, image.height);
+      rendered.width = rendered.height = 1;
+    }
+    image.logicalWidth = logicalWidth;
+    image.logicalHeight = logicalHeight;
+    return { image, blob:await canvasBlob(image), logicalWidth, logicalHeight };
   }
   function plot(c) {
     const o = offscreen(c.w, c.h),
@@ -16146,9 +16252,9 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     canvasAgentPromptSuggestions = document.querySelector("#canvasAgentPromptSuggestions"),
     canvasAgentPromptToggle = document.querySelector("#canvasAgentPromptToggle"),
     canvasAgentPromptDisclosureCopy = document.querySelector("#canvasAgentPromptDisclosureCopy"),
+    canvasAgentPromptCategoryTabs = [...document.querySelectorAll("#canvasAgentPromptCategories [role=tab]")],
     canvasAgentPromptPopup = document.querySelector("#canvasAgentPromptPopup"),
-    canvasAgentAdditionalPromptList = document.querySelector("#canvasAgentAdditionalPromptList"),
-    canvasAgentPrimaryPromptList = document.querySelector("#canvasAgentPrimaryPromptList"),
+    canvasAgentPromptCategoryLists = [...document.querySelectorAll("#canvasAgentPromptPopup [role=tabpanel]")],
     canvasAgentInput = document.querySelector("#canvasAgentInput"),
     canvasAgentInkInput = document.querySelector("#canvasAgentInkInput"),
     canvasAgentInkCanvas = document.querySelector("#canvasAgentInkCanvas"),
@@ -16220,45 +16326,45 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     CANVAS_AGENT_LAYOUT_CAPTURE_POLICY = Object.freeze({id:"canvas-layout-v1",maxLongEdge:1024,maxPixels:520000,quality:.72,maxBytes:700*1024}),
     CANVAS_AGENT_DETAIL_CAPTURE_POLICY = Object.freeze({id:"canvas-detail-v1",maxLongEdge:1440,maxPixels:1800000,quality:.88,maxBytes:1200*1024}),
     CANVAS_AGENT_PROMPT_LIBRARY = Object.freeze({
-      simpleDiagram:{prompt:"canvasAgentPromptSimpleDiagram",title:"canvasAgentPromptSimpleDiagramTitle",focus:"canvasAgentPromptFocusSimplify",icon:"visual"},
-      sequenceDiagramSource:{prompt:"canvasAgentPromptSequenceDiagramSource",title:"canvasAgentPromptSequenceDiagramSourceTitle",focus:"canvasAgentPromptFocusSequence",icon:"architecture"},
-      organize:{prompt:"canvasAgentPromptOrganize",title:"canvasAgentPromptOrganizeTitle",focus:"canvasAgentPromptFocusOrganize",icon:"organize"},
-      applyAnnotations:{prompt:"canvasAgentPromptApplyAnnotations",title:"canvasAgentPromptApplyAnnotationsTitle",focus:"canvasAgentPromptFocusRevise",icon:"revise"},
-      followCanvasCues:{prompt:"canvasAgentPromptFollowCanvasCues",title:"canvasAgentPromptFollowCanvasCuesTitle",focus:"canvasAgentPromptFocusFollowCanvasCues",icon:"revise"},
-      ppt:{prompt:"canvasAgentPromptPpt",title:"canvasAgentPromptPptTitle",focus:"canvasAgentPromptFocusSlides",icon:"slides"},
-      excel:{prompt:"canvasAgentPromptExcel",title:"canvasAgentPromptExcelTitle",focus:"canvasAgentPromptFocusAnalyze",icon:"data"},
-      transformer:{prompt:"canvasAgentPromptTransformer",title:"canvasAgentPromptTransformerTitle",focus:"canvasAgentPromptFocusLearn",icon:"study"},
-      ukTrip:{prompt:"canvasAgentPromptUkTrip",title:"canvasAgentPromptUkTripTitle",focus:"canvasAgentPromptFocusPlan",icon:"plan"},
-      file:{prompt:"canvasAgentPromptFile",title:"canvasAgentPromptFileTitle",focus:"canvasAgentPromptFocusExplain",icon:"file"},
-      architecture:{prompt:"canvasAgentPromptArchitecture",title:"canvasAgentPromptArchitectureTitle",focus:"canvasAgentPromptFocusArchitecture",icon:"architecture"},
-      handwriting:{prompt:"canvasAgentPromptHandwriting",title:"canvasAgentPromptHandwritingTitle",focus:"canvasAgentPromptFocusEnhance",icon:"handwriting"},
-      imageVisual:{prompt:"canvasAgentPromptImageVisual",title:"canvasAgentPromptImageVisualTitle",focus:"canvasAgentPromptFocusVisual",icon:"visual"},
-      imageLayer:{prompt:"canvasAgentPromptImageLayer",title:"canvasAgentPromptImageLayerTitle",focus:"canvasAgentPromptFocusLayer",icon:"layer"},
-      imagePublish:{prompt:"canvasAgentPromptImagePublish",title:"canvasAgentPromptImagePublishTitle",focus:"canvasAgentPromptFocusPublish",icon:"publish"},
-      spreadsheetVisual:{prompt:"canvasAgentPromptSpreadsheetVisual",title:"canvasAgentPromptSpreadsheetVisualTitle",focus:"canvasAgentPromptFocusAnalyze",icon:"data"},
-      spreadsheetLayer:{prompt:"canvasAgentPromptSpreadsheetLayer",title:"canvasAgentPromptSpreadsheetLayerTitle",focus:"canvasAgentPromptFocusLayer",icon:"layer"},
-      spreadsheetPublish:{prompt:"canvasAgentPromptSpreadsheetPublish",title:"canvasAgentPromptSpreadsheetPublishTitle",focus:"canvasAgentPromptFocusPublish",icon:"publish"},
-      presentationVisual:{prompt:"canvasAgentPromptPresentationVisual",title:"canvasAgentPromptPresentationVisualTitle",focus:"canvasAgentPromptFocusVisual",icon:"slides"},
-      presentationLayer:{prompt:"canvasAgentPromptPresentationLayer",title:"canvasAgentPromptPresentationLayerTitle",focus:"canvasAgentPromptFocusEnhance",icon:"layer"},
-      presentationPublish:{prompt:"canvasAgentPromptPresentationPublish",title:"canvasAgentPromptPresentationPublishTitle",focus:"canvasAgentPromptFocusPublish",icon:"publish"},
-      documentVisual:{prompt:"canvasAgentPromptDocumentVisual",title:"canvasAgentPromptDocumentVisualTitle",focus:"canvasAgentPromptFocusVisual",icon:"visual"},
-      documentStudy:{prompt:"canvasAgentPromptDocumentStudy",title:"canvasAgentPromptDocumentStudyTitle",focus:"canvasAgentPromptFocusLearn",icon:"study"},
-      documentPublish:{prompt:"canvasAgentPromptDocumentPublish",title:"canvasAgentPromptDocumentPublishTitle",focus:"canvasAgentPromptFocusPublish",icon:"publish"},
-      codeVisual:{prompt:"canvasAgentPromptCodeVisual",title:"canvasAgentPromptCodeVisualTitle",focus:"canvasAgentPromptFocusVisual",icon:"architecture"},
-      codeLayer:{prompt:"canvasAgentPromptCodeLayer",title:"canvasAgentPromptCodeLayerTitle",focus:"canvasAgentPromptFocusExplain",icon:"layer"},
-      codePlan:{prompt:"canvasAgentPromptCodePlan",title:"canvasAgentPromptCodePlanTitle",focus:"canvasAgentPromptFocusPlan",icon:"plan"},
-      fileLayer:{prompt:"canvasAgentPromptFileLayer",title:"canvasAgentPromptFileLayerTitle",focus:"canvasAgentPromptFocusLayer",icon:"layer"},
-      filePublish:{prompt:"canvasAgentPromptFilePublish",title:"canvasAgentPromptFilePublishTitle",focus:"canvasAgentPromptFocusPublish",icon:"publish"},
-      projectPlan:{prompt:"canvasAgentPromptProjectPlan",title:"canvasAgentPromptProjectPlanTitle",focus:"canvasAgentPromptFocusPlan",icon:"plan"},
-      projectPublish:{prompt:"canvasAgentPromptProjectPublish",title:"canvasAgentPromptProjectPublishTitle",focus:"canvasAgentPromptFocusPublish",icon:"publish"},
-      selectionVisual:{prompt:"canvasAgentPromptSelectionVisual",title:"canvasAgentPromptSelectionVisualTitle",focus:"canvasAgentPromptFocusVisual",icon:"visual"},
-      selectionLayer:{prompt:"canvasAgentPromptSelectionLayer",title:"canvasAgentPromptSelectionLayerTitle",focus:"canvasAgentPromptFocusLayer",icon:"layer"},
-      selectionPublish:{prompt:"canvasAgentPromptSelectionPublish",title:"canvasAgentPromptSelectionPublishTitle",focus:"canvasAgentPromptFocusPublish",icon:"publish"},
-      notesVisual:{prompt:"canvasAgentPromptNotesVisual",title:"canvasAgentPromptNotesVisualTitle",focus:"canvasAgentPromptFocusVisual",icon:"study"},
-      notesPublish:{prompt:"canvasAgentPromptNotesPublish",title:"canvasAgentPromptNotesPublishTitle",focus:"canvasAgentPromptFocusOrganize",icon:"organize"},
-      canvasVisual:{prompt:"canvasAgentPromptCanvasVisual",title:"canvasAgentPromptCanvasVisualTitle",focus:"canvasAgentPromptFocusVisual",icon:"visual"},
-      canvasLayer:{prompt:"canvasAgentPromptCanvasLayer",title:"canvasAgentPromptCanvasLayerTitle",focus:"canvasAgentPromptFocusLayer",icon:"layer"},
-      canvasPublish:{prompt:"canvasAgentPromptCanvasPublish",title:"canvasAgentPromptCanvasPublishTitle",focus:"canvasAgentPromptFocusPublish",icon:"publish"},
+      simpleDiagram:{category:"notes",prompt:"canvasAgentPromptSimpleDiagram",title:"canvasAgentPromptSimpleDiagramTitle",focus:"canvasAgentPromptFocusSimplify",icon:"visual"},
+      sequenceDiagramSource:{category:"create",prompt:"canvasAgentPromptSequenceDiagramSource",title:"canvasAgentPromptSequenceDiagramSourceTitle",focus:"canvasAgentPromptFocusSequence",icon:"architecture"},
+      organize:{category:"notes",prompt:"canvasAgentPromptOrganize",title:"canvasAgentPromptOrganizeTitle",focus:"canvasAgentPromptFocusOrganize",icon:"organize"},
+      applyAnnotations:{category:"notes",prompt:"canvasAgentPromptApplyAnnotations",title:"canvasAgentPromptApplyAnnotationsTitle",focus:"canvasAgentPromptFocusRevise",icon:"revise"},
+      followCanvasCues:{category:"notes",prompt:"canvasAgentPromptFollowCanvasCues",title:"canvasAgentPromptFollowCanvasCuesTitle",focus:"canvasAgentPromptFocusFollowCanvasCues",icon:"revise"},
+      ppt:{category:"files",prompt:"canvasAgentPromptPpt",title:"canvasAgentPromptPptTitle",focus:"canvasAgentPromptFocusSlides",icon:"slides"},
+      excel:{category:"files",prompt:"canvasAgentPromptExcel",title:"canvasAgentPromptExcelTitle",focus:"canvasAgentPromptFocusAnalyze",icon:"data"},
+      transformer:{category:"notes",prompt:"canvasAgentPromptTransformer",title:"canvasAgentPromptTransformerTitle",focus:"canvasAgentPromptFocusLearn",icon:"study"},
+      ukTrip:{category:"create",prompt:"canvasAgentPromptUkTrip",title:"canvasAgentPromptUkTripTitle",focus:"canvasAgentPromptFocusPlan",icon:"plan"},
+      file:{category:"files",prompt:"canvasAgentPromptFile",title:"canvasAgentPromptFileTitle",focus:"canvasAgentPromptFocusExplain",icon:"file"},
+      architecture:{category:"files",prompt:"canvasAgentPromptArchitecture",title:"canvasAgentPromptArchitectureTitle",focus:"canvasAgentPromptFocusArchitecture",icon:"architecture"},
+      handwriting:{category:"notes",prompt:"canvasAgentPromptHandwriting",title:"canvasAgentPromptHandwritingTitle",focus:"canvasAgentPromptFocusEnhance",icon:"handwriting"},
+      imageVisual:{category:"files",prompt:"canvasAgentPromptImageVisual",title:"canvasAgentPromptImageVisualTitle",focus:"canvasAgentPromptFocusVisual",icon:"visual"},
+      imageLayer:{category:"files",prompt:"canvasAgentPromptImageLayer",title:"canvasAgentPromptImageLayerTitle",focus:"canvasAgentPromptFocusLayer",icon:"layer"},
+      imagePublish:{category:"create",prompt:"canvasAgentPromptImagePublish",title:"canvasAgentPromptImagePublishTitle",focus:"canvasAgentPromptFocusPublish",icon:"publish"},
+      spreadsheetVisual:{category:"files",prompt:"canvasAgentPromptSpreadsheetVisual",title:"canvasAgentPromptSpreadsheetVisualTitle",focus:"canvasAgentPromptFocusAnalyze",icon:"data"},
+      spreadsheetLayer:{category:"files",prompt:"canvasAgentPromptSpreadsheetLayer",title:"canvasAgentPromptSpreadsheetLayerTitle",focus:"canvasAgentPromptFocusLayer",icon:"layer"},
+      spreadsheetPublish:{category:"create",prompt:"canvasAgentPromptSpreadsheetPublish",title:"canvasAgentPromptSpreadsheetPublishTitle",focus:"canvasAgentPromptFocusPublish",icon:"publish"},
+      presentationVisual:{category:"files",prompt:"canvasAgentPromptPresentationVisual",title:"canvasAgentPromptPresentationVisualTitle",focus:"canvasAgentPromptFocusVisual",icon:"slides"},
+      presentationLayer:{category:"files",prompt:"canvasAgentPromptPresentationLayer",title:"canvasAgentPromptPresentationLayerTitle",focus:"canvasAgentPromptFocusEnhance",icon:"layer"},
+      presentationPublish:{category:"create",prompt:"canvasAgentPromptPresentationPublish",title:"canvasAgentPromptPresentationPublishTitle",focus:"canvasAgentPromptFocusPublish",icon:"publish"},
+      documentVisual:{category:"files",prompt:"canvasAgentPromptDocumentVisual",title:"canvasAgentPromptDocumentVisualTitle",focus:"canvasAgentPromptFocusVisual",icon:"visual"},
+      documentStudy:{category:"notes",prompt:"canvasAgentPromptDocumentStudy",title:"canvasAgentPromptDocumentStudyTitle",focus:"canvasAgentPromptFocusLearn",icon:"study"},
+      documentPublish:{category:"create",prompt:"canvasAgentPromptDocumentPublish",title:"canvasAgentPromptDocumentPublishTitle",focus:"canvasAgentPromptFocusPublish",icon:"publish"},
+      codeVisual:{category:"files",prompt:"canvasAgentPromptCodeVisual",title:"canvasAgentPromptCodeVisualTitle",focus:"canvasAgentPromptFocusVisual",icon:"architecture"},
+      codeLayer:{category:"files",prompt:"canvasAgentPromptCodeLayer",title:"canvasAgentPromptCodeLayerTitle",focus:"canvasAgentPromptFocusExplain",icon:"layer"},
+      codePlan:{category:"create",prompt:"canvasAgentPromptCodePlan",title:"canvasAgentPromptCodePlanTitle",focus:"canvasAgentPromptFocusPlan",icon:"plan"},
+      fileLayer:{category:"files",prompt:"canvasAgentPromptFileLayer",title:"canvasAgentPromptFileLayerTitle",focus:"canvasAgentPromptFocusLayer",icon:"layer"},
+      filePublish:{category:"create",prompt:"canvasAgentPromptFilePublish",title:"canvasAgentPromptFilePublishTitle",focus:"canvasAgentPromptFocusPublish",icon:"publish"},
+      projectPlan:{category:"create",prompt:"canvasAgentPromptProjectPlan",title:"canvasAgentPromptProjectPlanTitle",focus:"canvasAgentPromptFocusPlan",icon:"plan"},
+      projectPublish:{category:"create",prompt:"canvasAgentPromptProjectPublish",title:"canvasAgentPromptProjectPublishTitle",focus:"canvasAgentPromptFocusPublish",icon:"publish"},
+      selectionVisual:{category:"notes",prompt:"canvasAgentPromptSelectionVisual",title:"canvasAgentPromptSelectionVisualTitle",focus:"canvasAgentPromptFocusVisual",icon:"visual"},
+      selectionLayer:{category:"notes",prompt:"canvasAgentPromptSelectionLayer",title:"canvasAgentPromptSelectionLayerTitle",focus:"canvasAgentPromptFocusLayer",icon:"layer"},
+      selectionPublish:{category:"create",prompt:"canvasAgentPromptSelectionPublish",title:"canvasAgentPromptSelectionPublishTitle",focus:"canvasAgentPromptFocusPublish",icon:"publish"},
+      notesVisual:{category:"notes",prompt:"canvasAgentPromptNotesVisual",title:"canvasAgentPromptNotesVisualTitle",focus:"canvasAgentPromptFocusVisual",icon:"study"},
+      notesPublish:{category:"create",prompt:"canvasAgentPromptNotesPublish",title:"canvasAgentPromptNotesPublishTitle",focus:"canvasAgentPromptFocusOrganize",icon:"organize"},
+      canvasVisual:{category:"notes",prompt:"canvasAgentPromptCanvasVisual",title:"canvasAgentPromptCanvasVisualTitle",focus:"canvasAgentPromptFocusVisual",icon:"visual"},
+      canvasLayer:{category:"notes",prompt:"canvasAgentPromptCanvasLayer",title:"canvasAgentPromptCanvasLayerTitle",focus:"canvasAgentPromptFocusLayer",icon:"layer"},
+      canvasPublish:{category:"create",prompt:"canvasAgentPromptCanvasPublish",title:"canvasAgentPromptCanvasPublishTitle",focus:"canvasAgentPromptFocusPublish",icon:"publish"},
     }),
     CANVAS_AGENT_PROMPT_ICON_PATHS = Object.freeze({
       visual:["M3.5 12s3.1-5 8.5-5 8.5 5 8.5 5-3.1 5-8.5 5-8.5-5-8.5-5Z","M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"],
@@ -16327,6 +16433,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     inputMode:"text",
     promptSuggestionsExpanded:false,
     promptSuggestionsManual:false,
+    promptSuggestionCategory:"notes",
     promptSuggestionContextKey:"",
     promptSuggestions:[],
     inkPresent:false,
@@ -16554,14 +16661,41 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     preview.append(svg);
     return preview;
   }
+  function canvasAgentDefaultPromptCategory(context) {
+    return ["image","spreadsheet","presentation","document","code","file","project"].includes(context)?"files":"notes";
+  }
+  function canvasAgentSelectPromptCategory(category,{focus=false,resetScroll=true}={}) {
+    const tab=canvasAgentPromptCategoryTabs.find(item=>item.dataset.promptCategory===category),
+      selectedCategory=tab?category:"notes";
+    canvasAgent.promptSuggestionCategory=selectedCategory;
+    for(const item of canvasAgentPromptCategoryTabs){
+      const selected=item.dataset.promptCategory===selectedCategory;
+      item.setAttribute("aria-selected",String(selected));
+      item.tabIndex=selected?0:-1;
+      item.dataset.peState=selected?"selected":"default";
+    }
+    for(const list of canvasAgentPromptCategoryLists)list.hidden=list.dataset.promptCategory!==selectedCategory;
+    if(resetScroll&&canvasAgentPromptPopup)canvasAgentPromptPopup.scrollTop=0;
+    if(focus){
+      const selectedTab=canvasAgentPromptCategoryTabs.find(item=>item.dataset.promptCategory===selectedCategory);
+      try{selectedTab?.focus({preventScroll:true});}catch{selectedTab?.focus();}
+    }
+  }
+  function canvasAgentHandlePromptCategoryKeydown(event) {
+    if(!["ArrowLeft","ArrowRight","Home","End"].includes(event.key))return;
+    const current=canvasAgentPromptCategoryTabs.indexOf(event.currentTarget);
+    if(current<0)return;
+    event.preventDefault();
+    const last=canvasAgentPromptCategoryTabs.length-1,next=event.key==="Home"?0:event.key==="End"?last:(current+(event.key==="ArrowRight"?1:-1)+canvasAgentPromptCategoryTabs.length)%canvasAgentPromptCategoryTabs.length;
+    canvasAgentSelectPromptCategory(canvasAgentPromptCategoryTabs[next].dataset.promptCategory,{focus:true});
+  }
   function canvasAgentRenderPromptSuggestions(suggestionSet=canvasAgentPromptSuggestionSet()) {
-    if(!canvasAgentPrimaryPromptList)return;
+    if(!canvasAgentPromptCategoryLists.length)return;
     const renderList=(list,suggestions)=>{
       if(!list)return;
-      const label=list.querySelector?.('[data-pe-region="group-label"]');
-      list.replaceChildren(...(label?[label]:[]));
+      list.replaceChildren();
       for(const suggestion of suggestions){
-        const button=document.createElement("button"),icon=canvasAgentCreatePromptIcon(suggestion.icon),copy=document.createElement("span"),title=document.createElement("strong"),description=document.createElement("small"),prompt=t(suggestion.prompt),titleText=t(suggestion.title),descriptionText=t(`${suggestion.prompt}Summary`);
+        const button=document.createElement("button"),icon=canvasAgentCreatePromptIcon(suggestion.icon),copy=document.createElement("span"),title=document.createElement("strong"),titleText=t(suggestion.title);
         button.type="button";
         button.className="canvas-agent-prompt-row";
         button.dataset.peItem="icon-copy-action";
@@ -16571,22 +16705,21 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
         copy.className="canvas-agent-prompt-copy";
         copy.dataset.peRegion="copy";
         title.dataset.peRegion="title";
-        description.dataset.peRegion="description";
         title.textContent=titleText;
-        description.textContent=descriptionText;
-        copy.append(title,description);
+        copy.append(title);
         button.append(icon,copy);
         button.setAttribute("title",titleText);
-        button.setAttribute("aria-label",`${titleText}: ${descriptionText}`);
+        button.setAttribute("aria-label",titleText);
         button.addEventListener("click",event=>canvasAgentActivatePromptSuggestion(suggestion.prompt,event));
         list.append(button);
       }
     };
-    const suggestions=suggestionSet.suggestions,primaryStart=Math.max(0,suggestions.length-3);
+    const suggestions=suggestionSet.suggestions,contextChanged=suggestionSet.key!==canvasAgent.promptSuggestionContextKey;
     canvasAgent.promptSuggestionContextKey=suggestionSet.key;
     canvasAgent.promptSuggestions=suggestions;
-    renderList(canvasAgentPrimaryPromptList,suggestions.slice(primaryStart));
-    renderList(canvasAgentAdditionalPromptList,suggestions.slice(0,primaryStart));
+    for(const list of canvasAgentPromptCategoryLists)renderList(list,suggestions.filter(item=>item.category===list.dataset.promptCategory));
+    if(contextChanged)canvasAgent.promptSuggestionCategory=canvasAgentDefaultPromptCategory(suggestionSet.key);
+    canvasAgentSelectPromptCategory(canvasAgent.promptSuggestionCategory,{resetScroll:contextChanged});
     canvasAgentPromptSuggestions.setAttribute("aria-label",t("canvasAgentPromptSuggestions"));
     canvasAgentSetPromptSuggestionsExpanded(canvasAgent.promptSuggestionsExpanded);
   }
@@ -17653,6 +17786,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     if (!object) return String(id);
     if (object.kind==="widget") return String(item.title||item.widgetType||item.pluginId||item.id);
     if (object.kind==="text") return String(item.text||item.id).replace(/\s+/g," ").trim().slice(0,72)||String(item.id);
+    if (item.plotExpression) return String(item.plotExpression).slice(0,72);
     return String(item.sourceName||item.id);
   }
   function canvasAgentReferencedIds() {
@@ -18412,7 +18546,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       box:canvasAgentExternalRect(box),
       ...(object.kind === "widget" ? { title:item.title, pluginId:item.pluginId, widgetType:item.widgetType, sourceFormat:item.sourceFormat || null } : {}),
       ...(object.kind === "text" ? { text:item.text.slice(0,240), fontSize:item.fontSize, color:item.color } : {}),
-      ...(object.kind === "image" ? { sourceName:item.sourceName || "", naturalSize:{ width:item.naturalW, height:item.naturalH } } : {}),
+      ...(object.kind === "image" ? { sourceName:item.sourceName || "", naturalSize:{ width:item.naturalW, height:item.naturalH }, ...(item.plotExpression ? { plotExpression:item.plotExpression } : {}) } : {}),
     };
   }
   function canvasAgentContentBounds() {
@@ -19783,7 +19917,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   }
   async function canvasAgentPrepareCreateItems(items) {
     if (!Array.isArray(items)||!items.length||items.length>24) throw canvasAgentToolError("INVALID_BATCH","Provide between 1 and 24 create items.");
-    const requested={widget:items.filter(item=>item?.type === "widget").length,text:items.filter(item=>item?.type === "text").length,image:items.filter(item=>item?.type === "image").length};
+    const requested={widget:items.filter(item=>item?.type === "widget").length,text:items.filter(item=>item?.type === "text").length,image:items.filter(item=>["image","plot"].includes(item?.type)).length};
     if(state.widgets.length+requested.widget>MAX_VISIBLE_WIDGETS||state.textBoxes.length+requested.text>MAX_VISIBLE_TEXT_BOXES||state.images.length+requested.image>MAX_VISIBLE_IMAGES)throw canvasAgentToolError("OBJECT_LIMIT","This transaction would exceed a visible canvas object limit.",{requested});
     if (!state.pluginCatalogLoaded) await loadPluginDocuments();
     const visible=viewportRect() || {x:SIZE/2-800,y:SIZE/2-600,w:1600,h:1200}, prepared=[],reserved=[];
@@ -19814,10 +19948,14 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
         width=Math.max(80,Math.min(SIZE,width));height=Math.max(80,Math.min(SIZE,height));const placed=canvasAgentPlacementBox(width,height,raw.placement,reserved),record=imageRecord({...imported,x:placed.x,y:placed.y,w:width,h:height,sourceName:String(raw._imageName||"")});
         if(!record)throw canvasAgentToolError("INVALID_IMAGE","Image content or geometry was rejected.");
         reserved.push(canvasAgentBox({kind:"image",item:record}));prepared.push({type,kind:"image",record,placed});
-      } else if (["formula","plot","drawing"].includes(type)) {
+      } else if (type === "plot") {
+        const expression=String(raw.expression||"").trim(),preparedPlot=await plotObjectImage({expression,w:Math.max(240,Math.min(2400,Number(raw.width)||900)),h:Math.max(200,Math.min(1800,Number(raw.height)||650)),color:typeof raw.color === "string"?raw.color:state.inkColor,title:String(raw.title||raw.expression||"")}),
+          width=preparedPlot.logicalWidth,height=preparedPlot.logicalHeight,placed=canvasAgentPlacementBox(width,height,raw.placement,reserved),record=imageRecord({image:preparedPlot.image,blob:preparedPlot.blob,x:placed.x,y:placed.y,w:width,h:height,naturalW:preparedPlot.image.width,naturalH:preparedPlot.image.height,sourceName:"",plotExpression:expression});
+        if(!record)throw canvasAgentToolError("INVALID_PLOT","Function plot content or geometry was rejected.");
+        reserved.push(canvasAgentBox({kind:"image",item:record}));prepared.push({type,kind:"image",record,placed});
+      } else if (["formula","drawing"].includes(type)) {
         let image,x=0,y=0;
         if(type === "formula")image=await formulaImage(String(raw.latex||""),Number(raw.fontSize)||64,typeof raw.color === "string"?raw.color:state.inkColor);
-        else if(type === "plot")image=plot({expression:String(raw.expression||""),w:Math.max(240,Math.min(2400,Number(raw.width)||900)),h:Math.max(200,Math.min(1800,Number(raw.height)||650)),color:typeof raw.color === "string"?raw.color:state.inkColor,title:String(raw.title||raw.expression||"")});
         else {const normalized=DRAW?.normalize({...raw.drawing,tool:"draw"},SIZE),made=normalized?DRAW.render(normalized,offscreen,typeof raw.color === "string"?raw.color:state.inkColor):null;if(made){image=made.image;x=made.x;y=made.y;}}
         if(!image)throw canvasAgentToolError("INVALID_INK_CONTENT",`${type} could not be rendered.`);
         const width=image.logicalWidth||image.width,height=image.logicalHeight||image.height,placed=raw.placement?canvasAgentPlacementBox(width,height,raw.placement,reserved):canvasAgentPlacementBox(width,height,{mode:"absolute",x,y},reserved);
@@ -20459,6 +20597,10 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   canvasAgentPromptSuggestions?.addEventListener("pointerdown",canvasAgentPreventPromptSuggestionFocusLoss);
   canvasAgentPromptSuggestions?.addEventListener("pointerup",canvasAgentFinishPromptSuggestionPointer);
   canvasAgentPromptSuggestions?.addEventListener("pointercancel",canvasAgentFinishPromptSuggestionPointer);
+  for(const tab of canvasAgentPromptCategoryTabs){
+    tab.addEventListener("click",()=>canvasAgentSelectPromptCategory(tab.dataset.promptCategory));
+    tab.addEventListener("keydown",canvasAgentHandlePromptCategoryKeydown);
+  }
   canvasAgentPromptToggle?.addEventListener("click",canvasAgentTogglePromptSuggestions);
   canvasAgentClearInkButton.addEventListener("click",()=>canvasAgentClearInkDraft());
   canvasAgentInkCanvas.addEventListener("pointerdown",canvasAgentInkPointerDown);
@@ -20606,6 +20748,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     toolbarLayoutObserver.observe(canvasAgentToolbar);
     toolbarLayoutObserver.observe(document.querySelector(".tool-group.primary-tools"));
   }
+  if (typeof MutationObserver==="function") new MutationObserver(canvasAgentScheduleScrollToLatest).observe(canvasAgentTranscript,{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:["class","hidden","open","style"]});
   canvasAgentResizeInput();
   window.addEventListener("resize",()=>requestAnimationFrame(()=>{syncStudioWorkbench();canvasAgentRestorePanelSize();canvasAgentRestorePanelPosition();}),{passive:true});
   window.addEventListener("beforeunload",canvasAgentPersistCurrentConversation);

@@ -81,9 +81,11 @@ test("PenEcho Agent applies only a same-turn LLM title after completion without 
   assert.match(http,/envelope\.payload\?\.canvasTitleNeeded === true/);
 });
 
-test("PenEcho Agent plain function graphs use the existing dense host plot renderer",()=>{
-  const agent=read("src/client/app/canvas-agent-runtime.js"),ai=read("src/client/app/ai-runtime.js"),prepare=functionSource(agent,"canvasAgentPrepareCreateItems"),plot=functionSource(ai,"plot");
-  assert.match(prepare,/\["formula","plot","drawing"\]\.includes\(type\)[\s\S]*type === "plot"[\s\S]*image=plot\(\{expression:[\s\S]*raw\.width[\s\S]*raw\.height/);
+test("PenEcho Agent function graphs become persistent image objects through the dense host plot renderer",()=>{
+  const agent=read("src/client/app/canvas-agent-runtime.js"),ai=read("src/client/app/ai-runtime.js"),prepare=functionSource(agent,"canvasAgentPrepareCreateItems"),plotObjectImage=functionSource(ai,"plotObjectImage"),plot=functionSource(ai,"plot");
+  assert.match(prepare,/type === "plot"[\s\S]*await plotObjectImage\(\{expression[\s\S]*imageRecord\(\{[\s\S]*plotExpression:expression[\s\S]*kind:"image"/);
+  assert.match(prepare,/\["formula","drawing"\]\.includes\(type\)/);
+  assert.match(plotObjectImage,/rendered = plot\(command\)[\s\S]*MAX_IMAGE_DIMENSION[\s\S]*canvasBlob\(image\)/);
   assert.match(plot,/sampleStep = Math\.max\(0\.5, Math\.min\(2, 900 \/ plotWidth\)\)[\s\S]*px \+= sampleStep/);
   assert.match(plot,/midpointY = joined \? evaluate\(\(previousX \+ x\) \/ 2\)[\s\S]*discontinuity = joined[\s\S]*q\.moveTo\(px, py\)/);
 });
@@ -261,7 +263,9 @@ test("PenEcho Agent panel movement and edge resizing accept pen and scoped touch
   assert.match(css,/body\[data-theme="studio"\]\.studio-agent-docked \.canvas-agent-resize-edge\.left\s*\{[^}]*left: -5px;[^}]*width: 23px/);
   assert.match(css,/body\[data-theme="studio"\]\.studio-agent-docked \.canvas-agent-resize-edge\.left::after\s*\{[^}]*left: 4px;[^}]*width: 1px/);
   assert.match(css,/@media \(min-width: 701px\) and \(pointer: coarse\) and \(any-pointer: fine\)\s*\{\s*\.canvas-agent-resize-edge \{ display: block; \}\s*\}/);
-  assert.match(css,/@media \(min-width: 701px\) and \(any-pointer: coarse\)\s*\{[\s\S]*?body\[data-theme="studio"\]\.studio-agent-docked \.canvas-agent-resize-edge\.left\s*\{[^}]*display: block;[^}]*width: 49px/);
+  assert.match(css,/@media \(min-width: 701px\) and \(any-pointer: coarse\)\s*\{[\s\S]*?body\[data-theme="studio"\]\.studio-agent-docked \.canvas-agent-panel\s*\{[^}]*overflow: visible;/);
+  assert.match(css,/@media \(min-width: 701px\) and \(any-pointer: coarse\)\s*\{[\s\S]*?body\[data-theme="studio"\]\.studio-agent-docked \.canvas-agent-resize-edge\.left\s*\{[^}]*display: block;[^}]*left: -22px;[^}]*width: 44px/);
+  assert.match(css,/@media \(min-width: 701px\) and \(any-pointer: coarse\)\s*\{[\s\S]*?body\[data-theme="studio"\]\.studio-agent-docked \.canvas-agent-resize-edge\.left::after\s*\{[^}]*left: 21px;/);
 });
 
 test("PenEcho Agent docked width can grow to half the page",()=>{
@@ -2812,8 +2816,9 @@ test("PenEcho Agent UI and browser Facade support local and Cloud runtimes and a
   const projectDialog=html.slice(html.indexOf('<dialog id="canvasAgentProjectPopover"'),html.indexOf("</dialog>",html.indexOf('<dialog id="canvasAgentProjectPopover"'))+9);
   assert.match(projectDialog,/id="canvasAgentProjectBoundary"[\s\S]*?data-i18n="canvasAgentProjectBoundary"/);
   assert.doesNotMatch(projectDialog,/type="file"|Add local file|添加本地文件/);
-  assert.ok(html.indexOf('id="canvasAgentProject"')<html.indexOf('id="canvasAgentPromptSuggestions"'));
-  assert.ok(html.indexOf('id="canvasAgentPromptSuggestions"')<html.indexOf('id="canvasAgentConnection"'));
+  assert.ok(html.indexOf('id="canvasAgentPromptSuggestions"')<html.indexOf('id="canvasAgentTranscript"'));
+  assert.ok(html.indexOf('id="canvasAgentProject"')<html.indexOf('id="canvasAgentPromptControl"'));
+  assert.ok(html.indexOf('id="canvasAgentPromptControl"')<html.indexOf('id="canvasAgentConnection"'));
   assert.ok(html.indexOf('id="canvasAgentConnection"')<html.indexOf('id="canvasAgentInput"'));
   assert.ok(html.indexOf('id="canvasAgentInput"')<html.indexOf('id="canvasAgentAttach"'));
   assert.ok(html.indexOf('id="canvasAgentAttach"')<html.indexOf('id="canvasAgentReference"'));

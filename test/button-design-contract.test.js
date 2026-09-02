@@ -73,10 +73,12 @@ test("Settings AI font uses the compact defined select contract", () => {
   assert.match(css, /@media \(pointer: coarse\)[\s\S]*?label\.settings-row:has\(> #aiFont\[data-pe-control="select"\]\) \{ min-height:\s*44px; \}/);
 });
 
-test("binary switches keep an explicit neutral off track and tint only the on state", () => {
+test("binary switches match the catalog off state and tint only the on state", () => {
   const css = read("public/style.css");
   const switchContract = css.match(/:is\(#pe-button-contract, \[data-pe-control="switch"\]\)\s*\{([^}]*)\}/)?.[1] || "";
-  assert.match(switchContract, /background:\s*var\(--pe-surface-muted\)/);
+  assert.match(css, /--pe-ink-2:\s*var\(--studio-muted,\s*#4e5764\);/);
+  assert.match(switchContract, /background:\s*var\(--pe-surface\)/);
+  assert.match(css, /\[data-pe-control="switch"\]\)::after\s*\{[^}]*background:\s*var\(--pe-ink-2\);/s);
   assert.match(css, /\[data-pe-control="switch"\]\)\[aria-checked="true"\]\s*\{[^}]*border-color:\s*var\(--pe-accent\);[^}]*background:\s*var\(--pe-accent\);/s);
 });
 
@@ -90,10 +92,10 @@ test("runtime-created controls opt into the same closed contract", () => {
     "src/client/app/studio-navigator.js",
   ].map(read).join("\n");
   assert.match(appSources, /function peButton\(/);
-  assert.match(appSources, /button\.dataset\.peItem="prompt-suggestion"/);
+  assert.match(appSources, /button\.dataset\.peItem="icon-copy-action"/);
   assert.doesNotMatch(appSources, /button\.dataset\.peList="double"/);
   assert.match(appSources, /titleText=t\(suggestion\.title\)/);
-  assert.match(read("public/index.html"),/id="canvasAgentPrimaryPromptList"[^>]*data-pe-list="prompt-grid"/);
+  assert.match(read("public/index.html"),/id="canvasAgentPromptPopup"[^>]*data-pe-list="icon-copy"/);
   assert.match(appSources, /peButton\(button, kind === "delete" \? "danger" : "toolbar", "compact"\)/);
   assert.match(appSources, /peButton\(remove,"toolbar","compact"\)/, "navigator session delete remains an inline toolbar action");
   assert.match(canvasRuntime, /className === "confirm" \? "composer-action" : className === "cancel" \? "icon" : "toolbar"/);
@@ -142,8 +144,9 @@ test("Agent composer keeps the scale90 button set and layout while adopting tint
   assert.doesNotMatch(genericSvgRule, /display:\s*block/, "state-owned SVG visibility must beat generic icon normalization");
   assert.match(css, /\.canvas-agent-tool-actions,\s*\.canvas-agent-primary-actions\s*\{ display: flex; align-items: center; gap: 2px; \}/);
   assert.match(css, /:is\(#pe-button-contract, \.canvas-agent-composer-toolbar\) \.canvas-agent-project-control > \.canvas-agent-project-button\[data-pe-button\]\s*\{[^}]*width: 100%;[^}]*min-width: 0;[^}]*max-width: 100%;[^}]*flex: 1 1 auto;/s);
-  assert.match(css, /\.canvas-agent-project-button > span\s*\{[^}]*text-overflow:\s*clip;[^}]*mask-image:\s*linear-gradient\(to right,/s);
-  assert.match(css, /\.canvas-agent-composer \.canvas-agent-project-clear\s*\{[^}]*right:\s*3px;[^}]*left:\s*auto;/s);
+  assert.match(css, /\.canvas-agent-project-button > span\s*\{[^}]*flex:\s*0 1 auto;[^}]*text-overflow:\s*clip;[^}]*mask-image:\s*linear-gradient\(to right,/s);
+  assert.match(css, /\.canvas-agent-project-button > span > span\s*\{[^}]*margin-inline:\s*0;/s);
+  assert.match(css, /\.canvas-agent-composer \.canvas-agent-project-clear\s*\{[^}]*right:\s*10px;[^}]*left:\s*auto;/s);
   assert.match(css, /\.canvas-agent-project-control\.has-resource:is\(:hover, :focus-within\) > \.canvas-agent-project-button\[data-pe-button\]\s*\{[^}]*gap:\s*0;[^}]*padding-inline:\s*8px 24px;/s);
   assert.match(css, /\.canvas-agent-project-button\[data-pe-button\] > :is\(\.canvas-agent-project-folder-icon, \.canvas-agent-project-file-icon\)\s*\{[^}]*width:\s*0;[^}]*flex-basis:\s*0;/s);
   assert.match(css, /@media \(hover: none\)[\s\S]*?\.canvas-agent-project-control\.has-resource > \.canvas-agent-project-clear\[data-pe-button\]\s*\{[^}]*opacity:\s*1;[^}]*pointer-events:\s*auto;/s);

@@ -381,6 +381,10 @@
         debug("ai-deferred", { ...meta, reason: "user-revision-changed" });
         return;
       }
+      if (state.images.length + commands.filter((command) => command.tool === "plot_function").length > MAX_VISIBLE_IMAGES) {
+        setStatusKey("imageLimitReached");
+        throw Error(t("imageLimitReached"));
+      }
       if (commands.length) {
         if (!isolatedSelection) {
           state.dirty = null;
@@ -1023,6 +1027,7 @@
         if (!accepted) throw Error(AI_REJECTED);
       } else {
         let image,
+          plotBlob = null,
           x = c.x,
           y = c.y,
           pendingCommand = c;
@@ -1031,7 +1036,9 @@
         } else if (c.tool === "draw_formula") {
           image = await formulaImage(c.latex, c.fontSize, c.color);
         } else if (c.tool === "plot_function") {
-          image = plot(c);
+          const preparedPlot = await plotObjectImage(c);
+          image = preparedPlot.image;
+          plotBlob = preparedPlot.blob;
         } else if (c.tool === "animate_scene") {
           pendingCommand = ANIMATION.normalize(c, SIZE);
           image = pendingCommand ? ANIMATION.rasterize(pendingCommand, offscreen, 0, Math.min(2, sharpRenderRatio())) : null;
@@ -1045,7 +1052,7 @@
           checkAI(revision, run);
           x = Math.max(0, Math.min(x, SIZE - Math.min(image.logicalWidth || image.width, SIZE)));
           y = Math.max(0, Math.min(y, SIZE - Math.min(image.logicalHeight || image.height, SIZE)));
-          const accepted = await startPending(image, x, y, revision, meta, pendingCommand);
+          const accepted = await startPending(image, x, y, revision, meta, pendingCommand, plotBlob);
           if (accepted === AI_CANCELLED) throw Error(AI_CANCELLED);
           if (accepted === AI_SUPERSEDED) throw Error(AI_SUPERSEDED);
           if (accepted === AI_REJECTED || !accepted) throw Error(AI_REJECTED);
@@ -1066,12 +1073,17 @@
       return { command: c, erase: true, bounds, image: eraseMask(c, bounds) };
     }
     let image,
+      plotBlob = null,
       x = c.x,
       y = c.y,
       pendingCommand = c;
     if (c.tool === "write_text") image = textImage(c.text, c.fontSize, c.color, c.maxWidth, c.lineHeight, state.aiFont, AI_TEXT_MAX_LENGTH, sharpRenderRatio());
     else if (c.tool === "draw_formula") image = await formulaImage(c.latex, c.fontSize, c.color);
-    else if (c.tool === "plot_function") image = plot(c);
+    else if (c.tool === "plot_function") {
+      const preparedPlot = await plotObjectImage(c);
+      image = preparedPlot.image;
+      plotBlob = preparedPlot.blob;
+    }
     else if (c.tool === "animate_scene") {
       pendingCommand = ANIMATION.normalize(c, SIZE);
       image = pendingCommand ? ANIMATION.rasterize(pendingCommand, offscreen, 0, Math.min(2, sharpRenderRatio())) : null;
@@ -1090,6 +1102,7 @@
       image,
       textCommand: c.tool === "write_text" ? { ...c } : null,
       copyText: copyTextForCommand(c),
+      plotBlob,
       animationScene: c.tool === "animate_scene" ? pendingCommand : null,
       animationPlayback: c.tool === "animate_scene" ? createAnimationPlayback() : null,
       x: Math.max(0, Math.min(x, SIZE - Math.min(logicalWidth, SIZE))),
@@ -1433,6 +1446,7 @@
   function copyTextForCommand(command) {
     if (command?.tool === "write_text" && typeof command.text === "string") return command.text;
     if (command?.tool === "draw_formula" && typeof command.latex === "string") return command.latex;
+    if (command?.tool === "plot_function" && typeof command.expression === "string") return command.expression;
     return null;
   }
   function pendingCopyValue(target) {
@@ -1911,6 +1925,7 @@
       const box = draftBounds(p);
       addAnimation(p.animationScene, box, p.animationPlayback);
     }
+    else if (p.command?.tool === "plot_function") addPendingPlotImage(p, draftBounds(p));
     else if (p.textCommand) {
       const box = draftBounds(p);
       blitClipped(p.image, p.x, p.y, (p.image.logicalWidth || p.image.width) * p.scaleX, (p.image.logicalHeight || p.image.height) * p.scaleY, box.w, box.h);
@@ -2058,6 +2073,7 @@
       animationScene: p.animationScene || null,
       animationPlayback: p.animationPlayback || null,
       copyText: pendingCopyValue(p),
+      plotBlob:p.plotBlob || null,
       x: p.x,
       y: p.y,
       scaleX: p.scaleX || 1,
@@ -2094,7 +2110,7 @@
     if (pendingAnimationControlTarget()) showAnimationControls();
     releaseSelectionAITransformLock();
   }
-  function startPending(image, x, y, revision, meta, command) {
+  function startPending(image, x, y, revision, meta, command, plotBlob = null) {
     return new Promise((resolve) => {
       enterAIDraftHandMode();
       const textCommand = command.tool === "write_text" ? { ...command } : null,
@@ -2103,7 +2119,7 @@
         layoutWidth = textCommand ? command.maxWidth : image.logicalWidth || image.width,
         layoutHeight = image.logicalHeight || image.height;
       if (state.pending) {
-        appendPendingItems(state.pending, [{ command: { ...command }, image, textCommand, animationScene, copyText, x, y, layoutWidth, layoutHeight }], revision, meta, resolve);
+        appendPendingItems(state.pending, [{ command: { ...command }, image, textCommand, animationScene, copyText, plotBlob, x, y, layoutWidth, layoutHeight }], revision, meta, resolve);
         return;
       }
       const rows = image.revealRows || [image.logicalWidth || image.width],
@@ -2118,6 +2134,7 @@
         scaleY: 1,
         textCommand,
         copyText,
+        plotBlob,
         animationScene,
         animationPlayback: animationScene ? createAnimationPlayback() : null,
         layoutWidth,
@@ -2181,11 +2198,32 @@
   function commitPendingBatch(p) {
     for (const item of p.items) commitPendingItem(item);
   }
+  function addPendingPlotImage(item, box = pendingItemBounds(item)) {
+    const expression = typeof item?.command?.expression === "string" ? item.command.expression.trim() : "";
+    if (!expression || !(item.plotBlob instanceof Blob) || state.images.length >= MAX_VISIBLE_IMAGES) throw Error("Plot object could not be committed");
+    recordImagesBefore();
+    const record = imageRecord({
+      image:item.image,
+      blob:item.plotBlob,
+      x:box.x,
+      y:box.y,
+      w:box.w,
+      h:box.h,
+      naturalW:item.image.width,
+      naturalH:item.image.height,
+      sourceName:"",
+      plotExpression:expression,
+    });
+    if (!record) throw Error("Plot object could not be committed");
+    state.images.push(record);
+    return record;
+  }
   function commitPendingItem(item) {
     const box = pendingItemBounds(item);
     if (item.erase) eraseWithMask(item.image, box.x, box.y, box.w, box.h);
     else if (item.textCommand) blitClipped(item.image, item.x, item.y, (item.image.logicalWidth || item.image.width) * item.scaleX, (item.image.logicalHeight || item.image.height) * item.scaleY, box.w, box.h);
     else if (item.animationScene) addAnimation(item.animationScene, box, item.animationPlayback);
+    else if (item.command?.tool === "plot_function") addPendingPlotImage(item, box);
     else blitSized(item.image, box.x, box.y, (item.image.logicalWidth || item.image.width) * item.scaleX, (item.image.logicalHeight || item.image.height) * item.scaleY);
   }
   function armPendingCopy(e, hit, itemIndex = null) {
@@ -2545,6 +2583,21 @@
       .replace(/√\s*\(([^()]*)\)/g, "sqrt($1)")
       .replace(/√\s*([A-Za-z0-9_.]+)/g, "sqrt($1)")
       .replace(/(\d|\)|x(?![A-Za-z_])|pi(?![A-Za-z_])|e(?![A-Za-z_]))\s*(?=x|pi|e(?![+\-]?\d)|sin|cos|tan|sqrt|abs|exp|log|ln|\()/gi, "$1*");
+  }
+  async function plotObjectImage(command) {
+    const rendered = plot(command),
+      logicalWidth = rendered.logicalWidth || rendered.width,
+      logicalHeight = rendered.logicalHeight || rendered.height,
+      scale = Math.min(1, MAX_IMAGE_DIMENSION / logicalWidth, MAX_IMAGE_DIMENSION / logicalHeight, Math.sqrt(MAX_IMAGE_PIXELS / (logicalWidth * logicalHeight)));
+    let image = rendered;
+    if (scale < 1) {
+      image = offscreen(Math.max(1, Math.round(logicalWidth * scale)), Math.max(1, Math.round(logicalHeight * scale)));
+      image.getContext("2d").drawImage(rendered, 0, 0, image.width, image.height);
+      rendered.width = rendered.height = 1;
+    }
+    image.logicalWidth = logicalWidth;
+    image.logicalHeight = logicalHeight;
+    return { image, blob:await canvasBlob(image), logicalWidth, logicalHeight };
   }
   function plot(c) {
     const o = offscreen(c.w, c.h),
