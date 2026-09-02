@@ -54,6 +54,7 @@
       canvasDocumentRenameCommitting = false,
       studioNavigatorTransitionHandler = null,
       studioNavigatorOpenTimer = 0,
+      studioNavigatorHistoryDirty = true,
       studioEdgeSwipe = null;
 
     function storedStudioNavigatorTab() {
@@ -201,7 +202,12 @@
         if (open) {
           renderStudioNavigator();
           void refreshStudioNavigatorSources();
-        } else if (restoreAgent) restoreStudioAgentAfterNavigator();
+        } else {
+          releaseStudioNavigatorPreviewUrls(studioNavigatorWorkPreviewUrls);
+          releaseStudioNavigatorPreviewUrls(studioNavigatorAgentPreviewUrls);
+          releaseStudioNavigatorPreviewUrls(studioNavigatorCanvasPreviewUrls);
+          if (restoreAgent) restoreStudioAgentAfterNavigator();
+        }
       };
       if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches || !studioNavigatorIsStudio()) {
         settle();
@@ -564,6 +570,11 @@
     }
     function renderStudioAgentHistory() {
       if (!studioAgentRecentList) return;
+      if (!studioNavigatorIsOpen()) {
+        studioNavigatorHistoryDirty = true;
+        return;
+      }
+      studioNavigatorHistoryDirty = false;
       releaseStudioNavigatorPreviewUrls(studioNavigatorAgentPreviewUrls);
       const query=studioNavigatorSearchQuery(),groups=studioNavigatorWorkGroups().map((group)=>({...group,conversations:query?group.conversations.filter((conversation)=>`${group.name} ${conversation.title||t("canvasAgentHistoryUntitled")} ${studioNavigatorConversationSummary(conversation)}`.toLocaleLowerCase(state.language==="zh"?"zh-CN":"en").includes(query)):group.conversations})).filter((group)=>group.conversations.length);
       studioNavigatorQueueCanvasGroupSnapshots(groups);
@@ -610,6 +621,11 @@
     }
     function renderStudioWorkHistory() {
       if (!studioWorkRecentList) return;
+      if (!studioNavigatorIsOpen()) {
+        studioNavigatorHistoryDirty = true;
+        return;
+      }
+      studioNavigatorHistoryDirty = false;
       releaseStudioNavigatorPreviewUrls(studioNavigatorWorkPreviewUrls);
       const query=studioNavigatorSearchQuery(),groups=studioNavigatorWorkGroups().filter((group)=>studioNavigatorGroupMatches(group,query));
       studioNavigatorQueueCanvasGroupSnapshots(groups);
@@ -628,6 +644,11 @@
     }
     function renderStudioCanvasHistory() {
       if (!studioCanvasRecentList) return;
+      if (!studioNavigatorIsOpen()) {
+        studioNavigatorHistoryDirty = true;
+        return;
+      }
+      studioNavigatorHistoryDirty = false;
       releaseStudioNavigatorPreviewUrls(studioNavigatorCanvasPreviewUrls);
       const items=studioNavigatorSnapshots().sort((a,b)=>(b.updatedAt||b.createdAt||0)-(a.updatedAt||a.createdAt||0)),query=studioNavigatorSearchQuery(),locale=state.language==="zh"?"zh-CN":"en",
         filtered=query?items.filter((item)=>`${snapshotName(item)} ${snapshotLocationLabel(item.location)}`.toLocaleLowerCase(locale).includes(query)):items;
@@ -656,6 +677,10 @@
       if(!studioCanvasRecentList.childElementCount)studioNavigatorEmpty(studioCanvasRecentList,items.length?"studioNavigatorCanvasNoMatch":"studioNavigatorCanvasEmpty");
     }
     function renderActiveStudioNavigatorHistory() {
+      if (!studioNavigatorIsOpen()) {
+        studioNavigatorHistoryDirty = true;
+        return;
+      }
       if(studioNavigatorActiveTab==="canvas")renderStudioCanvasHistory();
       else if(studioNavigatorActiveTab==="agent")renderStudioAgentHistory();
       else renderStudioWorkHistory();

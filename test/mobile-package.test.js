@@ -92,7 +92,7 @@ test("the shared Canvas already exposes the Apple Pencil input contract without 
   assert.match(bindings, /if \(e\.pointerType === "touch"\)[\s\S]*?state\.panGesture/);
   assert.match(bindings, /const cssSize = erasing \? state\.eraser : pressureWidth\(e\)/);
   assert.doesNotMatch(bindings, /drawingPointerSamples|getCoalescedEvents/);
-  assert.match(bindings, /const p = clientPoint\(e\),[\s\S]*?stroke\(a, p, d\.erase, size, true\)[\s\S]*?requestInkLayerRender\(\)/);
+  assert.match(bindings, /drawingClientPoint\(d, e\)[\s\S]*?appendLiveInkSample\(d, p, size\)[\s\S]*?commitLiveInkDrawingProgress\(d\)/);
 });
 
 test("release workflow builds and publishes the Android APK", () => {

@@ -165,7 +165,8 @@
       size,
       color: state.inkColor,
       inputTransform: options.inputTransform || captureDrawingTransform(),
-      samples: erasing ? null : [],
+      samples: [],
+      committedSamples: 0,
       start: p,
       points: 1,
       screenDistance: 0,
@@ -176,11 +177,9 @@
       erase: erasing,
       dirtyMaskTouched:erasing ? new Set() : null,
     };
+    view.classList.add("is-drawing");
     updateCanvasPointerPreview(e, p);
-    if (erasing) {
-      dot(p, true, size, true);
-      paintInkDisplaySegment(inkCtx, p, { x:p.x + 0.01, y:p.y + 0.01 }, true, size);
-    } else appendLiveInkSample(state.drawing, p, size);
+    appendLiveInkSample(state.drawing, p, size);
   }
   function beginHandObjectResize(event, point) {
     if (state.mode !== "hand" || event.pointerType === "touch" || Number(event.button) !== 0 || !point || !valid(point)) return false;
@@ -328,16 +327,13 @@
     if (!d || d.id !== e.pointerId) return false;
     const old = state.pointers.get(e.pointerId),
       p = drawingClientPoint(d, e),
-      a = d.last,
       cssSize = d.erase ? state.eraser : pressureWidth(e),
       size = logicalWidth(cssSize);
     state.pointers.set(e.pointerId, { x:e.clientX, y:e.clientY });
     state.userRevision++;
-    if (d.erase) {
-      stroke(a, p, true, size, true);
-      paintInkDisplaySegment(inkCtx, a, p, true, size);
-      updateCanvasPointerPreview(e, p);
-    } else appendLiveInkSample(d, p, size);
+    appendLiveInkSample(d, p, size);
+    commitLiveInkDrawingProgress(d);
+    if (d.erase) updateCanvasPointerPreview(e, p);
     d.last = p;
     d.size = size;
     d.points++;
@@ -413,13 +409,13 @@
     if (state.areaEraseGesture?.id === e.pointerId) {
       updateAreaEraseGesture(e);
       const point = clientPoint(e);
-      coords.textContent = `x ${Math.round(point.x)} · y ${Math.round(point.y)} · ${Math.round(state.scale * 100)}%`;
+      requestCoordinatesUpdate(point);
       return;
     }
     if (state.selectionGesture?.id === e.pointerId) {
       updateSelectionGesture(e);
       const point = clientPoint(e);
-      coords.textContent = `x ${Math.round(point.x)} · y ${Math.round(point.y)} · ${Math.round(state.scale * 100)}%`;
+      requestCoordinatesUpdate(point);
       return;
     }
     if (state.textTap?.id === e.pointerId) {
@@ -442,6 +438,7 @@
   });
   function end(e) {
     finishCanvasNavigationPreview();
+    if (coordinatesUpdatePending) flushCoordinatesUpdate();
     if (state.viewMode) {
       state.pointers.delete(e.pointerId);
       if (e.pointerType === "touch") state.touches.delete(e.pointerId);

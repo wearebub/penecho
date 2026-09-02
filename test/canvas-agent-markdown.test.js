@@ -196,15 +196,17 @@ function assistantEventHarness(initialTargets=[]) {
   },names=["canvasAgentAssistantPosition","canvasAgentPendingAssistantRow","canvasAgentCreateAssistantRow","canvasAgentHandleEvent"],
     handleEvent=vm.runInNewContext(`(()=>{${names.map(functionSource).join("\n")}return canvasAgentHandleEvent;})()`,{
       canvasAgent,canvasAgentRow,canvasClientId:()=>`event-${++id}`,canvasAgentMessageText:value=>String(value||""),canvasAgentVisibleAssistantText:value=>String(value||""),
-      canvasAgentRenderMessageBody:(body,text,role,options)=>rendered.push({body,text,role,options}),canvasAgentScheduleHistoryPersist:()=>{},canvasAgentScrollToLatest:()=>{},
+      canvasAgentScheduleAssistantRender:target=>rendered.push({body:target.body,text:target.messageText,role:"assistant",options:{final:false}}),
+      canvasAgentRenderFinalAssistantMessage:target=>rendered.push({body:target.body,text:target.messageText,role:"assistant",options:{final:true}}),
+      canvasAgentFlushAssistantRenders:()=>{},canvasAgentScheduleHistoryPersist:()=>{},canvasAgentScrollToLatest:()=>{},
     });
   return {canvasAgent,created,rendered,handleEvent};
 }
 
 test("PenEcho Agent final assistant_message is authoritative over its streamed deltas",()=>{
   const handle=functionSource("canvasAgentHandleEvent");
-  assert.match(handle,/assistant_delta[\s\S]*?\{final:false\}/);
-  assert.match(handle,/assistant_message[\s\S]*?if\(typeof event\.text==="string"\)target\.messageText=canvasAgentVisibleAssistantText\(event\.text\)[\s\S]*?\{final:true\}[\s\S]*?historyItem\.text=target\.messageText/);
+  assert.match(handle,/assistant_delta[\s\S]*?canvasAgentScheduleAssistantRender\(target\)/);
+  assert.match(handle,/assistant_message[\s\S]*?if\(typeof event\.text==="string"\)target\.messageText=canvasAgentVisibleAssistantText\(event\.text\)[\s\S]*?canvasAgentRenderFinalAssistantMessage\(target\)[\s\S]*?historyItem\.text=target\.messageText/);
   assert.match(handle,/historyItem\.final=false[\s\S]*?historyItem\.final=true/);
   assert.doesNotMatch(handle,/event\.text && !target\.messageText/);
   assert.match(source,/canvasAgentAppendMessageElement\(item[\s\S]*?final:item\.role!=="assistant"\|\|item\.final!==false/);

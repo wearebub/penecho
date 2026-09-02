@@ -3166,11 +3166,12 @@ test("PenEcho Agent UI and browser Facade support local and Cloud runtimes and a
   assert.match(zh,/canvasAgentReferenceCollapse: "收起 Widget 选择器"/);
   assert.match(functionSource(source,"canvasAgentWidgetFromPickEvent"),/widgetPointerHit\(clientPoint\(event\),event\.pointerType\|\|"mouse",true\)/);
   assert.match(source,/canvasAgentWidgetPickerLayer\.addEventListener\("pointerdown"[\s\S]*canvasAgentToggleReference\(widget\.id,true\)[\s\S]*canvasAgentToggleReferencePicker\(false\)/);
+  assert.match(functionSource(source,"canvasAgentSetWidgetPickActive"),/if \(!active\)[\s\S]*?canvasAgentWidgetPickerLayer\.width=1[\s\S]*?canvasAgentWidgetPickerLayer\.height=1[\s\S]*?if \(active\) canvasAgentDrawWidgetPick\(\)/);
   assert.match(source,/canvasAgentSendRequest\(canvasAgent\.running \? "steer" : "user_turn"[\s\S]*images:outgoingAttachments\.map[\s\S]*canvasAgentClearReferences\(\)/);
   assert.match(source,/document\.createElement\("details"\)[\s\S]*?document\.createElement\("summary"\)/);
   assert.match(functionSource(source,"canvasAgentRenderMessageBody"),/canvasAgentFencedSegments[\s\S]*canvas-agent-copy-block-button[\s\S]*writeClipboardText\(segment\.text\)/);
-  assert.match(source,/target\.messageText = canvasAgentMessageText\(target\.messageText \+ \(event\.text \|\| ""\)\)[\s\S]*canvasAgentRenderMessageBody\(target\.body,target\.messageText,"assistant",\{final:false\}\)/);
-  assert.match(source,/assistant_message[\s\S]*?if\(typeof event\.text==="string"\)target\.messageText=canvasAgentMessageText\(event\.text\)[\s\S]*?canvasAgentRenderMessageBody\(target\.body,target\.messageText,"assistant",\{final:true\}\)/);
+  assert.match(source,/target\.messageText = canvasAgentVisibleAssistantText\(target\.messageText \+ \(event\.text \|\| ""\)\)[\s\S]*canvasAgentScheduleAssistantRender\(target\)/);
+  assert.match(source,/assistant_message[\s\S]*?if\(typeof event\.text==="string"\)target\.messageText=canvasAgentVisibleAssistantText\(event\.text\)[\s\S]*?canvasAgentRenderFinalAssistantMessage\(target\)/);
   assert.match(functionSource(source,"canvasAgentAppendMarkdown"),/createElement\("h3"\)[\s\S]*createElement\(orderedList\?"ol":"ul"\)[\s\S]*createElement\("blockquote"\)/);
   assert.doesNotMatch(functionSource(source,"canvasAgentRenderMessageBody"),/innerHTML/);
   assert.match(source,/querySelectorAll\("\.canvas-agent-copy-block"\)[\s\S]*canvasAgentBlockCopied[\s\S]*canvasAgentBlockCopyFailed/);

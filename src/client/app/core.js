@@ -1821,13 +1821,26 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       width = rect.width / scale, height = rect.height / scale;
     return { left, top, right:left + width, bottom:top + height, width, height };
   }
+  let canvasViewportMetricsCache = null;
+  let canvasViewportMetricsCacheFrame = 0;
+  function invalidateCanvasViewportMetrics() {
+    if (canvasViewportMetricsCacheFrame) cancelAnimationFrame(canvasViewportMetricsCacheFrame);
+    canvasViewportMetricsCacheFrame = 0;
+    canvasViewportMetricsCache = null;
+  }
   function canvasViewportMetrics() {
+    if (canvasViewportMetricsCache) return canvasViewportMetricsCache;
     const rect = view.getBoundingClientRect(),
       width = Math.max(0, Number(view.clientWidth) || rect.width),
       height = Math.max(0, Number(view.clientHeight) || rect.height),
       clientScaleX = rect.width > 0 ? width / rect.width : 1,
       clientScaleY = rect.height > 0 ? height / rect.height : 1;
-    return { rect, width, height, clientScaleX, clientScaleY };
+    canvasViewportMetricsCache = { rect, width, height, clientScaleX, clientScaleY };
+    canvasViewportMetricsCacheFrame = requestAnimationFrame(() => {
+      canvasViewportMetricsCacheFrame = 0;
+      canvasViewportMetricsCache = null;
+    });
+    return canvasViewportMetricsCache;
   }
   function canvasClientPosition(clientX, clientY) {
     const metrics = canvasViewportMetrics();

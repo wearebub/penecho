@@ -2711,7 +2711,7 @@
     });
   }
   const CANVAS_NAVIGATION_SETTLE_MS = 80;
-  const CANVAS_NAVIGATION_REBASE_VIEWPORT_RATIO = 0.35;
+  const CANVAS_NAVIGATION_REBASE_VIEWPORT_RATIO = 0.60;
   const CANVAS_NAVIGATION_REBASE_MIN_PX = 192;
   let canvasNavigationPreviewFrame = 0;
   let canvasNavigationPreviewSettleTimer = 0;
@@ -2742,13 +2742,15 @@
     if (canvasNavigationPreviewSettleTimer) clearTimeout(canvasNavigationPreviewSettleTimer);
     canvasNavigationPreviewSettleTimer = 0;
     if (!view.classList.contains("canvas-navigation-previewing")) return false;
+    flushCoordinatesUpdate();
     if (!state.renderQueued) render();
     return true;
   }
   function canvasNavigationPreviewStep() {
     canvasNavigationPreviewFrame = 0;
     if (!view.classList.contains("canvas-navigation-previewing")) return;
-    updateCoordinates();
+    applyCanvasNavigationPreview();
+    requestCoordinatesUpdate();
     requestAnimationLayerRender();
     if (state.renderQueued) return;
     if (Math.abs(state.panX - canvasNavigationPreviewPanX) >= canvasNavigationPreviewRebaseX
@@ -2758,10 +2760,11 @@
     if (!view.classList.contains("canvas-navigation-previewing")) {
       canvasNavigationPreviewPanX = previousPanX;
       canvasNavigationPreviewPanY = previousPanY;
-      canvasNavigationPreviewRebaseX = Math.max(CANVAS_NAVIGATION_REBASE_MIN_PX, (view.clientWidth || 0) * CANVAS_NAVIGATION_REBASE_VIEWPORT_RATIO);
-      canvasNavigationPreviewRebaseY = Math.max(CANVAS_NAVIGATION_REBASE_MIN_PX, (view.clientHeight || 0) * CANVAS_NAVIGATION_REBASE_VIEWPORT_RATIO);
+      const { width, height } = canvasViewportMetrics();
+      canvasNavigationPreviewRebaseX = Math.max(CANVAS_NAVIGATION_REBASE_MIN_PX, width * CANVAS_NAVIGATION_REBASE_VIEWPORT_RATIO);
+      canvasNavigationPreviewRebaseY = Math.max(CANVAS_NAVIGATION_REBASE_MIN_PX, height * CANVAS_NAVIGATION_REBASE_VIEWPORT_RATIO);
+      view.classList.add("canvas-navigation-previewing");
     }
-    applyCanvasNavigationPreview();
     if (canvasNavigationPreviewSettleTimer) clearTimeout(canvasNavigationPreviewSettleTimer);
     canvasNavigationPreviewSettleTimer = setTimeout(finishCanvasNavigationPreview, CANVAS_NAVIGATION_SETTLE_MS);
     if (!state.renderQueued && !canvasNavigationPreviewFrame) canvasNavigationPreviewFrame = requestAnimationFrame(canvasNavigationPreviewStep);
@@ -2811,6 +2814,7 @@
     });
   }
   function fit() {
+    invalidateCanvasViewportMetrics();
     const metrics = canvasViewportMetrics(),
       r = { width:metrics.width, height:metrics.height },
       d = devicePixelRatio || 1,
@@ -2870,7 +2874,7 @@
       state.panY = (r.height - SIZE * state.scale) / 2;
       state.viewInitialized = true;
     }
-    if (liveInkResized && state.drawing && !state.drawing.erase) renderLiveInkDrawing(state.drawing);
+    if (liveInkResized && state.drawing) renderLiveInkDrawing(state.drawing);
     else scheduleLiveInkLayerWarmup();
     updateCoordinates();
     requestRender();
@@ -2961,48 +2965,100 @@
     context.restore();
     return true;
   }
+  const LIVE_INK_COMMIT_SAMPLE_BATCH = 16;
+  let committedInkRenderFrame = 0;
   function appendLiveInkSample(drawing, point, size) {
     const previous = drawing.samples[drawing.samples.length - 1],
       sample = { point:{ x:point.x, y:point.y }, size };
     drawing.samples.push(sample);
     const painted = paintInkDisplaySegment(
-      liveInkCtx,
+      drawing.erase ? inkCtx : liveInkCtx,
       previous?.point || sample.point,
       previous ? sample.point : { x:sample.point.x + 0.01, y:sample.point.y + 0.01 },
-      false,
+      drawing.erase,
       size,
       drawing.color,
     );
-    if (painted) liveInkNeedsWarmup = false;
+    if (painted && !drawing.erase) liveInkNeedsWarmup = false;
   }
   function renderLiveInkDrawing(drawing) {
     clearLiveInkLayer();
-    if (!drawing || drawing.erase || !drawing.samples?.length) return;
+    if (!drawing || !drawing.samples?.length) return;
+    if (drawing.erase) renderInkLayer();
+    const displayContext = drawing.erase ? inkCtx : liveInkCtx;
     const first = drawing.samples[0];
-    paintInkDisplaySegment(liveInkCtx, first.point, { x:first.point.x + 0.01, y:first.point.y + 0.01 }, false, first.size, drawing.color);
+    paintInkDisplaySegment(displayContext, first.point, { x:first.point.x + 0.01, y:first.point.y + 0.01 }, drawing.erase, first.size, drawing.color);
     for (let i = 1; i < drawing.samples.length; i++) {
       const previous = drawing.samples[i - 1], current = drawing.samples[i];
-      paintInkDisplaySegment(liveInkCtx, previous.point, current.point, false, current.size, drawing.color);
+      paintInkDisplaySegment(displayContext, previous.point, current.point, drawing.erase, current.size, drawing.color);
     }
-    liveInkNeedsWarmup = false;
+    if (!drawing.erase) liveInkNeedsWarmup = false;
   }
-  function commitLiveInkDrawing(drawing) {
-    if (!drawing || drawing.erase || !drawing.samples?.length) return false;
-    const first = drawing.samples[0];
-    dot(first.point, false, first.size, true, drawing.color);
-    for (let i = 1; i < drawing.samples.length; i++) {
-      const previous = drawing.samples[i - 1], current = drawing.samples[i];
-      stroke(previous.point, current.point, false, current.size, true, drawing.color);
+  function commitLiveInkDrawingProgress(drawing, force = false) {
+    if (!drawing?.samples?.length) return false;
+    let committed = Math.max(0, Number(drawing.committedSamples) || 0);
+    if (!force && drawing.samples.length - committed < LIVE_INK_COMMIT_SAMPLE_BATCH) return false;
+    if (!committed) {
+      const first = drawing.samples[0];
+      dot(first.point, drawing.erase, first.size, true, drawing.color);
+      committed = 1;
     }
-    renderInkLayer();
-    clearLiveInkLayer();
+    for (let i = committed; i < drawing.samples.length; i++) {
+      const previous = drawing.samples[i - 1], current = drawing.samples[i];
+      stroke(previous.point, current.point, drawing.erase, current.size, true, drawing.color);
+    }
+    drawing.committedSamples = drawing.samples.length;
     return true;
   }
-  function updateCoordinates() {
+  function requestCommittedInkRender() {
+    if (committedInkRenderFrame) return;
+    committedInkRenderFrame = requestAnimationFrame(() => {
+      committedInkRenderFrame = 0;
+      renderInkLayer();
+      if (state.drawing?.samples?.length) renderLiveInkDrawing(state.drawing);
+      else clearLiveInkLayer();
+      scheduleLiveInkLayerWarmup();
+    });
+  }
+  function commitLiveInkDrawing(drawing) {
+    if (!commitLiveInkDrawingProgress(drawing, true)) return false;
+    requestCommittedInkRender();
+    return true;
+  }
+  const COORDINATES_UPDATE_INTERVAL_MS = 200;
+  let coordinatesUpdateFrame = 0;
+  let coordinatesUpdatePending = false;
+  let coordinatesUpdatePoint = null;
+  let coordinatesLastUpdatedAt = -COORDINATES_UPDATE_INTERVAL_MS;
+  function updateCoordinates(point = null) {
     const { width, height } = canvasViewportMetrics(),
-      x = (width / 2 - state.panX) / state.scale,
-      y = (height / 2 - state.panY) / state.scale;
-    coords.textContent = `x ${Math.round(x)} · y ${Math.round(y)} · ${Math.round(state.scale * 100)}%`;
+      x = point ? point.x : (width / 2 - state.panX) / state.scale,
+      y = point ? point.y : (height / 2 - state.panY) / state.scale,
+      text = `x ${Math.round(x)} · y ${Math.round(y)} · ${Math.round(state.scale * 100)}%`;
+    if (coords.textContent !== text) coords.textContent = text;
+  }
+  function requestCoordinatesUpdate(point = null) {
+    coordinatesUpdatePending = true;
+    coordinatesUpdatePoint = point;
+    if (coordinatesUpdateFrame) return;
+    coordinatesUpdateFrame = requestAnimationFrame((now) => {
+      coordinatesUpdateFrame = 0;
+      if (!coordinatesUpdatePending || now - coordinatesLastUpdatedAt < COORDINATES_UPDATE_INTERVAL_MS) return;
+      const pendingPoint = coordinatesUpdatePoint;
+      coordinatesUpdatePending = false;
+      coordinatesUpdatePoint = null;
+      coordinatesLastUpdatedAt = now;
+      updateCoordinates(pendingPoint);
+    });
+  }
+  function flushCoordinatesUpdate() {
+    if (coordinatesUpdateFrame) cancelAnimationFrame(coordinatesUpdateFrame);
+    coordinatesUpdateFrame = 0;
+    const pendingPoint = coordinatesUpdatePending ? coordinatesUpdatePoint : null;
+    coordinatesUpdatePending = false;
+    coordinatesUpdatePoint = null;
+    coordinatesLastUpdatedAt = performance.now();
+    updateCoordinates(pendingPoint);
   }
   function drawCanvasLineGrid(context, region, renderScale) {
     if (!region || region.w <= 0 || region.h <= 0) return;
@@ -5474,9 +5530,9 @@
     state.scale = next;
     state.panX = center.x - anchorX * next;
     state.panY = center.y - anchorY * next;
-    updateCoordinates();
+    requestCoordinatesUpdate();
     setNavigating(true);
-    render();
+    requestRender();
     return true;
   }
   function moveCanvas(dx, dy) {
@@ -5505,7 +5561,7 @@
     state.panX = px - ((px - state.panX) * next) / state.scale;
     state.panY = py - ((py - state.panY) * next) / state.scale;
     state.scale = next;
-    updateCoordinates();
+    requestCoordinatesUpdate();
     requestRender();
     wheelNavigating();
     return true;

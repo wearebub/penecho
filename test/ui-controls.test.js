@@ -49,7 +49,9 @@ test("active pen drawing paints a live layer before committing authoritative ink
   const pointerMove = app.slice(app.indexOf('screen.addEventListener("pointermove"'), app.indexOf("function end(e)")),
     activeDrawing = functionSource(app, "updateActiveCanvasDrawing"),
     appendLive = functionSource(app, "appendLiveInkSample"),
+    commitProgress = functionSource(app, "commitLiveInkDrawingProgress"),
     commitLive = functionSource(app, "commitLiveInkDrawing"),
+    requestCommittedRender = functionSource(app, "requestCommittedInkRender"),
     finishDrawing = functionSource(app, "finishDrawing"),
     warmLive = functionSource(app, "warmLiveInkLayer"),
     scheduleWarm = functionSource(app, "scheduleLiveInkLayerWarmup"),
@@ -60,9 +62,11 @@ test("active pen drawing paints a live layer before committing authoritative ink
   assert.doesNotMatch(pointerMove, /getCoalescedEvents/);
   assert.match(pointerMove, /if \(updateActiveCanvasDrawing\(e\)\) return;[\s\S]*?updateCanvasWidgetGestureResetTap\(e\)/);
   assert.doesNotMatch(activeDrawing, /clientPoint\(|canvasViewportMetrics\(|calibrateScreenClientRatio\(/);
-  assert.match(activeDrawing, /drawingClientPoint\(d, e\)[\s\S]*?d\.erase[\s\S]*?stroke\(a, p, true, size, true\)[\s\S]*?appendLiveInkSample\(d, p, size\)/);
-  assert.match(appendLive, /drawing\.samples\.push\(sample\)[\s\S]*?paintInkDisplaySegment\([\s\S]*?liveInkCtx[\s\S]*?liveInkNeedsWarmup = false/);
-  assert.match(commitLive, /dot\(first\.point, false, first\.size, true, drawing\.color\)[\s\S]*?stroke\(previous\.point, current\.point, false, current\.size, true, drawing\.color\)[\s\S]*?renderInkLayer\(\)[\s\S]*?clearLiveInkLayer\(\)/);
+  assert.match(activeDrawing, /drawingClientPoint\(d, e\)[\s\S]*?appendLiveInkSample\(d, p, size\)[\s\S]*?commitLiveInkDrawingProgress\(d\)/);
+  assert.match(appendLive, /drawing\.samples\.push\(sample\)[\s\S]*?paintInkDisplaySegment\([\s\S]*?drawing\.erase \? inkCtx : liveInkCtx/);
+  assert.match(commitProgress, /LIVE_INK_COMMIT_SAMPLE_BATCH[\s\S]*?dot\(first\.point, drawing\.erase[\s\S]*?stroke\(previous\.point, current\.point, drawing\.erase[\s\S]*?drawing\.committedSamples = drawing\.samples\.length/);
+  assert.match(commitLive, /commitLiveInkDrawingProgress\(drawing, true\)[\s\S]*?requestCommittedInkRender\(\)/);
+  assert.match(requestCommittedRender, /requestAnimationFrame[\s\S]*?renderInkLayer\(\)[\s\S]*?state\.drawing\?\.samples\?\.length[\s\S]*?clearLiveInkLayer\(\)/);
   assert.match(warmLive, /fillRect\(0, 0, 1, 1\)[\s\S]*?clearRect\(0, 0, 1, 1\)[\s\S]*?liveInkNeedsWarmup = false/);
   assert.match(scheduleWarm, /requestAnimationFrame[\s\S]*?requestAnimationFrame[\s\S]*?!state\.drawing[\s\S]*?warmLiveInkLayer\(\)/);
   assert.match(fitCanvas, /if \(liveInkResized\) liveInkNeedsWarmup = true[\s\S]*?scheduleLiveInkLayerWarmup\(\)/);
@@ -70,7 +74,7 @@ test("active pen drawing paints a live layer before committing authoritative ink
   assert.match(pointerDown, /const input = captureDrawingInput\(e\)[\s\S]*?beginCanvasPointerAction\(e, input\.point, \{ inputTransform:input\.inputTransform \}\)/);
   assert.doesNotMatch(activeDrawing, /requestAnimationFrame|requestRender\(|renderInkLayer\(|coords\.textContent/);
   assert.doesNotMatch(pointerMove, /requestRender\(\)/);
-  assert.match(finishDrawing, /commitLiveInkDrawing\(d\)[\s\S]*?state\.drawing = null[\s\S]*?scheduleLiveInkLayerWarmup\(\)[\s\S]*?saveUserCanvasChange\(\)[\s\S]*?requestRender\(\)/);
+  assert.match(finishDrawing, /commitLiveInkDrawing\(d\)[\s\S]*?state\.drawing = null[\s\S]*?scheduleLiveInkLayerWarmup\(\)[\s\S]*?saveUserCanvasChange\(\)[\s\S]*?requestInteractionLayerRender\(\)/);
   assert.doesNotMatch(app, /function requestInkLayerRender/);
 });
 
@@ -84,16 +88,20 @@ test("hand panning previews Canvas content on the compositor before the exact re
     requestPreview = functionSource(app, "requestCanvasNavigationPreview"),
     previewStep = functionSource(app, "canvasNavigationPreviewStep"),
     widgetCarrier = functionSource(app, "syncCanvasWidgetCarrier"),
+    viewportMetrics = functionSource(app, "canvasViewportMetrics"),
     renderContent = functionSource(app, "renderCanvasContent"),
     endSource = functionSource(app, "end"),
     panFastPath = pointerMove.indexOf('if (state.panGesture?.id === e.pointerId && (e.pointerType !== "touch" || state.touches.size < 2))'),
     handFocusWork = pointerMove.indexOf("updateHandObjectFocus(e)");
   assert.match(moveCanvasSource, /previousPanX = state\.panX[\s\S]*?previousPanY = state\.panY[\s\S]*?requestCanvasNavigationPreview\(previousPanX, previousPanY\)/);
+  assert.match(viewportMetrics, /if \(canvasViewportMetricsCache\) return canvasViewportMetricsCache[\s\S]*?requestAnimationFrame[\s\S]*?canvasViewportMetricsCache = null/);
   assert.doesNotMatch(moveCanvasSource, /requestRender\(|render\(/);
-  assert.match(requestPreview, /applyCanvasNavigationPreview\(\)[\s\S]*?setTimeout\(finishCanvasNavigationPreview, CANVAS_NAVIGATION_SETTLE_MS\)[\s\S]*?requestAnimationFrame\(canvasNavigationPreviewStep\)/);
+  assert.doesNotMatch(requestPreview, /applyCanvasNavigationPreview\(\)/);
+  assert.match(requestPreview, /view\.classList\.add\("canvas-navigation-previewing"\)[\s\S]*?setTimeout\(finishCanvasNavigationPreview, CANVAS_NAVIGATION_SETTLE_MS\)[\s\S]*?requestAnimationFrame\(canvasNavigationPreviewStep\)/);
   assert.match(applyPreview, /--canvas-navigation-preview-paper[\s\S]*?state\.paint\.paper/);
   assert.match(applyPreview, /syncCanvasWidgetCarrier\(\)/);
-  assert.match(previewStep, /updateCoordinates\(\)[\s\S]*?canvasNavigationPreviewRebaseX[\s\S]*?canvasNavigationPreviewRebaseY[\s\S]*?render\(\)/);
+  assert.match(previewStep, /applyCanvasNavigationPreview\(\)[\s\S]*?requestCoordinatesUpdate\(\)[\s\S]*?canvasNavigationPreviewRebaseX[\s\S]*?canvasNavigationPreviewRebaseY[\s\S]*?render\(\)/);
+  assert.match(functionSource(app, "updateCoordinates"), /coords\.textContent !== text[\s\S]*?coords\.textContent = text/);
   assert.doesNotMatch(previewStep, /CANVAS_NAVIGATION_EXACT_FRAME_MS|now\s*-/);
   assert.doesNotMatch(previewStep, /renderCanvasBackground\(|renderCanvasContent\(/);
   assert.match(endSource, /finishCanvasNavigationPreview\(\)/);
@@ -102,9 +110,11 @@ test("hand panning previews Canvas content on the compositor before the exact re
   assert.match(css, /\.widget-layer\s*\{[^}]*overflow:\s*visible[^}]*translate3d\(var\(--canvas-widget-pan-x[^}]*will-change:\s*transform/);
   assert.match(css, /#viewport\.canvas-navigation-previewing :is\(#screen,[^}]*\.placed-content-layer[^}]*\.ink-layer[^}]*\)[^{]*\{[^}]*translate3d\(var\(--canvas-navigation-preview-x[^}]*will-change:\s*transform/);
   assert.doesNotMatch(css, /#viewport\.canvas-navigation-previewing :is\([^}]*\.widget-layer/);
+  assert.match(css, /#coords\s*\{[^}]*contain:\s*layout paint/);
+  assert.match(css, /body\[data-theme="studio"\]:has\(#viewport:is\(\.is-navigating, \.is-drawing\)\) \.toolbar\s*\{[^}]*backdrop-filter:\s*none/);
   const state = { panX:10, panY:20, navigationLocked:false, renderQueued:false, paint:{ paper:"#fafafa" } }, classes = new Set(), properties = new Map(), frames = [], timers = new Map(), counts = { coordinates:0, animation:0, exact:0 },
     harness = vm.runInNewContext(`(() => {
-      const CANVAS_NAVIGATION_SETTLE_MS = 80, CANVAS_NAVIGATION_REBASE_VIEWPORT_RATIO = 0.35, CANVAS_NAVIGATION_REBASE_MIN_PX = 192;
+      const CANVAS_NAVIGATION_SETTLE_MS = 80, CANVAS_NAVIGATION_REBASE_VIEWPORT_RATIO = 0.60, CANVAS_NAVIGATION_REBASE_MIN_PX = 192;
       let canvasNavigationPreviewFrame = 0, canvasNavigationPreviewSettleTimer = 0, canvasNavigationPreviewPanX = 0, canvasNavigationPreviewPanY = 0;
       let canvasNavigationPreviewRebaseX = CANVAS_NAVIGATION_REBASE_MIN_PX, canvasNavigationPreviewRebaseY = CANVAS_NAVIGATION_REBASE_MIN_PX;
       let canvasWidgetCarrierPanX = Number.NaN, canvasWidgetCarrierPanY = Number.NaN;
@@ -126,29 +136,31 @@ test("hand panning previews Canvas content on the compositor before the exact re
       setTimeout:callback=>{const id=timers.size+1;timers.set(id,callback);return id;},
       clearTimeout:id=>timers.delete(id),
       canvasClientDelta:(x,y)=>({ x,y }),
-      updateCoordinates:()=>counts.coordinates++,
+      canvasViewportMetrics:()=>({ width:1000, height:800 }),
+      requestCoordinatesUpdate:()=>counts.coordinates++,
+      flushCoordinatesUpdate:()=>counts.coordinates++,
       requestAnimationLayerRender:()=>counts.animation++,
       setNavigating:()=>{},
       counts,
     });
   assert.equal(harness.moveCanvas(6,-4),true);
   assert.deepEqual({ panX:state.panX, panY:state.panY },{ panX:16, panY:16 });
+  assert.ok(classes.has("canvas-navigation-previewing"));
+  frames.shift()(110);
   assert.equal(properties.get("--canvas-navigation-preview-x"),"6px");
   assert.equal(properties.get("--canvas-navigation-preview-y"),"-4px");
   assert.equal(properties.get("--canvas-navigation-preview-paper"),"#fafafa");
   assert.equal(properties.get("--canvas-widget-pan-x"),"16px");
   assert.equal(properties.get("--canvas-widget-pan-y"),"16px");
-  assert.ok(classes.has("canvas-navigation-previewing"));
-  frames.shift()(110);
   assert.deepEqual(counts,{ coordinates:1, animation:1, exact:0 });
   assert.equal(frames.length,0);
-  assert.equal(harness.moveCanvas(400,0),true);
+  assert.equal(harness.moveCanvas(700,0),true);
   frames.shift()(140);
   assert.deepEqual(counts,{ coordinates:2, animation:2, exact:1 });
   assert.ok(!classes.has("canvas-navigation-previewing"));
   assert.equal(harness.moveCanvas(8,3),true);
   assert.equal(harness.finishCanvasNavigationPreview(),true);
-  assert.deepEqual(counts,{ coordinates:2, animation:2, exact:2 });
+  assert.deepEqual(counts,{ coordinates:3, animation:2, exact:2 });
 });
 
 test("canvas file actions are in the top-right header and available in History", () => {
@@ -773,6 +785,7 @@ test("stylus eraser ends and Apple Pencil bridge actions preserve Canvas tool se
   assert.match(app, /window\.addEventListener\("penecho:pencil-action"[\s\S]*?performCanvasPencilAction\(event\.detail\?\.action\)/);
   const beginTemporaryEraser = vm.runInNewContext(`(${beginPointer})`, {
     state:pointerState,
+    view:{ classList:{ add() {} } },
     acceptAnimationEdit() {},
     valid:() => true,
     supersedeActiveAI:() => pointerCalls.push("supersede"),
@@ -782,15 +795,12 @@ test("stylus eraser ends and Apple Pencil bridge actions preserve Canvas tool se
     logicalWidth:(value) => value,
     captureDrawingTransform:() => ({ scale:1 }),
     updateCanvasPointerPreview:() => pointerCalls.push("preview"),
-    dot:(_point, erase, size) => pointerCalls.push(["dot", erase, size]),
-    paintInkDisplaySegment:(_context, _a, _b, erase, size) => pointerCalls.push(["display", erase, size]),
-    inkCtx:{},
+    appendLiveInkSample:(_drawing, _point, size) => pointerCalls.push(["display", true, size]),
   });
   beginTemporaryEraser({ pointerType:"pen",pointerId:9,clientX:10,clientY:20 }, { x:10,y:20 }, { forceEraser:true });
   assert.equal(pointerState.mode, "hand");
   assert.equal(pointerState.drawing.erase, true);
   assert.equal(pointerState.drawing.size, 35);
-  assert.deepEqual(pointerCalls.at(-2), ["dot", true, 35]);
   assert.deepEqual(pointerCalls.at(-1), ["display", true, 35]);
 
   vm.runInNewContext([
@@ -926,6 +936,9 @@ test("canvas navigation lock freezes only the outer view and leaves locked widge
   assert.match(move, /if \(state\.navigationLocked\)[\s\S]*?return false[\s\S]*?canvasClientDelta\(dx, dy\)[\s\S]*?state\.panX \+= delta\.x/);
   assert.match(zoom, /if \(state\.navigationLocked\)[\s\S]*?return false[\s\S]*?state\.scale = next/);
   assert.match(pinch, /if \(state\.navigationLocked\)[\s\S]*?return false[\s\S]*?state\.scale = next/);
+  assert.match(zoom, /requestCoordinatesUpdate\(\)[\s\S]*?requestRender\(\)/);
+  assert.match(pinch, /requestCoordinatesUpdate\(\)[\s\S]*?requestRender\(\)/);
+  assert.doesNotMatch(pinch, /\brender\(\)/);
   assert.match(hostState, /navigationLocked:state\.navigationLocked/);
   assert.doesNotMatch(host, /addEventListener\("wheel"|penecho-widget-wheel|penecho-widget-pan-(?:start|move|end)/);
   assert.match(host, /press\.pointerType === "touch"\) pointerMessage\(TOUCH_END/);
@@ -1290,6 +1303,7 @@ test("new canvases open with a 0.8x initial viewport extent without overriding r
       viewerAutoFitCanvas:false,
       devicePixelRatio:1,
       view:{ getBoundingClientRect:() => ({ width:1200, height:800 }) },
+      invalidateCanvasViewportMetrics:() => {},
       canvasViewportMetrics:() => ({ width:1200, height:800 }),
       screen,
       animationLayer,
@@ -1326,6 +1340,7 @@ test("the public Viewer camera fits a Widget in phone portrait and landscape", (
     widgetBox:(item) => ({ x:item.x, y:item.y, w:item.w, h:item.h }),
     devicePixelRatio:1,
     view:{ getBoundingClientRect:() => rect },
+    invalidateCanvasViewportMetrics:() => {},
     canvasViewportMetrics:() => ({ width:rect.width, height:rect.height }),
     pageLayoutRect:(element) => element?.getBoundingClientRect?.() || rect,
     document:{ querySelector:() => ({ getBoundingClientRect:() => ({ bottom:62 }) }) },
@@ -1387,6 +1402,7 @@ test("the public Viewer camera fits every object in a restored Canvas", () => {
       unionLocalBounds,
       devicePixelRatio:1,
       view:{ getBoundingClientRect:() => rect },
+      invalidateCanvasViewportMetrics:() => {},
       canvasViewportMetrics:() => ({ width:rect.width, height:rect.height }),
       pageLayoutRect:(element) => element?.getBoundingClientRect?.() || rect,
       document:{ querySelector:() => ({ getBoundingClientRect:() => ({ bottom:62 }) }) },
@@ -2462,7 +2478,7 @@ test("canvas history clearly separates device, server, and private cross-device 
   assert.match(html, /class="history-library-sidebar penecho-workbench-navigation"/);
   assert.match(html, /id="historySearch"[^>]*type="search"/);
   assert.match(html, /id="historySearch"[^>]*placeholder="Search"[^>]*data-i18n-aria="historySearchLabel"[^>]*aria-label="Search Canvas Library"/);
-  assert.match(openHistory, /requestAnimationFrame\(\(\) => panel\.focus\(\{ preventScroll:true \}\)\)/);
+  assert.match(openHistory, /requestAnimationFrame\([\s\S]*panel\.focus\(\{ preventScroll:true \}\)[\s\S]*requestAnimationFrame\([\s\S]*renderSnapshotList\(\)/);
   assert.doesNotMatch(openHistory, /historySearch[^\n]*focus/);
   assert.match(html, /class="history-library-browser"[\s\S]*?class="history-library-sidebar penecho-workbench-navigation"[\s\S]*?<section class="history-library-main"/);
   assert.match(html, /id="historyProjectNav"[^>]*class="history-project-nav"/);
@@ -2747,7 +2763,7 @@ test("searchable sidebars and popups open without focusing a text field", () => 
   for (const id of ["historySearch", "studioNavigatorSearch", "canvasAgentReferenceSearch"]) {
     assert.doesNotMatch(html, new RegExp(`id="${id}"[^>]*\\bautofocus\\b`));
   }
-  assert.match(openHistory, /requestAnimationFrame\(\(\) => panel\.focus\(\{ preventScroll:true \}\)\)/);
+  assert.match(openHistory, /requestAnimationFrame\([\s\S]*panel\.focus\(\{ preventScroll:true \}\)[\s\S]*requestAnimationFrame\([\s\S]*renderSnapshotList\(\)/);
   assert.doesNotMatch(openHistory, /historySearch[^\n]*focus/);
   assert.doesNotMatch(scheduleNavigator, /studioNavigatorSearch\.focus/);
   assert.doesNotMatch(toggleReferencePicker, /canvasAgentReferenceSearch\.focus/);
@@ -3793,7 +3809,7 @@ test("eraser strokes shrink retained dirty input without becoming new AI instruc
     activeDrawing = functionSource(app, "updateActiveCanvasDrawing");
   assert.match(pointerMove, /if \(e\.pointerType !== "touch"\) updateWidgetRefinePointer\(clientPoint\(e\)\)/);
   assert.match(pointerMove, /if \(updateActiveCanvasDrawing\(e\)\) return/);
-  assert.match(activeDrawing, /if \(!d \|\| d\.id !== e\.pointerId\) return false[\s\S]*?if \(d\.erase\) \{[\s\S]*?stroke\(a, p, true, size, true\)/);
+  assert.match(activeDrawing, /if \(!d \|\| d\.id !== e\.pointerId\) return false[\s\S]*?appendLiveInkSample\(d, p, size\)[\s\S]*?commitLiveInkDrawingProgress\(d\)/);
   assert.match(app, /const shouldRequest = !d\.erase/);
   assert.match(app, /if \(shouldRequest\) \{\s*for \(const point of d\.trail\) state\.hotspotTrail\.push\(point\)/);
   assert.match(app, /recomputeDirtyBounds\(\);\s*filterErasedDirtyHotspots\(d\.dirtyMaskTouched\);\s*refineCandidate = relatchWidgetRefineCandidateFromDirty\(\)/);
@@ -3802,8 +3818,8 @@ test("eraser strokes shrink retained dirty input without becoming new AI instruc
   assert.match(functionSource(app, "invalidateRecognition"), /clearWidgetRefineCandidate\(\)[\s\S]*?state\.dirty = null/);
   assert.match(app, /erase: erasing/);
   assert.match(app, /dirtyMaskTouched:erasing \? new Set\(\) : null/);
-  assert.match(app, /if \(erasing\) \{\s*dot\(p, true, size, true\)/);
-  assert.match(activeDrawing, /stroke\(a, p, true, size, true\)/);
+  assert.match(app, /samples: \[\],[\s\S]*?dirtyMaskTouched:erasing \? new Set\(\) : null[\s\S]*?appendLiveInkSample\(state\.drawing, p, size\)/);
+  assert.match(functionSource(app, "commitLiveInkDrawingProgress"), /dot\(first\.point, drawing\.erase[\s\S]*?stroke\(previous\.point, current\.point, drawing\.erase/);
   assert.match(functionSource(app, "trackDirtyStrokeSegment"), /globalCompositeOperation = erase \? "destination-out" : "source-over"[\s\S]*?state\.dirtyInkBounds\.delete\(k\)/);
 });
 

@@ -2911,6 +2911,9 @@
     const d = state.drawing;
     commitLiveInkDrawing(d);
     state.drawing = null;
+    requestAnimationFrame(() => {
+      if (!state.drawing) view.classList.remove("is-drawing");
+    });
     scheduleLiveInkLayerWarmup();
     const shouldRequest = !d.erase;
     let refineCandidate = null;
@@ -2927,6 +2930,6 @@
     state.autoEligible ||= shouldRequest;
     saveUserCanvasChange();
     if (state.dirty && state.autoEligible && !refineCandidate) schedule();
-    requestRender();
+    requestInteractionLayerRender();
     if (shouldRequest || d.erase) setStatusKey(refineCandidate ? "widgetRefinePending" : state.pending?.items ? "batchDraftReady" : state.pending ? "draftReady" : "ready");
   }

@@ -16,6 +16,9 @@
     snapshotSaveInProgress = false,
     canvasSnapshotFinalizationDepth = 0,
     snapshotListGeneration = 0,
+    historyListRenderGeneration = 0,
+    historyListRenderFrame = 0,
+    historyOpenWorkGeneration = 0,
     historyNoticeTimer = 0,
     historyActivityTimer = 0,
     historyPreviewUrls = new Map(),
@@ -1801,6 +1804,7 @@
   function renderSnapshotListLoading(location = state.snapshotLocation) {
     const list = document.querySelector("#historyList");
     if (!list) return;
+    cancelHistoryListRender();
     releaseHistoryPreviewUrls();
     const loading = document.createElement("div");
     loading.className = "history-list-loading";
@@ -1813,6 +1817,7 @@
   function renderSnapshotListError(location = state.snapshotLocation) {
     const list = document.querySelector("#historyList");
     if (!list) return;
+    cancelHistoryListRender();
     releaseHistoryPreviewUrls();
     const error = document.createElement("div");
     error.className = "history-list-loading error";
@@ -1825,6 +1830,7 @@
   function renderCloudHistorySignIn() {
     const list = document.querySelector("#historyList");
     if (!list) return;
+    cancelHistoryListRender();
     releaseHistoryPreviewUrls();
     const empty = document.createElement("div"), title = document.createElement("strong"),
       description = document.createElement("p"), action = document.createElement("button");
@@ -2142,6 +2148,11 @@
       for (const [url, image] of entries) revokeHistoryPreviewUrlWhenSettled(url, image);
     });
   }
+  function cancelHistoryListRender() {
+    historyListRenderGeneration++;
+    if (historyListRenderFrame) cancelAnimationFrame(historyListRenderFrame);
+    historyListRenderFrame = 0;
+  }
   function renderSnapshotList() {
     const list = document.querySelector("#historyList"),
       location = state.snapshotLocation,
@@ -2150,6 +2161,7 @@
       filteredItems = query ? scopedItems.filter((item) => snapshotName(item).toLocaleLowerCase(state.language === "zh" ? "zh-CN" : "en").includes(query)) : scopedItems,
       items = historySortItems(filteredItems);
     if (!list) return;
+    cancelHistoryListRender();
     if (!document.querySelector("#historyPanel")?.classList.contains("open")) {
       releaseHistoryPreviewUrls();
       list.replaceChildren();
@@ -2178,8 +2190,13 @@
       renderStudioSnapshotLists();
       return;
     }
-    const selectedItem = ensureHistorySelection(items, location);
-    for (const item of items) {
+    const selectedItem = ensureHistorySelection(items, location),
+      renderGeneration = historyListRenderGeneration,
+      locale = state.language === "zh" ? "zh-CN" : "en",
+      modifiedFormatter = new Intl.DateTimeFormat(locale, { dateStyle:"short", timeStyle:"short" }),
+      gridDateFormatter = new Intl.DateTimeFormat(locale, { month:"short", day:"numeric" });
+    setHistoryView(localStorage.getItem(HISTORY_VIEW_STORAGE_KEY) === "list" ? "list" : "grid");
+    const appendHistoryCard = (item, fragment) => {
       const card = document.createElement("article"),
         selectButton = document.createElement("button"),
         image = document.createElement("img"),
@@ -2262,8 +2279,8 @@
       load.setAttribute("aria-label", `${t(isCurrent ? "saveCurrentSnapshot" : "loadSnapshot")}: ${title.textContent}`);
       load.onclick = isCurrent ? () => saveCurrentHistoryItem(item, location) : () => loadHistorySnapshot(item, location, load);
       const modifiedAt = item.updatedAt || item.createdAt,
-        modified = new Intl.DateTimeFormat(state.language === "zh" ? "zh-CN" : "en", { dateStyle: "short", timeStyle: "short" }).format(modifiedAt),
-        gridDateText = new Intl.DateTimeFormat(state.language === "zh" ? "zh-CN" : "en", { month:"short", day:"numeric" }).format(modifiedAt);
+        modified = modifiedFormatter.format(modifiedAt),
+        gridDateText = gridDateFormatter.format(modifiedAt);
       const stats = document.createElement("div"),
         contentSummary = historyItemContentSummary(item);
       stats.className = "history-stats";
@@ -2378,11 +2395,23 @@
         loadHistorySnapshot(item, location, load);
       };
       card.append(selectButton, content, advancedActions);
-      list.append(card);
-    }
-    updateHistorySelectionUi(items);
-    setHistoryView(localStorage.getItem(HISTORY_VIEW_STORAGE_KEY) === "list" ? "list" : "grid");
-    renderStudioSnapshotLists();
+      fragment.append(card);
+    };
+    let itemIndex = 0;
+    const renderBatch = () => {
+      historyListRenderFrame = 0;
+      if (renderGeneration !== historyListRenderGeneration || !document.querySelector("#historyPanel")?.classList.contains("open")) return;
+      const fragment = document.createDocumentFragment(), startedAt = performance.now(), batchEnd = Math.min(items.length, itemIndex + 12);
+      while (itemIndex < batchEnd && performance.now() - startedAt < 4) appendHistoryCard(items[itemIndex++], fragment);
+      list.append(fragment);
+      if (itemIndex < items.length) {
+        historyListRenderFrame = requestAnimationFrame(renderBatch);
+        return;
+      }
+      updateHistorySelectionUi(items);
+      renderStudioSnapshotLists();
+    };
+    renderBatch();
   }
   async function refreshSnapshots() {
     const generation = ++snapshotListGeneration,
@@ -2479,10 +2508,17 @@
     updateSnapshotLocationUi();
     historyGridSelectionActivated = false;
     setHistoryView(localStorage.getItem(HISTORY_VIEW_STORAGE_KEY) === "list" ? "list" : "grid");
-    requestAnimationFrame(() => panel.focus({ preventScroll:true }));
-    renderSnapshotList();
-    if (refresh) refreshSnapshots().catch((error) => {
-      if (state.snapshotLocation !== "cloud" || !cloudHistoryRequiresSignIn(error)) setStatus(`${t("snapshotError")}${error.message}`);
+    const generation = ++historyOpenWorkGeneration;
+    requestAnimationFrame(() => {
+      if (generation !== historyOpenWorkGeneration || !panel.classList.contains("open")) return;
+      panel.focus({ preventScroll:true });
+      requestAnimationFrame(() => {
+        if (generation !== historyOpenWorkGeneration || !panel.classList.contains("open")) return;
+        renderSnapshotList();
+        if (refresh) refreshSnapshots().catch((error) => {
+          if (state.snapshotLocation !== "cloud" || !cloudHistoryRequiresSignIn(error)) setStatus(`${t("snapshotError")}${error.message}`);
+        });
+      });
     });
   }
   function closeHistoryPanel() {
@@ -2490,6 +2526,8 @@
       backdrop = document.querySelector("#historyBackdrop"),
       button = document.querySelector("#historyBtn");
     closeHistorySavePanel();
+    historyOpenWorkGeneration++;
+    cancelHistoryListRender();
     if (panel.contains(document.activeElement)) button.focus({ preventScroll:true });
     panel.inert = true;
     panel.classList.remove("open");
@@ -2613,7 +2651,8 @@
             w: Math.min(TILE, Math.max(a.x, b.x) - tx * TILE + pad) - Math.max(0, Math.min(a.x, b.x) - tx * TILE - pad),
             h: Math.min(TILE, Math.max(a.y, b.y) - ty * TILE + pad) - Math.max(0, Math.min(a.y, b.y) - ty * TILE - pad),
           };
-          extendInkBounds(k, local);
+          if (!existing) state.inkBounds.set(k, local);
+          else extendInkBounds(k, local);
         }
       }
     if (userChange && !erase) {

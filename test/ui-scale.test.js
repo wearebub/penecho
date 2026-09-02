@@ -89,7 +89,7 @@ test("web page scaling keeps Canvas layout coordinates aligned with screen input
   assert.match(core, /clientScaleX = rect\.width > 0 \? width \/ rect\.width : 1/);
   assert.match(core, /function canvasClientPosition\(clientX, clientY\)/);
   assert.match(core, /function applyPageScale\(scale\)[\s\S]*?updateAppearanceControls\(\);[\s\S]*?fit\(\);[\s\S]*?dispatchEvent\(new Event\("resize"\)\)/);
-  assert.match(canvas, /function fit\(\) \{\s*const metrics = canvasViewportMetrics\(\)/);
+  assert.match(canvas, /function fit\(\) \{\s*invalidateCanvasViewportMetrics\(\);\s*const metrics = canvasViewportMetrics\(\)/);
   assert.match(canvas, /function clientPoint\(e\) \{\s*const point = canvasClientPosition\(e\.clientX, e\.clientY\)/);
   assert.match(canvas, /const delta = canvasClientDelta\(dx, dy\)/);
   assert.match(agent, /const panelRect=canvasElementLayoutRect\(canvasAgentPanel\)/);

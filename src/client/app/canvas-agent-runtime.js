@@ -230,6 +230,8 @@
     lastTurnError:null,
     automaticAIStatusRestore:null,
     assistantRows:new Map(),
+    pendingAssistantRenders:new Set(),
+    assistantRenderFrame:0,
     toolRows:new Map(),
     toolResultCache:new Map(),
     toolControllers:new Map(),
@@ -1720,8 +1722,12 @@
     canvasAgent.referencePickActive=active;
     canvasAgent.referenceHoverId="";
     canvasAgentWidgetPickerLayer.hidden=!active;
+    if (!active) {
+      canvasAgentWidgetPickerLayer.width=1;
+      canvasAgentWidgetPickerLayer.height=1;
+    }
     canvasAgentReference.classList.toggle("picking",active);
-    canvasAgentDrawWidgetPick();
+    if (active) canvasAgentDrawWidgetPick();
   }
   function canvasAgentToggleReferencePicker(force=null) {
     const open=force===null?canvasAgentReferencePicker.hidden:Boolean(force);
@@ -2692,6 +2698,46 @@
       body.append(block);
     }
   }
+  function canvasAgentRenderStreamingMessage(target) {
+    if (!target?.body) return false;
+    const body = target.body, text = String(target.messageText || ""), previous = String(target.renderedMessageText ?? body.textContent ?? "");
+    body.classList.remove("is-markdown");
+    if (text.startsWith(previous) && body.childNodes.length <= 1 && (!body.firstChild || body.firstChild.nodeType === 3)) {
+      const suffix = text.slice(previous.length);
+      if (suffix) {
+        if (body.firstChild) body.firstChild.appendData(suffix);
+        else body.append(document.createTextNode(suffix));
+      }
+    } else body.textContent = text;
+    target.renderedMessageText = text;
+    return true;
+  }
+  function canvasAgentFlushAssistantRenders() {
+    if (canvasAgent.assistantRenderFrame) cancelAnimationFrame(canvasAgent.assistantRenderFrame);
+    canvasAgent.assistantRenderFrame = 0;
+    if (!canvasAgent.pendingAssistantRenders.size) return false;
+    for (const target of canvasAgent.pendingAssistantRenders) canvasAgentRenderStreamingMessage(target);
+    canvasAgent.pendingAssistantRenders.clear();
+    if (!canvasAgent.viewingHistoryId) canvasAgentScheduleScrollToLatest();
+    return true;
+  }
+  function canvasAgentScheduleAssistantRender(target) {
+    canvasAgent.pendingAssistantRenders.add(target);
+    if (canvasAgent.assistantRenderFrame) return;
+    canvasAgent.assistantRenderFrame = requestAnimationFrame(canvasAgentFlushAssistantRenders);
+  }
+  function canvasAgentCancelAssistantRenders() {
+    if (canvasAgent.assistantRenderFrame) cancelAnimationFrame(canvasAgent.assistantRenderFrame);
+    canvasAgent.assistantRenderFrame = 0;
+    canvasAgent.pendingAssistantRenders.clear();
+  }
+  function canvasAgentRenderFinalAssistantMessage(target) {
+    if (!target) return false;
+    canvasAgent.pendingAssistantRenders.delete(target);
+    canvasAgentRenderMessageBody(target.body,target.messageText,"assistant",{final:true});
+    target.renderedMessageText = target.messageText;
+    return true;
+  }
   function canvasAgentSetAssistantCopyState(button,state="idle") {
     const normalized=["copied","error"].includes(state)?state:"idle",key={idle:"canvasAgentCopyResponse",copied:"canvasAgentResponseCopied",error:"canvasAgentResponseCopyFailed"}[normalized];
     button.dataset.copyState=normalized;
@@ -2831,7 +2877,7 @@
     body.className = "canvas-agent-message-body";
     canvasAgentRenderMessageBody(body,item.text,item.role,{final:item.role!=="assistant"||item.final!==false});
     row.append(label,body);
-    const position=canvasAgentAssistantPosition(item),target={row,body,historyItem:item,messageText:item.text,turn:position.turn,step:position.step,copyActions:null,copyButton:null};
+    const position=canvasAgentAssistantPosition(item),target={row,body,historyItem:item,messageText:item.text,renderedMessageText:body.textContent,turn:position.turn,step:position.step,copyActions:null,copyButton:null};
     if(item.role==="assistant"){
       const actions=document.createElement("div"),button=document.createElement("button"),icon=document.createElementNS("http://www.w3.org/2000/svg","svg"),front=document.createElementNS("http://www.w3.org/2000/svg","rect"),back=document.createElementNS("http://www.w3.org/2000/svg","path");
       actions.className="canvas-agent-message-actions";
@@ -3063,16 +3109,15 @@
       let target = canvasAgentPendingAssistantRow(event);
       if (!target) target=canvasAgentCreateAssistantRow(event,"",false);
       target.messageText = canvasAgentVisibleAssistantText(target.messageText + (event.text || ""));
-      canvasAgentRenderMessageBody(target.body,target.messageText,"assistant",{final:false});
+      canvasAgentScheduleAssistantRender(target);
       target.historyItem.text=target.messageText;target.historyItem.final=false;
       canvasAgentScheduleHistoryPersist();
-      if (!canvasAgent.viewingHistoryId) canvasAgentScrollToLatest();
     } else if (event.kind === "assistant_message") {
       let target = canvasAgentPendingAssistantRow(event);
       if (!target && event.text) target=canvasAgentCreateAssistantRow(event,event.text,true);
       else if (target) {
         if(typeof event.text==="string")target.messageText=canvasAgentVisibleAssistantText(event.text);
-        canvasAgentRenderMessageBody(target.body,target.messageText,"assistant",{final:true});
+        canvasAgentRenderFinalAssistantMessage(target);
         target.historyItem.text=target.messageText;target.historyItem.final=true;
       }
       if (target && event.interrupted) target.row.classList.add("interrupted");
@@ -3098,6 +3143,7 @@
         if (!canvasAgent.viewingHistoryId) canvasAgentScrollToLatest();
       }
     } else if (event.kind === "turn_end") {
+      canvasAgentFlushAssistantRenders();
       canvasAgent.requestPending = false;
       if(event.reason?.kind==="completed"){
         canvasAgentMarkTurnSummaryCopyable(event.turn);
@@ -3163,6 +3209,7 @@
         canvasAgent.toolRows.clear();
       }
       if(replayBacklog)for (const event of envelope.payload?.backlog || []) canvasAgentHandleEvent(event,{replay:true});
+      if(replayBacklog)canvasAgentFlushAssistantRenders();
       if (!canvasAgent.viewingHistoryId&&!canvasAgentTranscript.childElementCount) canvasAgentRenderEmpty();
       canvasAgentPersistCurrentConversation();
       canvasAgentScrollToLatest(true);
@@ -3229,6 +3276,7 @@
     return wrapped;
   }
   function canvasAgentClearTranscript({showEmpty=false}={}) {
+    canvasAgentCancelAssistantRenders();
     canvasAgentTranscript.replaceChildren();
     canvasAgent.assistantRows.clear();
     canvasAgent.toolRows.clear();
