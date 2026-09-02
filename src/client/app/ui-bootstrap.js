@@ -5,11 +5,11 @@
     return event?.pointerType === "pen"
       && (Number(event.button) === 5 || (Number(event.buttons) & 32) === 32);
   }
-  function updateCanvasPointerPreview(event) {
+  function updateCanvasPointerPreview(event, point = null) {
     const drawing = state.drawing,
       eraserPointer = drawing ? drawing.erase && drawing.id === event.pointerId : state.mode === "eraser",
       next = eraserPointer && event.pointerType !== "touch"
-        ? clientPoint(event)
+        ? point || clientPoint(event)
         : null,
       preview = next && valid(next) ? next : null,
       changed = Boolean(preview) !== Boolean(state.pointerPreview)
@@ -163,6 +163,9 @@
       id: e.pointerId,
       last: p,
       size,
+      color: state.inkColor,
+      inputTransform: captureDrawingTransform(),
+      samples: erasing ? null : [],
       start: p,
       points: 1,
       screenDistance: 0,
@@ -173,9 +176,11 @@
       erase: erasing,
       dirtyMaskTouched:erasing ? new Set() : null,
     };
-    updateCanvasPointerPreview(e);
-    dot(p, erasing, size, true);
-    requestInkLayerRender();
+    updateCanvasPointerPreview(e, p);
+    if (erasing) {
+      dot(p, true, size, true);
+      paintInkDisplaySegment(inkCtx, p, { x:p.x + 0.01, y:p.y + 0.01 }, true, size);
+    } else appendLiveInkSample(state.drawing, p, size);
   }
   function beginHandObjectResize(event, point) {
     if (state.mode !== "hand" || event.pointerType === "touch" || Number(event.button) !== 0 || !point || !valid(point)) return false;
@@ -316,6 +321,35 @@
     hideHandObjectToolbar({ all:true });
     beginCanvasPointerAction(e, point);
   });
+  function updateActiveCanvasDrawing(e) {
+    const d = state.drawing;
+    if (!d || d.id !== e.pointerId) return false;
+    const old = state.pointers.get(e.pointerId),
+      p = drawingClientPoint(d, e),
+      a = d.last,
+      cssSize = d.erase ? state.eraser : pressureWidth(e),
+      size = logicalWidth(cssSize);
+    state.pointers.set(e.pointerId, { x:e.clientX, y:e.clientY });
+    state.userRevision++;
+    if (d.erase) {
+      stroke(a, p, true, size, true);
+      paintInkDisplaySegment(inkCtx, a, p, true, size);
+      updateCanvasPointerPreview(e, p);
+    } else appendLiveInkSample(d, p, size);
+    d.last = p;
+    d.size = size;
+    d.points++;
+    d.screenDistance += old ? Math.hypot(e.clientX - old.x, e.clientY - old.y) : 0;
+    if (d.points % 8 === 0) d.trail.push(p);
+    d.widthMin = Math.min(d.widthMin, cssSize);
+    d.widthMax = Math.max(d.widthMax, cssSize);
+    const x1 = Math.min(d.bbox.x, p.x),
+      y1 = Math.min(d.bbox.y, p.y),
+      x2 = Math.max(d.bbox.x + d.bbox.w, p.x),
+      y2 = Math.max(d.bbox.y + d.bbox.h, p.y);
+    d.bbox = { x:x1, y:y1, w:x2 - x1, h:y2 - y1 };
+    return true;
+  }
   screen.addEventListener("pointermove", (e) => {
     e.preventDefault();
     if (state.viewMode) {
@@ -335,6 +369,7 @@
       }
       return;
     }
+    if (updateActiveCanvasDrawing(e)) return;
     updateCanvasWidgetGestureResetTap(e);
     if (finishReleasedWidgetGesture(e)) return;
     const old = state.pointers.get(e.pointerId);
@@ -406,28 +441,6 @@
       }
       return;
     }
-    if (!state.drawing || state.drawing.id !== e.pointerId) return;
-    const p = clientPoint(e),
-      a = state.drawing.last,
-      d = state.drawing,
-      cssSize = d.erase ? state.eraser : pressureWidth(e),
-      size = logicalWidth(cssSize);
-    state.userRevision++;
-    stroke(a, p, d.erase, size, true);
-    d.last = p;
-    d.size = size;
-    d.points++;
-    d.screenDistance += old ? Math.hypot(e.clientX - old.x, e.clientY - old.y) : 0;
-    if (d.points % 8 === 0) d.trail.push(p);
-    d.widthMin = Math.min(d.widthMin, cssSize);
-    d.widthMax = Math.max(d.widthMax, cssSize);
-    const x1 = Math.min(d.bbox.x, p.x),
-      y1 = Math.min(d.bbox.y, p.y),
-      x2 = Math.max(d.bbox.x + d.bbox.w, p.x),
-      y2 = Math.max(d.bbox.y + d.bbox.h, p.y);
-    d.bbox = { x: x1, y: y1, w: x2 - x1, h: y2 - y1 };
-    requestInkLayerRender();
-    coords.textContent = `x ${Math.round(p.x)} · y ${Math.round(p.y)} · ${Math.round(state.scale * 100)}%`;
   });
   function end(e) {
     if (state.viewMode) {

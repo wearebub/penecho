@@ -44,34 +44,24 @@ test("selected pen width stays at 4-8 px while pressure follows the main Canvas 
   assert.equal(pressureWidth({ pointerType:"mouse", pressure:0.1 }), 4);
 });
 
-test("active pen drawing uses one current pointermove sample and defers full rendering", () => {
+test("active pen drawing paints a live layer before committing authoritative ink on release", () => {
   const app = read("public/app.js");
   const pointerMove = app.slice(app.indexOf('screen.addEventListener("pointermove"'), app.indexOf("function end(e)")),
-    requestInk = functionSource(app, "requestInkLayerRender"),
-    finishDrawing = functionSource(app, "finishDrawing"),
-    callbacks = [],
-    renderState = { renderQueued:false },
-    renderEvents = [],
-    context = {
-      state:renderState,
-      requestAnimationFrame(callback) { callbacks.push(callback); },
-      renderInkLayer() { renderEvents.push("ink"); },
-    };
+    activeDrawing = functionSource(app, "updateActiveCanvasDrawing"),
+    appendLive = functionSource(app, "appendLiveInkSample"),
+    commitLive = functionSource(app, "commitLiveInkDrawing"),
+    finishDrawing = functionSource(app, "finishDrawing");
   assert.doesNotMatch(app, /function drawingPointerSamples/);
   assert.doesNotMatch(pointerMove, /getCoalescedEvents/);
-  assert.match(pointerMove, /if \(!state\.drawing \|\| state\.drawing\.id !== e\.pointerId\) return;[\s\S]*?const p = clientPoint\(e\),[\s\S]*?cssSize = d\.erase \? state\.eraser : pressureWidth\(e\),[\s\S]*?stroke\(a, p, d\.erase, size, true\)[\s\S]*?requestInkLayerRender\(\)/);
+  assert.match(pointerMove, /if \(updateActiveCanvasDrawing\(e\)\) return;[\s\S]*?updateCanvasWidgetGestureResetTap\(e\)/);
+  assert.doesNotMatch(activeDrawing, /clientPoint\(|canvasViewportMetrics\(|calibrateScreenClientRatio\(/);
+  assert.match(activeDrawing, /drawingClientPoint\(d, e\)[\s\S]*?d\.erase[\s\S]*?stroke\(a, p, true, size, true\)[\s\S]*?appendLiveInkSample\(d, p, size\)/);
+  assert.match(appendLive, /drawing\.samples\.push\(sample\)[\s\S]*?paintInkDisplaySegment\([\s\S]*?liveInkCtx/);
+  assert.match(commitLive, /dot\(first\.point, false, first\.size, true, drawing\.color\)[\s\S]*?stroke\(previous\.point, current\.point, false, current\.size, true, drawing\.color\)[\s\S]*?renderInkLayer\(\)[\s\S]*?clearLiveInkLayer\(\)/);
+  assert.doesNotMatch(activeDrawing, /requestAnimationFrame|requestRender\(|renderInkLayer\(|coords\.textContent/);
   assert.doesNotMatch(pointerMove, /requestRender\(\)/);
-  assert.match(finishDrawing, /saveUserCanvasChange\(\)[\s\S]*?requestRender\(\)/);
-  vm.runInNewContext(`let inkRenderQueued = false; this.requestInkLayerRender = ${requestInk};`, context);
-  context.requestInkLayerRender();
-  context.requestInkLayerRender();
-  assert.equal(callbacks.length, 1);
-  callbacks.shift()();
-  assert.deepEqual(renderEvents, ["ink"]);
-  context.requestInkLayerRender();
-  renderState.renderQueued = true;
-  callbacks.shift()();
-  assert.deepEqual(renderEvents, ["ink"]);
+  assert.match(finishDrawing, /commitLiveInkDrawing\(d\)[\s\S]*?state\.drawing = null[\s\S]*?saveUserCanvasChange\(\)[\s\S]*?requestRender\(\)/);
+  assert.doesNotMatch(app, /function requestInkLayerRender/);
 });
 
 test("canvas file actions are in the top-right header and available in History", () => {
@@ -652,7 +642,7 @@ test("pen ink stays above widgets and the eraser exposes a dashed footprint", ()
     beginPointer = functionSource(app, "beginCanvasPointerAction"),
     finishPointer = functionSource(app, "end");
   assert.match(updatePreview, /drawing \? drawing\.erase && drawing\.id === event\.pointerId : state\.mode === "eraser"[\s\S]*?requestInteractionLayerRender\(\)/);
-  assert.match(beginPointer, /state\.drawing = \{[\s\S]*?erase: erasing,[\s\S]*?\};[\s\S]*?updateCanvasPointerPreview\(e\)/);
+  assert.match(beginPointer, /state\.drawing = \{[\s\S]*?erase: erasing,[\s\S]*?\};[\s\S]*?updateCanvasPointerPreview\(e, p\)/);
   assert.match(finishPointer, /const wasErasing = state\.drawing\.erase;[\s\S]*?finishDrawing\(e\.pointerType\);[\s\S]*?state\.pointerPreview = null;[\s\S]*?requestInteractionLayerRender\(\)/);
   assert.match(app, /screen\.addEventListener\("pointerleave", \(\) => \{[\s\S]*?state\.pointerPreview = null;[\s\S]*?requestInteractionLayerRender\(\)/);
 });
@@ -688,16 +678,18 @@ test("stylus eraser ends and Apple Pencil bridge actions preserve Canvas tool se
     hideWidgetRefineHint() {},
     clearWidgetRefineCandidate:() => pointerCalls.push("clear-refine"),
     logicalWidth:(value) => value,
+    captureDrawingTransform:() => ({ scale:1 }),
     updateCanvasPointerPreview:() => pointerCalls.push("preview"),
     dot:(_point, erase, size) => pointerCalls.push(["dot", erase, size]),
-    requestInkLayerRender:() => pointerCalls.push("ink"),
+    paintInkDisplaySegment:(_context, _a, _b, erase, size) => pointerCalls.push(["display", erase, size]),
+    inkCtx:{},
   });
   beginTemporaryEraser({ pointerType:"pen",pointerId:9,clientX:10,clientY:20 }, { x:10,y:20 }, { forceEraser:true });
   assert.equal(pointerState.mode, "hand");
   assert.equal(pointerState.drawing.erase, true);
   assert.equal(pointerState.drawing.size, 35);
   assert.deepEqual(pointerCalls.at(-2), ["dot", true, 35]);
-  assert.equal(pointerCalls.at(-1), "ink");
+  assert.deepEqual(pointerCalls.at(-1), ["display", true, 35]);
 
   vm.runInNewContext([
     functionSource(app, "canvasToolMode"),
@@ -888,17 +880,20 @@ test("canvas view mode exposes quiet share, download, and exit controls while pr
 test("declarative scenes and widgets render below the dedicated ink and interaction layers", () => {
   const html = read("public/index.html"), app = read("public/app.js"), css = read("public/style.css");
   assert.ok(html.indexOf('src="animation.js"') < html.indexOf('src="app.js"'));
-  for (const id of ["animationLayer", "placedContentLayer", "inkLayer", "interactionLayer", "objectChromeLayer", "animationControls", "animationPlayPause", "animationRestart", "animationDelete"]) {
+  for (const id of ["animationLayer", "placedContentLayer", "inkLayer", "liveInkLayer", "interactionLayer", "objectChromeLayer", "animationControls", "animationPlayPause", "animationRestart", "animationDelete"]) {
     assert.match(html, new RegExp(`id="${id}"`));
   }
   assert.ok(html.indexOf('id="screen"') < html.indexOf('id="animationLayer"'));
   assert.ok(html.indexOf('id="widgetLayer"') < html.indexOf('id="placedContentLayer"'));
   assert.ok(html.indexOf('id="placedContentLayer"') < html.indexOf('id="inkLayer"'));
+  assert.ok(html.indexOf('id="inkLayer"') < html.indexOf('id="liveInkLayer"'));
+  assert.ok(html.indexOf('id="liveInkLayer"') < html.indexOf('id="interactionLayer"'));
   assert.ok(html.indexOf('id="inkLayer"') < html.indexOf('id="interactionLayer"'));
   assert.ok(html.indexOf('id="animationLayer"') < html.indexOf('id="interactionLayer"'));
   assert.match(css, /\.animation-layer\s*\{[^}]*z-index:\s*1/);
   assert.match(css, /\.placed-content-layer\s*\{[^}]*z-index:\s*2/);
   assert.match(css, /\.ink-layer\s*\{[^}]*z-index:\s*2/);
+  assert.match(css, /\.live-ink-layer\s*\{[^}]*z-index:\s*2[^}]*pointer-events:\s*none/);
   assert.match(css, /\.interaction-layer\s*\{[^}]*z-index:\s*3/);
   assert.match(functionSource(app, "renderInkLayer"), /forTiles[\s\S]*?drawSharpOverlays/);
   assert.doesNotMatch(functionSource(app, "render"), /forTiles\(l, t/);
@@ -1183,6 +1178,7 @@ test("new canvases open with a 0.8x initial viewport extent without overriding r
     animationLayer = {},
     placedContentLayer = {},
     inkLayer = {},
+    liveInkLayer = {},
     interactionLayer = {},
     fit = vm.runInNewContext(`(${fitSource})`, {
       INITIAL_VIEWPORT_EXTENT_SCALE:0.8,
@@ -1196,6 +1192,7 @@ test("new canvases open with a 0.8x initial viewport extent without overriding r
       animationLayer,
       placedContentLayer,
       inkLayer,
+      liveInkLayer,
       interactionLayer,
       state,
       updateCoordinates:() => {},
@@ -1215,7 +1212,7 @@ test("the public Viewer camera fits a Widget in phone portrait and landscape", (
   const fitSource = functionSource(read("src/client/app/canvas-runtime.js"), "fit"),
     widget = { id:"viewer-widget", x:2400, y:3600, w:1200, h:800 },
     state = { widgets:[widget], scale:.1, panX:0, panY:0, viewInitialized:true, animationFullRedraw:false },
-    screen = {}, animationLayer = {}, placedContentLayer = {}, inkLayer = {}, interactionLayer = {};
+    screen = {}, animationLayer = {}, placedContentLayer = {}, inkLayer = {}, liveInkLayer = {}, interactionLayer = {};
   let rect = { left:0, top:0, width:375, height:667 };
   const fit = vm.runInNewContext(`(${fitSource})`, {
     INITIAL_VIEWPORT_EXTENT_SCALE:0.8,
@@ -1232,6 +1229,7 @@ test("the public Viewer camera fits a Widget in phone portrait and landscape", (
     animationLayer,
     placedContentLayer,
     inkLayer,
+    liveInkLayer,
     interactionLayer,
     state,
     updateCoordinates:() => {},
@@ -1261,7 +1259,7 @@ test("the public Viewer camera fits every object in a restored Canvas", () => {
     ],
     combined = { x:6895, y:8757, w:6310, h:2315 },
     state = { widgets, scale:.1, panX:0, panY:0, viewInitialized:true, animationFullRedraw:false },
-    screen = {}, animationLayer = {}, placedContentLayer = {}, inkLayer = {}, interactionLayer = {},
+    screen = {}, animationLayer = {}, placedContentLayer = {}, inkLayer = {}, liveInkLayer = {}, interactionLayer = {},
     rect = { left:0, top:0, width:1200, height:800 },
     unionLocalBounds = (current, next) => {
       if (!current) return next;
@@ -1291,6 +1289,7 @@ test("the public Viewer camera fits every object in a restored Canvas", () => {
       animationLayer,
       placedContentLayer,
       inkLayer,
+      liveInkLayer,
       interactionLayer,
       state,
       updateCoordinates:() => {},
@@ -3682,9 +3681,11 @@ test("eraser strokes shrink retained dirty input without becoming new AI instruc
   const app = read("public/app.js");
   const pointerMoveStart = app.indexOf('screen.addEventListener("pointermove"'),
     pointerMoveEnd = app.indexOf("function end(e)", pointerMoveStart),
-    pointerMove = app.slice(pointerMoveStart, pointerMoveEnd);
+    pointerMove = app.slice(pointerMoveStart, pointerMoveEnd),
+    activeDrawing = functionSource(app, "updateActiveCanvasDrawing");
   assert.match(pointerMove, /if \(e\.pointerType !== "touch"\) updateWidgetRefinePointer\(clientPoint\(e\)\)/);
-  assert.match(pointerMove, /if \(!state\.drawing \|\| state\.drawing\.id !== e\.pointerId\) return[\s\S]*?stroke\(a, p, d\.erase, size, true\)/);
+  assert.match(pointerMove, /if \(updateActiveCanvasDrawing\(e\)\) return/);
+  assert.match(activeDrawing, /if \(!d \|\| d\.id !== e\.pointerId\) return false[\s\S]*?if \(d\.erase\) \{[\s\S]*?stroke\(a, p, true, size, true\)/);
   assert.match(app, /const shouldRequest = !d\.erase/);
   assert.match(app, /if \(shouldRequest\) \{\s*for \(const point of d\.trail\) state\.hotspotTrail\.push\(point\)/);
   assert.match(app, /recomputeDirtyBounds\(\);\s*filterErasedDirtyHotspots\(d\.dirtyMaskTouched\);\s*refineCandidate = relatchWidgetRefineCandidateFromDirty\(\)/);
@@ -3693,8 +3694,8 @@ test("eraser strokes shrink retained dirty input without becoming new AI instruc
   assert.match(functionSource(app, "invalidateRecognition"), /clearWidgetRefineCandidate\(\)[\s\S]*?state\.dirty = null/);
   assert.match(app, /erase: erasing/);
   assert.match(app, /dirtyMaskTouched:erasing \? new Set\(\) : null/);
-  assert.match(app, /dot\(p, erasing, size, true\)/);
-  assert.match(app, /stroke\(a, p, d\.erase, size, true\)/);
+  assert.match(app, /if \(erasing\) \{\s*dot\(p, true, size, true\)/);
+  assert.match(activeDrawing, /stroke\(a, p, true, size, true\)/);
   assert.match(functionSource(app, "trackDirtyStrokeSegment"), /globalCompositeOperation = erase \? "destination-out" : "source-over"[\s\S]*?state\.dirtyInkBounds\.delete\(k\)/);
 });
 

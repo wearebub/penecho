@@ -2674,16 +2674,6 @@
     if (state.animationFrame) cancelAnimationFrame(state.animationFrame);
     state.animationFrame = 0;
   }
-  let inkRenderQueued = false;
-  function requestInkLayerRender() {
-    if (state.renderQueued || inkRenderQueued) return;
-    inkRenderQueued = true;
-    requestAnimationFrame(() => {
-      inkRenderQueued = false;
-      if (state.renderQueued) return;
-      renderInkLayer();
-    });
-  }
   function requestRender() {
     requestAnimationLayerRender();
     if (state.renderQueued) return;
@@ -2717,17 +2707,21 @@
   function fit() {
     const metrics = canvasViewportMetrics(),
       r = { width:metrics.width, height:metrics.height },
-      d = devicePixelRatio || 1;
-    screen.width = Math.round(r.width * d);
-    screen.height = Math.round(r.height * d);
-    animationLayer.width = screen.width;
-    animationLayer.height = screen.height;
-    placedContentLayer.width = screen.width;
-    placedContentLayer.height = screen.height;
-    inkLayer.width = screen.width;
-    inkLayer.height = screen.height;
-    interactionLayer.width = screen.width;
-    interactionLayer.height = screen.height;
+      d = devicePixelRatio || 1,
+      width = Math.round(r.width * d),
+      height = Math.round(r.height * d),
+      resizeLayer = (layer) => {
+        if (layer.width === width && layer.height === height) return false;
+        layer.width = width;
+        layer.height = height;
+        return true;
+      };
+    resizeLayer(screen);
+    resizeLayer(animationLayer);
+    resizeLayer(placedContentLayer);
+    resizeLayer(inkLayer);
+    const liveInkResized = resizeLayer(liveInkLayer);
+    resizeLayer(interactionLayer);
     state.animationFullRedraw = true;
     const viewerWidget = viewerAutoFitWidgetId && state.widgets.find((widget) => widget.id === viewerAutoFitWidgetId),
       viewerBounds = viewerWidget
@@ -2769,6 +2763,7 @@
       state.panY = (r.height - SIZE * state.scale) / 2;
       state.viewInitialized = true;
     }
+    if (liveInkResized && state.drawing && !state.drawing.erase) renderLiveInkDrawing(state.drawing);
     updateCoordinates();
     requestRender();
   }
@@ -2832,6 +2827,66 @@
     forTiles(visible.x, visible.y, visible.w, visible.h, (canvas, tx, ty) => inkCtx.drawImage(canvas, tx * TILE, ty * TILE), false);
     drawSharpOverlays(inkCtx, visible);
     inkCtx.restore();
+  }
+  function clearLiveInkLayer() {
+    liveInkCtx.setTransform(1, 0, 0, 1, 0, 0);
+    liveInkCtx.clearRect(0, 0, liveInkLayer.width, liveInkLayer.height);
+  }
+  function paintInkDisplaySegment(context, a, b, erase, size, color = state.inkColor) {
+    if (!valid(a) || !valid(b)) return false;
+    const d = devicePixelRatio || 1;
+    context.save();
+    context.setTransform(d, 0, 0, d, 0, 0);
+    context.translate(state.panX, state.panY);
+    context.scale(state.scale, state.scale);
+    context.beginPath();
+    context.rect(0, 0, SIZE, SIZE);
+    context.clip();
+    context.globalCompositeOperation = erase ? "destination-out" : "source-over";
+    context.strokeStyle = color;
+    context.lineWidth = size;
+    context.lineCap = context.lineJoin = "round";
+    context.beginPath();
+    context.moveTo(a.x, a.y);
+    context.lineTo(b.x, b.y);
+    context.stroke();
+    context.restore();
+    return true;
+  }
+  function appendLiveInkSample(drawing, point, size) {
+    const previous = drawing.samples[drawing.samples.length - 1],
+      sample = { point:{ x:point.x, y:point.y }, size };
+    drawing.samples.push(sample);
+    paintInkDisplaySegment(
+      liveInkCtx,
+      previous?.point || sample.point,
+      previous ? sample.point : { x:sample.point.x + 0.01, y:sample.point.y + 0.01 },
+      false,
+      size,
+      drawing.color,
+    );
+  }
+  function renderLiveInkDrawing(drawing) {
+    clearLiveInkLayer();
+    if (!drawing || drawing.erase || !drawing.samples?.length) return;
+    const first = drawing.samples[0];
+    paintInkDisplaySegment(liveInkCtx, first.point, { x:first.point.x + 0.01, y:first.point.y + 0.01 }, false, first.size, drawing.color);
+    for (let i = 1; i < drawing.samples.length; i++) {
+      const previous = drawing.samples[i - 1], current = drawing.samples[i];
+      paintInkDisplaySegment(liveInkCtx, previous.point, current.point, false, current.size, drawing.color);
+    }
+  }
+  function commitLiveInkDrawing(drawing) {
+    if (!drawing || drawing.erase || !drawing.samples?.length) return false;
+    const first = drawing.samples[0];
+    dot(first.point, false, first.size, true, drawing.color);
+    for (let i = 1; i < drawing.samples.length; i++) {
+      const previous = drawing.samples[i - 1], current = drawing.samples[i];
+      stroke(previous.point, current.point, false, current.size, true, drawing.color);
+    }
+    renderInkLayer();
+    clearLiveInkLayer();
+    return true;
   }
   function updateCoordinates() {
     const { width, height } = canvasViewportMetrics(),
@@ -4322,6 +4377,25 @@
     return {
       x: (point.x - state.panX) / state.scale,
       y: (point.y - state.panY) / state.scale,
+    };
+  }
+  function captureDrawingTransform() {
+    const metrics = canvasViewportMetrics();
+    return {
+      left:metrics.rect.left,
+      top:metrics.rect.top,
+      clientScaleX:metrics.clientScaleX,
+      clientScaleY:metrics.clientScaleY,
+      panX:state.panX,
+      panY:state.panY,
+      scale:state.scale,
+    };
+  }
+  function drawingClientPoint(drawing, event) {
+    const transform = drawing.inputTransform;
+    return {
+      x:((Number(event.clientX) - transform.left) * transform.clientScaleX - transform.panX) / transform.scale,
+      y:((Number(event.clientY) - transform.top) * transform.clientScaleY - transform.panY) / transform.scale,
     };
   }
   function blockCanvasInput(duration = 1000) {

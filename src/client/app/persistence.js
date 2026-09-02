@@ -2571,7 +2571,7 @@
     }
     return true;
   }
-  function stroke(a, b, erase = false, size = state.pen, userChange = false) {
+  function stroke(a, b, erase = false, size = state.pen, userChange = false, color = state.inkColor) {
     if (!valid(a) || !valid(b)) return;
     const pad = size / 2 + 2,
       x = Math.min(a.x, b.x) - pad,
@@ -2595,7 +2595,7 @@
           q = c.getContext("2d");
         q.save();
         q.globalCompositeOperation = erase ? "destination-out" : "source-over";
-        q.strokeStyle = state.inkColor;
+        q.strokeStyle = color;
         q.lineWidth = size;
         q.lineCap = q.lineJoin = "round";
         q.beginPath();
@@ -2621,8 +2621,8 @@
       mergeDirty(b.x, b.y, pad);
     }
   }
-  function dot(p, erase = false, size = state.pen, userChange = false) {
-    stroke(p, { x: p.x + 0.01, y: p.y + 0.01 }, erase, size, userChange);
+  function dot(p, erase = false, size = state.pen, userChange = false, color = state.inkColor) {
+    stroke(p, { x: p.x + 0.01, y: p.y + 0.01 }, erase, size, userChange, color);
   }
   function areaEraseBox(gesture = state.areaEraseGesture) {
     if (!gesture?.start || !gesture.current) return null;

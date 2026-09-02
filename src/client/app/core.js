@@ -49,6 +49,8 @@
     summonLayer = document.querySelector("#summonLayer"),
     inkLayer = document.querySelector("#inkLayer"),
     inkCtx = inkLayer.getContext("2d"),
+    liveInkLayer = document.querySelector("#liveInkLayer"),
+    liveInkCtx = liveInkLayer.getContext("2d"),
     interactionLayer = document.querySelector("#interactionLayer"),
     interactionCtx = interactionLayer.getContext("2d"),
     objectChromeLayer = document.querySelector("#objectChromeLayer"),

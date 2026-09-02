@@ -27,6 +27,7 @@ if (typeof window !== "undefined" && typeof document !== "undefined") {
     root.style.setProperty("--penecho-canvas-page-viewport-width", `${100 / currentScale}vw`);
     root.style.setProperty("--penecho-canvas-page-viewport-height", `${100 / currentScale}vh`);
     root.style.setProperty("--penecho-canvas-page-dynamic-height", `${100 / currentScale}dvh`);
+    root.classList.toggle("penecho-web-page-scale", window.PENECHO_CONFIG?.desktopApp !== true && currentScale !== 1);
     if (persist) {
       try { localStorage.setItem(CANVAS_PAGE_SCALE_STORAGE_KEY, String(currentScale)); } catch {}
     }
@@ -40,5 +41,4 @@ if (typeof window !== "undefined" && typeof document !== "undefined") {
     apply:applyCanvasPageScale,
   });
   applyCanvasPageScale(currentScale, { persist:false });
-  if (window.PENECHO_CONFIG?.desktopApp !== true) root.classList.add("penecho-web-page-scale");
 }

@@ -2909,6 +2909,7 @@
   function finishDrawing(pointerType) {
     if (!state.drawing) return;
     const d = state.drawing;
+    commitLiveInkDrawing(d);
     state.drawing = null;
     const shouldRequest = !d.erase;
     let refineCandidate = null;

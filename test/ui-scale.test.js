@@ -11,7 +11,7 @@ const ROOT = path.resolve(__dirname, "..");
 const read = (file) => fs.readFileSync(path.join(ROOT, file), "utf8");
 
 function runPageScale(config, storedScale = null) {
-  const classes = [], properties = new Map(), storage = new Map(), desktopCalls = [];
+  const classes = new Set(), properties = new Map(), storage = new Map(), desktopCalls = [];
   if (storedScale !== null) storage.set(CANVAS_PAGE_SCALE_STORAGE_KEY, String(storedScale));
   const browserWindow = { PENECHO_CONFIG:config, penechoDesktop:{ setPageScale:value => desktopCalls.push(value) } };
   vm.runInNewContext(read("public/page-scale.js"), {
@@ -22,16 +22,22 @@ function runPageScale(config, storedScale = null) {
     },
     document:{
       documentElement:{
-        classList:{ add:value => classes.push(value) },
+        classList:{
+          toggle(value, force) {
+            if (force) classes.add(value);
+            else classes.delete(value);
+          },
+        },
         style:{ setProperty:(name, value) => properties.set(name, value) },
       },
     },
   });
-  return { classes, properties, storage, desktopCalls, browserWindow };
+  return { get classes() { return [...classes]; }, properties, storage, desktopCalls, browserWindow };
 }
 
 test("Canvas page scale exposes four validated choices with mutually exclusive desktop/web paths", () => {
   const desktop = runPageScale({ desktopApp:true });
+  const defaultWeb = runPageScale({ runtime:"cloud" });
   const web = runPageScale({ runtime:"cloud" }, 1.25);
   const main = read("desktop/main.js"), preload = read("desktop/canvas-preload.js"), css = read("public/style.css");
 
@@ -43,6 +49,7 @@ test("Canvas page scale exposes four validated choices with mutually exclusive d
   assert.equal(normalizeCanvasPageScale("invalid"), 1);
   assert.deepEqual(desktop.classes, []);
   assert.deepEqual(desktop.desktopCalls, [1]);
+  assert.deepEqual(defaultWeb.classes, []);
   assert.deepEqual(web.classes, ["penecho-web-page-scale"]);
   assert.equal(web.properties.get("--penecho-canvas-page-scale"), "1.25");
   assert.equal(web.properties.get("--penecho-canvas-page-viewport-width"), "80vw");
@@ -54,6 +61,10 @@ test("Canvas page scale exposes four validated choices with mutually exclusive d
   assert.equal(web.storage.get(CANVAS_PAGE_SCALE_STORAGE_KEY), "1.25");
   assert.equal(web.properties.get("--penecho-canvas-page-scale"), "1.25");
   assert.equal(web.properties.get("--penecho-canvas-page-viewport-width"), `${100 / 1.25}vw`);
+  assert.equal(web.browserWindow.PenEchoPageScale.apply(1), 1);
+  assert.deepEqual(web.classes, []);
+  assert.equal(web.browserWindow.PenEchoPageScale.apply(0.9), 0.9);
+  assert.deepEqual(web.classes, ["penecho-web-page-scale"]);
   assert.match(main, /const \{ CANVAS_PAGE_SCALE, normalizeCanvasPageScale \} = require\("\.\.\/public\/page-scale\.js"\)/);
   assert.match(main, /webPreferences:\{ preload:CANVAS_PRELOAD, zoomFactor:CANVAS_PAGE_SCALE \}/);
   assert.match(main, /ipcMain\.handle\("penecho:set-page-scale"[\s\S]*?fromCanvas\(event\)[\s\S]*?setZoomFactor\(scale\)/);
