@@ -82,6 +82,26 @@ test("binary switches match the catalog off state and tint only the on state", (
   assert.match(css, /\[data-pe-control="switch"\]\)\[aria-checked="true"\]\s*\{[^}]*border-color:\s*var\(--pe-accent\);[^}]*background:\s*var\(--pe-accent\);/s);
 });
 
+test("selection checkmarks use the unfilled success treatment", () => {
+  const css = read("public/style.css");
+  assert.match(css, /#settingsConnectionQuickList > \.settings-connection-quick\.active\s*\{[^}]*color:\s*var\(--pe-ink,[^}]*border-color:\s*var\(--pe-line,[^}]*background:\s*var\(--pe-surface,[^}]*box-shadow:\s*none;/s);
+  assert.match(css, /#settingsConnectionQuickList > \.settings-connection-quick\.active > span:first-child\s*\{[^}]*color:\s*var\(--pe-success,[^}]*border-color:\s*transparent;[^}]*background:\s*transparent;/s);
+  assert.match(css, /\.canvas-agent-reference-chip em::before\s*\{[^}]*color:\s*var\(--pe-success,[^}]*border-radius:\s*0;[^}]*background:\s*transparent;[^}]*content:\s*"\\2713";[^}]*font:\s*700 15px\/16px var\(--pe-font-ui/s);
+  assert.match(css, /#canvasAgentReferenceList > button\[data-pe-button="menu-item"\]\[aria-selected="true"\]\s*\{[^}]*color:\s*var\(--pe-ink,[^}]*background:\s*transparent;[^}]*box-shadow:\s*none;/s);
+  assert.match(css, /#canvasAgentReferenceList > button\[data-pe-button="menu-item"\]\[aria-selected="true"\]:hover\s*\{[^}]*color:\s*var\(--pe-ink,[^}]*background:\s*var\(--pe-surface-raised,[^}]*box-shadow:\s*none;/s);
+  assert.match(css, /#canvasAgentReferenceList > button\[data-pe-button="menu-item"\]\[aria-selected="true"\] > small::before\s*\{[^}]*color:\s*var\(--pe-success,[^}]*border-radius:\s*0;[^}]*background:\s*transparent;[^}]*content:\s*"\\2713";/s);
+  assert.match(css, /\.studio-palette-option\[aria-checked="true"\]::after\s*\{[^}]*color:\s*var\(--pe-success,[^}]*border-radius:\s*0;[^}]*background:\s*transparent;[^}]*content:\s*"✓";/s);
+});
+
+test("batch draft decisions use peer outlined buttons without tint fill", () => {
+  const { document } = parseHTML(read("public/index.html")), css = read("public/style.css");
+  assert.equal(document.querySelector("#rejectBatch").dataset.peButton, "danger");
+  assert.equal(document.querySelector("#acceptBatch").dataset.peButton, "secondary");
+  assert.match(css, /#batchActions > :is\(#rejectBatch, #acceptBatch\)\[data-pe-button\]\s*\{[^}]*background:\s*transparent;[^}]*box-shadow:\s*none;[^}]*transform:\s*none;/s);
+  assert.match(css, /#batchActions > #acceptBatch\[data-pe-button="secondary"\]\s*\{[^}]*color:\s*var\(--pe-success, var\(--confirm\)\);[^}]*border-color:\s*color-mix\(in srgb, var\(--pe-success, var\(--confirm\)\) 35%, var\(--pe-line, var\(--line\)\)\);/s);
+  assert.match(css, /#batchActions > :is\(#rejectBatch, #acceptBatch\)\[data-pe-button\]:not\(:disabled\):is\(:hover, :focus-visible, :active\)\s*\{[^}]*background:\s*transparent;[^}]*transform:\s*none;/s);
+});
+
 test("runtime-created controls opt into the same closed contract", () => {
   const canvasRuntime = read("src/client/app/canvas-runtime.js");
   const appSources = [

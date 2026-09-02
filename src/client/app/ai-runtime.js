@@ -2911,6 +2911,7 @@
     const d = state.drawing;
     commitLiveInkDrawing(d);
     state.drawing = null;
+    scheduleLiveInkLayerWarmup();
     const shouldRequest = !d.erase;
     let refineCandidate = null;
     if (shouldRequest) {

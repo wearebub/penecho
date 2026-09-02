@@ -7163,6 +7163,29 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
         if (c) fn(c, tx, ty);
       }
   }
+  let liveInkWarmupFrame = 0;
+  let liveInkNeedsWarmup = true;
+  function warmLiveInkLayer() {
+    if (!liveInkLayer.width || !liveInkLayer.height) return false;
+    liveInkCtx.save();
+    liveInkCtx.setTransform(1, 0, 0, 1, 0, 0);
+    liveInkCtx.globalCompositeOperation = "source-over";
+    liveInkCtx.fillStyle = "rgba(0,0,0,0.004)";
+    liveInkCtx.fillRect(0, 0, 1, 1);
+    liveInkCtx.clearRect(0, 0, 1, 1);
+    liveInkCtx.restore();
+    liveInkNeedsWarmup = false;
+    return true;
+  }
+  function scheduleLiveInkLayerWarmup() {
+    if (!liveInkNeedsWarmup || liveInkWarmupFrame) return;
+    liveInkWarmupFrame = requestAnimationFrame(() => {
+      liveInkWarmupFrame = requestAnimationFrame(() => {
+        liveInkWarmupFrame = 0;
+        if (!state.drawing) warmLiveInkLayer();
+      });
+    });
+  }
   function fit() {
     const metrics = canvasViewportMetrics(),
       r = { width:metrics.width, height:metrics.height },
@@ -7180,6 +7203,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     resizeLayer(placedContentLayer);
     resizeLayer(inkLayer);
     const liveInkResized = resizeLayer(liveInkLayer);
+    if (liveInkResized) liveInkNeedsWarmup = true;
     resizeLayer(interactionLayer);
     state.animationFullRedraw = true;
     const viewerWidget = viewerAutoFitWidgetId && state.widgets.find((widget) => widget.id === viewerAutoFitWidgetId),
@@ -7223,6 +7247,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       state.viewInitialized = true;
     }
     if (liveInkResized && state.drawing && !state.drawing.erase) renderLiveInkDrawing(state.drawing);
+    else scheduleLiveInkLayerWarmup();
     updateCoordinates();
     requestRender();
   }
@@ -7316,7 +7341,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     const previous = drawing.samples[drawing.samples.length - 1],
       sample = { point:{ x:point.x, y:point.y }, size };
     drawing.samples.push(sample);
-    paintInkDisplaySegment(
+    const painted = paintInkDisplaySegment(
       liveInkCtx,
       previous?.point || sample.point,
       previous ? sample.point : { x:sample.point.x + 0.01, y:sample.point.y + 0.01 },
@@ -7324,6 +7349,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       size,
       drawing.color,
     );
+    if (painted) liveInkNeedsWarmup = false;
   }
   function renderLiveInkDrawing(drawing) {
     clearLiveInkLayer();
@@ -7334,6 +7360,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       const previous = drawing.samples[i - 1], current = drawing.samples[i];
       paintInkDisplaySegment(liveInkCtx, previous.point, current.point, false, current.size, drawing.color);
     }
+    liveInkNeedsWarmup = false;
   }
   function commitLiveInkDrawing(drawing) {
     if (!drawing || drawing.erase || !drawing.samples?.length) return false;
@@ -8848,6 +8875,13 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       panX:state.panX,
       panY:state.panY,
       scale:state.scale,
+    };
+  }
+  function captureDrawingInput(event) {
+    const inputTransform = captureDrawingTransform();
+    return {
+      inputTransform,
+      point:drawingClientPoint({ inputTransform }, event),
     };
   }
   function drawingClientPoint(drawing, event) {
@@ -16247,6 +16281,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     const d = state.drawing;
     commitLiveInkDrawing(d);
     state.drawing = null;
+    scheduleLiveInkLayerWarmup();
     const shouldRequest = !d.erase;
     let refineCandidate = null;
     if (shouldRequest) {
@@ -21846,7 +21881,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       last: p,
       size,
       color: state.inkColor,
-      inputTransform: captureDrawingTransform(),
+      inputTransform: options.inputTransform || captureDrawingTransform(),
       samples: erasing ? null : [],
       start: p,
       points: 1,
@@ -21927,7 +21962,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     if (Number(e.button) === 0 && handTarget?.kind === "text-box" && editTextBox(handTarget.object)) return;
     if (handPoint) beginHandObjectFocus(e, handPoint);
     if (penEraser) {
-      beginCanvasPointerAction(e, clientPoint(e), { forceEraser:true });
+      const input = captureDrawingInput(e);
+      beginCanvasPointerAction(e, input.point, { forceEraser:true, inputTransform:input.inputTransform });
       return;
     }
     if (e.pointerType === "touch") {
@@ -21965,7 +22001,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       return;
     }
     if (state.mode !== "hand") {
-      beginCanvasPointerAction(e, clientPoint(e));
+      const input = captureDrawingInput(e);
+      beginCanvasPointerAction(e, input.point, { inputTransform:input.inputTransform });
       return;
     }
     if (state.pending) {

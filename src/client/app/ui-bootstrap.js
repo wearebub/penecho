@@ -164,7 +164,7 @@
       last: p,
       size,
       color: state.inkColor,
-      inputTransform: captureDrawingTransform(),
+      inputTransform: options.inputTransform || captureDrawingTransform(),
       samples: erasing ? null : [],
       start: p,
       points: 1,
@@ -245,7 +245,8 @@
     if (Number(e.button) === 0 && handTarget?.kind === "text-box" && editTextBox(handTarget.object)) return;
     if (handPoint) beginHandObjectFocus(e, handPoint);
     if (penEraser) {
-      beginCanvasPointerAction(e, clientPoint(e), { forceEraser:true });
+      const input = captureDrawingInput(e);
+      beginCanvasPointerAction(e, input.point, { forceEraser:true, inputTransform:input.inputTransform });
       return;
     }
     if (e.pointerType === "touch") {
@@ -283,7 +284,8 @@
       return;
     }
     if (state.mode !== "hand") {
-      beginCanvasPointerAction(e, clientPoint(e));
+      const input = captureDrawingInput(e);
+      beginCanvasPointerAction(e, input.point, { inputTransform:input.inputTransform });
       return;
     }
     if (state.pending) {

@@ -3,7 +3,6 @@
 const { DEFAULT_REASONING_EFFORT } = require("../src/providers/reasoning-effort.js");
 const {
   MIN_CANVAS_AGENT_TURN_LIMIT,
-  MAX_CANVAS_AGENT_TURN_LIMIT,
   DEFAULT_CANVAS_AGENT_TURN_LIMIT,
 } = require("../src/server/canvas-agent/turn-limit.js");
 
@@ -33,8 +32,10 @@ function text(value, label, maximum = 512, allowEmpty = false) {
 
 function number(value, label, minimum, maximum, integer = false) {
   const result = Number(value);
-  if (!Number.isFinite(result) || result < minimum || result > maximum || integer && !Number.isInteger(result)) {
-    throw new Error(`${label} must be ${integer ? "an integer " : "a number "}from ${minimum} to ${maximum}.`);
+  const hasMaximum = Number.isFinite(maximum);
+  if (!Number.isFinite(result) || result < minimum || hasMaximum && result > maximum || integer && !Number.isInteger(result)) {
+    const range = hasMaximum ? `from ${minimum} to ${maximum}` : `of at least ${minimum}`;
+    throw new Error(`${label} must be ${integer ? "an integer" : "a number"} ${range}.`);
   }
   return result;
 }
@@ -93,8 +94,9 @@ function normalizeSettings(input, options = {}) {
   if (!["127.0.0.1", "0.0.0.0"].includes(host)) throw new Error("Choose local-only or LAN listening.");
   const port = number(input.port ?? 3888, "Port", 0, 65535, true);
   const timeout = number(input.timeout ?? 180, "Model timeout", 10, 600, true);
-  const canvasAgentTurnLimit = number(input.canvasAgentTurnLimit ?? DEFAULT_CANVAS_AGENT_TURN_LIMIT, "PenEcho Agent rounds per request", MIN_CANVAS_AGENT_TURN_LIMIT, MAX_CANVAS_AGENT_TURN_LIMIT, true);
+  const canvasAgentTurnLimit = number(input.canvasAgentTurnLimit ?? DEFAULT_CANVAS_AGENT_TURN_LIMIT, "PenEcho Agent rounds per request", MIN_CANVAS_AGENT_TURN_LIMIT, Infinity, true);
   const autoDelay = number(input.autoDelay ?? 5, "Auto AI delay", 0, 10);
+  if (!Number.isInteger(autoDelay * 10)) throw new Error("Auto AI delay must have at most one decimal place.");
   const canvasAgentAutoOpen = input.canvasAgentAutoOpen === undefined ? true : input.canvasAgentAutoOpen;
   if (typeof canvasAgentAutoOpen !== "boolean") throw new Error("PenEcho Agent auto-open must be true or false.");
   const traceLimit = number(input.traceLimit ?? 100, "Request record limit", 1, 1000, true);

@@ -139,7 +139,7 @@ In the app, signing in adds:
 - **Progressive visual delivery.** PenEcho Agent can place and review complete Visual Explorer revisions as it works, so useful visual results arrive sooner and can be refined in place instead of regenerated from scratch.
 - **Broader working context.** Add PDF, Word, PowerPoint, Excel, images, code, or a read-only folder project; reference existing Widgets and handwriting; use Internet Search when available; and continue through large text and document attachments with explicit reading offsets.
 - **Continuous Agent conversations.** Change the selected project, Internet Search context, model connection, or canvas capabilities without losing the current conversation or pasted draft files. If a request reaches its inactivity timeout or round limit, the next message continues in the same conversation with completed results preserved.
-- **Long-running requests with clear limits.** Model timeout is now a progress-aware inactivity deadline rather than a fixed total-time cap. Configure a per-request PenEcho Agent limit from 50 to 500 rounds; the default is 100.
+- **Long-running requests with clear limits.** Model timeout is now a progress-aware inactivity deadline rather than a fixed total-time cap. Configure a per-request PenEcho Agent limit of at least 50 rounds with no maximum; the default is 100.
 - **Readable mathematics in Agent replies.** Inline and display TeX now render as accessible math in final summaries, with the original notation preserved as a safe fallback when rendering is unavailable.
 - **Remembered eraser choice.** PenEcho keeps the selected eraser or area-eraser mode across canvases and reloads.
 
@@ -185,7 +185,7 @@ Typical output usage per request, including hidden reasoning tokens, is roughly 
 | `AI_API_URL` / `AI_API_KEY` / `AI_API_MODEL` | API endpoint, credential, and model (API mode only) |
 | `AI_EFFORT` | Saved reasoning level; the canvas toolbar `Reasoning` menu can override it per request without rewriting the connection |
 | `AI_TIMEOUT_SECONDS` | PenEcho Agent inactivity deadline; genuine model or tool progress restarts the timer |
-| `PENECHO_CANVAS_AGENT_TURN_LIMIT` | Agent rounds allowed per request, from 50 to 500; default 100, with results and conversation preserved at the limit |
+| `PENECHO_CANVAS_AGENT_TURN_LIMIT` | Agent rounds allowed per request, minimum 50 with no maximum; default 100, with results and conversation preserved at the limit |
 | `HOST` / `PORT` | Listening interface and port, default `0.0.0.0:3888` |
 | `AUTO_AI_DELAY_SECONDS` | Delay before automatic recognition, adjustable from 0 to 10 seconds on the canvas |
 

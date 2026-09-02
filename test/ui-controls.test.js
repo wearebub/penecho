@@ -50,17 +50,27 @@ test("active pen drawing paints a live layer before committing authoritative ink
     activeDrawing = functionSource(app, "updateActiveCanvasDrawing"),
     appendLive = functionSource(app, "appendLiveInkSample"),
     commitLive = functionSource(app, "commitLiveInkDrawing"),
-    finishDrawing = functionSource(app, "finishDrawing");
+    finishDrawing = functionSource(app, "finishDrawing"),
+    warmLive = functionSource(app, "warmLiveInkLayer"),
+    scheduleWarm = functionSource(app, "scheduleLiveInkLayerWarmup"),
+    captureInput = functionSource(app, "captureDrawingInput"),
+    fitCanvas = functionSource(app, "fit"),
+    pointerDown = app.slice(app.indexOf('screen.addEventListener("pointerdown"'), app.indexOf('screen.addEventListener("pointermove"'));
   assert.doesNotMatch(app, /function drawingPointerSamples/);
   assert.doesNotMatch(pointerMove, /getCoalescedEvents/);
   assert.match(pointerMove, /if \(updateActiveCanvasDrawing\(e\)\) return;[\s\S]*?updateCanvasWidgetGestureResetTap\(e\)/);
   assert.doesNotMatch(activeDrawing, /clientPoint\(|canvasViewportMetrics\(|calibrateScreenClientRatio\(/);
   assert.match(activeDrawing, /drawingClientPoint\(d, e\)[\s\S]*?d\.erase[\s\S]*?stroke\(a, p, true, size, true\)[\s\S]*?appendLiveInkSample\(d, p, size\)/);
-  assert.match(appendLive, /drawing\.samples\.push\(sample\)[\s\S]*?paintInkDisplaySegment\([\s\S]*?liveInkCtx/);
+  assert.match(appendLive, /drawing\.samples\.push\(sample\)[\s\S]*?paintInkDisplaySegment\([\s\S]*?liveInkCtx[\s\S]*?liveInkNeedsWarmup = false/);
   assert.match(commitLive, /dot\(first\.point, false, first\.size, true, drawing\.color\)[\s\S]*?stroke\(previous\.point, current\.point, false, current\.size, true, drawing\.color\)[\s\S]*?renderInkLayer\(\)[\s\S]*?clearLiveInkLayer\(\)/);
+  assert.match(warmLive, /fillRect\(0, 0, 1, 1\)[\s\S]*?clearRect\(0, 0, 1, 1\)[\s\S]*?liveInkNeedsWarmup = false/);
+  assert.match(scheduleWarm, /requestAnimationFrame[\s\S]*?requestAnimationFrame[\s\S]*?!state\.drawing[\s\S]*?warmLiveInkLayer\(\)/);
+  assert.match(fitCanvas, /if \(liveInkResized\) liveInkNeedsWarmup = true[\s\S]*?scheduleLiveInkLayerWarmup\(\)/);
+  assert.match(captureInput, /const inputTransform = captureDrawingTransform\(\)[\s\S]*?drawingClientPoint\(\{ inputTransform \}, event\)/);
+  assert.match(pointerDown, /const input = captureDrawingInput\(e\)[\s\S]*?beginCanvasPointerAction\(e, input\.point, \{ inputTransform:input\.inputTransform \}\)/);
   assert.doesNotMatch(activeDrawing, /requestAnimationFrame|requestRender\(|renderInkLayer\(|coords\.textContent/);
   assert.doesNotMatch(pointerMove, /requestRender\(\)/);
-  assert.match(finishDrawing, /commitLiveInkDrawing\(d\)[\s\S]*?state\.drawing = null[\s\S]*?saveUserCanvasChange\(\)[\s\S]*?requestRender\(\)/);
+  assert.match(finishDrawing, /commitLiveInkDrawing\(d\)[\s\S]*?state\.drawing = null[\s\S]*?scheduleLiveInkLayerWarmup\(\)[\s\S]*?saveUserCanvasChange\(\)[\s\S]*?requestRender\(\)/);
   assert.doesNotMatch(app, /function requestInkLayerRender/);
 });
 
@@ -206,6 +216,21 @@ test("API connection models can be fetched into an editable dropdown", () => {
   assert.equal(app, require("../scripts/build-client.js").compiledSource(), "public/app.js must match client sources");
 });
 
+test("System settings number fields hide spinners and enforce their intended precision", () => {
+  const html = read("public/index.html"), css = read("public/style.css");
+  for (const id of ["settingsMaxTokens", "settingsAgentTurnLimit", "settingsTimeout", "settingsTraceLimit"]) {
+    const input = html.match(new RegExp(`<input id="${id}"[^>]*>`))?.[0] || "";
+    assert.match(input, /type="number"/);
+    assert.match(input, /step="1"/);
+  }
+  const turnLimit = html.match(/<input id="settingsAgentTurnLimit"[^>]*>/)?.[0] || "";
+  assert.match(turnLimit, /min="50"/);
+  assert.doesNotMatch(turnLimit, /\bmax=/);
+  assert.match(html.match(/<input id="settingsAutoDelay"[^>]*>/)?.[0] || "", /step="0\.1"/);
+  assert.match(css, /\.settings-system-group input\[type="number"\]\s*\{[^}]*appearance:\s*textfield;[^}]*-moz-appearance:\s*textfield/);
+  assert.match(css, /\.settings-system-group input\[type="number"\]::\-webkit-inner-spin-button,[\s\S]*?::\-webkit-outer-spin-button\s*\{[^}]*-webkit-appearance:\s*none;[^}]*appearance:\s*none/);
+});
+
 test("closing Settings moves focus outside before hiding it from accessibility APIs", () => {
   const closeSettings = functionSource(read("public/app.js"), "closeSettings");
   const focusMove = closeSettings.indexOf("settingsLayer.contains(document.activeElement)");
@@ -234,7 +259,7 @@ test("canvas photos and function plots use editable image records, unified top t
   assert.match(app, /function canvasIdentityGeneration\(\)/);
   assert.match(app, /function beginCanvasPointerAction\(e, point\)/);
   assert.doesNotMatch(app, /beginImageTouchHold|imageTouchHold|IMAGE_TOUCH_HOLD/);
-  assert.match(app, /state\.mode !== "hand"[\s\S]{0,120}?beginCanvasPointerAction\(e, clientPoint\(e\)\)/);
+  assert.match(app, /state\.mode !== "hand"[\s\S]{0,180}?captureDrawingInput\(e\)[\s\S]{0,180}?beginCanvasPointerAction\(e, input\.point, \{ inputTransform:input\.inputTransform \}\)/);
   assert.match(functionSource(app, "objectChromeSpecs"), /target:"image"/);
   const mergeImage = functionSource(app, "mergeImage"),
     beginImageGesture = functionSource(app, "beginImageGesture"),
@@ -667,7 +692,7 @@ test("stylus eraser ends and Apple Pencil bridge actions preserve Canvas tool se
   assert.match(beginPointer, /options = arguments\[2\] \|\| \{\}[\s\S]*?forceEraser = options\.forceEraser === true[\s\S]*?!forceEraser && state\.mode === "hand"/);
   assert.match(beginPointer, /const erasing = forceEraser \|\| state\.mode === "eraser"/);
   assert.ok(pointerDown.indexOf("canvasPenEraserActive(e)") < pointerDown.indexOf('if (state.mode !== "hand")'));
-  assert.match(pointerDown, /beginCanvasPointerAction\(e, clientPoint\(e\), \{ forceEraser:true \}\)/);
+  assert.match(pointerDown, /const input = captureDrawingInput\(e\)[\s\S]*?beginCanvasPointerAction\(e, input\.point, \{ forceEraser:true, inputTransform:input\.inputTransform \}\)/);
   assert.match(app, /window\.addEventListener\("penecho:pencil-action"[\s\S]*?performCanvasPencilAction\(event\.detail\?\.action\)/);
   const beginTemporaryEraser = vm.runInNewContext(`(${beginPointer})`, {
     state:pointerState,
@@ -733,8 +758,9 @@ test("clicking eraser switches its current mode and shows two auto-closing choic
   assert.match(html, /id="eraserToolBtn"[^>]*data-mode="eraser"[^>]*aria-haspopup="menu"[^>]*aria-controls="eraserToolMenu"/);
   assert.match(html, /id="eraserToolMenu"[^>]*role="menu"[^>]*hidden[\s\S]*?data-eraser-mode="eraser"[\s\S]*?data-eraser-mode="area-eraser"/);
   assert.equal((html.match(/data-eraser-mode=/g) || []).length, 2);
-  assert.equal((html.match(/data-eraser-glyph="stroke"/g) || []).length, 2);
+  assert.equal((html.match(/data-eraser-glyph="stroke"/g) || []).length, 1);
   assert.equal((html.match(/data-eraser-glyph="area"/g) || []).length, 2);
+  assert.match(html, /data-eraser-icon="freehand"[^>]*>\s*<path d="m7 20-4-4L14 5/);
   assert.match(html, /data-eraser-glyph="stroke"[^>]*>[\s\S]*?<path d="M3\.5 15\.8c2\.2-4\.5/);
   assert.match(html, /data-eraser-glyph="area"[^>]*>[\s\S]*?<rect class="eraser-area-frame"[^>]*>[\s\S]*?<path class="eraser-area-tool"[^>]*>[\s\S]*?<path class="eraser-area-seam"/);
   assert.match(css, /\[data-eraser-glyph\][^{]*\{[^}]*fill:\s*none;[^}]*stroke:\s*currentColor;[^}]*stroke-linecap:\s*round/);
@@ -893,7 +919,7 @@ test("declarative scenes and widgets render below the dedicated ink and interact
   assert.match(css, /\.animation-layer\s*\{[^}]*z-index:\s*1/);
   assert.match(css, /\.placed-content-layer\s*\{[^}]*z-index:\s*2/);
   assert.match(css, /\.ink-layer\s*\{[^}]*z-index:\s*2/);
-  assert.match(css, /\.live-ink-layer\s*\{[^}]*z-index:\s*2[^}]*pointer-events:\s*none/);
+  assert.match(css, /\.live-ink-layer\s*\{[^}]*z-index:\s*2[^}]*pointer-events:\s*none[^}]*transform:\s*translateZ\(0\)[^}]*will-change:\s*transform/);
   assert.match(css, /\.interaction-layer\s*\{[^}]*z-index:\s*3/);
   assert.match(functionSource(app, "renderInkLayer"), /forTiles[\s\S]*?drawSharpOverlays/);
   assert.doesNotMatch(functionSource(app, "render"), /forTiles\(l, t/);
@@ -1195,6 +1221,7 @@ test("new canvases open with a 0.8x initial viewport extent without overriding r
       liveInkLayer,
       interactionLayer,
       state,
+      scheduleLiveInkLayerWarmup:() => {},
       updateCoordinates:() => {},
       requestRender:() => {},
     });
@@ -1232,6 +1259,7 @@ test("the public Viewer camera fits a Widget in phone portrait and landscape", (
     liveInkLayer,
     interactionLayer,
     state,
+    scheduleLiveInkLayerWarmup:() => {},
     updateCoordinates:() => {},
     requestRender:() => {},
   });
@@ -1292,6 +1320,7 @@ test("the public Viewer camera fits every object in a restored Canvas", () => {
       liveInkLayer,
       interactionLayer,
       state,
+      scheduleLiveInkLayerWarmup:() => {},
       updateCoordinates:() => {},
       requestRender:() => {},
     });
@@ -2289,7 +2318,7 @@ test("object bodies cannot activate editing outside Hand and long-press selectio
     imageHit = pointerDown.indexOf("imagePointerHit(point"),
     animationHit = pointerDown.indexOf("animationPointerHit(point");
   assert.ok(nonHand > 0 && nonHand < widgetHit && nonHand < imageHit && nonHand < animationHit);
-  assert.match(pointerDown, /beginCanvasPointerAction\(e, clientPoint\(e\)\);\s*return/);
+  assert.match(pointerDown, /const input = captureDrawingInput\(e\);\s*beginCanvasPointerAction\(e, input\.point, \{ inputTransform:input\.inputTransform \}\);\s*return/);
   assert.doesNotMatch(app, /beginAnimationTouchHold|animationTouchHold|ANIMATION_TOUCH_HOLD/);
   assert.doesNotMatch(app, /beginImageTouchHold|imageTouchHold|IMAGE_TOUCH_HOLD/);
   assert.match(functionSource(app, "beginObjectChromeMove"), /target === "animation"[\s\S]*?beginAnimationGesture/);
@@ -3890,8 +3919,10 @@ test("the magic orb becomes a device-scoped stop button while an AI request is a
   assert.match(css, /body\[data-theme="studio"\] \.ai-embodiment\.working::before\s*\{[^}]*inset:\s*2px;[^}]*conic-gradient\(from var\(--ai-orb-ring-angle\)[^}]*animation:\s*ai-orb-ring-spin 1\.4s linear infinite/);
   assert.match(css, /@keyframes ai-orb-ring-spin\s*\{\s*to\s*\{\s*--ai-orb-ring-angle:\s*360deg/);
   assert.match(css, /body\[data-theme="studio"\] \.ai-orb\s*\{[^}]*inset:\s*4px;[^}]*width:\s*40px;[^}]*height:\s*40px;[^}]*box-shadow:\s*0 1px 4px[^}]*transition:\s*transform \.16s ease-out/);
+  assert.match(css, /\.ai-orb\s*\{[^}]*-webkit-tap-highlight-color:\s*transparent;/, "touch and pen activation must not draw WebKit's tint block");
   assert.match(css, /body\[data-theme="studio"\] \.ai-orb::before\s*\{[^}]*display:\s*none/);
   assert.match(css, /body\[data-theme="studio"\] \.ai-embodiment:not\(\.working\) \.ai-orb:hover,[\s\S]*?\.ai-orb:focus-visible\s*\{[^}]*border-color:\s*var\(--studio-accent\);[^}]*transform:\s*scale\(1\.04\)/);
+  assert.match(css, /@media \(hover: none\)\s*\{\s*body\[data-theme="studio"\] \.ai-embodiment:not\(\.working\) \.ai-orb:hover:not\(:focus-visible\)\s*\{[^}]*background:\s*var\(--studio-panel\);[^}]*transform:\s*none;/, "touch-only hover emulation must retain the untinted resting surface");
   assert.match(css, /body\[data-theme="studio"\] \.ai-embodiment\.working \.ai-orb,[\s\S]*?\.ai-orb:focus-visible\s*\{[^}]*color:\s*#b4232f;[^}]*background:\s*var\(--studio-panel\);[^}]*box-shadow:\s*0 1px 4px/);
   assert.doesNotMatch(css, /body\[data-theme="studio"\] \.ai-embodiment\.working \.ai-orb,[\s\S]*?\.ai-orb:focus-visible\s*\{[^}]*background:\s*#b4232f/);
   assert.match(css, /body\[data-theme="studio"\] \.orb-aura,[^}]*\.orb-runes,[^}]*\.orb-particle\s*\{[^}]*display:\s*none/);

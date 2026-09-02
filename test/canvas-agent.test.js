@@ -916,9 +916,11 @@ test("PenEcho Agent CLI adapter turns isolated CLI decisions into Harness tool c
     assert.match(tool?.description||"",/latest/i);
   }
   assert.match(toolDescriptions.canvas_create,/Visual Explorer: one complete General HTML item[\s\S]*penecho-visual-explorer\+html[\s\S]*Empty Canvas[\s\S]*placement\.mode="auto"/i);
-  assert.match(toolDescriptions.canvas_create,/Plain function graph:[\s\S]*host-native type="plot"[\s\S]*never drawing points or a Widget/i);
+  assert.match(toolDescriptions.canvas_create,/Plain function graph:[\s\S]*host-native type="plot"[\s\S]*never drawing points\/Widget/i);
   assert.match(toolDescriptions.canvas_create,/progressive only at items\[0\]\.deliveryMode[\s\S]*never top-level/i);
-  assert.match(toolDescriptions.canvas_create,/Drawing:[\s\S]*origin[\s\S]*parallel types\/items[\s\S]*never strokes\/points/i);
+  assert.match(toolDescriptions.canvas_create,/Drawing:[\s\S]*non-negative integer coordinates[\s\S]*parallel types\/items[\s\S]*no strokes\/points/i);
+  assert.match(toolDescriptions.canvas_create,/flatten line\/smooth point pairs once/i);
+  assert.doesNotMatch(toolDescriptions.canvas_create,/Drawing:[\s\S]*for example/i);
   assert.match(toolDescriptions.canvas_read,/nl -ba -w6 -s TAB[\s\S]*line number and first TAB/);
   assert.match(toolDescriptions.canvas_patch_widget,/--- a\/<virtual-path>[\s\S]*\+\+\+ b\/<virtual-path>[\s\S]*--- a\/widget\.html[\s\S]*\+\+\+ b\/widget\.html[\s\S]*bare/);
   assert.equal("canvas_create_visual_explainer" in toolDescriptions,false);

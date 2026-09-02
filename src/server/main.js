@@ -34,7 +34,6 @@ const { createCanvasAgentRequestTracer } = require("./canvas-agent/request-trace
 const { CanvasAgentProjectStore } = require("./canvas-agent/project-store.js");
 const {
   MIN_CANVAS_AGENT_TURN_LIMIT,
-  MAX_CANVAS_AGENT_TURN_LIMIT,
   DEFAULT_CANVAS_AGENT_TURN_LIMIT,
   validCanvasAgentTurnLimit,
   configuredCanvasAgentTurnLimit,
@@ -883,8 +882,8 @@ function normalizeCanvasSettings(input) {
   }
   if (!Number.isInteger(timeout) || timeout < 10 || timeout > 600) throw new Error("Timeout must be between 10 and 600 seconds.");
   if (maxTokens === null) throw new Error(`MAX_TOKENS must be an integer larger than ${MIN_MAX_TOKENS}.`);
-  if (!validCanvasAgentTurnLimit(agentTurnLimit)) throw new Error(`PenEcho Agent rounds per request must be an integer from ${MIN_CANVAS_AGENT_TURN_LIMIT} to ${MAX_CANVAS_AGENT_TURN_LIMIT}.`);
-  if (!Number.isFinite(autoDelay) || autoDelay < 0 || autoDelay > 60) throw new Error("Auto AI delay must be between 0 and 60 seconds.");
+  if (!validCanvasAgentTurnLimit(agentTurnLimit)) throw new Error(`PenEcho Agent rounds per request must be an integer of at least ${MIN_CANVAS_AGENT_TURN_LIMIT}.`);
+  if (!Number.isFinite(autoDelay) || autoDelay < 0 || autoDelay > 60 || !Number.isInteger(autoDelay * 10)) throw new Error("Auto AI delay must be between 0 and 60 seconds with at most one decimal place.");
   if (!new Set(["webp", "png"]).has(imageFormat)) throw new Error("Choose a supported canvas image format.");
   if (!Number.isInteger(traceLimit) || traceLimit < 1 || traceLimit > 1000) throw new Error("Request trace limit must be between 1 and 1000.");
   const cliFields = provider === "kimi-cli" ? ["KIMI_CLI_MODEL", "KIMI_CLI_PATH", input.kimiCliModel, input.kimiCliPath, "kimi"] : provider === "codex-cli" ? ["CODEX_CLI_MODEL", "CODEX_CLI_PATH", input.codexModel, input.codexPath, "codex"] : provider === "claude-cli" ? ["CLAUDE_CLI_MODEL", "CLAUDE_CLI_PATH", input.claudeModel, input.claudePath, "claude"] : null;
@@ -923,7 +922,7 @@ function providerConfigurationError(provider = activeProviderSnapshot()) {
   if (debugArtifactsValue === null) return "PENECHO_DEBUG_ARTIFACTS must be true or false when set.";
   if (requestTraceValue === null) return "PENECHO_REQUEST_TRACE must be true or false when set.";
   if (!requestTraceLimitValid) return "PENECHO_REQUEST_TRACE_LIMIT must be an integer between 1 and 1000.";
-  if (!canvasAgentTurnLimitValid) return `PENECHO_CANVAS_AGENT_TURN_LIMIT must be an integer from ${MIN_CANVAS_AGENT_TURN_LIMIT} to ${MAX_CANVAS_AGENT_TURN_LIMIT}.`;
+  if (!canvasAgentTurnLimitValid) return `PENECHO_CANVAS_AGENT_TURN_LIMIT must be an integer of at least ${MIN_CANVAS_AGENT_TURN_LIMIT}.`;
   if (!timeoutValid) return "AI_TIMEOUT_SECONDS must be an integer from 10 to 600.";
   if (!maxTokensValid) return `MAX_TOKENS must be an integer larger than ${MIN_MAX_TOKENS}.`;
   return null;

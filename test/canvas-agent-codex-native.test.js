@@ -1726,6 +1726,54 @@ test("Codex Native returns loaded optional contracts as tool content rather than
   assert.match(skill.document, /scientific visualization|math/i);
 });
 
+test("Codex Native canonicalizes strict drawing point pairs and rejects negative coordinates", async t => {
+  const harness=await createNativeHarness();
+  t.after(()=>harness.cleanup());
+  const session=await harness.connect(),rpcCalls=[];
+  session.rpc=async(name,args)=>{
+    rpcCalls.push({name,args});
+    return {revision:1,receipts:[{type:"drawing",status:"created"}]};
+  };
+  const pointPairs=[[0,0],[320,0],[160,277]],result=await session.native.tool("canvas_create").execute({
+    baseRevision:0,
+    items:[{type:"drawing",drawing:{origin:[0,0],types:["line"],items:[pointPairs],closed:[0],fill:[0],width:5},placement:{mode:"auto"}}],
+  },{callId:"drawing-point-pairs",signal:new AbortController().signal});
+  assert.equal(result.revision,1);
+  assert.deepEqual(pointPairs,[[0,0],[320,0],[160,277]],"canonicalization must not mutate submitted arguments");
+  assert.equal(rpcCalls.length,1);
+  assert.equal(rpcCalls[0].name,"canvas_create");
+  assert.deepEqual(rpcCalls[0].args.items[0].drawing.items,[[0,0,320,0,160,277]]);
+  await session.native.tool("canvas_create").execute({
+    baseRevision:0,
+    items:[{type:"drawing",drawing:{origin:[0,0],types:["smooth"],items:[[[0,0],[120,80],[240,0]]],width:5},placement:{mode:"auto"}}],
+  },{callId:"drawing-smooth-point-pairs",signal:new AbortController().signal});
+  assert.deepEqual(rpcCalls[1].args.items[0].drawing.items,[[0,0,120,80,240,0]]);
+  await assert.rejects(
+    session.native.tool("canvas_create").execute({
+      baseRevision:0,
+      items:[{type:"drawing",drawing:{origin:[0,0],types:["line"],items:[[[0,0],[320,0],[160,-277]]],width:5},placement:{mode:"auto"}}],
+    },{callId:"drawing-negative-coordinate",signal:new AbortController().signal}),
+    error=>error?.code==="CANVAS_DRAWING_NEGATIVE_COORDINATE"
+      && error?.details?.path==="drawing.items[0][5]"
+      && /must be non-negative[\s\S]*Placement does not repair/.test(error.message),
+  );
+  await assert.rejects(
+    session.native.tool("canvas_create").execute({
+      baseRevision:0,
+      items:[{type:"drawing",drawing:{origin:[0,0],types:["line"],items:[[[0,0,1],[320,0]]],width:5},placement:{mode:"auto"}}],
+    },{callId:"drawing-malformed-point-pairs",signal:new AbortController().signal}),
+    error=>error?.code==="CANVAS_DRAWING_POINT_PAIRS_INVALID"&&/exactly two integers/.test(error.message),
+  );
+  await assert.rejects(
+    session.native.tool("canvas_create").execute({
+      baseRevision:0,
+      items:[{type:"drawing",drawing:{origin:[0,0],types:["rect"],items:[[[0,0],[320,277]]],width:5},placement:{mode:"auto"}}],
+    },{callId:"drawing-rect-point-pairs",signal:new AbortController().signal}),
+    error=>error?.code==="CANVAS_DRAWING_POINT_PAIRS_UNSUPPORTED"&&/only for line or smooth/.test(error.message),
+  );
+  assert.equal(rpcCalls.length,2,"rejected drawings must not reach the browser runtime");
+});
+
 test("Codex Native rejects new Professional Diagrams while preserving in-place Professional edits", async t => {
   const harness=await createNativeHarness({
     resolveWidgetCapabilities:() => ({ professionalEnabled:true, privatePlugins:[] }),

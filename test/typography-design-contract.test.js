@@ -76,7 +76,7 @@ test("Studio uses one UI family with only handwriting and technical exceptions",
   assert.match(css, /\.text-editor-button\s*\{[^}]*font:\s*500[^}]*var\(--pe-font-ui/);
   assert.match(css, /\.canvas-agent-file-type\s*\{[^}]*font:\s*600[^}]*var\(--pe-font-mono/);
   assert.match(css, /\.canvas-agent-reference-chip\s*\{[^}]*font-weight:\s*500/);
-  assert.match(css, /\.canvas-agent-reference-chip em::before\s*\{[^}]*font:\s*600 10px\/1 var\(--pe-font-ui/);
+  assert.match(css, /\.canvas-agent-reference-chip em::before\s*\{[^}]*font:\s*700 15px\/16px var\(--pe-font-ui/);
   assert.match(cloud, /\.cloud-dialog-mark\s*\{[^}]*font-weight:\s*600/);
   assert.match(cloud, /\.cloud-avatar\s*\{[^}]*font-weight:\s*600/);
   assert.match(cloud, /\.cloud-published-mark\s*\{[^}]*font-weight:\s*600/);

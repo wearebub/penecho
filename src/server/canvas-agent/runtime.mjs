@@ -106,7 +106,6 @@ const VISUAL_EXPLORER_MAX_DETAIL_CAPTURES_PER_USER_TURN = 2
 const VISUAL_EXPLORER_MAX_PATCH_BYTES = 64 * 1024
 const VISUAL_EXPLORER_MAX_PATCH_CHANGED_LINES = 400
 export const MIN_CANVAS_AGENT_TURN_LIMIT = turnLimit.MIN_CANVAS_AGENT_TURN_LIMIT
-export const MAX_CANVAS_AGENT_TURN_LIMIT = turnLimit.MAX_CANVAS_AGENT_TURN_LIMIT
 export const DEFAULT_CANVAS_AGENT_TURN_LIMIT = turnLimit.DEFAULT_CANVAS_AGENT_TURN_LIMIT
 export const CANVAS_AGENT_MAX_TOOL_CALLS_PER_USER_TURN = DEFAULT_CANVAS_AGENT_TURN_LIMIT
 const CONVERSATION_LOG_SECRET_KEY = /^(?:authorization|proxy-authorization|api[-_]?key|access[-_]?token|refresh[-_]?token|resume[-_]?token|cookie|password|secret)$/i
@@ -2843,7 +2842,7 @@ const DRAWING_SCHEMA = Object.freeze({
   properties:{
     origin:{ type:'array', items:{ type:'integer' }, required:true },
     types:{ type:'array', items:{ type:'string', enum:['line', 'smooth', 'rect', 'ellipse', 'circle', 'arc'] }, required:true },
-    items:{ type:'array', items:{ type:'array', items:{ type:'integer' } }, required:true },
+    items:{ type:'array', items:{ type:'array' }, required:true },
     closed:{ type:'array', items:{ type:'integer' } },
     fill:{ type:'array', items:{ type:'integer' } },
     arrows:{ type:'array', items:{ type:'integer' } },
@@ -2851,6 +2850,89 @@ const DRAWING_SCHEMA = Object.freeze({
     tension:{ type:'integer' },
   },
 })
+
+function canvasAgentDrawingError(code, message, details = null) {
+  const error=new Error(message)
+  error.code=code
+  error.details=details
+  return error
+}
+
+function canvasAgentDrawingCoordinateIndexes(type, item) {
+  if (type==='line' || type==='smooth') return item.map((_,index)=>index)
+  if (['rect','ellipse','circle','arc'].includes(type)) return item.length>=2?[0,1]:[]
+  return []
+}
+
+function canonicalizeCanvasAgentDrawing(value) {
+  const drawing=value&&typeof value==='object'&&!Array.isArray(value)?value:null,
+    origin=Array.isArray(drawing?.origin)?drawing.origin:null,
+    types=Array.isArray(drawing?.types)?drawing.types:null,
+    submittedItems=Array.isArray(drawing?.items)?drawing.items:null
+  if (!origin || origin.length!==2 || !origin.every(Number.isInteger)) {
+    throw canvasAgentDrawingError('CANVAS_DRAWING_ORIGIN_INVALID','Drawing origin must contain exactly two integer coordinates.',{path:'drawing.origin'})
+  }
+  for (let index=0;index<origin.length;index++) {
+    if (origin[index]<0) throw canvasAgentDrawingError(
+      'CANVAS_DRAWING_NEGATIVE_COORDINATE',
+      `Drawing origin coordinate ${index} must be non-negative; received ${origin[index]}. Placement does not repair invalid drawing coordinates.`,
+      {path:`drawing.origin[${index}]`,value:origin[index],minimum:0},
+    )
+  }
+  if (!types || !submittedItems || !types.length || types.length!==submittedItems.length) {
+    throw canvasAgentDrawingError(
+      'CANVAS_DRAWING_TYPES_ITEMS_MISMATCH',
+      'Drawing types and items must be non-empty parallel arrays with equal lengths.',
+      {typesLength:types?.length??null,itemsLength:submittedItems?.length??null},
+    )
+  }
+  let changed=false
+  const items=submittedItems.map((submittedItem,itemIndex)=>{
+    const type=String(types[itemIndex]||'')
+    let item=submittedItem
+    if (Array.isArray(submittedItem) && submittedItem.length && submittedItem.every(Array.isArray)) {
+      if (!['line','smooth'].includes(type)) {
+        throw canvasAgentDrawingError(
+          'CANVAS_DRAWING_POINT_PAIRS_UNSUPPORTED',
+          `Drawing item ${itemIndex} may use coordinate-pair arrays only for line or smooth primitives.`,
+          {path:`drawing.items[${itemIndex}]`,type},
+        )
+      }
+      if (submittedItem.length<2 || submittedItem.some(pair=>pair.length!==2 || !pair.every(Number.isInteger))) {
+        throw canvasAgentDrawingError(
+          'CANVAS_DRAWING_POINT_PAIRS_INVALID',
+          `Drawing item ${itemIndex} coordinate-pair input must contain at least two entries, each with exactly two integers.`,
+          {path:`drawing.items[${itemIndex}]`,type},
+        )
+      }
+      item=submittedItem.flat()
+      changed=true
+    }
+    if (!Array.isArray(item) || !item.every(Number.isInteger)) {
+      throw canvasAgentDrawingError(
+        'CANVAS_DRAWING_ITEM_INVALID',
+        `Drawing item ${itemIndex} must be an integer parameter array.`,
+        {path:`drawing.items[${itemIndex}]`,type},
+      )
+    }
+    if (['line','smooth'].includes(type) && (item.length<4 || item.length%2!==0)) {
+      throw canvasAgentDrawingError(
+        'CANVAS_DRAWING_ITEM_INVALID',
+        `Drawing item ${itemIndex} must contain at least two complete coordinate pairs.`,
+        {path:`drawing.items[${itemIndex}]`,type,valueCount:item.length},
+      )
+    }
+    for (const coordinateIndex of canvasAgentDrawingCoordinateIndexes(type,item)) {
+      if (item[coordinateIndex]<0) throw canvasAgentDrawingError(
+        'CANVAS_DRAWING_NEGATIVE_COORDINATE',
+        `Drawing item ${itemIndex} coordinate ${coordinateIndex} must be non-negative; received ${item[coordinateIndex]}. Placement does not repair invalid drawing coordinates.`,
+        {path:`drawing.items[${itemIndex}][${coordinateIndex}]`,type,value:item[coordinateIndex],minimum:0},
+      )
+    }
+    return item
+  })
+  return changed?{...drawing,items}:drawing
+}
 
 function createItemSchema(session) {
   const htmlPluginIds=['general',...session.widgetCapabilities.privatePlugins.map(plugin=>plugin.id)]
@@ -3625,7 +3707,7 @@ function createCanvasTools(session, attachments) {
   })
   const create = defineCanvasTool(session, {
     name:'canvas_create',
-    description:`Atomically create Canvas items. Plain function graph: use host-native type="plot", never drawing points or a Widget. Professional edit-only; Widgets use Visual Explorer or enabled HTML. Drawing: origin + parallel types/items, never strokes/points. Visual Explorer: one complete General HTML item with sourceFormat=${VISUAL_EXPLORER_SOURCE_FORMAT}, frameworkVersion=${VISUAL_EXPLORER_FRAMEWORK_VERSION}; progressive only at items[0].deliveryMode, never top-level. Empty Canvas: finite size and placement.mode="auto"; else exact geometry. Load Widget contracts; inspect/capture nonempty Canvas before placement.`,
+    description:`Atomically create Canvas items. Plain function graph: host-native type="plot", never drawing points/Widget. Professional edit-only. Widgets: Visual Explorer or enabled HTML. Drawing: non-negative integer coordinates + parallel types/items, no strokes/points; flatten line/smooth point pairs once. Visual Explorer: one complete General HTML item: sourceFormat=${VISUAL_EXPLORER_SOURCE_FORMAT}, frameworkVersion=${VISUAL_EXPLORER_FRAMEWORK_VERSION}; progressive only at items[0].deliveryMode, never top-level. Empty Canvas: finite size and placement.mode="auto"; else exact geometry. Load Widget contracts; inspect/capture nonempty Canvas before placement.`,
     parameters:{
       baseRevision:{ type:'integer', required:true },
       items:{ type:'array', required:true, items:createItemSchema(session) },
@@ -3634,7 +3716,7 @@ function createCanvasTools(session, attachments) {
     output:jsonOutput(),
     timeoutMs:TOOL_TIMEOUT_MS,
     async execute(args, exec) {
-      const rawItems=Array.isArray(args.items)?args.items:[],createsWidget=rawItems.some(item=>item?.type==='widget'),
+      const submittedItems=Array.isArray(args.items)?args.items:[],rawItems=submittedItems.map(item=>item?.type==='drawing'?{...item,drawing:canonicalizeCanvasAgentDrawing(item.drawing)}:item),createsWidget=rawItems.some(item=>item?.type==='widget'),
         visualExplorerIndexes=rawItems.flatMap((item,index)=>visualExplorerMarker(item)?[index]:[]),
         visualExplorerBudget=session.visualExplorerBudget || (session.visualExplorerBudget=freshVisualExplorerBudget())
       const deliveryModeIndexes=rawItems.flatMap((item,index)=>item?.deliveryMode!==undefined?[index]:[])

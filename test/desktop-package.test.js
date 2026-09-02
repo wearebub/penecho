@@ -39,8 +39,10 @@ test("desktop settings accept a secure API configuration and reject unsafe value
   assert.throws(() => normalizeSettings(base({ host:"192.168.1.2" })), /local-only or LAN/);
   assert.equal(normalizeSettings(base({ effort:"" })).updates.AI_EFFORT, "medium");
   assert.equal(normalized.updates.PENECHO_CANVAS_AGENT_TURN_LIMIT,"100");
-  assert.throws(() => normalizeSettings(base({ canvasAgentTurnLimit:"49" })),/50 to 500/);
-  assert.throws(() => normalizeSettings(base({ canvasAgentTurnLimit:"501" })),/50 to 500/);
+  assert.throws(() => normalizeSettings(base({ canvasAgentTurnLimit:"49" })),/integer of at least 50/);
+  assert.throws(() => normalizeSettings(base({ canvasAgentTurnLimit:"50.5" })),/integer of at least 50/);
+  assert.equal(normalizeSettings(base({ canvasAgentTurnLimit:"1000000" })).updates.PENECHO_CANVAS_AGENT_TURN_LIMIT,"1000000");
+  assert.throws(() => normalizeSettings(base({ autoDelay:"1.25" })),/at most one decimal place/);
 });
 
 test("desktop settings support CLI providers without exposing API secrets", () => {

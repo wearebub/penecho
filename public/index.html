@@ -53,7 +53,7 @@
           <div id="status" role="status" aria-live="polite">Ready</div>
           <div id="batchActions" class="batch-actions" hidden>
             <button id="rejectBatch" type="button" data-i18n-aria="rejectBatch" aria-label="Discard all AI drafts" data-i18n-title="rejectBatch" title="Discard all AI drafts" data-pe-button="danger" data-pe-density="compact"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5.5 5.5 14.5 14.5M14.5 5.5 5.5 14.5"/></svg></button>
-            <button id="acceptBatch" type="button" data-i18n-aria="acceptBatch" aria-label="Accept all AI drafts" data-i18n-title="acceptBatch" title="Accept all AI drafts" data-pe-button="primary" data-pe-density="compact"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m4.5 10.3 3.4 3.4 7.8-8"/></svg></button>
+            <button id="acceptBatch" type="button" data-i18n-aria="acceptBatch" aria-label="Accept all AI drafts" data-i18n-title="acceptBatch" title="Accept all AI drafts" data-pe-button="secondary" data-pe-density="compact"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m4.5 10.3 3.4 3.4 7.8-8"/></svg></button>
           </div>
         </div>
         <span id="canvasFileActions" class="canvas-file-actions">
@@ -129,7 +129,7 @@
             </button>
             <div id="eraserToolControl" class="eraser-tool-control">
               <button id="eraserToolBtn" data-mode="eraser" data-active-eraser="eraser" class="icon-button" type="button" aria-pressed="false" aria-haspopup="menu" aria-expanded="false" aria-controls="eraserToolMenu" data-i18n-aria="eraser" aria-label="Eraser" data-i18n-title="eraser" title="Eraser" data-pe-button="toolbar" data-pe-density="compact">
-                <svg data-eraser-icon="freehand" data-eraser-glyph="stroke" viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 15.8c2.2-4.5 4.8 3.6 7.5-.9 2.3-3.8 4.5 3.1 6.9-.8 1-1.6 1.9-2 2.6-1.3"/></svg>
+                <svg data-eraser-icon="freehand" viewBox="0 0 24 24" aria-hidden="true"><path d="m7 20-4-4L14 5a2 2 0 0 1 3 0l2 2a2 2 0 0 1 0 3L9 20H7Z"/><path d="m11 8 6 6M7 20h12"/></svg>
                 <svg data-eraser-icon="area" data-eraser-glyph="area" viewBox="0 0 24 24" aria-hidden="true"><rect class="eraser-area-frame" x="3.5" y="3.5" width="17" height="17" rx="2.5"/><path class="eraser-area-tool" d="m11.8 17.5 5.1-5.1a1.4 1.4 0 0 1 2 0l1.2 1.2a1.4 1.4 0 0 1 0 2L15.7 20h-2.8l-1.8-1.8.7-.7Z"/><path class="eraser-area-seam" d="m16 13.4 3.2 3.2"/></svg>
               </button>
               <div id="eraserToolMenu" class="eraser-tool-menu" role="menu" data-i18n-aria="eraserOptions" aria-label="Eraser options" hidden>
@@ -1038,7 +1038,7 @@
           <div class="settings-group settings-system-group">
             <div class="settings-fields two-column">
               <label><span data-i18n="settingsMaxTokens">Maximum response tokens</span><span class="settings-input-unit"><input id="settingsMaxTokens" name="maxTokens" type="number" min="15001" step="1" required><small>tokens</small></span><small data-i18n="settingsMaxTokensHelp">Includes thinking tokens. Default 20,000; must be larger than 15,000. Low limits may be exhausted during reasoning.</small></label>
-              <label><span data-i18n="settingsAgentTurnLimit">PenEcho Agent rounds per request</span><span class="settings-input-unit"><input id="settingsAgentTurnLimit" name="canvasAgentTurnLimit" type="number" min="50" max="500" step="1" required><small data-i18n="settingsAgentTurnLimitUnit">rounds</small></span><small data-i18n="settingsAgentTurnLimitHelp">Stops only the current request at the limit. Results and conversation stay available so the next message can continue. Default 100.</small></label>
+              <label><span data-i18n="settingsAgentTurnLimit">PenEcho Agent rounds per request</span><span class="settings-input-unit"><input id="settingsAgentTurnLimit" name="canvasAgentTurnLimit" type="number" min="50" step="1" required><small data-i18n="settingsAgentTurnLimitUnit">rounds</small></span><small data-i18n="settingsAgentTurnLimitHelp">Stops only the current request at the limit. Results and conversation stay available so the next message can continue. Default 100.</small></label>
               <label><span data-i18n="settingsTimeout">No-activity timeout</span><span class="settings-input-unit"><input id="settingsTimeout" name="timeoutSeconds" type="number" min="10" max="600" step="1" required><small>s</small></span><small data-i18n="settingsTimeoutHelp">Resets when model output, tool activity, or progress arrives. There is no fixed total-time limit.</small></label>
             </div>
             <div class="settings-fields two-column compact">
