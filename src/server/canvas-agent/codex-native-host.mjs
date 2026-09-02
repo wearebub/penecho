@@ -1434,9 +1434,8 @@ export class CodexNativeHost {
   sealNativeAssistantResponse(session, active) {
     const start=Math.min(active.responseTextStart,active.text.length),prefix=active.text.slice(0,start),responseText=active.text.slice(start),messages=active.completedResponseMessages.splice(0),
       project=value=>{
-        if(!active.titleRequested)return String(value||'')
         const parsed=parseCanvasTitleEnvelope(value,true)
-        if(parsed.matched&&parsed.title&&!active.canvasTitleCandidate)active.canvasTitleCandidate=parsed.title
+        if(active.titleRequested&&parsed.matched&&parsed.title&&!active.canvasTitleCandidate)active.canvasTitleCandidate=parsed.title
         return parsed.text
       },visibleResponse=project(responseText),visibleMessages=messages.map(project).filter(Boolean)
     active.text=`${prefix}${visibleResponse}`

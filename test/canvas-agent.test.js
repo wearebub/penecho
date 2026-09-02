@@ -59,8 +59,14 @@ test("PenEcho Agent applies only a same-turn LLM title after completion without 
   state.currentSnapshotHasExplicitName=true;
   assert.equal(apply("已有名称不能覆盖"),false);
   const submit=functionSource(agent,"canvasAgentSubmitMessage"),applySource=functionSource(persistence,"applyCurrentCanvasGeneratedName"),
+    conversationNeedsTitle=vm.runInNewContext(`(${functionSource(agent,"canvasAgentConversationNeedsCanvasTitle")})`),
+    visibleAssistantText=Function("CANVAS_AGENT_HISTORY_TEXT_LIMIT",`${functionSource(agent,"canvasAgentMessageText")}\n${functionSource(agent,"canvasAgentVisibleAssistantText")}\nreturn canvasAgentVisibleAssistantText;`)(20_000),
     {parseCanvasTitleEnvelope,publicSessionEvent}=await import("../src/server/canvas-agent/runtime.mjs");
-  assert.match(submit,/canvasTitleNeeded:currentCanvasNeedsAgentName\(\)/);
+  assert.equal(conversationNeedsTitle({items:[{type:"message",role:"user",text:"请优化画布"}]}),true);
+  assert.equal(conversationNeedsTitle({items:[{type:"message",role:"assistant",text:"第一轮回复",final:true}]}),false);
+  assert.equal(visibleAssistantText("<penecho_canvas_title>旧标题</penecho_canvas_title>\n历史回答"),"历史回答");
+  assert.equal(visibleAssistantText("<penecho_canvas_title>格式错误但正常回答"),"<penecho_canvas_title>格式错误但正常回答");
+  assert.match(submit,/canvasTitleNeeded:currentCanvasNeedsAgentName\(\)&&canvasAgentConversationNeedsCanvasTitle\(canvasAgent\.currentConversation\)/);
   assert.doesNotMatch(submit,/applyCurrentCanvasGeneratedName|suggestCurrentCanvasNameFromQuestion/);
   assert.match(agent,/function canvasAgentHandleEvent[\s\S]*?event\.reason\?\.kind==="completed"[\s\S]*?applyCurrentCanvasGeneratedName\(event\.canvasTitle\)/);
   assert.doesNotMatch(applySource,/saveSnapshot|fetch|currentSnapshotName\s*=/);
@@ -74,6 +80,12 @@ test("PenEcho Agent applies only a same-turn LLM title after completion without 
   assert.deepEqual(publicSessionEvent(event("assistant/message",{turn:1,step:2,message:{content:[{type:"text",text:"<penecho_canvas_title>画布结构优化方案</penecho_canvas_title>\n正常回答"}]}}),session),{kind:"assistant_message",turn:1,step:2,text:"正常回答",interrupted:false});
   assert.deepEqual(publicSessionEvent(event("turn/end",{turn:1,reason:{kind:"completed"}}),session),{kind:"turn_end",turn:1,reason:{kind:"completed"},canvasTitle:"画布结构优化方案"});
   assert.equal(session.canvasTitleRequested,false);
+  const laterSession={canvasTitleRequested:false,canvasTitleCandidate:"",canvasTitleStreams:new Map()};
+  assert.equal(publicSessionEvent(event("assistant/chunk",{turn:2,step:1,chunk:{type:"text-delta",text:"<penecho_canvas_"}}),laterSession),null);
+  assert.deepEqual(publicSessionEvent(event("assistant/chunk",{turn:2,step:1,chunk:{type:"text-delta",text:"title>后续标题不能显示</penecho_canvas_title>\n后续回答"}}),laterSession),{kind:"assistant_delta",turn:2,step:1,text:"后续回答"});
+  assert.deepEqual(publicSessionEvent(event("assistant/message",{turn:2,step:1,message:{content:[{type:"text",text:"<penecho_canvas_title>后续标题不能显示</penecho_canvas_title>\n后续回答"}]}}),laterSession),{kind:"assistant_message",turn:2,step:1,text:"后续回答",interrupted:false});
+  assert.deepEqual(publicSessionEvent(event("turn/end",{turn:2,reason:{kind:"completed"}}),laterSession),{kind:"turn_end",turn:2,reason:{kind:"completed"}});
+  assert.equal(laterSession.canvasTitleCandidate,"");
   assert.match(runtimeSource,/Without a tool call, separate task, or extra model request[\s\S]*?<penecho_canvas_title>title<\/penecho_canvas_title>/);
   assert.match(runtimeSource,/projected\.canvasTitle=session\.canvasTitleCandidate/);
   assert.match(native,/parseCanvasTitleEnvelope\(value,true\)/);

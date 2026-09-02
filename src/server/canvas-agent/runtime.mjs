@@ -1756,7 +1756,7 @@ function canvasTitleStreamKey(data) {
 
 function projectCanvasTitleChunk(session, data, value) {
   const text=String(value||'')
-  if(!session?.canvasTitleRequested)return text
+  if(!session)return text
   session.canvasTitleStreams ||= new Map()
   const key=canvasTitleStreamKey(data),stream=session.canvasTitleStreams.get(key)||{buffer:'',decided:false}
   if(stream.decided)return text
@@ -1766,16 +1766,16 @@ function projectCanvasTitleChunk(session, data, value) {
   if(!parsed.complete)return ''
   stream.decided=true
   stream.buffer=''
-  if(parsed.matched&&parsed.title&&!session.canvasTitleCandidate)session.canvasTitleCandidate=parsed.title
+  if(session.canvasTitleRequested&&parsed.matched&&parsed.title&&!session.canvasTitleCandidate)session.canvasTitleCandidate=parsed.title
   return parsed.text
 }
 
 function projectCanvasTitleMessage(session, data, value) {
   const text=String(value||'')
-  if(!session?.canvasTitleRequested)return text
+  if(!session)return text
   const parsed=parseCanvasTitleEnvelope(text,true)
   session.canvasTitleStreams?.delete(canvasTitleStreamKey(data))
-  if(parsed.matched&&parsed.title&&!session.canvasTitleCandidate)session.canvasTitleCandidate=parsed.title
+  if(session.canvasTitleRequested&&parsed.matched&&parsed.title&&!session.canvasTitleCandidate)session.canvasTitleCandidate=parsed.title
   return parsed.text
 }
 

@@ -225,6 +225,26 @@ test("Codex Native extracts an optional Canvas title from the same completed res
   assert.equal(events.some(event=>String(event.text||"").includes("penecho_canvas_title")),false);
   assert.equal(events.find(event=>event.kind==="assistant_message")?.text,"正常回答");
   assert.equal(events.find(event=>event.kind==="turn_end")?.canvasTitle,"画布结构优化方案");
+  const laterTurnId="same-response-later-turn",laterMessageStart=harness.messages.length;
+  process.requestHandler=async(method,params)=>{
+    if(method!=="turn/start")return {};
+    setImmediate(()=>{
+      process.emitNotification("turn/started",{threadId:process.threadId,turn:{id:laterTurnId}});
+      const answer="<penecho_canvas_title>后续标题不能显示</penecho_canvas_title>\n后续回答";
+      process.emitNotification("item/agentMessage/delta",{threadId:process.threadId,turnId:laterTurnId,delta:answer});
+      process.emitNotification("item/completed",{threadId:process.threadId,turnId:laterTurnId,item:{type:"agentMessage",text:answer}});
+      process.emitNotification("rawResponse/completed",{threadId:process.threadId,turnId:laterTurnId,responseId:"same-response-later",usage:null});
+      process.emitNotification("turn/completed",{threadId:process.threadId,turn:{id:laterTurnId,status:"completed",items:[{type:"agentMessage",text:answer}]}});
+    });
+    return {turn:{id:laterTurnId}};
+  };
+  const laterResult=await harness.host.submit(session,"继续优化",false,[],{},null,[],false),laterTurnRequest=process.requests.filter(request=>request.method==="turn/start").at(-1),
+    laterEvents=harness.messages.slice(laterMessageStart).filter(message=>message.type==="session_event").map(message=>message.payload);
+  assert.equal(laterResult.output,"后续回答");
+  assert.equal(Object.values(laterTurnRequest.params.additionalContext||{}).some(context=>String(context?.value||"").includes("<penecho_canvas_title>title</penecho_canvas_title>")),false);
+  assert.equal(laterEvents.some(event=>String(event.text||"").includes("penecho_canvas_title")),false);
+  assert.equal(laterEvents.find(event=>event.kind==="assistant_message")?.text,"后续回答");
+  assert.equal(laterEvents.find(event=>event.kind==="turn_end")?.canvasTitle,undefined);
 });
 
 test("Codex Native connects lazily, starts one strict app-server thread, and reuses it", async t => {

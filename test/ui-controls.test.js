@@ -3982,6 +3982,7 @@ test("AI drafts move only from the dedicated Hand chrome", () => {
     pointerDown = app.slice(pointerDownStart, pointerDownEnd),
     specs = functionSource(app, "pendingChromeSpecs"),
     begin = functionSource(app, "beginObjectChromeMove");
+  assert.match(specs, /standaloneDraftControl = \["write_text", "draw_formula", "draw"\]\.includes\(contentCommand\.tool\)/);
   assert.match(specs, /kind:"move"[\s\S]*?target:"pending"/);
   assert.match(begin, /spec\.target === "pending"[\s\S]*?beginPendingGesture\(event, "move", spec\.itemIndex\)/);
   assert.match(pointerDown, /\["resize", "width", "height", "batch-resize"\]\.includes\(hit\)/);
@@ -4026,7 +4027,9 @@ test("AI text, formula, and function-plot drafts expose copy and axis-resize con
     hit = functionSource(app, "pendingHit"),
     start = functionSource(app, "startPending"),
     prepare = functionSource(app, "preparePendingItem"),
-    update = functionSource(app, "updatePendingGesture");
+    update = functionSource(app, "updatePendingGesture"),
+    pendingChrome = functionSource(app, "pendingChromeSpecs"),
+    syncChrome = functionSource(app, "syncObjectChrome");
   const box = { x: 100, y: 120, w: 300, h: 180 },
     edge = points({ x: 0, y: 0, w: 300, h: 180 }, 14, true, true),
     radius = 14 * 0.54;
@@ -4047,8 +4050,13 @@ test("AI text, formula, and function-plot drafts expose copy and axis-resize con
   assert.match(draw, /b\.y \+ b\.h \+ s \* 0\.08/);
   assert.match(drawBatch, /if \(item\.textCommand\) drawTextDraftSurface\(ctx, box, index === p\.selectedIndex\)/);
   assert.doesNotMatch(drawBatch, /drawDraftActions/);
-  assert.match(functionSource(app, "pendingChromeSpecs"), /kind:"move"[\s\S]*?kind:"cancel"[\s\S]*?kind:"accept"[\s\S]*?kind:"copy"/);
-  assert.match(functionSource(app, "pendingChromeSpecs"), /copyPendingText\(itemIndex\)/);
+  assert.match(pendingChrome, /standaloneDraftControl = \["write_text", "draw_formula", "draw"\]\.includes\(contentCommand\.tool\)/);
+  assert.match(pendingChrome, /kind:"move"[^\n]*standaloneDraftControl[\s\S]*?kind:"cancel"[^\n]*standaloneDraftControl[\s\S]*?kind:"accept"[^\n]*standaloneDraftControl[\s\S]*?kind:"copy"[^\n]*standaloneDraftControl/);
+  assert.doesNotMatch(pendingChrome, /if \(standaloneDraftControl\)[\s\S]*?addObjectToolbarSpecs/);
+  assert.match(syncChrome, /if \(spec\.objectToolbar \|\| spec\.standaloneDraftControl\)[\s\S]*?removeAttribute\("data-pe-button"\)[\s\S]*?removeAttribute\("data-pe-density"\)/);
+  assert.match(css, /\.object-chrome-button \{[^}]*width: 36px;[^}]*height: 34px;/);
+  assert.match(css, /\.object-chrome-button svg \{ width: 19px; height: 19px;/);
+  assert.match(pendingChrome, /copyPendingText\(itemIndex\)/);
   assert.match(hit, /draftActionPoints\(box, s, pendingCopyable\(item\)\)/);
   assert.match(hit, /\.sort\(\(a, b\) => a\.distance - b\.distance \|\| b\.z - a\.z\)/);
   assert.match(start, /copyText = copyTextForCommand\(command\)/);
@@ -4056,8 +4064,8 @@ test("AI text, formula, and function-plot drafts expose copy and axis-resize con
   assert.match(update, /p\.scaleX = p\.scaleY = next/);
   assert.match(update, /g\.hit === "width"[\s\S]*?p\.scaleX = Math\.max/);
   assert.match(update, /g\.hit === "height"[\s\S]*?p\.scaleY = Math\.max/);
-  assert.match(functionSource(app, "pendingChromeSpecs"), /pendingCopyable\(target\)[\s\S]*?copyPendingText\(itemIndex\)/);
-  assert.match(functionSource(app, "pendingChromeSpecs"), /tool === "plot_function"[\s\S]*?addObjectToolbarSpecs[\s\S]*?kind:"copy"[\s\S]*?copyPendingText\(itemIndex\)/);
+  assert.match(pendingChrome, /pendingCopyable\(target\)[\s\S]*?copyPendingText\(itemIndex\)/);
+  assert.match(pendingChrome, /tool === "plot_function"[\s\S]*?addObjectToolbarSpecs[\s\S]*?kind:"copy"[\s\S]*?copyPendingText\(itemIndex\)/);
   assert.match(functionSource(app, "acceptPending"), /tool === "plot_function"[\s\S]*?addPendingPlotImage\(p, draftBounds\(p\)\)/);
   assert.match(functionSource(app, "commitPendingItem"), /tool === "plot_function"[\s\S]*?addPendingPlotImage\(item, box\)/);
   assert.match(functionSource(app, "addPendingPlotImage"), /imageRecord\([\s\S]*?plotExpression:expression[\s\S]*?state\.images\.push\(record\)/);

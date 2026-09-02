@@ -3935,10 +3935,10 @@
     if (state.animationGesture?.id === event.pointerId) return finishAnimationGesture(event);
     return false;
   }
-  function createObjectChromeButton(key, kind) {
+  function createObjectChromeButton(key, kind, spec = null) {
     const button = document.createElement("button");
     button.type = "button";
-    if (kind !== "toolbar") peButton(button, kind === "delete" ? "danger" : "toolbar", "compact");
+    if (kind !== "toolbar" && !spec?.standaloneDraftControl) peButton(button, kind === "delete" ? "danger" : "toolbar", "compact");
     button.className = kind === "toolbar" ? "object-chrome-button" : `object-chrome-button ${kind}`;
     button.dataset.objectChromeKey = key;
     button.innerHTML = `${OBJECT_CHROME_ICONS[kind] || ""}${kind === "refine" ? '<span class="widget-refine-hint" hidden></span>' : ""}`;
@@ -4037,7 +4037,9 @@
     const add = (key, box, itemIndex = null, target = pending) => {
       const plotExpression = target?.command?.tool === "plot_function" && typeof target.command.expression === "string"
         ? target.command.expression.trim()
-        : "";
+        : "",
+        contentCommand = target?.command || target?.textCommand || {},
+        standaloneDraftControl = ["write_text", "draw_formula", "draw"].includes(contentCommand.tool);
       if (plotExpression) {
         const toolbarKey = addObjectToolbarSpecs(specs, {
           prefix:key,
@@ -4068,10 +4070,10 @@
         });
         return;
       }
-      specs.push({ key:`${key}:move`, kind:"move", box, target:"pending", itemIndex, object:target, priority:4 });
-      specs.push({ key:`${key}:cancel`, kind:"cancel", box, activate:() => itemIndex === null ? rejectPending() : rejectPendingItem(itemIndex), priority:5 });
-      specs.push({ key:`${key}:accept`, kind:"accept", box, activate:() => itemIndex === null ? acceptPending({ showHint:true }) : acceptPendingItem(itemIndex), priority:5 });
-      if (pendingCopyable(target)) specs.push({ key:`${key}:copy`, kind:"copy", box, activate:() => void copyPendingText(itemIndex), priority:5 });
+      specs.push({ key:`${key}:move`, kind:"move", box, target:"pending", itemIndex, object:target, standaloneDraftControl, priority:4 });
+      specs.push({ key:`${key}:cancel`, kind:"cancel", box, standaloneDraftControl, activate:() => itemIndex === null ? rejectPending() : rejectPendingItem(itemIndex), priority:5 });
+      specs.push({ key:`${key}:accept`, kind:"accept", box, standaloneDraftControl, activate:() => itemIndex === null ? acceptPending({ showHint:true }) : acceptPendingItem(itemIndex), priority:5 });
+      if (pendingCopyable(target)) specs.push({ key:`${key}:copy`, kind:"copy", box, standaloneDraftControl, activate:() => void copyPendingText(itemIndex), priority:5 });
     };
     if (pending.items) pending.items.forEach((item, index) => add(`pending-item:${index}`, pendingItemBounds(item), index, item));
     else add("pending", draftBounds(pending));
@@ -4213,7 +4215,7 @@
     let selectedWidgetMaterialRecord = null;
     let removedHoveredRefineButton = false;
     for (const spec of objectChromeSpecs()) {
-      const button = objectChromeButtons.get(spec.key) || createObjectChromeButton(spec.key, spec.kind),
+      const button = objectChromeButtons.get(spec.key) || createObjectChromeButton(spec.key, spec.kind, spec),
         position = objectChromePosition(spec.box, spec.kind, spec.key, spec, knownPositions);
       if (!position) continue;
       knownPositions.set(spec.key, position);
@@ -4225,10 +4227,11 @@
       const label = objectChromeLabel(spec.kind, spec),
         declaration = (button.penechoStyleRule || ensureObjectChromeStyleRule(button))?.["style"];
       button.penechoSpec = spec;
-      if (spec.objectToolbar) {
+      if (spec.objectToolbar || spec.standaloneDraftControl) {
         button.removeAttribute("data-pe-button");
         button.removeAttribute("data-pe-density");
       } else peButton(button, spec.kind === "delete" ? "danger" : "toolbar", "compact");
+      button.classList.toggle("standalone-draft-control", Boolean(spec.standaloneDraftControl));
       button.classList.toggle("widget-tool", Boolean(spec.widgetTool));
       button.classList.toggle("widget-chrome-control", Boolean(spec.widgetTool || spec.objectToolbar || spec.objectToolbarItem));
       button.classList.toggle("object-toolbar-surface", Boolean(spec.objectToolbar));

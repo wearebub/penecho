@@ -1155,6 +1155,12 @@
     if(/[\uD800-\uDBFF]/.test(text[end-1])&&/[\uDC00-\uDFFF]/.test(text[end]))end--;
     return `${text.slice(0,end)}…`;
   }
+  function canvasAgentVisibleAssistantText(value) {
+    const text=String(value||""),open="<penecho_canvas_title>",close="</penecho_canvas_title>";
+    if(!text.startsWith(open))return canvasAgentMessageText(text);
+    const end=text.indexOf(close,open.length);
+    return canvasAgentMessageText(end<0?text:text.slice(end+close.length).replace(/^\r?\n/,""));
+  }
   function canvasAgentNormalizeHistoryFile(value) {
     if(!value||typeof value!=="object"||!/^file-[0-9a-f]{24}$/.test(String(value.projectId||"")))return null;
     const name=canvasAgentHistoryText(value.name,240).replace(/[\0-\x1f\x7f]/g,"").trim(),bytes=Number(value.bytes),mediaType=canvasAgentHistoryText(value.mediaType,255);
@@ -1169,7 +1175,7 @@
       id:canvasAgentHistoryText(item.id,128) || canvasClientId(),
       type:"message",
       role:item.role,
-      text:canvasAgentMessageText(item.text),
+      text:item.role==="assistant"?canvasAgentVisibleAssistantText(item.text):canvasAgentMessageText(item.text),
       attachmentCount:Math.max(files.length,Math.max(0,Math.min(CANVAS_AGENT_MAX_ATTACHMENTS,Number(item.attachmentCount)||0))),
       eventKey:canvasAgentHistoryText(item.eventKey,128),
       ...(Number.isSafeInteger(item.turn)?{turn:item.turn}:{}),
@@ -1301,6 +1307,9 @@
   function canvasAgentConversationTitle(conversation) {
     const firstUser=conversation?.items?.find(item=>item.type==="message"&&item.role==="user"&&item.text.trim());
     return firstUser ? firstUser.text.replace(/\s+/g," ").trim().slice(0,72) : "";
+  }
+  function canvasAgentConversationNeedsCanvasTitle(conversation) {
+    return !(conversation?.items||[]).some(item=>item?.type==="message"&&item.role==="assistant"&&String(item.text||"").trim());
   }
   function canvasAgentPersistCurrentConversation() {
     clearTimeout(canvasAgent.historyPersistTimer);
@@ -2867,7 +2876,7 @@
     return target;
   }
   function canvasAgentRow(role, text = "", attachments = [], {eventKey="",final=true,turn=null,step=null}={}) {
-    const files=attachments.map(canvasAgentNormalizeHistoryFile).filter(Boolean).slice(0,CANVAS_AGENT_MAX_ATTACHMENTS),item={id:canvasClientId(),type:"message",role,text:canvasAgentMessageText(text),attachmentCount:attachments.length,eventKey,...(Number.isSafeInteger(turn)?{turn}:{}),...(Number.isSafeInteger(step)?{step}:{}),...(files.length?{files}:{}),...(role==="assistant"?{final:final!==false,copyable:false}:{})};
+    const files=attachments.map(canvasAgentNormalizeHistoryFile).filter(Boolean).slice(0,CANVAS_AGENT_MAX_ATTACHMENTS),item={id:canvasClientId(),type:"message",role,text:role==="assistant"?canvasAgentVisibleAssistantText(text):canvasAgentMessageText(text),attachmentCount:attachments.length,eventKey,...(Number.isSafeInteger(turn)?{turn}:{}),...(Number.isSafeInteger(step)?{step}:{}),...(files.length?{files}:{}),...(role==="assistant"?{final:final!==false,copyable:false}:{})};
     if (!canvasAgent.currentConversation) canvasAgent.currentConversation=canvasAgentNewConversationRecord();
     canvasAgent.currentConversation.items.push(item);
     if (canvasAgent.currentConversation.items.length>CANVAS_AGENT_HISTORY_ITEM_LIMIT) canvasAgent.currentConversation.items.splice(0,canvasAgent.currentConversation.items.length-CANVAS_AGENT_HISTORY_ITEM_LIMIT);
@@ -3030,7 +3039,7 @@
     else if (event.kind === "assistant_delta") {
       let target = canvasAgentPendingAssistantRow(event);
       if (!target) target=canvasAgentCreateAssistantRow(event,"",false);
-      target.messageText = canvasAgentMessageText(target.messageText + (event.text || ""));
+      target.messageText = canvasAgentVisibleAssistantText(target.messageText + (event.text || ""));
       canvasAgentRenderMessageBody(target.body,target.messageText,"assistant",{final:false});
       target.historyItem.text=target.messageText;target.historyItem.final=false;
       canvasAgentScheduleHistoryPersist();
@@ -3039,7 +3048,7 @@
       let target = canvasAgentPendingAssistantRow(event);
       if (!target && event.text) target=canvasAgentCreateAssistantRow(event,event.text,true);
       else if (target) {
-        if(typeof event.text==="string")target.messageText=canvasAgentMessageText(event.text);
+        if(typeof event.text==="string")target.messageText=canvasAgentVisibleAssistantText(event.text);
         canvasAgentRenderMessageBody(target.body,target.messageText,"assistant",{final:true});
         target.historyItem.text=target.messageText;target.historyItem.final=true;
       }
@@ -4475,7 +4484,7 @@
       canvasAgentAssertSubmitExecution(submitExecution);
       canvasAgentRow("user",displayText,displayAttachments);
       canvasAgentAssertSubmitExecution(submitExecution);
-      canvasAgentSendRequest(canvasAgent.running ? "steer" : "user_turn",{text:prompt,references:canvasAgentTurnReferences(),images:outgoingAttachments.map(attachment=>attachment.wire),fileIds:fileAttachments.map(attachment=>attachment.projectId),initialState,webSearchEnabled:canvasAgent.searchEnabled,canvasTitleNeeded:currentCanvasNeedsAgentName()});
+      canvasAgentSendRequest(canvasAgent.running ? "steer" : "user_turn",{text:prompt,references:canvasAgentTurnReferences(),images:outgoingAttachments.map(attachment=>attachment.wire),fileIds:fileAttachments.map(attachment=>attachment.projectId),initialState,webSearchEnabled:canvasAgent.searchEnabled,canvasTitleNeeded:currentCanvasNeedsAgentName()&&canvasAgentConversationNeedsCanvasTitle(canvasAgent.currentConversation)});
       requestSent = true;
       focusComposerAfterSubmit=false;
       if(canvasAgentForm.contains(document.activeElement))document.activeElement.blur();

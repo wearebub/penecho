@@ -8394,10 +8394,10 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     if (state.animationGesture?.id === event.pointerId) return finishAnimationGesture(event);
     return false;
   }
-  function createObjectChromeButton(key, kind) {
+  function createObjectChromeButton(key, kind, spec = null) {
     const button = document.createElement("button");
     button.type = "button";
-    if (kind !== "toolbar") peButton(button, kind === "delete" ? "danger" : "toolbar", "compact");
+    if (kind !== "toolbar" && !spec?.standaloneDraftControl) peButton(button, kind === "delete" ? "danger" : "toolbar", "compact");
     button.className = kind === "toolbar" ? "object-chrome-button" : `object-chrome-button ${kind}`;
     button.dataset.objectChromeKey = key;
     button.innerHTML = `${OBJECT_CHROME_ICONS[kind] || ""}${kind === "refine" ? '<span class="widget-refine-hint" hidden></span>' : ""}`;
@@ -8496,7 +8496,9 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     const add = (key, box, itemIndex = null, target = pending) => {
       const plotExpression = target?.command?.tool === "plot_function" && typeof target.command.expression === "string"
         ? target.command.expression.trim()
-        : "";
+        : "",
+        contentCommand = target?.command || target?.textCommand || {},
+        standaloneDraftControl = ["write_text", "draw_formula", "draw"].includes(contentCommand.tool);
       if (plotExpression) {
         const toolbarKey = addObjectToolbarSpecs(specs, {
           prefix:key,
@@ -8527,10 +8529,10 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
         });
         return;
       }
-      specs.push({ key:`${key}:move`, kind:"move", box, target:"pending", itemIndex, object:target, priority:4 });
-      specs.push({ key:`${key}:cancel`, kind:"cancel", box, activate:() => itemIndex === null ? rejectPending() : rejectPendingItem(itemIndex), priority:5 });
-      specs.push({ key:`${key}:accept`, kind:"accept", box, activate:() => itemIndex === null ? acceptPending({ showHint:true }) : acceptPendingItem(itemIndex), priority:5 });
-      if (pendingCopyable(target)) specs.push({ key:`${key}:copy`, kind:"copy", box, activate:() => void copyPendingText(itemIndex), priority:5 });
+      specs.push({ key:`${key}:move`, kind:"move", box, target:"pending", itemIndex, object:target, standaloneDraftControl, priority:4 });
+      specs.push({ key:`${key}:cancel`, kind:"cancel", box, standaloneDraftControl, activate:() => itemIndex === null ? rejectPending() : rejectPendingItem(itemIndex), priority:5 });
+      specs.push({ key:`${key}:accept`, kind:"accept", box, standaloneDraftControl, activate:() => itemIndex === null ? acceptPending({ showHint:true }) : acceptPendingItem(itemIndex), priority:5 });
+      if (pendingCopyable(target)) specs.push({ key:`${key}:copy`, kind:"copy", box, standaloneDraftControl, activate:() => void copyPendingText(itemIndex), priority:5 });
     };
     if (pending.items) pending.items.forEach((item, index) => add(`pending-item:${index}`, pendingItemBounds(item), index, item));
     else add("pending", draftBounds(pending));
@@ -8672,7 +8674,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     let selectedWidgetMaterialRecord = null;
     let removedHoveredRefineButton = false;
     for (const spec of objectChromeSpecs()) {
-      const button = objectChromeButtons.get(spec.key) || createObjectChromeButton(spec.key, spec.kind),
+      const button = objectChromeButtons.get(spec.key) || createObjectChromeButton(spec.key, spec.kind, spec),
         position = objectChromePosition(spec.box, spec.kind, spec.key, spec, knownPositions);
       if (!position) continue;
       knownPositions.set(spec.key, position);
@@ -8684,10 +8686,11 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       const label = objectChromeLabel(spec.kind, spec),
         declaration = (button.penechoStyleRule || ensureObjectChromeStyleRule(button))?.["style"];
       button.penechoSpec = spec;
-      if (spec.objectToolbar) {
+      if (spec.objectToolbar || spec.standaloneDraftControl) {
         button.removeAttribute("data-pe-button");
         button.removeAttribute("data-pe-density");
       } else peButton(button, spec.kind === "delete" ? "danger" : "toolbar", "compact");
+      button.classList.toggle("standalone-draft-control", Boolean(spec.standaloneDraftControl));
       button.classList.toggle("widget-tool", Boolean(spec.widgetTool));
       button.classList.toggle("widget-chrome-control", Boolean(spec.widgetTool || spec.objectToolbar || spec.objectToolbarItem));
       button.classList.toggle("object-toolbar-surface", Boolean(spec.objectToolbar));
@@ -17457,6 +17460,12 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     if(/[\uD800-\uDBFF]/.test(text[end-1])&&/[\uDC00-\uDFFF]/.test(text[end]))end--;
     return `${text.slice(0,end)}…`;
   }
+  function canvasAgentVisibleAssistantText(value) {
+    const text=String(value||""),open="<penecho_canvas_title>",close="</penecho_canvas_title>";
+    if(!text.startsWith(open))return canvasAgentMessageText(text);
+    const end=text.indexOf(close,open.length);
+    return canvasAgentMessageText(end<0?text:text.slice(end+close.length).replace(/^\r?\n/,""));
+  }
   function canvasAgentNormalizeHistoryFile(value) {
     if(!value||typeof value!=="object"||!/^file-[0-9a-f]{24}$/.test(String(value.projectId||"")))return null;
     const name=canvasAgentHistoryText(value.name,240).replace(/[\0-\x1f\x7f]/g,"").trim(),bytes=Number(value.bytes),mediaType=canvasAgentHistoryText(value.mediaType,255);
@@ -17471,7 +17480,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       id:canvasAgentHistoryText(item.id,128) || canvasClientId(),
       type:"message",
       role:item.role,
-      text:canvasAgentMessageText(item.text),
+      text:item.role==="assistant"?canvasAgentVisibleAssistantText(item.text):canvasAgentMessageText(item.text),
       attachmentCount:Math.max(files.length,Math.max(0,Math.min(CANVAS_AGENT_MAX_ATTACHMENTS,Number(item.attachmentCount)||0))),
       eventKey:canvasAgentHistoryText(item.eventKey,128),
       ...(Number.isSafeInteger(item.turn)?{turn:item.turn}:{}),
@@ -17603,6 +17612,9 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   function canvasAgentConversationTitle(conversation) {
     const firstUser=conversation?.items?.find(item=>item.type==="message"&&item.role==="user"&&item.text.trim());
     return firstUser ? firstUser.text.replace(/\s+/g," ").trim().slice(0,72) : "";
+  }
+  function canvasAgentConversationNeedsCanvasTitle(conversation) {
+    return !(conversation?.items||[]).some(item=>item?.type==="message"&&item.role==="assistant"&&String(item.text||"").trim());
   }
   function canvasAgentPersistCurrentConversation() {
     clearTimeout(canvasAgent.historyPersistTimer);
@@ -19169,7 +19181,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     return target;
   }
   function canvasAgentRow(role, text = "", attachments = [], {eventKey="",final=true,turn=null,step=null}={}) {
-    const files=attachments.map(canvasAgentNormalizeHistoryFile).filter(Boolean).slice(0,CANVAS_AGENT_MAX_ATTACHMENTS),item={id:canvasClientId(),type:"message",role,text:canvasAgentMessageText(text),attachmentCount:attachments.length,eventKey,...(Number.isSafeInteger(turn)?{turn}:{}),...(Number.isSafeInteger(step)?{step}:{}),...(files.length?{files}:{}),...(role==="assistant"?{final:final!==false,copyable:false}:{})};
+    const files=attachments.map(canvasAgentNormalizeHistoryFile).filter(Boolean).slice(0,CANVAS_AGENT_MAX_ATTACHMENTS),item={id:canvasClientId(),type:"message",role,text:role==="assistant"?canvasAgentVisibleAssistantText(text):canvasAgentMessageText(text),attachmentCount:attachments.length,eventKey,...(Number.isSafeInteger(turn)?{turn}:{}),...(Number.isSafeInteger(step)?{step}:{}),...(files.length?{files}:{}),...(role==="assistant"?{final:final!==false,copyable:false}:{})};
     if (!canvasAgent.currentConversation) canvasAgent.currentConversation=canvasAgentNewConversationRecord();
     canvasAgent.currentConversation.items.push(item);
     if (canvasAgent.currentConversation.items.length>CANVAS_AGENT_HISTORY_ITEM_LIMIT) canvasAgent.currentConversation.items.splice(0,canvasAgent.currentConversation.items.length-CANVAS_AGENT_HISTORY_ITEM_LIMIT);
@@ -19332,7 +19344,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     else if (event.kind === "assistant_delta") {
       let target = canvasAgentPendingAssistantRow(event);
       if (!target) target=canvasAgentCreateAssistantRow(event,"",false);
-      target.messageText = canvasAgentMessageText(target.messageText + (event.text || ""));
+      target.messageText = canvasAgentVisibleAssistantText(target.messageText + (event.text || ""));
       canvasAgentRenderMessageBody(target.body,target.messageText,"assistant",{final:false});
       target.historyItem.text=target.messageText;target.historyItem.final=false;
       canvasAgentScheduleHistoryPersist();
@@ -19341,7 +19353,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       let target = canvasAgentPendingAssistantRow(event);
       if (!target && event.text) target=canvasAgentCreateAssistantRow(event,event.text,true);
       else if (target) {
-        if(typeof event.text==="string")target.messageText=canvasAgentMessageText(event.text);
+        if(typeof event.text==="string")target.messageText=canvasAgentVisibleAssistantText(event.text);
         canvasAgentRenderMessageBody(target.body,target.messageText,"assistant",{final:true});
         target.historyItem.text=target.messageText;target.historyItem.final=true;
       }
@@ -20777,7 +20789,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       canvasAgentAssertSubmitExecution(submitExecution);
       canvasAgentRow("user",displayText,displayAttachments);
       canvasAgentAssertSubmitExecution(submitExecution);
-      canvasAgentSendRequest(canvasAgent.running ? "steer" : "user_turn",{text:prompt,references:canvasAgentTurnReferences(),images:outgoingAttachments.map(attachment=>attachment.wire),fileIds:fileAttachments.map(attachment=>attachment.projectId),initialState,webSearchEnabled:canvasAgent.searchEnabled,canvasTitleNeeded:currentCanvasNeedsAgentName()});
+      canvasAgentSendRequest(canvasAgent.running ? "steer" : "user_turn",{text:prompt,references:canvasAgentTurnReferences(),images:outgoingAttachments.map(attachment=>attachment.wire),fileIds:fileAttachments.map(attachment=>attachment.projectId),initialState,webSearchEnabled:canvasAgent.searchEnabled,canvasTitleNeeded:currentCanvasNeedsAgentName()&&canvasAgentConversationNeedsCanvasTitle(canvasAgent.currentConversation)});
       requestSent = true;
       focusComposerAfterSubmit=false;
       if(canvasAgentForm.contains(document.activeElement))document.activeElement.blur();
