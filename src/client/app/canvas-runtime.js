@@ -2674,6 +2674,16 @@
     if (state.animationFrame) cancelAnimationFrame(state.animationFrame);
     state.animationFrame = 0;
   }
+  let inkRenderQueued = false;
+  function requestInkLayerRender() {
+    if (state.renderQueued || inkRenderQueued) return;
+    inkRenderQueued = true;
+    requestAnimationFrame(() => {
+      inkRenderQueued = false;
+      if (state.renderQueued) return;
+      renderInkLayer();
+    });
+  }
   function requestRender() {
     requestAnimationLayerRender();
     if (state.renderQueued) return;

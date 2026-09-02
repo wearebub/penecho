@@ -2925,6 +2925,6 @@
     state.autoEligible ||= shouldRequest;
     saveUserCanvasChange();
     if (state.dirty && state.autoEligible && !refineCandidate) schedule();
-    requestInteractionLayerRender();
+    requestRender();
     if (shouldRequest || d.erase) setStatusKey(refineCandidate ? "widgetRefinePending" : state.pending?.items ? "batchDraftReady" : state.pending ? "draftReady" : "ready");
   }

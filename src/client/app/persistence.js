@@ -2740,10 +2740,8 @@
     return true;
   }
   function pressureWidth(e) {
-    if (e.pointerType !== "pen" || !Number.isFinite(e.pressure)) return state.pen;
-    const pressure = Math.max(0, Math.min(1, e.pressure)),
-      tip = Math.max(PEN_STROKE_MIN, state.pen * PEN_PRESSURE_TIP_RATIO);
-    return clampStrokeWidth(tip + (state.pen - tip) * Math.sqrt(pressure));
+    if (e.pointerType !== "pen" || !Number.isFinite(e.pressure) || e.pressure <= 0) return state.pen;
+    return Math.max(3, Math.min(16, state.pen * (0.72 + e.pressure * 0.7)));
   }
   function logicalWidth(cssWidth) {
     const maximum = state.mode === "eraser" ? 1600 : 320;

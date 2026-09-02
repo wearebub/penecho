@@ -142,8 +142,6 @@
     MAX_HISTORY = 30,
     DEFAULT_AUTO_DELAY = 5000,
     DEFAULT_AI_TIMEOUT = 260000,
-    PEN_STROKE_MIN = 1,
-    PEN_PRESSURE_TIP_RATIO = 0.25,
     PEN_SIZE_MIN = 4,
     PEN_SIZE_MAX = 8,
     screen = document.querySelector("#screen"),
@@ -321,11 +319,6 @@
     const width = Number(value);
     if (!Number.isFinite(width)) return PEN_SIZE_MIN;
     return Math.max(PEN_SIZE_MIN, Math.min(PEN_SIZE_MAX, width));
-  }
-  function clampStrokeWidth(value) {
-    const width = Number(value);
-    if (!Number.isFinite(width)) return PEN_SIZE_MIN;
-    return Math.max(PEN_STROKE_MIN, Math.min(PEN_SIZE_MAX, width));
   }
   const ZH = window.PENECHO_LOCALES?.zh || {};
   const DRAW = window.PENECHO_DRAW;
@@ -7138,6 +7131,16 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     if (state.animationFrame) cancelAnimationFrame(state.animationFrame);
     state.animationFrame = 0;
   }
+  let inkRenderQueued = false;
+  function requestInkLayerRender() {
+    if (state.renderQueued || inkRenderQueued) return;
+    inkRenderQueued = true;
+    requestAnimationFrame(() => {
+      inkRenderQueued = false;
+      if (state.renderQueued) return;
+      renderInkLayer();
+    });
+  }
   function requestRender() {
     requestAnimationLayerRender();
     if (state.renderQueued) return;
@@ -12648,10 +12651,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     return true;
   }
   function pressureWidth(e) {
-    if (e.pointerType !== "pen" || !Number.isFinite(e.pressure)) return state.pen;
-    const pressure = Math.max(0, Math.min(1, e.pressure)),
-      tip = Math.max(PEN_STROKE_MIN, state.pen * PEN_PRESSURE_TIP_RATIO);
-    return clampStrokeWidth(tip + (state.pen - tip) * Math.sqrt(pressure));
+    if (e.pointerType !== "pen" || !Number.isFinite(e.pressure) || e.pressure <= 0) return state.pen;
+    return Math.max(3, Math.min(16, state.pen * (0.72 + e.pressure * 0.7)));
   }
   function logicalWidth(cssWidth) {
     const maximum = state.mode === "eraser" ? 1600 : 320;
@@ -16184,7 +16185,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     state.autoEligible ||= shouldRequest;
     saveUserCanvasChange();
     if (state.dirty && state.autoEligible && !refineCandidate) schedule();
-    requestInteractionLayerRender();
+    requestRender();
     if (shouldRequest || d.erase) setStatusKey(refineCandidate ? "widgetRefinePending" : state.pending?.items ? "batchDraftReady" : state.pending ? "draftReady" : "ready");
   }
 // DeepSeek Harness bridge. The browser remains authoritative for Canvas state.
@@ -21609,23 +21610,6 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     return event?.pointerType === "pen"
       && (Number(event.button) === 5 || (Number(event.buttons) & 32) === 32);
   }
-  function drawingPointerSamples(event) {
-    if (event?.pointerType !== "pen" || typeof event.getCoalescedEvents !== "function") return [event];
-    let samples = [];
-    try { samples = Array.from(event.getCoalescedEvents() || []); } catch {}
-    const events = [];
-    for (const sample of [...samples, event]) {
-      if (!sample || !Number.isFinite(sample.clientX) || !Number.isFinite(sample.clientY)) continue;
-      if (sample.pointerId != null && event.pointerId != null && sample.pointerId !== event.pointerId) continue;
-      const previous = events[events.length - 1];
-      if (previous
-        && previous.clientX === sample.clientX
-        && previous.clientY === sample.clientY
-        && previous.pressure === sample.pressure) continue;
-      events.push(sample);
-    }
-    return events.length ? events : [event];
-  }
   function updateCanvasPointerPreview(event) {
     const drawing = state.drawing,
       eraserPointer = drawing ? drawing.erase && drawing.id === event.pointerId : state.mode === "eraser",
@@ -21796,7 +21780,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     };
     updateCanvasPointerPreview(e);
     dot(p, erasing, size, true);
-    requestRender();
+    requestInkLayerRender();
   }
   function beginHandObjectResize(event, point) {
     if (state.mode !== "hand" || event.pointerType === "touch" || Number(event.button) !== 0 || !point || !valid(point)) return false;
@@ -22028,29 +22012,27 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       return;
     }
     if (!state.drawing || state.drawing.id !== e.pointerId) return;
-    const d = state.drawing;
+    const p = clientPoint(e),
+      a = state.drawing.last,
+      d = state.drawing,
+      cssSize = d.erase ? state.eraser : pressureWidth(e),
+      size = logicalWidth(cssSize);
     state.userRevision++;
-    for (const sample of (d.erase ? [e] : drawingPointerSamples(e))) {
-      const p = clientPoint(sample),
-        a = d.last,
-        cssSize = d.erase ? state.eraser : pressureWidth(sample),
-        size = logicalWidth(cssSize);
-      stroke(a, p, d.erase, size, true);
-      d.last = p;
-      d.size = size;
-      d.widthMin = Math.min(d.widthMin, cssSize);
-      d.widthMax = Math.max(d.widthMax, cssSize);
-      const x1 = Math.min(d.bbox.x, p.x),
-        y1 = Math.min(d.bbox.y, p.y),
-        x2 = Math.max(d.bbox.x + d.bbox.w, p.x),
-        y2 = Math.max(d.bbox.y + d.bbox.h, p.y);
-      d.bbox = { x: x1, y: y1, w: x2 - x1, h: y2 - y1 };
-    }
+    stroke(a, p, d.erase, size, true);
+    d.last = p;
+    d.size = size;
     d.points++;
     d.screenDistance += old ? Math.hypot(e.clientX - old.x, e.clientY - old.y) : 0;
-    if (d.points % 8 === 0) d.trail.push(d.last);
-    requestRender();
-    coords.textContent = `x ${Math.round(d.last.x)} · y ${Math.round(d.last.y)} · ${Math.round(state.scale * 100)}%`;
+    if (d.points % 8 === 0) d.trail.push(p);
+    d.widthMin = Math.min(d.widthMin, cssSize);
+    d.widthMax = Math.max(d.widthMax, cssSize);
+    const x1 = Math.min(d.bbox.x, p.x),
+      y1 = Math.min(d.bbox.y, p.y),
+      x2 = Math.max(d.bbox.x + d.bbox.w, p.x),
+      y2 = Math.max(d.bbox.y + d.bbox.h, p.y);
+    d.bbox = { x: x1, y: y1, w: x2 - x1, h: y2 - y1 };
+    requestInkLayerRender();
+    coords.textContent = `x ${Math.round(p.x)} · y ${Math.round(p.y)} · ${Math.round(state.scale * 100)}%`;
   });
   function end(e) {
     if (state.viewMode) {

@@ -5,23 +5,6 @@
     return event?.pointerType === "pen"
       && (Number(event.button) === 5 || (Number(event.buttons) & 32) === 32);
   }
-  function drawingPointerSamples(event) {
-    if (event?.pointerType !== "pen" || typeof event.getCoalescedEvents !== "function") return [event];
-    let samples = [];
-    try { samples = Array.from(event.getCoalescedEvents() || []); } catch {}
-    const events = [];
-    for (const sample of [...samples, event]) {
-      if (!sample || !Number.isFinite(sample.clientX) || !Number.isFinite(sample.clientY)) continue;
-      if (sample.pointerId != null && event.pointerId != null && sample.pointerId !== event.pointerId) continue;
-      const previous = events[events.length - 1];
-      if (previous
-        && previous.clientX === sample.clientX
-        && previous.clientY === sample.clientY
-        && previous.pressure === sample.pressure) continue;
-      events.push(sample);
-    }
-    return events.length ? events : [event];
-  }
   function updateCanvasPointerPreview(event) {
     const drawing = state.drawing,
       eraserPointer = drawing ? drawing.erase && drawing.id === event.pointerId : state.mode === "eraser",
@@ -192,7 +175,7 @@
     };
     updateCanvasPointerPreview(e);
     dot(p, erasing, size, true);
-    requestRender();
+    requestInkLayerRender();
   }
   function beginHandObjectResize(event, point) {
     if (state.mode !== "hand" || event.pointerType === "touch" || Number(event.button) !== 0 || !point || !valid(point)) return false;
@@ -424,29 +407,27 @@
       return;
     }
     if (!state.drawing || state.drawing.id !== e.pointerId) return;
-    const d = state.drawing;
+    const p = clientPoint(e),
+      a = state.drawing.last,
+      d = state.drawing,
+      cssSize = d.erase ? state.eraser : pressureWidth(e),
+      size = logicalWidth(cssSize);
     state.userRevision++;
-    for (const sample of (d.erase ? [e] : drawingPointerSamples(e))) {
-      const p = clientPoint(sample),
-        a = d.last,
-        cssSize = d.erase ? state.eraser : pressureWidth(sample),
-        size = logicalWidth(cssSize);
-      stroke(a, p, d.erase, size, true);
-      d.last = p;
-      d.size = size;
-      d.widthMin = Math.min(d.widthMin, cssSize);
-      d.widthMax = Math.max(d.widthMax, cssSize);
-      const x1 = Math.min(d.bbox.x, p.x),
-        y1 = Math.min(d.bbox.y, p.y),
-        x2 = Math.max(d.bbox.x + d.bbox.w, p.x),
-        y2 = Math.max(d.bbox.y + d.bbox.h, p.y);
-      d.bbox = { x: x1, y: y1, w: x2 - x1, h: y2 - y1 };
-    }
+    stroke(a, p, d.erase, size, true);
+    d.last = p;
+    d.size = size;
     d.points++;
     d.screenDistance += old ? Math.hypot(e.clientX - old.x, e.clientY - old.y) : 0;
-    if (d.points % 8 === 0) d.trail.push(d.last);
-    requestRender();
-    coords.textContent = `x ${Math.round(d.last.x)} · y ${Math.round(d.last.y)} · ${Math.round(state.scale * 100)}%`;
+    if (d.points % 8 === 0) d.trail.push(p);
+    d.widthMin = Math.min(d.widthMin, cssSize);
+    d.widthMax = Math.max(d.widthMax, cssSize);
+    const x1 = Math.min(d.bbox.x, p.x),
+      y1 = Math.min(d.bbox.y, p.y),
+      x2 = Math.max(d.bbox.x + d.bbox.w, p.x),
+      y2 = Math.max(d.bbox.y + d.bbox.h, p.y);
+    d.bbox = { x: x1, y: y1, w: x2 - x1, h: y2 - y1 };
+    requestInkLayerRender();
+    coords.textContent = `x ${Math.round(p.x)} · y ${Math.round(p.y)} · ${Math.round(state.scale * 100)}%`;
   });
   function end(e) {
     if (state.viewMode) {

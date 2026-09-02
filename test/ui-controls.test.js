@@ -21,50 +21,57 @@ const functionSource = (source, name) => {
   assert.fail(`unterminated function ${name}`);
 };
 
-test("selected pen width stays at 4-8 px while pressure tips can render below 4 px", () => {
+test("selected pen width stays at 4-8 px while pressure follows the main Canvas curve", () => {
   const html = read("public/index.html"), app = read("public/app.js");
   const control = html.match(/<input id="penSize"[^>]*>/)?.[0] || "";
   assert.match(control, /min="4"/);
   assert.match(control, /max="8"/);
   assert.match(control, /step="1"/);
   assert.match(control, /value="4"/);
-  assert.match(app, /PEN_STROKE_MIN = 1,[\s\S]*?PEN_PRESSURE_TIP_RATIO = 0\.25,[\s\S]*?PEN_SIZE_MIN = 4,[\s\S]*?PEN_SIZE_MAX = 8/);
-  const clampSource = functionSource(app, "clampPenWidth"), strokeClampSource = functionSource(app, "clampStrokeWidth"), pressureSource = functionSource(app, "pressureWidth");
+  assert.match(app, /PEN_SIZE_MIN = 4,[\s\S]*?PEN_SIZE_MAX = 8/);
+  assert.doesNotMatch(app, /PEN_STROKE_MIN|PEN_PRESSURE_TIP_RATIO|function clampStrokeWidth/);
+  const clampSource = functionSource(app, "clampPenWidth"), pressureSource = functionSource(app, "pressureWidth");
   assert.match(clampSource, /Math\.max\(PEN_SIZE_MIN, Math\.min\(PEN_SIZE_MAX, width\)\)/);
-  assert.match(strokeClampSource, /Math\.max\(PEN_STROKE_MIN, Math\.min\(PEN_SIZE_MAX, width\)\)/);
-  assert.match(pressureSource, /tip = Math\.max\(PEN_STROKE_MIN, state\.pen \* PEN_PRESSURE_TIP_RATIO\)[\s\S]*?Math\.sqrt\(pressure\)/);
+  assert.match(pressureSource, /e\.pressure <= 0[\s\S]*?Math\.max\(3, Math\.min\(16, state\.pen \* \(0\.72 \+ e\.pressure \* 0\.7\)\)\)/);
   assert.match(app, /document\.querySelector\("#penSize"\)\.oninput = \(e\) => \{[\s\S]*?state\.pen = clampPenWidth\(Math\.round\(Number\(e\.target\.value\)\)\)/);
   const clamp = Function("PEN_SIZE_MIN", "PEN_SIZE_MAX", `return (${clampSource});`)(4, 8);
   assert.deepEqual([clamp(2), clamp(6), clamp(12)], [4, 6, 8]);
-  const strokeClamp = Function("PEN_STROKE_MIN", "PEN_SIZE_MIN", "PEN_SIZE_MAX", `return (${strokeClampSource});`)(1, 4, 8),
-    state = { pen:8 }, pressureWidth = Function("state", "clampStrokeWidth", "PEN_STROKE_MIN", "PEN_PRESSURE_TIP_RATIO", `return (${pressureSource});`)(state, strokeClamp, 1, 0.25);
-  assert.equal(pressureWidth({ pointerType:"pen", pressure:1 }), 8);
+  const state = { pen:8 }, pressureWidth = Function("state", `return (${pressureSource});`)(state);
+  assert.ok(Math.abs(pressureWidth({ pointerType:"pen", pressure:1 }) - 11.36) < 1e-9);
   state.pen = 4;
-  assert.equal(pressureWidth({ pointerType:"pen", pressure:0 }), 1);
-  assert.ok(pressureWidth({ pointerType:"pen", pressure:0.1 }) < 4);
+  assert.equal(pressureWidth({ pointerType:"pen", pressure:0 }), 4);
+  assert.ok(Math.abs(pressureWidth({ pointerType:"pen", pressure:0.1 }) - 3.16) < 1e-9);
   assert.equal(pressureWidth({ pointerType:"mouse", pressure:0.1 }), 4);
 });
 
-test("active pen drawing consumes valid deduplicated coalesced samples only", () => {
-  const app = read("public/app.js"), samplesSource = functionSource(app, "drawingPointerSamples"),
-    drawingPointerSamples = vm.runInNewContext(`(${samplesSource})`),
-    first = { pointerType:"pen", pointerId:7, clientX:10, clientY:11, pressure:0.2 },
-    second = { pointerType:"pen", pointerId:7, clientX:12, clientY:13, pressure:0.3 },
-    event = {
-      pointerType:"pen", pointerId:7, clientX:14, clientY:15, pressure:0.4,
-      getCoalescedEvents:() => [first, first, { pointerId:8, clientX:11, clientY:12, pressure:0.25 }, second],
-    },
-    samples = drawingPointerSamples(event);
-  assert.deepEqual(Array.from(samples, sample => [sample.clientX, sample.clientY, sample.pressure]), [
-    [10, 11, 0.2], [12, 13, 0.3], [14, 15, 0.4],
-  ]);
-  let mouseCoalescedRead = false;
-  const mouse = { pointerType:"mouse", clientX:1, clientY:2, getCoalescedEvents:() => { mouseCoalescedRead = true; return [first]; } };
-  assert.equal(drawingPointerSamples(mouse)[0], mouse);
-  assert.equal(mouseCoalescedRead, false);
-  const pointerMove = app.slice(app.indexOf('screen.addEventListener("pointermove"'), app.indexOf("function end(e)"));
-  assert.match(pointerMove, /if \(!state\.drawing \|\| state\.drawing\.id !== e\.pointerId\) return;[\s\S]*?d\.erase \? \[e\] : drawingPointerSamples\(e\)/);
-  assert.match(pointerMove, /for \(const sample of[\s\S]*?cssSize = d\.erase \? state\.eraser : pressureWidth\(sample\)[\s\S]*?stroke\(a, p, d\.erase, size, true\)/);
+test("active pen drawing uses one current pointermove sample and defers full rendering", () => {
+  const app = read("public/app.js");
+  const pointerMove = app.slice(app.indexOf('screen.addEventListener("pointermove"'), app.indexOf("function end(e)")),
+    requestInk = functionSource(app, "requestInkLayerRender"),
+    finishDrawing = functionSource(app, "finishDrawing"),
+    callbacks = [],
+    renderState = { renderQueued:false },
+    renderEvents = [],
+    context = {
+      state:renderState,
+      requestAnimationFrame(callback) { callbacks.push(callback); },
+      renderInkLayer() { renderEvents.push("ink"); },
+    };
+  assert.doesNotMatch(app, /function drawingPointerSamples/);
+  assert.doesNotMatch(pointerMove, /getCoalescedEvents/);
+  assert.match(pointerMove, /if \(!state\.drawing \|\| state\.drawing\.id !== e\.pointerId\) return;[\s\S]*?const p = clientPoint\(e\),[\s\S]*?cssSize = d\.erase \? state\.eraser : pressureWidth\(e\),[\s\S]*?stroke\(a, p, d\.erase, size, true\)[\s\S]*?requestInkLayerRender\(\)/);
+  assert.doesNotMatch(pointerMove, /requestRender\(\)/);
+  assert.match(finishDrawing, /saveUserCanvasChange\(\)[\s\S]*?requestRender\(\)/);
+  vm.runInNewContext(`let inkRenderQueued = false; this.requestInkLayerRender = ${requestInk};`, context);
+  context.requestInkLayerRender();
+  context.requestInkLayerRender();
+  assert.equal(callbacks.length, 1);
+  callbacks.shift()();
+  assert.deepEqual(renderEvents, ["ink"]);
+  context.requestInkLayerRender();
+  renderState.renderQueued = true;
+  callbacks.shift()();
+  assert.deepEqual(renderEvents, ["ink"]);
 });
 
 test("canvas file actions are in the top-right header and available in History", () => {
@@ -683,13 +690,14 @@ test("stylus eraser ends and Apple Pencil bridge actions preserve Canvas tool se
     logicalWidth:(value) => value,
     updateCanvasPointerPreview:() => pointerCalls.push("preview"),
     dot:(_point, erase, size) => pointerCalls.push(["dot", erase, size]),
-    requestRender:() => pointerCalls.push("render"),
+    requestInkLayerRender:() => pointerCalls.push("ink"),
   });
   beginTemporaryEraser({ pointerType:"pen",pointerId:9,clientX:10,clientY:20 }, { x:10,y:20 }, { forceEraser:true });
   assert.equal(pointerState.mode, "hand");
   assert.equal(pointerState.drawing.erase, true);
   assert.equal(pointerState.drawing.size, 35);
   assert.deepEqual(pointerCalls.at(-2), ["dot", true, 35]);
+  assert.equal(pointerCalls.at(-1), "ink");
 
   vm.runInNewContext([
     functionSource(app, "canvasToolMode"),

@@ -24,8 +24,6 @@
     MAX_HISTORY = 30,
     DEFAULT_AUTO_DELAY = 5000,
     DEFAULT_AI_TIMEOUT = 260000,
-    PEN_STROKE_MIN = 1,
-    PEN_PRESSURE_TIP_RATIO = 0.25,
     PEN_SIZE_MIN = 4,
     PEN_SIZE_MAX = 8,
     screen = document.querySelector("#screen"),
@@ -203,11 +201,6 @@
     const width = Number(value);
     if (!Number.isFinite(width)) return PEN_SIZE_MIN;
     return Math.max(PEN_SIZE_MIN, Math.min(PEN_SIZE_MAX, width));
-  }
-  function clampStrokeWidth(value) {
-    const width = Number(value);
-    if (!Number.isFinite(width)) return PEN_SIZE_MIN;
-    return Math.max(PEN_STROKE_MIN, Math.min(PEN_SIZE_MAX, width));
   }
   const ZH = window.PENECHO_LOCALES?.zh || {};
   const DRAW = window.PENECHO_DRAW;
