@@ -144,7 +144,14 @@ test("Agent composer keeps the scale90 button set and layout while adopting tint
   assert.doesNotMatch(genericSvgRule, /display:\s*block/, "state-owned SVG visibility must beat generic icon normalization");
   assert.match(css, /\.canvas-agent-tool-actions,\s*\.canvas-agent-primary-actions\s*\{ display: flex; align-items: center; gap: 2px; \}/);
   assert.match(css, /:is\(#pe-button-contract, \.canvas-agent-composer-toolbar\) \.canvas-agent-project-control > \.canvas-agent-project-button\[data-pe-button\]\s*\{[^}]*width: 100%;[^}]*min-width: 0;[^}]*max-width: 100%;[^}]*flex: 1 1 auto;/s);
-  assert.match(css, /\.canvas-agent-project-button > span\s*\{[^}]*flex:\s*0 1 auto;[^}]*text-overflow:\s*clip;[^}]*mask-image:\s*linear-gradient\(to right,/s);
+  const noProjectLabelRule = css.match(/(?:^|\n)\.canvas-agent-project-button > span\s*\{([^}]*)\}/)?.[1] || "";
+  assert.match(noProjectLabelRule, /flex:\s*0 1 auto;[^}]*text-overflow:\s*clip;/s);
+  assert.doesNotMatch(noProjectLabelRule, /mask-image/, "No project stays fully visible");
+  assert.match(css, /\.canvas-agent-project-button\[data-pe-button="toolbar"\]\[aria-expanded="false"\] #canvasAgentProjectLabel\s*\{[^}]*color:\s*var\(--pe-ink, var\(--studio-text, #20242c\)\);/s);
+  const selectedProjectLabelRule = css.match(/\.canvas-agent-project-control\.has-resource > \.canvas-agent-project-button > span\s*\{([^}]*)\}/)?.[1] || "";
+  assert.match(selectedProjectLabelRule, /-webkit-mask-image:\s*linear-gradient\(to left,\s*transparent 0,\s*#000 8px\);/);
+  assert.match(selectedProjectLabelRule, /(?:^|[;\s])mask-image:\s*linear-gradient\(to left,\s*transparent 0,\s*#000 8px\);/);
+  assert.doesNotMatch(selectedProjectLabelRule, /%|calc\(/, "Selected resource fade stays fixed to half the 16px clear action");
   assert.match(css, /\.canvas-agent-project-button > span > span\s*\{[^}]*margin-inline:\s*0;/s);
   assert.match(css, /\.canvas-agent-composer \.canvas-agent-project-clear\s*\{[^}]*right:\s*10px;[^}]*left:\s*auto;/s);
   assert.match(css, /\.canvas-agent-project-control\.has-resource:is\(:hover, :focus-within\) > \.canvas-agent-project-button\[data-pe-button\]\s*\{[^}]*gap:\s*0;[^}]*padding-inline:\s*8px 24px;/s);

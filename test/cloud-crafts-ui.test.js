@@ -99,22 +99,29 @@ test("toolbar ships a left-navigation Favorites workbench with list and grid vie
   assert.match(modalRule, /width:\s*min\(960px,\s*100%\)/);
   assert.match(modalRule, /height:\s*min\(680px,\s*calc\(100dvh - 48px\)\)/);
   assert.match(modalRule, /grid-template-columns:\s*228px minmax\(0,\s*1fr\)/);
-  assert.match(modalRule, /background:\s*var\(--penecho-dialog-surface\)/);
-  assert.match(modalRule, /box-shadow:\s*0 6px 14px/);
+  assert.match(modalRule, /background:\s*var\(--penecho-large-dialog-surface\)/);
+  assert.match(modalRule, /box-shadow:\s*var\(--penecho-large-dialog-shadow\)/);
+  assert.match(modalRule, /backdrop-filter:\s*var\(--penecho-large-dialog-surface-filter\)/);
   assert.match(craftsCss, /\.crafts-sidebar\s*\{[^}]*border-right:\s*1px solid/);
-  assert.match(craftsCss, /\.crafts-sidebar\s*\{[^}]*background:\s*var\(--penecho-dialog-raised-surface\)/);
+  assert.match(craftsCss, /\.crafts-sidebar\s*\{[^}]*background:\s*var\(--penecho-workbench-navigation-surface\)[^}]*backdrop-filter:\s*var\(--penecho-workbench-navigation-filter\)/);
   assert.match(craftsCss, /\.crafts-workspace\s*\{[^}]*grid-template-rows:\s*50px minmax\(0,\s*1fr\)/);
-  assert.match(craftsCss, /\.crafts-workspace\s*\{[^}]*background:\s*var\(--penecho-dialog-body-surface\)/);
+  assert.match(craftsCss, /\.crafts-workspace\s*\{[^}]*background:\s*var\(--penecho-workbench-content-surface\)/);
+  assert.match(craftsCss, /\.crafts-head\s*\{[^}]*background:\s*var\(--penecho-workbench-navigation-surface\)[^}]*backdrop-filter:\s*var\(--penecho-workbench-navigation-filter\)/);
   assert.match(craftsCss, /\.crafts-search\s*\{[^}]*height:\s*30px[^}]*border-radius:\s*5px/);
   assert.match(craftsCss, /\.crafts-head-actions\s*\{[^}]*min-width:\s*0[^}]*flex:\s*0 1 384px/);
   assert.match(craftsCss, /\.crafts-search input\[data-pe-control="input"\]\s*\{[^}]*height:\s*28px[^}]*border:\s*0/);
-  assert.match(craftsCss, /\.crafts-nav-item\s*\{[^}]*min-height:\s*34px/);
+  assert.match(craftsCss, /\.crafts-nav-item\s*\{[^}]*min-height:\s*34px[^}]*color:\s*var\(--pe-ink, var\(--ink\)\)[^}]*font-weight:\s*500/);
   assert.match(craftsCss, /\.crafts-nav-item:focus-visible\s*\{[^}]*outline:\s*2px solid var\(--gold-bright\)/);
   assert.match(craftsCss, /\.crafts-view-switch\s*\{[^}]*height:\s*32px/);
   assert.match(craftsCss, /\.crafts-view-option\s*\{[^}]*width:\s*27px[^}]*height:\s*26px/);
   assert.match(craftsCss, /\.crafts-view-option\.active\s*\{[^}]*color:\s*var\(--gold-bright\)/);
   assert.match(craftsCss, /\.crafts-modal \.cloud-dialog-close\s*\{[^}]*width:\s*32px[^}]*height:\s*32px/);
-  assert.match(craftsCss, /\.crafts-row\s*\{[^}]*grid-template-areas:\s*"preview copy" "preview footer"[^}]*grid-template-columns:\s*88px minmax\(0,\s*1fr\)[^}]*min-height:\s*78px/);
+  assert.match(craftsCss, /\.crafts-list:not\(\.is-grid\)\s*\{[^}]*grid-auto-rows:\s*max-content[^}]*gap:\s*0[^}]*padding:\s*0[^}]*background:\s*var\(--panel-raised\)/);
+  assert.match(craftsCss, /\.crafts-list:not\(\.is-grid\) \.crafts-row\s*\{[^}]*grid-template-areas:\s*"preview copy actions"\s*"preview meta actions"[^}]*grid-template-columns:\s*96px minmax\(0,\s*1fr\) auto[^}]*min-height:\s*80px[^}]*border-radius:\s*0[^}]*box-shadow:\s*none/);
+  assert.match(craftsCss, /\.crafts-list:not\(\.is-grid\) \.crafts-row:last-child\s*\{[^}]*border-bottom:\s*0/);
+  assert.match(craftsCss, /\.crafts-list:not\(\.is-grid\) \.crafts-thumb-wrap\s*\{[^}]*width:\s*96px[^}]*height:\s*64px[^}]*border-radius:\s*6px/);
+  assert.match(craftsCss, /\.crafts-list:not\(\.is-grid\) \.crafts-footer\s*\{[^}]*display:\s*contents/);
+  assert.match(craftsCss, /\.crafts-list:not\(\.is-grid\) \.crafts-actions\s*\{[^}]*grid-area:\s*actions[^}]*align-self:\s*center[^}]*justify-self:\s*end/);
   assert.doesNotMatch(craftsCss, /\.crafts-kind-badge\s*\{[^}]*position:\s*absolute/);
   assert.match(craftsCss, /\.crafts-kind-badge, \.crafts-source\s*\{[^}]*min-height:\s*20px[^}]*border-radius:\s*5px[^}]*font-size:\s*11\.5px[^}]*font-weight:\s*400/);
   assert.match(craftsCss, /\.crafts-add, \.crafts-open\s*\{[^}]*height:\s*28px[^}]*border-radius:\s*5px[^}]*background:\s*transparent[^}]*font-weight:\s*400/);
@@ -133,9 +140,10 @@ test("toolbar ships a left-navigation Favorites workbench with list and grid vie
   assert.match(craftsCss, /\.crafts-list\.is-grid \.crafts-actions\s*\{[^}]*justify-self:\s*end[^}]*gap:\s*4px/);
   assert.match(craftsCss, /@media \(max-width: 760px\)\s*\{[\s\S]*?\.crafts-sidebar\s*\{[^}]*grid-template-areas:\s*"brand echoes" "filters filters"/);
   assert.match(craftsCss, /@media \(max-width: 760px\)\s*\{[\s\S]*?:is\(#pe-button-contract, \.crafts-modal\) \.crafts-nav-item\s*\{[^}]*display:\s*flex[^}]*flex:\s*1 1 0[^}]*line-height:\s*30px/);
-  assert.match(craftsCss, /@media \(max-width: 560px\)\s*\{[\s\S]*?\.crafts-row\s*\{[^}]*grid-template-columns:\s*72px minmax\(0,\s*1fr\)/);
+  assert.match(craftsCss, /@media \(max-width: 560px\)\s*\{[\s\S]*?\.crafts-list:not\(\.is-grid\) \.crafts-row\s*\{[^}]*grid-template-columns:\s*80px minmax\(0,\s*1fr\) auto[^}]*column-gap:\s*10px[^}]*row-gap:\s*4px/);
   assert.match(craftsCss, /@media \(prefers-reduced-motion: reduce\)\s*\{[\s\S]*?\.crafts-refresh-spinner\s*\{[^}]*animation:\s*none/);
   assert.match(css, /:is\(#pe-type-contract, \.crafts-modal, \.crafts-remove-dialog\) :where\(\*\)\s*\{\s*font-weight:\s*400;/);
+  assert.match(css, /:is\(#pe-type-contract, \.crafts-modal\) :is\([\s\S]*?\.crafts-nav-item > span,[\s\S]*?\.crafts-echoes-link > span[\s\S]*?\)\s*\{\s*font-weight:\s*500;/);
 
   const bilingualKeys = [
     "savedCrafts", "savedCraftsTitle", "savedCraftsSubtitle", "savedType", "savedSearch", "savedSearchLabel", "savedView", "savedListView", "savedGridView", "browseEchoes", "savedCount", "savedLoading", "savedRefreshing", "savedNoMatches", "savedEmptyIn", "savedEmptyOut",

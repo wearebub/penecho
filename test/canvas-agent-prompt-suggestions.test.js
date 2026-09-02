@@ -59,6 +59,7 @@ test("PenEcho Agent places its categorized prompt list at the top of the content
   assert.equal(prompts.querySelector('[data-i18n="canvasAgentEmptyTitle"]'),null);
   assert.equal(prompts.querySelector(".canvas-agent-prompt-section-head"),null,"the redundant Try asking heading is removed");
   assert.doesNotMatch(css,/\.canvas-agent-prompt-intro\s*\{/);
+  assert.match(css,/\.canvas-agent-empty\s*\{[^}]*margin:\s*auto 8px/,"the collapsed empty state is centered in the transcript's available height");
   assert.match(css,/\.canvas-agent-panel\[data-prompt-suggestions-open="true"\] \.canvas-agent-transcript\s*\{\s*display:\s*none/);
   assert.doesNotMatch(css,/canvas-agent-prompt-popup:not\(\[hidden\]\)[^}]*canvas-agent-empty/);
 });

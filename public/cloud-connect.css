@@ -73,7 +73,7 @@
 .penecho-cloud-dialog {
   background: var(--penecho-dialog-surface, color-mix(in srgb, var(--studio-panel, #ffffff) 70%, transparent));
   border: 1px solid var(--ai-line-strong);
-  border-radius: 1.125rem;
+  border-radius: var(--penecho-large-dialog-radius, 1.125rem);
   box-shadow: 0 18px 48px rgb(13 19 30 / 24%);
   color: var(--ai-ink);
   display: flex;
@@ -88,18 +88,20 @@
 }
 
 .penecho-cloud-dialog.cloud-center {
-  background: var(--penecho-dialog-surface, color-mix(in srgb, var(--studio-panel, #ffffff) 70%, transparent));
+  background: var(--penecho-large-dialog-surface, color-mix(in srgb, var(--studio-titlebar, #f8f9fb) 62%, transparent));
+  box-shadow: var(--penecho-large-dialog-shadow, 0 28px 80px rgba(17, 24, 39, .28), 0 2px 8px rgba(17, 24, 39, .12));
   height: min(760px, calc(100svh - 40px));
   max-height: 800px;
   max-width: 1120px;
   width: min(1120px, calc(100vw - 40px));
-  -webkit-backdrop-filter: var(--penecho-dialog-surface-filter, blur(24px) saturate(1.18));
-  backdrop-filter: var(--penecho-dialog-surface-filter, blur(24px) saturate(1.18));
+  -webkit-backdrop-filter: var(--penecho-large-dialog-surface-filter, saturate(1.15) blur(20px));
+  backdrop-filter: var(--penecho-large-dialog-surface-filter, saturate(1.15) blur(20px));
 }
 
 .penecho-cloud-dialog.share { max-width: 720px; }
 .cloud-dialog-titlebar { align-items: center; background: color-mix(in srgb, var(--studio-titlebar, #f8f8f9) 94%, transparent); border-bottom: 1px solid var(--ai-line); display: flex; flex: 0 0 auto; gap: .75rem; min-height: 3.375rem; padding: .45rem .75rem .45rem 1rem; }
-.cloud-center .cloud-dialog-titlebar { background: color-mix(in srgb, var(--studio-titlebar, #fff) 70%, transparent); min-height: var(--penecho-workbench-header-h); padding: var(--penecho-workbench-header-padding); }
+.cloud-center .cloud-dialog-titlebar { background: var(--penecho-workbench-navigation-surface, color-mix(in srgb, var(--studio-toolbar, #eef0f2) 68%, transparent)); min-height: var(--penecho-workbench-header-h); padding: var(--penecho-workbench-header-padding); -webkit-backdrop-filter: var(--penecho-workbench-navigation-filter, blur(24px) saturate(1.14)); backdrop-filter: var(--penecho-workbench-navigation-filter, blur(24px) saturate(1.14)); }
+.penecho-cloud-dialog.share > .cloud-dialog-titlebar { background: var(--penecho-workbench-navigation-surface, color-mix(in srgb, var(--studio-toolbar, #eef0f2) 68%, transparent)); -webkit-backdrop-filter: var(--penecho-workbench-navigation-filter, blur(24px) saturate(1.14)); backdrop-filter: var(--penecho-workbench-navigation-filter, blur(24px) saturate(1.14)); }
 .cloud-dialog-identity { align-items: center; display: flex; gap: .7rem; min-width: 0; }
 .cloud-dialog-mark { align-items: center; background: var(--ai-accent); border-radius: .5rem; color: #fff; display: inline-flex; flex: 0 0 1.75rem; font-size: .76rem; font-weight: 600; height: 1.75rem; justify-content: center; }
 .cloud-center .cloud-dialog-identity { gap: 10px; }
@@ -114,13 +116,14 @@
 
 .penecho-cloud-body { min-height: 0; overflow: auto; padding: 1.125rem 1.25rem 1.25rem; }
 .cloud-center .penecho-cloud-body { flex: 1 1 auto; overflow: hidden; padding: 0; }
+.penecho-cloud-dialog.share > .penecho-cloud-body { background: var(--penecho-workbench-content-surface, color-mix(in srgb, var(--studio-panel, #fff) 62%, transparent)); }
 .penecho-cloud-layout { display: grid; grid-template-columns: var(--penecho-workbench-navigation-w) minmax(0, 1fr); height: 100%; min-height: 0; }
 .penecho-cloud-layout > *, .penecho-cloud-panel > *, .cloud-workspace > * { min-width: 0; }
-.cloud-navigation { --pe-menu-item-h: var(--penecho-workbench-menu-item-h); background: color-mix(in srgb, var(--studio-toolbar, #eef0f2) 68%, transparent); border-right: 1px solid var(--ai-line); display: flex; flex-direction: column; min-height: 0; overflow: hidden auto; padding: 13px 11px; -webkit-backdrop-filter: blur(24px) saturate(1.14); backdrop-filter: blur(24px) saturate(1.14); }
+.cloud-navigation { --pe-menu-item-h: var(--penecho-workbench-menu-item-h); background: var(--penecho-workbench-navigation-surface, color-mix(in srgb, var(--studio-toolbar, #eef0f2) 68%, transparent)); border-right: 1px solid var(--ai-line); display: flex; flex-direction: column; min-height: 0; overflow: hidden auto; padding: 13px 11px; -webkit-backdrop-filter: var(--penecho-workbench-navigation-filter, blur(24px) saturate(1.14)); backdrop-filter: var(--penecho-workbench-navigation-filter, blur(24px) saturate(1.14)); }
 .cloud-center .cloud-navigation { --penecho-workbench-menu-item-h: 2.25rem; }
 .cloud-section-toolbar { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; position: relative; }
 .cloud-section-tabs { display: grid; flex: 1 1 auto; align-content: start; flex-direction: column; gap: 4px; min-height: 0; min-width: 0; }
-.cloud-section-tab { align-items: center; background: transparent; border: 0; border-radius: 5px; color: var(--ai-muted); cursor: pointer; display: grid; flex: 0 0 auto; font: inherit; gap: 7px; grid-template-columns: 16px minmax(0, 1fr); justify-content: initial; min-height: var(--pe-menu-item-h); min-width: 0; padding: 0 7px; text-align: left; text-decoration: none; transition: background-color 180ms cubic-bezier(.22, 1, .36, 1), color 180ms cubic-bezier(.22, 1, .36, 1); width: 100%; }
+.cloud-section-tab { align-items: center; background: transparent; border: 0; border-radius: 5px; color: var(--pe-ink, var(--ai-ink)); cursor: pointer; display: grid; flex: 0 0 auto; font: inherit; gap: 7px; grid-template-columns: 16px minmax(0, 1fr); justify-content: initial; min-height: var(--pe-menu-item-h); min-width: 0; padding: 0 7px; text-align: left; text-decoration: none; transition: background-color 180ms cubic-bezier(.22, 1, .36, 1), color 180ms cubic-bezier(.22, 1, .36, 1); width: 100%; }
 .cloud-section-tab-account, .cloud-section-tab-device { --pe-menu-item-h: 44px; align-items: center; min-height: 44px; padding-block: 5px; }
 :is(.cloud-section-tab-account, .cloud-section-tab-device) .cloud-nav-copy { display: grid; gap: 1px; align-content: center; }
 :is(.cloud-section-tab-account, .cloud-section-tab-device) .cloud-nav-copy strong { line-height: 1.3; }
@@ -152,7 +155,7 @@
 .cloud-section-refresh-indicator > span { animation: cloud-section-refresh-spin .8s linear infinite; font: 700 1rem/1 var(--ai-font); }
 @keyframes cloud-section-refresh-spin { to { transform: rotate(360deg); } }
 
-.cloud-workspace { background: var(--penecho-dialog-body-surface, color-mix(in srgb, var(--ai-surface) 74%, transparent)); min-height: 0; overflow: auto; padding: 1.4rem clamp(1.25rem, 3vw, 2rem) 1.6rem; }
+.cloud-workspace { background: var(--penecho-workbench-content-surface, color-mix(in srgb, var(--studio-panel, #fff) 62%, transparent)); min-height: 0; overflow: auto; padding: 1.4rem clamp(1.25rem, 3vw, 2rem) 1.6rem; }
 .cloud-workspace > .penecho-cloud-panel { background: transparent; border: 0; border-radius: 0; margin: 0 auto; max-width: 55rem; padding: 0; }
 
 .cloud-favorite-filters { align-items: center; background: var(--ai-well); border: 1px solid var(--ai-line); border-radius: .625rem; display: inline-grid; gap: .125rem; grid-template-columns: repeat(3, auto); margin: .55rem 0 .8rem; padding: .125rem; }
@@ -469,11 +472,15 @@
 @supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
   .penecho-cloud-overlay { background: rgba(18, 23, 34, .34); -webkit-backdrop-filter: none; backdrop-filter: none; }
   .penecho-cloud-dialog { background: var(--studio-panel, #ffffff); -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .penecho-cloud-dialog.share > .cloud-dialog-titlebar { background: var(--studio-toolbar, #eef0f2); -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .penecho-cloud-dialog.share > .penecho-cloud-body { background: var(--studio-panel, #ffffff); }
 }
 
 @media (prefers-reduced-transparency: reduce) {
   .penecho-cloud-overlay { background: rgba(18, 23, 34, .34); -webkit-backdrop-filter: none; backdrop-filter: none; }
   .penecho-cloud-dialog { background: var(--studio-panel, #ffffff); -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .penecho-cloud-dialog.share > .cloud-dialog-titlebar { background: var(--studio-toolbar, #eef0f2); -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .penecho-cloud-dialog.share > .penecho-cloud-body { background: var(--studio-panel, #ffffff); }
 }
 
 /* Cloud dialogs share the Studio font, weight, and text-color hierarchy. */

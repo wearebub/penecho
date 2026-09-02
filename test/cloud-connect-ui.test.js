@@ -1705,12 +1705,15 @@ test("Cloud Center uses a compact workbench shell and restores 44px coarse-point
   assert.match(cloudCss, /\.cloud-project-web-link\s*\{[^}]*min-height:\s*2rem/);
   assert.match(cloudCss, /\.cloud-account-button\s*\{[^}]*min-height:\s*2\.25rem[^}]*min-width:\s*2\.25rem/);
   assert.match(cloudCss, /\.penecho-cloud-overlay\s*\{[^}]*background:\s*var\(--penecho-dialog-backdrop,[^}]*backdrop-filter:\s*var\(--penecho-dialog-backdrop-filter/);
-  assert.match(cloudCss, /\.penecho-cloud-dialog\.cloud-center\s*\{[^}]*background:\s*var\(--penecho-dialog-surface,[^}]*70%, transparent\)\)[^}]*backdrop-filter:\s*var\(--penecho-dialog-surface-filter,[^}]*blur\(24px\) saturate\(1\.18\)\)/);
+  assert.match(cloudCss, /\.penecho-cloud-dialog\.cloud-center\s*\{[^}]*background:\s*var\(--penecho-large-dialog-surface,[^}]*62%, transparent\)\)[^}]*box-shadow:\s*var\(--penecho-large-dialog-shadow,[^}]*0 28px 80px[^}]*backdrop-filter:\s*var\(--penecho-large-dialog-surface-filter, saturate\(1\.15\) blur\(20px\)\)/);
   assert.match(cloudCss, /\.penecho-cloud-dialog\.cloud-center\s*\{[^}]*height:\s*min\(760px, calc\(100svh - 40px\)\)[^}]*max-width:\s*1120px/);
-  assert.match(cloudCss, /\.cloud-center \.cloud-dialog-titlebar\s*\{[^}]*background:\s*color-mix\(in srgb, var\(--studio-titlebar, #fff\) 70%, transparent\)[^}]*min-height:\s*var\(--penecho-workbench-header-h\)[^}]*padding:\s*var\(--penecho-workbench-header-padding\)/);
+  assert.match(cloudCss, /\.cloud-center \.cloud-dialog-titlebar\s*\{[^}]*background:\s*var\(--penecho-workbench-navigation-surface,[^}]*68%, transparent\)\)[^}]*min-height:\s*var\(--penecho-workbench-header-h\)[^}]*padding:\s*var\(--penecho-workbench-header-padding\)[^}]*backdrop-filter:\s*var\(--penecho-workbench-navigation-filter,[^}]*blur\(24px\) saturate\(1\.14\)\)/);
+  assert.match(cloudCss, /\.penecho-cloud-dialog\.share > \.cloud-dialog-titlebar\s*\{[^}]*background:\s*var\(--penecho-workbench-navigation-surface,[^}]*68%, transparent\)\)[^}]*backdrop-filter:\s*var\(--penecho-workbench-navigation-filter,[^}]*blur\(24px\) saturate\(1\.14\)\)/);
+  assert.match(cloudCss, /\.penecho-cloud-dialog\.share > \.penecho-cloud-body\s*\{[^}]*background:\s*var\(--penecho-workbench-content-surface,[^}]*62%, transparent\)\)/);
   assert.match(cloudCss, /\.cloud-center \.cloud-dialog-mark\s*\{[^}]*flex:\s*0 0 20px[^}]*background:\s*transparent/);
   assert.match(cloudCss, /\.penecho-cloud-layout\s*\{[^}]*grid-template-columns:\s*var\(--penecho-workbench-navigation-w\) minmax\(0, 1fr\)/);
-  assert.match(cloudCss, /\.cloud-navigation\s*\{[^}]*border-right:\s*1px solid var\(--ai-line\)[^}]*display:\s*flex/);
+  assert.match(cloudCss, /\.cloud-navigation\s*\{[^}]*background:\s*var\(--penecho-workbench-navigation-surface,[^}]*68%, transparent\)\)[^}]*border-right:\s*1px solid var\(--ai-line\)[^}]*display:\s*flex[^}]*backdrop-filter:\s*var\(--penecho-workbench-navigation-filter,[^}]*blur\(24px\) saturate\(1\.14\)\)/);
+  assert.match(cloudCss, /\.cloud-workspace\s*\{[^}]*background:\s*var\(--penecho-workbench-content-surface,[^}]*62%, transparent\)\)/);
   assert.match(cloudCss, /\.cloud-section-tabs\s*\{[^}]*flex-direction:\s*column/);
   assert.match(cloudCss, /\.cloud-section-tabs\s*\{[^}]*gap:\s*4px/);
   assert.match(cloudCss, /\.cloud-section-tab-device\s*\{[^}]*margin-top:\s*auto/);
@@ -1720,7 +1723,7 @@ test("Cloud Center uses a compact workbench shell and restores 44px coarse-point
   assert.match(cloudCss, /@media \(min-width:\s*821px\)[\s\S]*?\.cloud-nav-icon\s*\{[^}]*width:\s*14px[^}]*height:\s*14px[^}]*margin-top:\s*0/);
   assert.match(cloudCss, /@media \(min-width:\s*821px\)[\s\S]*?\.cloud-nav-copy strong\s*\{[^}]*font-size:\s*12\.5px[^}]*font-weight:\s*500[^}]*line-height:\s*var\(--pe-menu-item-h\)/);
   assert.match(cloudCss, /\.cloud-workspace > \.penecho-cloud-panel\s*\{[^}]*max-width:\s*55rem/);
-  assert.match(cloudCss, /\.cloud-section-tab\s*\{[^}]*min-height:\s*var\(--pe-menu-item-h\)/);
+  assert.match(cloudCss, /\.cloud-section-tab\s*\{[^}]*color:\s*var\(--pe-ink, var\(--ai-ink\)\)[^}]*min-height:\s*var\(--pe-menu-item-h\)/);
   assert.match(cloudCss, /\.cloud-section-tab\.active\s*\{[^}]*background:\s*var\(--pe-selected, var\(--ai-accent-soft\)\)[^}]*color:\s*var\(--pe-accent-label, var\(--ai-ink\)\)/);
   assert.match(cloudCss, /\.cloud-section-tab\.active \.cloud-nav-icon\s*\{[^}]*color:\s*var\(--ai-accent\)/);
   assert.match(cloudCss, /\.cloud-device-status-dot\[data-state="connected"\]\s*\{[^}]*background:\s*var\(--pe-success, #277a4c\)/);
@@ -1776,7 +1779,7 @@ test("Cloud Center keeps narrow layouts and theme contrast token-driven", () => 
   assert.match(cloudCss, /\.cloud-project-web-link\s*\{[^}]*color:\s*var\(--cloud-link\)/);
   assert.match(cloudCss, /\.cloud-button\.primary:hover:not\(:disabled\), \.cloud-button\.primary:focus-visible\s*\{[^}]*color:\s*var\(--ai-primary-ink\)/);
   assert.match(cloudCss, /\.penecho-cloud-dialog\s*\{[^}]*color-scheme:\s*light[^}]*--ai-bg:\s*color-mix\(in srgb, var\(--studio-shell, #f2f3f5\) 76%, var\(--studio-panel, #ffffff\)\)[^}]*--ai-surface:\s*var\(--studio-panel, #ffffff\)[^}]*--ai-accent:\s*var\(--studio-accent, #4f46e5\)[^}]*--ai-primary:\s*var\(--studio-accent-strong, #4338ca\)/);
-  assert.match(cloudCss, /\.cloud-center \.cloud-dialog-titlebar\s*\{[^}]*background:\s*color-mix\(in srgb, var\(--studio-titlebar, #fff\) 70%, transparent\)/);
+  assert.match(cloudCss, /\.cloud-center \.cloud-dialog-titlebar\s*\{[^}]*background:\s*var\(--penecho-workbench-navigation-surface,[^}]*68%, transparent\)\)/);
   assert.match(cloudCss, /\.cloud-share-canvas\s*\{\s*color:\s*var\(--studio-accent-strong, #4338ca\)/);
   assert.match(cloudCss, /@media \(prefers-reduced-motion:\s*reduce\)[\s\S]*?animation:\s*none/);
   assert.doesNotMatch(cloudCss, /body\[data-theme="(?:studio|research|arcane|scifi)"\] \.penecho-cloud-dialog/);

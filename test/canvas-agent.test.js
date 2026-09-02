@@ -2563,6 +2563,47 @@ test("PenEcho Agent reads multiple turn-scoped files without replacing the conve
   assert.deepEqual(host.activeProjectIds(),[]);
 });
 
+test("PenEcho Agent preserves exact spreadsheet sheet selectors for turn-scoped files",async t=>{
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),"penecho-canvas-agent-turn-file-selectors-")),stateDirectory=path.join(root,"state"),files=path.join(root,"files");
+  fs.mkdirSync(files,{recursive:true});
+  const JSZip=require("jszip"),spreadsheetNamespace="http://schemas.openxmlformats.org/spreadsheetml/2006/main",archive=new JSZip(),sheetName="All data word ",spreadsheetPath=path.join(files,"study.xlsx"),pdfPath=path.join(files,"sample.pdf"),databasePath=path.join(files,"inventory.sqlite");
+  archive.file("[Content_Types].xml",`<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>`);
+  archive.folder("_rels").file(".rels",`<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`);
+  archive.folder("xl").file("workbook.xml",`<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="${spreadsheetNamespace}" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="${sheetName}" sheetId="1" r:id="rId1"/></sheets></workbook>`).folder("_rels").file("workbook.xml.rels",`<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>`);
+  archive.folder("xl").folder("worksheets").file("sheet1.xml",`<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="${spreadsheetNamespace}"><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>name</t></is></c><c r="B1" t="inlineStr"><is><t>value</t></is></c></row><row r="2"><c r="A2" t="inlineStr"><is><t>PenEcho</t></is></c><c r="B2"><v>5</v></c></row></sheetData></worksheet>`);
+  fs.writeFileSync(spreadsheetPath,await archive.generateAsync({type:"nodebuffer",compression:"DEFLATE"}));
+  fs.writeFileSync(pdfPath,minimalPdf("PenEcho PDF selector"));
+  const {DatabaseSync}=require("node:sqlite"),database=new DatabaseSync(databasePath);
+  database.exec("CREATE TABLE items (name TEXT NOT NULL); INSERT INTO items VALUES ('PenEcho');");
+  database.close();
+  const spreadsheetId="file-555555555555555555555555",pdfId="file-666666666666666666666666",databaseId="file-777777777777777777777777",projects=[
+    {id:spreadsheetId,kind:"file",source:"upload",name:"study.xlsx",displayPath:"study.xlsx",path:fs.realpathSync(spreadsheetPath),reader:"document",mediaType:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",bytes:fs.statSync(spreadsheetPath).size},
+    {id:pdfId,kind:"file",source:"upload",name:"sample.pdf",displayPath:"sample.pdf",path:fs.realpathSync(pdfPath),reader:"document",mediaType:"application/pdf",bytes:fs.statSync(pdfPath).size},
+    {id:databaseId,kind:"file",source:"upload",name:"inventory.sqlite",displayPath:"inventory.sqlite",path:fs.realpathSync(databasePath),reader:"database",mediaType:"application/vnd.sqlite3",bytes:fs.statSync(databasePath).size},
+  ],resolveProject=async id=>projects.find(project=>project.id===id)||null,
+    connection={id:"turn-file-selector-test",provider:"api",name:"Turn File Selector Test",apiFormat:"openai",apiUrl:"http://127.0.0.1:9/v1",apiModel:"test-model",apiKey:"test-key",effort:"medium"},
+    runtime=await import("../src/server/canvas-agent/runtime.mjs"),host=new runtime.CanvasHarnessHost({stateDirectory,rootDirectory:ROOT,resolveConnection:id=>id===connection.id?connection:null,listConnections:()=>[connection],resolveProject});
+  t.after(async()=>{await host.dispose();fs.rmSync(root,{recursive:true,force:true});});
+  const session=await host.connect({clientId:"turn-file-selector-client",connectionId:connection.id,binding:{},send:()=>{}}),signal=new AbortController().signal;
+  session.turnFiles=await runtime.prepareCanvasAgentTurnFiles(session,resolveProject,[spreadsheetId,pdfId,databaseId],0);
+  const omitted=await host.context.tools.execute({callId:"read-sheet-default",name:"read_attachment",arguments:{file_id:spreadsheetId},agent:session.handle.agent,signal}),
+    empty=await host.context.tools.execute({callId:"read-sheet-empty",name:"read_attachment",arguments:{file_id:spreadsheetId,selector:""},agent:session.handle.agent,signal}),
+    exact=await host.context.tools.execute({callId:"read-sheet-exact",name:"read_attachment",arguments:{file_id:spreadsheetId,selector:sheetName},agent:session.handle.agent,signal}),
+    trimmed=await host.context.tools.execute({callId:"read-sheet-trimmed",name:"read_attachment",arguments:{file_id:spreadsheetId,selector:sheetName.trim()},agent:session.handle.agent,signal}),
+    pdf=await host.context.tools.execute({callId:"read-pdf-spaced-selector",name:"read_attachment",arguments:{file_id:pdfId,selector:" 1 "},agent:session.handle.agent,signal}),
+    databaseSchema=await host.context.tools.execute({callId:"read-database-blank-selector",name:"read_attachment",arguments:{file_id:databaseId,selector:"   "},agent:session.handle.agent,signal}),
+    databaseRows=await host.context.tools.execute({callId:"read-database-spaced-selector",name:"read_attachment",arguments:{file_id:databaseId,selector:" SELECT name FROM items "},agent:session.handle.agent,signal});
+  for(const result of [omitted,empty,exact]){assert.equal(result.isError,false,JSON.stringify(result));assert.match(result.content[0].text,/Sheet: All data word \n[\s\S]*PenEcho\t5/);}
+  assert.equal(trimmed.isError,true);
+  assert.match(trimmed.content[0].text,/Requested sheet: "All data word"\. Available sheets: "All data word "/);
+  assert.equal(pdf.isError,false,JSON.stringify(pdf));
+  assert.match(pdf.content[0].text,/Selected page: 1[\s\S]*PenEcho PDF selector/);
+  assert.equal(databaseSchema.isError,false,JSON.stringify(databaseSchema));
+  assert.match(databaseSchema.content[0].text,/CREATE TABLE items/);
+  assert.equal(databaseRows.isError,false,JSON.stringify(databaseRows));
+  assert.match(databaseRows.content[0].text,/PenEcho/);
+});
+
 test("Codex Native exposes the same turn-scoped attachment reader before any file is selected",async t=>{
   const stateDirectory=fs.mkdtempSync(path.join(os.tmpdir(),"penecho-canvas-agent-native-turn-files-")),connection={id:"native-turn-files",provider:"codex-cli",name:"Native Turn Files",cliModel:"gpt-test",effort:"medium"},
     {CodexNativeHost}=await import("../src/server/canvas-agent/codex-native-host.mjs"),host=new CodexNativeHost({stateDirectory,rootDirectory:ROOT,resolveConnection:id=>id===connection.id?connection:null,resolveProject:async()=>null});

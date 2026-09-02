@@ -2231,7 +2231,7 @@ test("selected Widget chrome uses one top toolbar and follows Studio glass token
   assert.doesNotMatch(css, /#viewport \.canvas-widget\.is-selected::after[^\{]*\{[^}]*outline:/);
   assert.doesNotMatch(css.match(/#viewport \.canvas-image-selection::after \{[^}]*\}/)?.[0] || "", /backdrop-filter|filter:/);
   assert.match(css, /#viewport \.canvas-image-selection::after,[\s\S]*?#viewport \.canvas-widget\.object-toolbar-attached::after \{[^}]*opacity: 1;[^}]*border: 1px solid var\(--line\);[^}]*border-top-color: transparent/);
-  assert.match(css, /#viewport \.canvas-widget\.object-toolbar-attached \.canvas-widget-frame \{ opacity: \.72; mix-blend-mode: multiply; \}/);
+  assert.match(css, /#viewport \.canvas-widget\.object-toolbar-attached \.canvas-widget-frame \{ opacity: 1; mix-blend-mode: normal; \}/);
   assert.match(functionSource(app, "syncSelectedWidgetMaterial"), /selectedWidgetMaterial\.hidden = true[\s\S]*?syncCanvasObjectLayerOrder\(\)[\s\S]*?widgetStackIndex = state\.widgets\.length[\s\S]*?spec\.object\.styleRule\.style\.zIndex = String\(widgetStackIndex\)[\s\S]*?--selected-widget-material-x[\s\S]*?--selected-widget-material-height[\s\S]*?--selected-widget-body-width/);
 });
 
@@ -2357,6 +2357,7 @@ test("canvas history clearly separates device, server, and private cross-device 
   assert.match(html, /id="historyNewCanvas"[^>]*data-i18n-aria="historyNewCanvas"[^>]*aria-label="New Canvas"/);
   assert.match(html, /id="historyProjectSelect"[^>]*data-i18n-aria="canvasProject"[^>]*aria-label="Project"/);
   assert.match(html, /id="historyProjectDelete"[^>]*data-i18n-aria="canvasProjectDelete"[^>]*aria-label="Delete project"/);
+  assert.match(html, /class="history-content-heading">\s*<h3 id="historySectionTitle"[\s\S]*?<div class="history-content-meta">\s*<p id="historySectionSummary"><\/p>\s*<p id="historyStorageDescription" class="history-content-guidance"><\/p>/);
   assert.match(html, /id="historyStorageDescription"[^>]*class="history-content-guidance"/);
   assert.match(html, /class="history-toolbar"[\s\S]*?id="historySavePanel"[^>]*class="history-toolbar-save"/);
   assert.doesNotMatch(html, /class="history-footer"|id="historySelectionName"|id="historyCancel"|id="historyOpenCanvas"|id="historyGridActions"|id="historyGridSelectionName"|id="historyGridLoad"/);
@@ -2370,10 +2371,14 @@ test("canvas history clearly separates device, server, and private cross-device 
   assert.ok(css.includes("width: min(1080px, calc(100vw - 56px));"));
   assert.ok(css.includes("height: min(720px, calc(100dvh - 56px));"));
   assert.match(css, /\.penecho-workbench-dialog\s*\{[^}]*--penecho-workbench-header-h:\s*68px[^}]*--penecho-workbench-navigation-w:\s*184px[^}]*--penecho-workbench-menu-item-h:\s*30px/);
+  assert.match(css, /#historyPanel\s*\{[^}]*--penecho-workbench-title-surface:\s*var\(--penecho-workbench-navigation-surface\)[^}]*--penecho-workbench-title-filter:\s*var\(--penecho-workbench-navigation-filter\)/);
   assert.match(css, /\.history-library-sidebar\s*\{[^}]*--pe-menu-item-h:\s*var\(--penecho-workbench-menu-item-h, 30px\)[^}]*border-right:\s*1px solid var\(--ai-line\)/);
   assert.match(css, /\.history-library-main\s*\{[^}]*grid-template-rows:\s*50px 74px 30px minmax\(0, 1fr\)/);
   assert.match(css, /\.history-panel\.open\s*\{[^}]*opacity:\s*1[^}]*translate\(-50%, -50%\) scale\(1\)[^}]*visibility:\s*visible/);
   assert.match(css, /html\.penecho-web-page-scale \.history-panel\s*\{[^}]*min-height:\s*0/);
+  assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-library-main\s*\{[^}]*grid-template-rows:\s*42px 48px minmax\(0, 1fr\)/);
+  assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-content-heading\s*\{[^}]*display:\s*grid[^}]*min-height:\s*48px[^}]*align-items:\s*center[^}]*padding:\s*6px 16px/);
+  assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-content-meta\s*\{[^}]*display:\s*flex[^}]*align-items:\s*center[^}]*justify-content:\s*flex-end/);
   assert.ok(css.includes(".history-list { min-width: 0; min-height: 0; margin: 0; padding: 0 8px 8px; overflow: hidden auto; border: 0; border-radius: 0;"));
   assert.match(css, /\.history-card\.selected\s*\{[^}]*border-color:[^}]*var\(--ai-accent\)[^}]*background:/);
   assert.match(css, /\.history-card \.history-card-select\s*\{[^}]*grid-template-columns:\s*minmax\(240px, 1fr\) 150px 136px/);
@@ -2435,15 +2440,15 @@ test("canvas history clearly separates device, server, and private cross-device 
   assert.match(renderSnapshotList, /history-current-label[\s\S]*?studioNavigatorCurrent/);
   assert.match(renderSnapshotList, /isCurrent \? "history-item-save history-save-current" : "history-item-load history-load"[\s\S]*?saveCurrentHistoryItem[\s\S]*?loadHistorySnapshot[\s\S]*?footer\.append\(modifiedColumn, load, more\)[\s\S]*?content\.append\(meta, footer\)[\s\S]*?card\.append\(selectButton, content, advancedActions\)/);
   assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-list:not\(\.grid-view\)\s*\{[^}]*grid-auto-rows:\s*max-content[^}]*align-content:\s*start/);
-  assert.match(css, /\.history-panel\[data-pe-surface="manager"\]\s*\{[^}]*width:\s*min\(900px,[^}]*background:\s*var\(--penecho-dialog-surface\)[^}]*backdrop-filter:\s*var\(--penecho-dialog-surface-filter\)[^}]*container:\s*history-library \/ inline-size/);
-  assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-library-sidebar\s*\{[^}]*padding:\s*13px 11px[^}]*background:\s*color-mix\(in srgb, var\(--studio-toolbar, #eef0f2\) 68%, transparent\)/);
+  assert.match(css, /\.history-panel\[data-pe-surface="manager"\]\s*\{[^}]*width:\s*min\(900px,[^}]*background:\s*var\(--penecho-large-dialog-surface\)[^}]*box-shadow:\s*var\(--penecho-large-dialog-shadow\)[^}]*backdrop-filter:\s*var\(--penecho-large-dialog-surface-filter\)[^}]*container:\s*history-library \/ inline-size/);
+  assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-library-sidebar\s*\{[^}]*padding:\s*13px 11px[^}]*background:\s*var\(--penecho-workbench-navigation-surface\)[^}]*backdrop-filter:\s*var\(--penecho-workbench-navigation-filter\)/);
   assert.doesNotMatch(css, /\.history-panel\[data-pe-surface="manager"\] \.history-library-sidebar\s*\{[^}]*--pe-font-ui:/);
   assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-library-sidebar\s*\{[^}]*font-family:\s*var\(--pe-font-ui\)/);
   assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.snapshot-location\.history-sidebar-section legend,[\s\S]*?\.history-sidebar-heading\s*\{[^}]*font:\s*600 11px\/24px var\(--pe-font-ui\)[^}]*letter-spacing:\s*\.04em[^}]*text-transform:\s*uppercase/);
-  assert.match(css, /:is\(#pe-button-contract, body\[data-theme="studio"\]\)[\s\S]*?\.history-panel\[data-pe-surface="manager"\][\s\S]*?\.history-project-nav-item\[data-pe-button="menu-item"\][\s\S]*?grid-template-columns:\s*15px minmax\(0, 1fr\) auto[^}]*gap:\s*8px[^}]*font:\s*400 12\.5px\/var\(--pe-menu-item-h, 30px\) var\(--pe-font-ui\)/);
+  assert.match(css, /:is\(#pe-button-contract, body\[data-theme="studio"\]\)[\s\S]*?\.history-panel\[data-pe-surface="manager"\][\s\S]*?\.history-project-nav-item\[data-pe-button="menu-item"\][\s\S]*?grid-template-columns:\s*15px minmax\(0, 1fr\) auto[^}]*gap:\s*8px[^}]*color:\s*var\(--pe-ink\)[^}]*font:\s*500 12\.5px\/var\(--pe-menu-item-h, 30px\) var\(--pe-font-ui\)/);
   assert.match(css, /:is\(#pe-button-contract, body\[data-theme="studio"\]\)[\s\S]*?:is\(\.history-location-count, \.history-project-nav-item > small\)\s*\{[^}]*min-width:\s*20px[^}]*height:\s*20px[^}]*border-radius:\s*999px[^}]*background:\s*var\(--pe-surface-raised\)[^}]*font:\s*600 10\.5px\/1 var\(--pe-font-ui\)/);
   assert.match(css, /:is\(#pe-button-contract, body\[data-theme="studio"\]\)[\s\S]*?\.history-location-count\[hidden\]\s*\{[^}]*display:\s*none/);
-  assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-library-main\s*\{[^}]*background:\s*var\(--penecho-dialog-body-surface\)/);
+  assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-library-main\s*\{[^}]*background:\s*var\(--penecho-workbench-content-surface\)/);
   assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-library-browser\s*\{[^}]*grid-template-columns:\s*var\(--penecho-workbench-navigation-w\) minmax\(0, 1fr\)/);
   assert.match(css, /History Grid follows the catalog card-action skeleton[\s\S]*?\.history-panel\[data-pe-surface="manager"\] \.history-list\.grid-view\s*\{[^}]*grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\)[^}]*gap:\s*var\(--pe-s6, 12px\)/);
   assert.match(css, /\.history-panel\[data-pe-surface="manager"\] \.history-list\.grid-view \.history-card\s*\{[^}]*grid-template-rows:\s*auto auto[^}]*gap:\s*var\(--pe-s4, 8px\)[^}]*padding:\s*8px[^}]*border-radius:\s*var\(--pe-r-group, 10px\)/);
@@ -2800,8 +2805,26 @@ test("Studio-only palettes are wired through initialization, localization, and s
 });
 
 test("Studio palette propagates through every Canvas popup surface", () => {
-  const css = read("public/style.css");
+  const css = read("public/style.css"), cloudCss = read("public/cloud-connect.css");
   assert.match(css, /:root\s*\{[^}]*--penecho-dialog-backdrop:\s*rgba\(18, 23, 34, \.2\)[^}]*--penecho-dialog-backdrop-filter:\s*blur\(4px\) saturate\(1\.08\)[^}]*--penecho-dialog-surface:[^}]*70%, transparent\)[^}]*--penecho-dialog-raised-surface:[^}]*78%, transparent\)[^}]*--penecho-dialog-body-surface:[^}]*74%, transparent\)[^}]*--penecho-dialog-surface-filter:\s*blur\(24px\) saturate\(1\.18\)/);
+  assert.match(css, /--penecho-large-dialog-radius:\s*18px/);
+  assert.match(css, /--penecho-large-dialog-surface:\s*var\(--studio-glass,[^;]+62%, transparent\)\)/);
+  assert.match(css, /--penecho-large-dialog-surface-filter:\s*saturate\(1\.15\) blur\(20px\)/);
+  assert.match(css, /--penecho-large-dialog-shadow:\s*0 28px 80px rgba\(17, 24, 39, \.28\), 0 2px 8px rgba\(17, 24, 39, \.12\)/);
+  assert.match(css, /--penecho-workbench-title-surface:[^;]*70%, transparent\)/);
+  assert.match(css, /--penecho-workbench-title-filter:\s*blur\(24px\) saturate\(1\.2\)/);
+  assert.match(css, /--penecho-workbench-navigation-surface:[^;]*68%, transparent\)/);
+  assert.match(css, /--penecho-workbench-navigation-filter:\s*blur\(24px\) saturate\(1\.14\)/);
+  assert.match(css, /--penecho-workbench-content-surface:[^;]*62%, transparent\)/);
+  for (const selector of ["plugin-modal", "changelog-dialog", "settings-panel", "configuration-panel", "crafts-modal", "canvas-agent-project-dialog"]) {
+    assert.match(css, new RegExp(`\\.${selector}\\s*\\{[^}]*border-radius:\\s*var\\(--penecho-large-dialog-radius\\)`));
+  }
+  for (const selector of ["settings-panel", "crafts-modal"]) {
+    assert.match(css, new RegExp(`\\.${selector}\\s*\\{[^}]*background:\\s*var\\(--penecho-large-dialog-surface\\)[^}]*box-shadow:\\s*var\\(--penecho-large-dialog-shadow\\)[^}]*backdrop-filter:\\s*var\\(--penecho-large-dialog-surface-filter\\)`));
+  }
+  assert.match(css, /\.history-panel\[data-pe-surface="manager"\]\s*\{[^}]*border-radius:\s*var\(--penecho-large-dialog-radius\)[^}]*background:\s*var\(--penecho-large-dialog-surface\)[^}]*box-shadow:\s*var\(--penecho-large-dialog-shadow\)[^}]*backdrop-filter:\s*var\(--penecho-large-dialog-surface-filter\)/);
+  assert.match(cloudCss, /\.penecho-cloud-dialog\s*\{[^}]*border-radius:\s*var\(--penecho-large-dialog-radius, 1\.125rem\)/);
+  assert.match(cloudCss, /\.penecho-cloud-dialog\.cloud-center\s*\{[^}]*background:\s*var\(--penecho-large-dialog-surface,[^}]*62%, transparent\)\)[^}]*box-shadow:\s*var\(--penecho-large-dialog-shadow,[^}]*0 28px 80px[^}]*backdrop-filter:\s*var\(--penecho-large-dialog-surface-filter, saturate\(1\.15\) blur\(20px\)\)/);
   assert.match(css, /\.plugin-modal\s*\{[^}]*--ink:\s*var\(--studio-text,[^)]+\)[^}]*--panel-raised:\s*var\(--studio-panel,[^)]+\)[^}]*--gold-bright:\s*var\(--studio-accent-strong,[^)]+\)/);
   assert.match(css, /\.plugin-modal-layer\s*\{[^}]*background:\s*var\(--penecho-dialog-backdrop\)[^}]*backdrop-filter:\s*var\(--penecho-dialog-backdrop-filter\)/);
   assert.match(css, /\.plugin-modal\s*\{[^}]*background:\s*var\(--penecho-dialog-surface\)[^}]*backdrop-filter:\s*var\(--penecho-dialog-surface-filter\)/);
@@ -2809,7 +2832,7 @@ test("Studio palette propagates through every Canvas popup surface", () => {
   assert.match(css, /body\[data-theme="studio"\] \.tour-card\s*\{[^}]*border-color:\s*var\(--studio-accent-border\)[^}]*background:\s*var\(--studio-panel\)/);
   assert.match(css, /\.settings-panel, \.configuration-panel\s*\{[^}]*--ink:\s*var\(--studio-text,[^)]+\)[^}]*--gold-bright:\s*var\(--studio-accent-strong,[^)]+\)/);
   assert.match(css, /\.configuration-panel\s*\{[^}]*background:\s*var\(--penecho-dialog-surface\)[^}]*backdrop-filter:\s*var\(--penecho-dialog-surface-filter\)/);
-  assert.match(css, /\.crafts-modal\s*\{[^}]*--ink:\s*var\(--studio-text,[^)]+\)[^}]*--panel-raised:\s*var\(--studio-panel,[^)]+\)[^}]*background:\s*var\(--penecho-dialog-surface\)[^}]*backdrop-filter:\s*var\(--penecho-dialog-surface-filter\)/);
+  assert.match(css, /\.crafts-modal\s*\{[^}]*--ink:\s*var\(--studio-text,[^)]+\)[^}]*--panel-raised:\s*var\(--studio-panel,[^)]+\)[^}]*background:\s*var\(--penecho-large-dialog-surface\)[^}]*backdrop-filter:\s*var\(--penecho-large-dialog-surface-filter\)/);
   assert.match(css, /body\[data-theme="studio"\] \.canvas-agent-project-dialog\s*\{[^}]*color:\s*var\(--studio-text\)[^}]*border-color:\s*var\(--studio-line\)[^}]*background:\s*var\(--penecho-dialog-surface\)/);
   assert.match(css, /body\[data-theme="studio"\] \.canvas-agent-prompt-popup\s*\{[^}]*border-color:\s*var\(--studio-line\)[^}]*background:\s*var\(--studio-panel-raised\)/);
   assert.match(css, /\.studio-session-delete-dialog\s*\{[^}]*color:\s*var\(--studio-text,[^)]+\)[^}]*background:\s*var\(--penecho-dialog-surface\)[^}]*backdrop-filter:\s*var\(--penecho-dialog-surface-filter\)/);
@@ -2836,12 +2859,17 @@ test("Settings is a centered frosted workbench with persistent navigation and sw
   assert.match(panel, /data-page-scale="0\.9" aria-checked="false"[^>]*>90%<\/button>/);
   assert.match(panel, /data-page-scale="1" aria-checked="true"/);
   assert.doesNotMatch(panel, /data-page-scale="1\.(?:5|75)"/);
-  assert.match(css, /\.settings-panel\s*\{[^}]*top:\s*50%[^}]*left:\s*50%[^}]*background:\s*var\(--penecho-dialog-surface\)[^}]*backdrop-filter:\s*var\(--penecho-dialog-surface-filter\)/);
+  assert.match(css, /\.settings-panel\s*\{[^}]*top:\s*50%[^}]*left:\s*50%[^}]*border-radius:\s*var\(--penecho-large-dialog-radius\)[^}]*background:\s*var\(--penecho-large-dialog-surface\)[^}]*box-shadow:\s*var\(--penecho-large-dialog-shadow\)[^}]*backdrop-filter:\s*var\(--penecho-large-dialog-surface-filter\)/);
+  assert.match(css, /#settingsPanel\s*\{[^}]*--penecho-workbench-title-surface:\s*var\(--penecho-workbench-navigation-surface\)[^}]*--penecho-workbench-title-filter:\s*var\(--penecho-workbench-navigation-filter\)/);
+  assert.match(css, /#historyPanel\s*\{[^}]*--penecho-workbench-title-surface:\s*var\(--penecho-workbench-navigation-surface\)[^}]*--penecho-workbench-title-filter:\s*var\(--penecho-workbench-navigation-filter\)/);
   assert.match(css, /\.settings-workbench\s*\{[^}]*grid-template-columns:\s*var\(--penecho-workbench-navigation-w\) minmax\(0, 1fr\)/);
+  assert.match(css, /\.settings-detail\s*\{[^}]*background:\s*var\(--penecho-workbench-content-surface\)/);
+  assert.match(css, /\.settings-navigation\s*\{[^}]*background:\s*var\(--penecho-workbench-navigation-surface\)[^}]*backdrop-filter:\s*var\(--penecho-workbench-navigation-filter\)/);
   assert.match(css, /\.settings-page\s*\{[^}]*overflow-y:\s*auto/);
   assert.match(css, /@media \(max-width: 680px\)[\s\S]*?\.settings-workbench\s*\{\s*grid-template-columns:\s*112px minmax\(0, 1fr\)/);
   assert.match(css, /@media \(max-width: 520px\)[\s\S]*?\.settings-workbench\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)[^}]*grid-template-rows:\s*auto minmax\(0, 1fr\)/);
   assert.match(css, /@media \(max-width: 520px\)[\s\S]*?\.settings-navigation\s*\{[^}]*flex-direction:\s*row[^}]*overflow-x:\s*auto[^}]*border-bottom:/);
+  assert.match(css, /@supports not \(backdrop-filter:\s*blur\(1px\)\)[\s\S]*?\.settings-window-header\s*\{\s*background:\s*var\(--studio-toolbar, #eef0f2\)/);
   assert.match(app, /function selectSettingsPage\(page,[\s\S]*?data-settings-page-target[\s\S]*?node\.hidden = !selected[\s\S]*?return true;\s*\}/);
   assert.match(functionSource(app, "handleSettingsNavigationKeydown"), /ArrowUp[\s\S]*?ArrowDown[\s\S]*?Home[\s\S]*?End/);
   assert.match(html, /<div class="settings-group settings-system-group">\s*<div class="settings-fields two-column">/);
@@ -2885,8 +2913,8 @@ test("Studio uses glass workbench overlays, contextual pen properties, and a rig
   assert.match(css, /@media \(max-width: 820px\)\s*\{[\s\S]*?studio-navigator-open \.canvas-frame::after\s*\{[^}]*left:\s*min\(360px, calc\(100% - 16px\)\)/);
   assert.match(css, /body\[data-theme="studio"\]\[data-canvas-mode="pen"\] \.pen-tool-properties\s*\{[^}]*display:\s*inline-flex/);
   assert.match(css, /body\[data-theme="studio"\] main > footer\s*\{[^}]*min-height:\s*26px[^}]*border-top:/);
-  assert.match(css, /--studio-agent-glass:\s*color-mix\(in srgb, var\(--studio-panel\) 80%, transparent\)/);
-  assert.match(css, /@media \(min-width: 701px\)[\s\S]*?studio-agent-docked \.canvas-agent-panel\s*\{[\s\S]*?position:\s*absolute[\s\S]*?inset:\s*var\(--studio-toolbar-height\) 0 0 auto[\s\S]*?flex:\s*none[\s\S]*?background:\s*var\(--studio-agent-glass\)[\s\S]*?box-shadow:\s*-4px 0 8px var\(--studio-chrome-shadow-color\)[\s\S]*?backdrop-filter:\s*saturate\(1\.08\) blur\(30px\)/);
+  assert.match(css, /--studio-agent-glass:\s*var\(--studio-glass\)/);
+  assert.match(css, /@media \(min-width: 701px\)[\s\S]*?studio-agent-docked \.canvas-agent-panel\s*\{[\s\S]*?position:\s*absolute[\s\S]*?inset:\s*var\(--studio-toolbar-height\) 0 0 auto[\s\S]*?flex:\s*none[\s\S]*?background:\s*var\(--studio-agent-glass\)[\s\S]*?box-shadow:\s*-4px 0 8px var\(--studio-chrome-shadow-color\)[\s\S]*?backdrop-filter:\s*saturate\(1\.15\) blur\(20px\)/);
   assert.match(css, /studio-agent-docked:not\(\.canvas-agent-open\) \.canvas-agent-panel\s*\{[^}]*pointer-events:\s*none[^}]*opacity:\s*0[^}]*translate3d\(100%, 0, 0\)/);
   assert.match(css, /studio-agent-docked \.canvas-agent-panel\s*\{[^}]*transition:\s*transform \.22s cubic-bezier\(\.2,\.72,\.2,1\), opacity \.16s ease/);
   assert.match(css, /studio-agent-docked:not\(\.canvas-agent-open\) \.canvas-agent-panel\s*\{[^}]*transition-delay:\s*0s, 0s, 0s, \.22s/);
@@ -3036,7 +3064,7 @@ test("Studio title bar exposes document identity, explicit save state, and a bla
   assert.doesNotMatch(css, /studio-navigator-open\.studio-agent-docked\.canvas-agent-open[^}]*--studio-agent-width:\s*336px/);
   assert.match(css, /body\[data-theme="studio"\] \.canvas-welcome\s*\{[^}]*inset:\s*var\(--studio-toolbar-height\) var\(--studio-agent-edge-shift\) 0 var\(--studio-navigator-edge-shift\)[^}]*align-content:\s*center[^}]*pointer-events:\s*none/);
   assert.match(css, /body\[data-theme="studio"\] \.canvas-welcome-kicker\s*\{[^}]*font:\s*600 2rem\/1\.05 var\(--pe-font-hand[^}]*letter-spacing:\s*\.015em[^}]*transform:\s*rotate\(-2deg\)/);
-  assert.match(css, /html:lang\(zh\) body\[data-theme="studio"\] \.canvas-welcome-kicker\s*\{[^}]*font-family:\s*var\(--pe-font-ui/);
+  assert.match(css, /html:lang\(zh\) body\[data-theme="studio"\] \.canvas-welcome-kicker\s*\{[^}]*font-family:\s*var\(--pe-font-ui[^}]*font-weight:\s*500[^}]*letter-spacing:\s*normal[^}]*transform:\s*none/);
   assert.doesNotMatch(css, /\.canvas-welcome-kicker::after/);
   const updateDocument = functionSource(navigator, "updateStudioDocumentState");
   assert.match(updateDocument, /currentCanvasDisplayName\(\) \|\| t\("canvasUntitledName"\)/);

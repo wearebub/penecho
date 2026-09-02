@@ -975,8 +975,10 @@ function spreadsheetCellText(value) {
   return String(value)
 }
 
-function spreadsheetSheetNotFoundError(availableSheets) {
-  const error = new Error(`Spreadsheet sheet was not found. Available sheets: ${availableSheets.join(', ')}`)
+function spreadsheetSheetNotFoundError(availableSheets, requestedSheet) {
+  const requestedLabel=requestedSheet === undefined || requestedSheet === null ? '(default)' : JSON.stringify(String(requestedSheet)),
+    availableLabels=availableSheets.map(sheet=>JSON.stringify(String(sheet))).join(', ')
+  const error = new Error(`Spreadsheet sheet was not found. Requested sheet: ${requestedLabel}. Available sheets: ${availableLabels}`)
   error.code = 'SPREADSHEET_SHEET_NOT_FOUND'
   return error
 }
@@ -994,7 +996,7 @@ async function readXlsxDocument(localPath, sheetName, offsetInput, limitInput, d
   const worksheet = sheetName
     ? worksheets.find(sheet => String(sheet.sheet) === String(sheetName))
     : worksheets[0]
-  if (!worksheet) throw spreadsheetSheetNotFoundError(availableSheets)
+  if (!worksheet) throw spreadsheetSheetNotFoundError(availableSheets, sheetName)
   const window = projectReadWindow(offsetInput, limitInput)
   for (let rowNumber = window.offset; rowNumber <= worksheet.data.length; rowNumber++) {
     const cells = (Array.isArray(worksheet.data[rowNumber - 1]) ? worksheet.data[rowNumber - 1] : []).slice(0, 100).map(spreadsheetCellText)
@@ -1259,14 +1261,15 @@ function canvasAgentTurnFileReaderTool(session, agentCtx) {
     output:projectDocumentOutput(),
     timeoutMs:TOOL_TIMEOUT_MS,
     async execute(args, exec) {
-      const file=canvasAgentTurnFile(session,args.file_id), scoped={...session,project:file.project,projectSnapshotPath:file.snapshotPath,readBinaryOffsetBase:1}, selector=String(args.selector || '').trim(), delegated={file_path:file.project.name}, hasOffset=args.offset!==undefined,
+      const file=canvasAgentTurnFile(session,args.file_id), scoped={...session,project:file.project,projectSnapshotPath:file.snapshotPath,readBinaryOffsetBase:1}, rawSelector=args.selector === undefined || args.selector === null ? '' : String(args.selector), selector=rawSelector.trim(), delegated={file_path:file.project.name}, hasOffset=args.offset!==undefined,
         offset=hasOffset ? projectReadPositiveInteger(args.offset,1,'offset') : undefined
       const reader=['text','image','document','database','binary'].includes(file.project.reader) ? file.project.reader : 'binary'
       if(reader==='binary'){if(hasOffset)delegated.offset=offset;if(args.limit!==undefined)delegated.length=args.limit}
-      else if(reader==='database'){if(selector)delegated.query=selector;if(args.limit!==undefined)delegated.limit=args.limit}
+      else if(reader==='database'){if(selector)delegated.query=rawSelector;if(args.limit!==undefined)delegated.limit=args.limit}
       else if(reader==='document'){
         const extension=extname(file.project.name).toLowerCase()
-        if(selector){if(extension==='.pdf')delegated.page=Number(selector);else if(extension==='.pptx')delegated.slide=Number(selector);else delegated.sheet=selector}
+        if(extension==='.xlsx'){if(rawSelector!=='')delegated.sheet=rawSelector}
+        else if(selector){if(extension==='.pdf')delegated.page=Number(selector);else if(extension==='.pptx')delegated.slide=Number(selector)}
         if(hasOffset)delegated.offset=offset
         if(args.limit!==undefined)delegated.limit=args.limit
         if(args.render===true)delegated.render_page=true

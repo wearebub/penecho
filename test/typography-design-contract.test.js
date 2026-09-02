@@ -67,7 +67,7 @@ test("Studio uses one UI family with only handwriting and technical exceptions",
   assert.match(css, /\.summon-caption\s*\{[^}]*font-family:\s*var\(--pe-font-ui/);
   assert.doesNotMatch(css, /font-family:\s*ui-rounded/);
   assert.match(css, /\.canvas-welcome-kicker\s*\{[^}]*font:\s*600 2rem\/1\.05 var\(--pe-font-hand/);
-  assert.match(css, /html:lang\(zh\)[^}]*\.canvas-welcome-kicker\s*\{[^}]*font-family:\s*var\(--pe-font-ui/);
+  assert.match(css, /html:lang\(zh\)[^}]*\.canvas-welcome-kicker\s*\{[^}]*font-family:\s*var\(--pe-font-ui[^}]*font-weight:\s*500[^}]*letter-spacing:\s*normal[^}]*transform:\s*none/);
   assert.match(css, /h1\s*\{[^}]*font:\s*600[^}]*var\(--pe-font-ui/);
   assert.match(css, /h1 strong\s*\{[^}]*font-weight:\s*600/);
   assert.match(css, /\.canvas-welcome strong\s*\{[^}]*font-weight:\s*600/);
