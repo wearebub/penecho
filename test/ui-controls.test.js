@@ -74,6 +74,83 @@ test("active pen drawing paints a live layer before committing authoritative ink
   assert.doesNotMatch(app, /function requestInkLayerRender/);
 });
 
+test("hand panning previews Canvas content on the compositor before the exact redraw", () => {
+  const app = read("public/app.js"), css = read("public/style.css"),
+    pointerMove = app.slice(app.indexOf('screen.addEventListener("pointermove"'), app.indexOf("function end(e)")),
+    moveCanvasSource = functionSource(app, "moveCanvas"),
+    applyPreview = functionSource(app, "applyCanvasNavigationPreview"),
+    resetPreview = functionSource(app, "resetCanvasNavigationPreview"),
+    finishPreview = functionSource(app, "finishCanvasNavigationPreview"),
+    requestPreview = functionSource(app, "requestCanvasNavigationPreview"),
+    previewStep = functionSource(app, "canvasNavigationPreviewStep"),
+    widgetCarrier = functionSource(app, "syncCanvasWidgetCarrier"),
+    renderContent = functionSource(app, "renderCanvasContent"),
+    endSource = functionSource(app, "end"),
+    panFastPath = pointerMove.indexOf('if (state.panGesture?.id === e.pointerId && (e.pointerType !== "touch" || state.touches.size < 2))'),
+    handFocusWork = pointerMove.indexOf("updateHandObjectFocus(e)");
+  assert.match(moveCanvasSource, /previousPanX = state\.panX[\s\S]*?previousPanY = state\.panY[\s\S]*?requestCanvasNavigationPreview\(previousPanX, previousPanY\)/);
+  assert.doesNotMatch(moveCanvasSource, /requestRender\(|render\(/);
+  assert.match(requestPreview, /applyCanvasNavigationPreview\(\)[\s\S]*?setTimeout\(finishCanvasNavigationPreview, CANVAS_NAVIGATION_SETTLE_MS\)[\s\S]*?requestAnimationFrame\(canvasNavigationPreviewStep\)/);
+  assert.match(applyPreview, /--canvas-navigation-preview-paper[\s\S]*?state\.paint\.paper/);
+  assert.match(applyPreview, /syncCanvasWidgetCarrier\(\)/);
+  assert.match(previewStep, /updateCoordinates\(\)[\s\S]*?canvasNavigationPreviewRebaseX[\s\S]*?canvasNavigationPreviewRebaseY[\s\S]*?render\(\)/);
+  assert.doesNotMatch(previewStep, /CANVAS_NAVIGATION_EXACT_FRAME_MS|now\s*-/);
+  assert.doesNotMatch(previewStep, /renderCanvasBackground\(|renderCanvasContent\(/);
+  assert.match(endSource, /finishCanvasNavigationPreview\(\)/);
+  assert.match(renderContent, /resetCanvasNavigationPreview\(\)[\s\S]*?renderPlacedContentLayer\(visible\)[\s\S]*?renderInkLayer\(visible\)[\s\S]*?positionWidgets\(\)/);
+  assert.ok(panFastPath >= 0 && panFastPath < handFocusWork, "an active pan must bypass object-focus and hover work");
+  assert.match(css, /\.widget-layer\s*\{[^}]*overflow:\s*visible[^}]*translate3d\(var\(--canvas-widget-pan-x[^}]*will-change:\s*transform/);
+  assert.match(css, /#viewport\.canvas-navigation-previewing :is\(#screen,[^}]*\.placed-content-layer[^}]*\.ink-layer[^}]*\)[^{]*\{[^}]*translate3d\(var\(--canvas-navigation-preview-x[^}]*will-change:\s*transform/);
+  assert.doesNotMatch(css, /#viewport\.canvas-navigation-previewing :is\([^}]*\.widget-layer/);
+  const state = { panX:10, panY:20, navigationLocked:false, renderQueued:false, paint:{ paper:"#fafafa" } }, classes = new Set(), properties = new Map(), frames = [], timers = new Map(), counts = { coordinates:0, animation:0, exact:0 },
+    harness = vm.runInNewContext(`(() => {
+      const CANVAS_NAVIGATION_SETTLE_MS = 80, CANVAS_NAVIGATION_REBASE_VIEWPORT_RATIO = 0.35, CANVAS_NAVIGATION_REBASE_MIN_PX = 192;
+      let canvasNavigationPreviewFrame = 0, canvasNavigationPreviewSettleTimer = 0, canvasNavigationPreviewPanX = 0, canvasNavigationPreviewPanY = 0;
+      let canvasNavigationPreviewRebaseX = CANVAS_NAVIGATION_REBASE_MIN_PX, canvasNavigationPreviewRebaseY = CANVAS_NAVIGATION_REBASE_MIN_PX;
+      let canvasWidgetCarrierPanX = Number.NaN, canvasWidgetCarrierPanY = Number.NaN;
+      ${widgetCarrier}
+      ${applyPreview}
+      ${resetPreview}
+      function render() { counts.exact++; resetCanvasNavigationPreview(); }
+      ${finishPreview}
+      ${previewStep}
+      ${requestPreview}
+      ${moveCanvasSource}
+      return { moveCanvas, finishCanvasNavigationPreview };
+    })()`, {
+      state,
+      view:{ clientWidth:1000, clientHeight:800, classList:{ add:value=>classes.add(value), remove:value=>classes.delete(value), contains:value=>classes.has(value) } },
+      runtimeElementStyle:()=>({ setProperty:(name,value)=>properties.set(name,value) }),
+      requestAnimationFrame:callback=>(frames.push(callback),frames.length),
+      cancelAnimationFrame:()=>{},
+      setTimeout:callback=>{const id=timers.size+1;timers.set(id,callback);return id;},
+      clearTimeout:id=>timers.delete(id),
+      canvasClientDelta:(x,y)=>({ x,y }),
+      updateCoordinates:()=>counts.coordinates++,
+      requestAnimationLayerRender:()=>counts.animation++,
+      setNavigating:()=>{},
+      counts,
+    });
+  assert.equal(harness.moveCanvas(6,-4),true);
+  assert.deepEqual({ panX:state.panX, panY:state.panY },{ panX:16, panY:16 });
+  assert.equal(properties.get("--canvas-navigation-preview-x"),"6px");
+  assert.equal(properties.get("--canvas-navigation-preview-y"),"-4px");
+  assert.equal(properties.get("--canvas-navigation-preview-paper"),"#fafafa");
+  assert.equal(properties.get("--canvas-widget-pan-x"),"16px");
+  assert.equal(properties.get("--canvas-widget-pan-y"),"16px");
+  assert.ok(classes.has("canvas-navigation-previewing"));
+  frames.shift()(110);
+  assert.deepEqual(counts,{ coordinates:1, animation:1, exact:0 });
+  assert.equal(frames.length,0);
+  assert.equal(harness.moveCanvas(400,0),true);
+  frames.shift()(140);
+  assert.deepEqual(counts,{ coordinates:2, animation:2, exact:1 });
+  assert.ok(!classes.has("canvas-navigation-previewing"));
+  assert.equal(harness.moveCanvas(8,3),true);
+  assert.equal(harness.finishCanvasNavigationPreview(),true);
+  assert.deepEqual(counts,{ coordinates:2, animation:2, exact:2 });
+});
+
 test("canvas file actions are in the top-right header and available in History", () => {
   const html = read("public/index.html"), app = read("public/app.js"), css = read("public/style.css");
   const topRow = html.indexOf('class="top-row"'), toolbar = html.indexOf('class="toolbar"'), files = html.indexOf('id="canvasFileActions"');
@@ -628,7 +705,7 @@ test("PenEcho Agent auto-open is a default-on canvas preference", () => {
   const context = {
     canvasAgent:{ socket:null, connectPromise:null }, state:{ canvasAgentAutoOpen:false }, canvasAgentPanel:{ hidden:true }, WebSocket:{ OPEN:1 },
     document:{ body:{ classList:{ contains:() => shellOpen } } },
-    canvasAgentCanvasIdentity:() => "draft:test-client", canvasAgentPersistCurrentConversation:() => {}, canvasAgentBeginLocalConversation:() => {}, canvasAgentDropSessionIdentity:() => {}, canvasAgentSyncPromptSuggestions:() => {}, openCanvasAgent:() => { openCount++; },
+    canvasAgentCanvasIdentity:() => "draft:test-client", canvasAgentCancelInitialAutoHide:() => {}, canvasAgentPersistCurrentConversation:() => {}, canvasAgentBeginLocalConversation:() => {}, canvasAgentDropSessionIdentity:() => {}, canvasAgentSyncPromptSuggestions:() => {}, openCanvasAgent:() => { openCount++; },
   };
   vm.runInNewContext(functionSource(agent, "canvasAgentCanvasDidChange"), context);
   context.canvasAgentCanvasDidChange();
@@ -1549,7 +1626,7 @@ test("live widgets use native canvas chrome, state-aware iframe gestures, and th
   assert.equal(corner.contentH, start.contentH);
   assert.equal(declaration.width, "1200px");
   assert.equal(declaration.height, "800px");
-  assert.equal(declaration.transform, "translate3d(30px,60px,0) scale(0.1,0.1)");
+  assert.equal(declaration.transform, "translate3d(20px,40px,0) scale(0.1,0.1)");
   const resizeBox = {x:100,y:200,w:300,h:200};
   assert.equal(resizeHit(resizeBox, {x:400,y:250}, "mouse"), "width");
   assert.equal(resizeHit(resizeBox, {x:180,y:400}, "mouse"), "height");
@@ -1592,12 +1669,14 @@ test("live widgets use native canvas chrome, state-aware iframe gestures, and th
   assert.doesNotMatch(requestSnapshot, /waitForWidgetContent|readyPromise|contentReady|\bfetch\s*\(/);
   assert.match(requestSnapshot, /if \(!widget\.hostReady\)[\s\S]*?widget\.hostReadyPromise[\s\S]*?sendWidgetInit\(widget\)/);
   assert.match(messageHandler, /penecho-widget-updated[\s\S]*?widget\.contentVersion\+\+/);
-  assert.match(messageHandler, /penecho-widget-updated[\s\S]*?if \(widget\.favorite\)[\s\S]*?widget\.favorite = false[\s\S]*?syncObjectChrome\(\)/);
+  assert.doesNotMatch(messageHandler, /penecho-widget-updated[\s\S]*?widget\.favorite = false/);
   assert.doesNotMatch(messageHandler, /removeLocalFavorite|\/api\/favorites|DELETE/);
   const favoriteState = functionSource(app, "setCommunityWidgetFavorite");
-  assert.match(favoriteState, /busy === true && !widget\.favoriteBusy[\s\S]*?favoritePendingVersion = widget\.contentVersion/);
-  assert.match(favoriteState, /changedWhileSaving[\s\S]*?favoritePendingVersion !== widget\.contentVersion[\s\S]*?if \(!changedWhileSaving\) widget\.favorite = favorite/);
-  assert.match(functionSource(app, "widgetRecord"), /favoriteBusy: false[\s\S]*?favoritePendingVersion: null/);
+  assert.match(favoriteState, /widget\.favorite = favorite[\s\S]*?!favorite[\s\S]*?favoriteArtifactSha256 = ""[\s\S]*?widget\.favoriteBusy = busy === true[\s\S]*?syncObjectChrome\(\)/);
+  assert.doesNotMatch(favoriteState, /contentVersion|favoritePendingVersion|changedWhileSaving/);
+  assert.match(functionSource(app, "widgetRecord"), /favoriteSourceId:[\s\S]*?favoriteArtifactSha256:[\s\S]*?favoriteBusy: false/);
+  assert.match(functionSource(app, "serializedWidgets"), /favoriteSourceId:[\s\S]*?favoriteArtifactSha256/);
+  assert.match(functionSource(app, "communityWidgetArtifact"), /delete publicWidget\.favorite[\s\S]*?delete publicWidget\.favoriteSourceId[\s\S]*?delete publicWidget\.favoriteArtifactSha256/);
   assert.match(messageHandler, /penecho-widget-snapshot-error[\s\S]*?console\.warn\("PenEcho widget snapshot failed:"/);
   assert.doesNotMatch(messageHandler, /requestWidgetSnapshot/);
   assert.equal((app.match(/requestWidgetSnapshot\(/g) || []).length, 4);
@@ -2254,7 +2333,7 @@ test("selected Widget chrome uses one top toolbar and follows Studio glass token
   assert.deepEqual(selectedClasses,[["is-selected",true]]);
   assert.doesNotMatch(functionSource(app, "objectChromePosition"), /querySelectorAll|positions\.find|fallbackPosition/);
   assert.match(functionSource(app, "drawWidgetChrome"), /state\.paint\.accent \|\| "#4f46e5"/);
-  assert.match(css, /\.widget-layer \{[^}]*overflow: clip;/);
+  assert.match(css, /\.widget-layer \{[^}]*overflow: visible;[^}]*--canvas-widget-pan-x/);
   assert.match(css, /\.selected-widget-material \{[^}]*outline: 0;[^}]*background: color-mix\(in srgb, var\(--panel-raised, #ffffff\) 14%, transparent\);[^}]*backdrop-filter: saturate\(1\.08\) blur\(8px\)[^}]*clip-path: polygon[^}]*drop-shadow\(0 4px 8px color-mix\(in srgb, var\(--studio-chrome-shadow-color/);
   assert.match(css, /\.object-toolbar-shell\) \{[^}]*border: 1px solid var\(--line\);[^}]*border-bottom: 0;/);
   assert.match(css, /body\[data-theme="studio"\] :is\(#pe-button-contract, \.object-toolbar-shell\) \{[^}]*border-color: var\(--studio-line\);/);
@@ -2912,14 +2991,14 @@ test("Settings is a centered frosted workbench with persistent navigation and sw
   assert.doesNotMatch(html, /settingsSystemHeading|data-i18n="settingsSystemSection"|data-i18n="settingsSystemDescription"/);
 });
 
-test("Canvas grid keeps the original 500-unit lines at half-pixel weight in the viewport and PNG export", () => {
+test("Canvas grid keeps the original 500-unit lines at main-compatible one-pixel weight in the viewport and PNG export", () => {
   const canvas = read("src/client/app/canvas-runtime.js"), persistence = read("src/client/app/persistence.js"), css = read("public/style.css"),
-    draw = functionSource(canvas, "drawCanvasLineGrid"), render = functionSource(canvas, "render"), exportCanvas = functionSource(persistence, "renderExportCanvas");
+    draw = functionSource(canvas, "drawCanvasLineGrid"), renderBackground = functionSource(canvas, "renderCanvasBackground"), exportCanvas = functionSource(persistence, "renderExportCanvas");
   assert.match(draw, /step = 500/);
-  assert.match(draw, /context\.lineWidth = 0\.5 \/ scale/);
+  assert.match(draw, /context\.lineWidth = 1 \/ scale/);
   assert.match(draw, /context\.lineTo\(/);
   assert.doesNotMatch(draw, /context\.arc\(/);
-  assert.match(render, /drawCanvasLineGrid\(ctx,[\s\S]*?state\.scale\)/);
+  assert.match(renderBackground, /drawCanvasLineGrid\(ctx,[\s\S]*?state\.scale\)/);
   assert.match(exportCanvas, /drawCanvasLineGrid\(context, region, scale\)/);
   assert.match(css, /--paper-grid:\s*color-mix\(in srgb, var\(--studio-text\) 7%, transparent\)/);
 });
@@ -2939,7 +3018,7 @@ test("Studio uses glass workbench overlays, contextual pen properties, and a rig
   assert.match(functionSource(agent, "canvasAgentBeginPanelDrag"), /canvasAgentDockedPanel\(\)/);
   assert.match(functionSource(agent, "canvasAgentKeyboardPanelResize"), /canvasAgentFrame\.clientWidth\/CANVAS_AGENT_SIZE_STEPS/);
   assert.match(functionSource(agent, "canvasAgentMaximumPanelWidth"), /Math\.min\(640,canvasAgentFrame\.clientWidth-16-navigatorReserve\)/);
-  assert.match(css, /body\[data-theme="studio"\] \.top-row\s*\{[^}]*min-height:\s*52px[^}]*border-bottom:/);
+  assert.match(css, /body\[data-theme="studio"\] \.top-row\s*\{[^}]*min-height:\s*42px[^}]*border-bottom:/);
   assert.match(css, /--studio-chrome-shadow-color:\s*rgba\(30, 35, 48, \.07\)/);
   assert.match(css, /body\[data-theme="studio"\] \.toolbar\s*\{[^}]*position:\s*absolute[^}]*top:\s*100%[^}]*min-height:\s*var\(--studio-toolbar-height\)[^}]*background:\s*var\(--studio-glass\)[^}]*box-shadow:\s*none[^}]*backdrop-filter:\s*saturate\(1\.2\) blur\(18px\)/);
   assert.match(css, /body\[data-theme="studio"\] \.canvas-frame::after\s*\{[^}]*z-index:\s*40[^}]*top:\s*var\(--studio-toolbar-height\)[^}]*height:\s*8px[^}]*background:\s*linear-gradient\(to bottom, var\(--studio-chrome-shadow-color\), transparent\)[^}]*box-shadow:\s*none/);

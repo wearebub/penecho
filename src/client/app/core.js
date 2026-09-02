@@ -899,7 +899,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       draftFading: "Continued writing detected; fading the AI draft",
       canvasChanged: "Canvas changed; the old AI draft was discarded",
       draftReady: "Drag the AI draft to move it; use its handles to resize",
-      batchDraftReady: "Drag an item to move it; drag the group frame or blank space to move all; use the group corner to resize",
+      batchDraftReady: "Accept or discard all",
       itemAccepted: "AI item accepted; remaining drafts are still editable",
       itemDiscarded: "AI item discarded; remaining drafts are still editable",
       copyText: "Copy content",

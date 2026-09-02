@@ -178,8 +178,8 @@ test("PenEcho Agent live and persisted messages share one explicit display limit
   assert.equal(bounded.length,20000);
   assert.equal(bounded.endsWith("…"),true);
   assert.equal(emojiBoundary,`${"x".repeat(19998)}…`,"the display limit never leaves an unmatched emoji surrogate");
-  assert.match(source,/text:canvasAgentMessageText\(item\.text\)[\s\S]*?final:item\.final!==false/);
-  assert.match(source,/target\.messageText = canvasAgentMessageText\(target\.messageText \+ \(event\.text \|\| ""\)\)/);
+  assert.match(source,/text:item\.role==="assistant"\?canvasAgentVisibleAssistantText\(item\.text\):canvasAgentMessageText\(item\.text\)[\s\S]*?final:item\.final!==false/);
+  assert.match(source,/target\.messageText = canvasAgentVisibleAssistantText\(target\.messageText \+ \(event\.text \|\| ""\)\)/);
 });
 
 function assistantEventHarness(initialTargets=[]) {
@@ -195,7 +195,7 @@ function assistantEventHarness(initialTargets=[]) {
     canvasAgent.currentConversation.items.push(item);created.push(target);return target;
   },names=["canvasAgentAssistantPosition","canvasAgentPendingAssistantRow","canvasAgentCreateAssistantRow","canvasAgentHandleEvent"],
     handleEvent=vm.runInNewContext(`(()=>{${names.map(functionSource).join("\n")}return canvasAgentHandleEvent;})()`,{
-      canvasAgent,canvasAgentRow,canvasClientId:()=>`event-${++id}`,canvasAgentMessageText:value=>String(value||""),
+      canvasAgent,canvasAgentRow,canvasClientId:()=>`event-${++id}`,canvasAgentMessageText:value=>String(value||""),canvasAgentVisibleAssistantText:value=>String(value||""),
       canvasAgentRenderMessageBody:(body,text,role,options)=>rendered.push({body,text,role,options}),canvasAgentScheduleHistoryPersist:()=>{},canvasAgentScrollToLatest:()=>{},
     });
   return {canvasAgent,created,rendered,handleEvent};
@@ -204,7 +204,7 @@ function assistantEventHarness(initialTargets=[]) {
 test("PenEcho Agent final assistant_message is authoritative over its streamed deltas",()=>{
   const handle=functionSource("canvasAgentHandleEvent");
   assert.match(handle,/assistant_delta[\s\S]*?\{final:false\}/);
-  assert.match(handle,/assistant_message[\s\S]*?if\(typeof event\.text==="string"\)target\.messageText=canvasAgentMessageText\(event\.text\)[\s\S]*?\{final:true\}[\s\S]*?historyItem\.text=target\.messageText/);
+  assert.match(handle,/assistant_message[\s\S]*?if\(typeof event\.text==="string"\)target\.messageText=canvasAgentVisibleAssistantText\(event\.text\)[\s\S]*?\{final:true\}[\s\S]*?historyItem\.text=target\.messageText/);
   assert.match(handle,/historyItem\.final=false[\s\S]*?historyItem\.final=true/);
   assert.doesNotMatch(handle,/event\.text && !target\.messageText/);
   assert.match(source,/canvasAgentAppendMessageElement\(item[\s\S]*?final:item\.role!=="assistant"\|\|item\.final!==false/);

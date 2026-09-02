@@ -1216,6 +1216,7 @@ function localFavoriteRecord(entry) {
     artifact: entry.artifact,
     thumbnail: String(entry.thumbnail || ""),
     sourceItemId: entry.sourceItemId || null,
+    sourceWidgetId: /^[0-9a-f-]{36}$/i.test(String(entry.sourceWidgetId || "")) ? String(entry.sourceWidgetId).toLowerCase() : null,
     cloudId: entry.cloudId || null,
     createdAt: Number(entry.createdAt) || Date.now(),
   };
@@ -3477,20 +3478,30 @@ const server = http.createServer(async (req, res) => {
       const body = await readJson(req, MAX_SHARED_CANVAS_BYTES);
       if (!body || typeof body !== "object" || !body.artifact || typeof body.artifact !== "object"
         || typeof body.name !== "string" || !body.name.trim()) return send(res, 400, { error:"A name and widget artifact are required." });
+      if (body.sourceWidgetId != null && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(body.sourceWidgetId))) {
+        return send(res, 400, { error:"A valid source Widget id is required." });
+      }
       const artifactText = JSON.stringify(body.artifact);
-      const sha256 = crypto.createHash("sha256").update(artifactText).digest("hex");
+      const sha256 = crypto.createHash("sha256").update(artifactText).digest("hex"),
+        sourceWidgetId = body.sourceWidgetId ? String(body.sourceWidgetId).toLowerCase() : null;
       const result = await mutateLocalFavorites((list) => {
-        const existing = list.find((entry) => entry.artifactSha256 === sha256), record = localFavoriteRecord({
-          id: existing?.id || crypto.randomUUID(),
-          name: body.name.trim(),
-          artifactSha256: sha256,
-          artifact: body.artifact,
-          thumbnail: typeof body.thumbnail === "string" ? body.thumbnail : "",
-          sourceItemId: typeof body.sourceItemId === "string" ? body.sourceItemId : existing?.sourceItemId || null,
-          cloudId: typeof body.cloudId === "string" ? body.cloudId : existing?.cloudId || null,
-          createdAt: existing?.createdAt || Date.now(),
-        });
-        return { favorites:existing ? list.map((entry) => entry.artifactSha256 === sha256 ? record : entry) : [...list, record], value:{ record, created:!existing } };
+        const matches = list.filter((entry) => (sourceWidgetId && entry.sourceWidgetId === sourceWidgetId) || entry.artifactSha256 === sha256),
+          existing = matches.find((entry) => sourceWidgetId && entry.sourceWidgetId === sourceWidgetId) || matches[0] || null,
+          record = localFavoriteRecord({
+            id: existing?.id || crypto.randomUUID(),
+            name: body.name.trim(),
+            artifactSha256: sha256,
+            artifact: body.artifact,
+            thumbnail: typeof body.thumbnail === "string" ? body.thumbnail : "",
+            sourceItemId: typeof body.sourceItemId === "string" ? body.sourceItemId : existing?.sourceItemId || null,
+            sourceWidgetId: sourceWidgetId || existing?.sourceWidgetId || null,
+            cloudId: typeof body.cloudId === "string" ? body.cloudId : existing?.cloudId || null,
+            createdAt: existing?.createdAt || Date.now(),
+          });
+        return {
+          favorites:existing ? list.flatMap((entry) => entry === existing ? [record] : matches.includes(entry) ? [] : [entry]) : [...list, record],
+          value:{ record, created:!existing },
+        };
       });
       return send(res, result.created ? 201 : 200, { favorite:result.record });
     }

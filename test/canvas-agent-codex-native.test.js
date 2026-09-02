@@ -218,9 +218,10 @@ test("Codex Native extracts an optional Canvas title from the same completed res
     });
     return {turn:{id:turnId}};
   };
-  const result=await harness.host.submit(session,"请优化这张画布",false,[],{},null,[],true),turnRequest=process.requests.find(request=>request.method==="turn/start"),
+  const result=await harness.host.submit(session,"请优化这张画布",false,[],{},null,[],true,"max"),turnRequest=process.requests.find(request=>request.method==="turn/start"),
     events=harness.messages.filter(message=>message.type==="session_event").map(message=>message.payload);
   assert.equal(result.output,"正常回答");
+  assert.equal(turnRequest.params.effort,"max");
   assert.ok(Object.values(turnRequest.params.additionalContext||{}).some(context=>String(context?.value||"").includes("<penecho_canvas_title>title</penecho_canvas_title>")));
   assert.equal(events.some(event=>String(event.text||"").includes("penecho_canvas_title")),false);
   assert.equal(events.find(event=>event.kind==="assistant_message")?.text,"正常回答");
@@ -241,6 +242,7 @@ test("Codex Native extracts an optional Canvas title from the same completed res
   const laterResult=await harness.host.submit(session,"继续优化",false,[],{},null,[],false),laterTurnRequest=process.requests.filter(request=>request.method==="turn/start").at(-1),
     laterEvents=harness.messages.slice(laterMessageStart).filter(message=>message.type==="session_event").map(message=>message.payload);
   assert.equal(laterResult.output,"后续回答");
+  assert.equal(laterTurnRequest.params.effort,"medium");
   assert.equal(Object.values(laterTurnRequest.params.additionalContext||{}).some(context=>String(context?.value||"").includes("<penecho_canvas_title>title</penecho_canvas_title>")),false);
   assert.equal(laterEvents.some(event=>String(event.text||"").includes("penecho_canvas_title")),false);
   assert.equal(laterEvents.find(event=>event.kind==="assistant_message")?.text,"后续回答");

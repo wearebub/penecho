@@ -18,6 +18,7 @@ const DEFAULT_CLI_TIMEOUT_MS = DEFAULT_CANVAS_AGENT_IDLE_TIMEOUT_MS
 const MAX_CLI_PROMPT_CHARS = 500_000
 const MAX_CLI_DECISION_REPAIR_CHARS = 120_000
 const CLI_RETRY_POLICY = resolveRetryPolicy({ mode:'normal', maxRetries:0 }, 'penecho-cli-llm.retryPolicy')
+const CLI_REASONING_LEVELS = Object.freeze(['off', 'low', 'medium', 'high', 'xhigh', 'max'])
 
 const CLI_PROTOCOL_SYSTEM = `You are PenEcho Canvas's model backend. Harness owns the conversation and tools. Never invoke CLI built-ins (ReadMediaFile, Read, Bash, MCP, Agent, etc.); use supplied images directly.
 Return exactly one standard JSON object, without prose or fences:
@@ -44,6 +45,17 @@ function connectionSnapshot(connection) {
     cliModel:String(connection.cliModel || ''),
     effort:String(connection.effort || 'config'),
   })
+}
+
+function cliReasoningEffort(value) {
+  const effort=String(value||'').trim().toLowerCase(),level=effort==='none'?'off':effort
+  return CLI_REASONING_LEVELS.includes(level)?level:null
+}
+
+function requestConnection(connection, reasoningEffort) {
+  const level=cliReasoningEffort(reasoningEffort)
+  if(!level)return connection
+  return Object.freeze({ ...connection, effort:level==='off'?'none':level })
 }
 
 export function cliConnectionProfile(connection) {
@@ -300,6 +312,7 @@ export class PenEchoCliAdapter extends LlmAdapter {
   }
 
   modelInfo(provider, model) {
+    const defaultEffort=cliReasoningEffort(this.route(provider).connection.effort)
     return {
       provider,
       id:model,
@@ -307,6 +320,10 @@ export class PenEchoCliAdapter extends LlmAdapter {
       inputModalities:['text', 'image'],
       context:{ contextWindow:CLI_CONTEXT_WINDOW },
       defaultMaxTokens:CLI_MAX_TOKENS,
+      reasoning:{
+        efforts:CLI_REASONING_LEVELS.map(id=>({id,name:id})),
+        ...(defaultEffort?{defaultEffort}:{}),
+      },
     }
   }
 
@@ -330,6 +347,7 @@ export class PenEchoCliAdapter extends LlmAdapter {
 
   async decision(options, connection) {
     options.signal?.throwIfAborted()
+    const activeConnection=requestConnection(connection,options.reasoningEffort)
     const controller = new AbortController(),
       timeout = createCanvasAgentModelTimeout(controller, this.timeoutMs(connection.id), {
         reasonFor:(_kind, limitMs)=>Object.assign(new Error(`PenEcho Agent CLI request timed out after ${canvasAgentTimeoutSeconds(limitMs)} seconds without output activity. The conversation is preserved; send another message to continue.`), { name:'TimeoutError' }),
@@ -341,7 +359,7 @@ export class PenEchoCliAdapter extends LlmAdapter {
       const toolNames = (options.tools || []).map(tool => tool.name)
       let activeRequest = request
       for (let attempt = 0;; attempt += 1) {
-        const output = await this.callCli({ connection, ...activeRequest, signal, purpose:options.purpose || 'conversation', onActivity:timeout.activity, onUsage:value=>{usage=normalizeCliTokenUsage(value)} })
+        const output = await this.callCli({ connection:activeConnection, ...activeRequest, signal, purpose:options.purpose || 'conversation', onActivity:timeout.activity, onUsage:value=>{usage=normalizeCliTokenUsage(value)} })
         signal.throwIfAborted()
         try { return { ...parseCliDecision(output, toolNames), ...(usage?{usage}:{}) } }
         catch (error) {

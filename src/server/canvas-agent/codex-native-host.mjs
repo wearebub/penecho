@@ -39,6 +39,7 @@ import {
   releaseProjectRoot,
   removeProjectRuntimeDirectory,
   requestTraceConnection,
+  resolveCanvasAgentRequestEffort,
 } from './runtime.mjs'
 
 const require = createRequire(import.meta.url)
@@ -1118,15 +1119,16 @@ export class CodexNativeHost {
     ]))
   }
 
-  async submit(session, text, steer = false, images = [], references = {}, initialState = null, fileIds = [], canvasTitleNeeded = false) {
+  async submit(session, text, steer = false, images = [], references = {}, initialState = null, fileIds = [], canvasTitleNeeded = false, reasoningEffort = 'config') {
     if (!this.sessions.has(session?.id) || session.disposed) throw new Error('Codex Native PenEcho Agent session is closed.')
     if (session.interruptPromise) await session.interruptPromise
     if (!this.sessions.has(session?.id) || session.disposed) throw new Error('Codex Native PenEcho Agent session is closed.')
     const prompt = boundedText(text, 40_000).trim()
     if (!prompt) throw new Error('Enter a message for PenEcho Agent.')
+    const requestEffort=resolveCanvasAgentRequestEffort(session.connection,reasoningEffort)
     const normalizedFileIds=normalizeCanvasAgentTurnFileIds(fileIds,Array.isArray(images)?images.length:0)
     if (steer) return this.runSteer(session, prompt, images, references, initialState, normalizedFileIds, canvasTitleNeeded)
-    const operation = session.turnQueue.then(() => this.runSubmit(session, text, steer, images, references, initialState, normalizedFileIds, canvasTitleNeeded))
+    const operation = session.turnQueue.then(() => this.runSubmit(session, text, steer, images, references, initialState, normalizedFileIds, canvasTitleNeeded, requestEffort))
     session.turnQueue = operation.catch(() => {})
     return operation
   }
@@ -1187,7 +1189,7 @@ export class CodexNativeHost {
     }
   }
 
-  async runSubmit(session, text, steer = false, images = [], references = {}, initialState = null, fileIds = [], canvasTitleNeeded = false) {
+  async runSubmit(session, text, steer = false, images = [], references = {}, initialState = null, fileIds = [], canvasTitleNeeded = false, requestEffort = resolveCanvasAgentRequestEffort(session?.connection)) {
     if (!this.sessions.has(session?.id) || session.disposed) throw new Error('Codex Native PenEcho Agent session is closed.')
     const prompt = boundedText(text, 40_000).trim()
     if (!prompt) throw new Error('Enter a message for PenEcho Agent.')
@@ -1198,7 +1200,7 @@ export class CodexNativeHost {
       active = {
         turnId:null, text:'', usage:null, settled:false, callIds:new Set(), compactionEmitted:false, inputController, resolve, reject,
         rawDecisionCalls:[], rawDecisionBatches:new Map(), sealedDecisionBatches:[], rawBoundaryCount:0, pendingToolAdmissions:new Map(), responseTextStart:0,
-        completedResponseMessages:[],titleRequested:canvasTitleNeeded===true,canvasTitleCandidate:'',
+        completedResponseMessages:[],titleRequested:canvasTitleNeeded===true,canvasTitleCandidate:'',effort:requestEffort.effective,
         emitEnd:(reason, error = null) => {
           if (active.settled) return
           active.settled = true
@@ -1226,6 +1228,10 @@ export class CodexNativeHost {
     })
     turnPromise.catch(() => {})
     session.active = active
+    session.requestTraceConnection={
+      ...requestTraceConnection(requestEffort.selected==='config'?session.connection:{...session.connection,effort:requestEffort.effective},session.model),
+      executable:'codex',
+    }
     session.canvasTitleRequested=active.titleRequested
     session.turnNumber += 1
     this.emitPublicEvent(session, { kind:'user_message', turn:session.turnNumber, text:redactPublicProjectValue(prompt, session) })
@@ -1288,7 +1294,7 @@ export class CodexNativeHost {
         threadId:session.threadId,
         input,
         ...(session.model ? { model:session.model } : {}),
-        ...(session.effort ? { effort:session.effort } : {}),
+        ...(active.effort ? { effort:active.effort } : {}),
         additionalContext:this.additionalContextFor(session),
       })
       assertActive()

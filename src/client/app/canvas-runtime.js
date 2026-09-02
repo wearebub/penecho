@@ -1123,6 +1123,15 @@
       || region && !intersection(widgetBox(pending), region) || widgets.includes(pending)) return widgets;
     return [...widgets, pending];
   }
+  const PRIVATE_WIDGET_FAVORITE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  function newPrivateWidgetFavoriteId() {
+    const nativeId = globalThis.crypto?.randomUUID?.();
+    if (PRIVATE_WIDGET_FAVORITE_ID.test(String(nativeId || ""))) return nativeId;
+    return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (character) => {
+      const random = Math.floor(Math.random() * 16), value = character === "x" ? random : (random & 3) | 8;
+      return value.toString(16);
+    });
+  }
   function serializedWidgets() {
     return state.widgets.map((widget) => ({
       id: widget.id,
@@ -1136,7 +1145,9 @@
       contentH: widget.contentH,
       title: widget.title,
       refreshSeconds: widget.refreshSeconds,
+      favoriteSourceId: widget.favoriteSourceId,
       ...(widget.favorite ? { favorite:true } : {}),
+      ...(widget.favoriteArtifactSha256 ? { favoriteArtifactSha256:widget.favoriteArtifactSha256 } : {}),
       ...(widget.widgetType === "diagram_source" ? { source:widget.source } : { html:widget.html }),
       ...(widget.diagramKind ? { diagramKind:widget.diagramKind } : {}),
       ...(widget.sourceFormat ? { sourceFormat:widget.sourceFormat } : {}),
@@ -1218,9 +1229,10 @@
       communityRootItemId,
       communityOriginName,
       communityOriginGeneration,
+      favoriteSourceId: PRIVATE_WIDGET_FAVORITE_ID.test(String(item.favoriteSourceId || "")) ? item.favoriteSourceId : newPrivateWidgetFavoriteId(),
       favorite: item.favorite === true,
+      favoriteArtifactSha256: /^[0-9a-f]{64}$/i.test(String(item.favoriteArtifactSha256 || "")) ? item.favoriteArtifactSha256.toLowerCase() : "",
       favoriteBusy: false,
-      favoritePendingVersion: null,
       downloadBusy: false,
     };
   }
@@ -1261,20 +1273,19 @@
     canvas.width = canvas.height = 1;
     const publicWidget = { ...serialized };
     delete publicWidget.favorite;
+    delete publicWidget.favoriteSourceId;
+    delete publicWidget.favoriteArtifactSha256;
     return { format:"penecho-widget", formatVersion:1, widget:publicWidget, ...communityImages };
   }
-  function setCommunityWidgetFavorite(widgetId, favorite, busy = false) {
+  function setCommunityWidgetFavorite(widgetId, favorite, busy = false, artifactSha256 = undefined) {
     const widget = state.widgets.find((item) => item.id === widgetId);
     if (!widget) return false;
-    if (busy === true && !widget.favoriteBusy) widget.favoritePendingVersion = widget.contentVersion;
     if (typeof favorite === "boolean") {
-      const changedWhileSaving = favorite === true
-        && Number.isInteger(widget.favoritePendingVersion)
-        && widget.favoritePendingVersion !== widget.contentVersion;
-      if (!changedWhileSaving) widget.favorite = favorite;
+      widget.favorite = favorite;
+      if (!favorite) widget.favoriteArtifactSha256 = "";
+      else if (/^[0-9a-f]{64}$/i.test(String(artifactSha256 || ""))) widget.favoriteArtifactSha256 = String(artifactSha256).toLowerCase();
     }
     widget.favoriteBusy = busy === true;
-    if (!widget.favoriteBusy) widget.favoritePendingVersion = null;
     syncObjectChrome();
     return widget.favorite;
   }
@@ -1418,6 +1429,7 @@
     widget.hostStateKey = null;
     addWidgetStyleRule(widget);
     syncWidgetLayerOrder();
+    syncCanvasWidgetCarrier();
     positionWidget(widget);
   }
   function unmountWidget(widget) {
@@ -1443,6 +1455,7 @@
   function addWidgetStyleRule(widget) {
     const sheet = textEditorStyleSheet(), className = `canvas-widget-instance-${widget.id.replace(/[^a-z0-9-]/g, "")}`;
     if (!sheet) return;
+    widget.styleTransformKey = null;
     try {
       sheet.insertRule(`.${className} { width: ${widget.contentW}px; height: ${widget.contentH}px; }`, sheet.cssRules.length);
       widget.styleRule = [...sheet.cssRules].find((rule) => rule.selectorText === `.${className}`) || null;
@@ -1474,10 +1487,23 @@
     if (active) sendWidgetInit(widget);
     return active;
   }
+  let canvasWidgetCarrierPanX = Number.NaN;
+  let canvasWidgetCarrierPanY = Number.NaN;
+  function syncCanvasWidgetCarrier() {
+    if (canvasWidgetCarrierPanX === state.panX && canvasWidgetCarrierPanY === state.panY) return;
+    const style = runtimeElementStyle(view, "canvas-widget-carrier");
+    if (!style) return;
+    style.setProperty("--canvas-widget-pan-x", `${state.panX}px`);
+    style.setProperty("--canvas-widget-pan-y", `${state.panY}px`);
+    canvasWidgetCarrierPanX = state.panX;
+    canvasWidgetCarrierPanY = state.panY;
+  }
   function positionWidget(widget) {
     if (!widget.shell) return;
-    const screenX = state.panX + widget.x * state.scale,
-      screenY = state.panY + widget.y * state.scale,
+    const localX = widget.x * state.scale,
+      localY = widget.y * state.scale,
+      screenX = state.panX + localX,
+      screenY = state.panY + localY,
       scaleX = state.scale * widget.w / widget.contentW,
       scaleY = state.scale * widget.h / widget.contentH,
       declaration = widget.styleRule?.style;
@@ -1488,16 +1514,21 @@
       declaration.width = `${widget.contentW}px`;
       declaration.height = `${widget.contentH}px`;
     }
-    declaration.transform = `translate3d(${screenX}px,${screenY}px,0) scale(${scaleX},${scaleY})`;
-    declaration.setProperty?.("--widget-resize-edge-x", `${14 / scaleX}px`);
-    declaration.setProperty?.("--widget-resize-edge-y", `${14 / scaleY}px`);
-    declaration.setProperty?.("--widget-resize-corner-x", `${18 / scaleX}px`);
-    declaration.setProperty?.("--widget-resize-corner-y", `${18 / scaleY}px`);
+    const transformKey = `${localX}:${localY}:${scaleX}:${scaleY}`;
+    if (widget.styleTransformKey !== transformKey) {
+      widget.styleTransformKey = transformKey;
+      declaration.transform = `translate3d(${localX}px,${localY}px,0) scale(${scaleX},${scaleY})`;
+      declaration.setProperty?.("--widget-resize-edge-x", `${14 / scaleX}px`);
+      declaration.setProperty?.("--widget-resize-edge-y", `${14 / scaleY}px`);
+      declaration.setProperty?.("--widget-resize-corner-x", `${18 / scaleX}px`);
+      declaration.setProperty?.("--widget-resize-corner-y", `${18 / scaleY}px`);
+    }
     updateWidgetRenderVisibility(widget, screenX, screenY);
     sendWidgetHostState(widget, scaleX, scaleY);
   }
   function positionWidgets() {
     if (!widgetRuntimeEnabled()) return;
+    syncCanvasWidgetCarrier();
     for (const widget of [...state.widgets, ...(state.pendingWidget ? [state.pendingWidget] : [])]) positionWidget(widget);
   }
   function probeWidgetHost(widget) {
@@ -1678,10 +1709,6 @@
     if (message.type === "penecho-widget-updated") {
       widget.contentVersion++;
       widget.snapshotDataUrl = "";
-      if (widget.favorite) {
-        widget.favorite = false;
-        syncObjectChrome();
-      }
       return;
     }
     if (!["penecho-widget-snapshot", "penecho-widget-snapshot-error"].includes(message.type)) return;
@@ -2683,6 +2710,62 @@
       render();
     });
   }
+  const CANVAS_NAVIGATION_SETTLE_MS = 80;
+  const CANVAS_NAVIGATION_REBASE_VIEWPORT_RATIO = 0.35;
+  const CANVAS_NAVIGATION_REBASE_MIN_PX = 192;
+  let canvasNavigationPreviewFrame = 0;
+  let canvasNavigationPreviewSettleTimer = 0;
+  let canvasNavigationPreviewPanX = 0;
+  let canvasNavigationPreviewPanY = 0;
+  let canvasNavigationPreviewRebaseX = CANVAS_NAVIGATION_REBASE_MIN_PX;
+  let canvasNavigationPreviewRebaseY = CANVAS_NAVIGATION_REBASE_MIN_PX;
+  function applyCanvasNavigationPreview() {
+    const style = runtimeElementStyle(view, "canvas-navigation-preview"),
+      x = state.panX - canvasNavigationPreviewPanX,
+      y = state.panY - canvasNavigationPreviewPanY;
+    style?.setProperty("--canvas-navigation-preview-x", `${x}px`);
+    style?.setProperty("--canvas-navigation-preview-y", `${y}px`);
+    style?.setProperty("--canvas-navigation-preview-paper", state.paint.paper);
+    syncCanvasWidgetCarrier();
+    view.classList.add("canvas-navigation-previewing");
+  }
+  function resetCanvasNavigationPreview() {
+    if (canvasNavigationPreviewFrame) cancelAnimationFrame(canvasNavigationPreviewFrame);
+    if (canvasNavigationPreviewSettleTimer) clearTimeout(canvasNavigationPreviewSettleTimer);
+    canvasNavigationPreviewFrame = 0;
+    canvasNavigationPreviewSettleTimer = 0;
+    canvasNavigationPreviewPanX = state.panX;
+    canvasNavigationPreviewPanY = state.panY;
+    view.classList.remove("canvas-navigation-previewing");
+  }
+  function finishCanvasNavigationPreview() {
+    if (canvasNavigationPreviewSettleTimer) clearTimeout(canvasNavigationPreviewSettleTimer);
+    canvasNavigationPreviewSettleTimer = 0;
+    if (!view.classList.contains("canvas-navigation-previewing")) return false;
+    if (!state.renderQueued) render();
+    return true;
+  }
+  function canvasNavigationPreviewStep() {
+    canvasNavigationPreviewFrame = 0;
+    if (!view.classList.contains("canvas-navigation-previewing")) return;
+    updateCoordinates();
+    requestAnimationLayerRender();
+    if (state.renderQueued) return;
+    if (Math.abs(state.panX - canvasNavigationPreviewPanX) >= canvasNavigationPreviewRebaseX
+      || Math.abs(state.panY - canvasNavigationPreviewPanY) >= canvasNavigationPreviewRebaseY) render();
+  }
+  function requestCanvasNavigationPreview(previousPanX, previousPanY) {
+    if (!view.classList.contains("canvas-navigation-previewing")) {
+      canvasNavigationPreviewPanX = previousPanX;
+      canvasNavigationPreviewPanY = previousPanY;
+      canvasNavigationPreviewRebaseX = Math.max(CANVAS_NAVIGATION_REBASE_MIN_PX, (view.clientWidth || 0) * CANVAS_NAVIGATION_REBASE_VIEWPORT_RATIO);
+      canvasNavigationPreviewRebaseY = Math.max(CANVAS_NAVIGATION_REBASE_MIN_PX, (view.clientHeight || 0) * CANVAS_NAVIGATION_REBASE_VIEWPORT_RATIO);
+    }
+    applyCanvasNavigationPreview();
+    if (canvasNavigationPreviewSettleTimer) clearTimeout(canvasNavigationPreviewSettleTimer);
+    canvasNavigationPreviewSettleTimer = setTimeout(finishCanvasNavigationPreview, CANVAS_NAVIGATION_SETTLE_MS);
+    if (!state.renderQueued && !canvasNavigationPreviewFrame) canvasNavigationPreviewFrame = requestAnimationFrame(canvasNavigationPreviewStep);
+  }
   function requestInteractionLayerRender() {
     if (state.interactionRenderQueued) return;
     state.interactionRenderQueued = true;
@@ -2929,7 +3012,7 @@
       bottom = region.y + region.h;
     context.save();
     context.strokeStyle = state.paint.paperGrid;
-    context.lineWidth = 0.5 / scale;
+    context.lineWidth = 1 / scale;
     context.beginPath();
     for (let x = Math.floor(region.x / step) * step; x <= right; x += step) {
       context.moveTo(x, region.y);
@@ -2942,10 +3025,18 @@
     context.stroke();
     context.restore();
   }
-  function render() {
+  function canvasRenderRegion() {
+    const metrics = canvasViewportMetrics(),
+      r = { width:metrics.width, height:metrics.height },
+      l = Math.max(0, -state.panX / state.scale),
+      t = Math.max(0, -state.panY / state.scale),
+      rr = Math.min(SIZE, (r.width - state.panX) / state.scale),
+      b = Math.min(SIZE, (r.height - state.panY) / state.scale);
+    return { r, visible:{ x:l, y:t, w:rr - l, h:b - t } };
+  }
+  function renderCanvasBackground() {
     const d = devicePixelRatio || 1,
-      metrics = canvasViewportMetrics(),
-      r = { width:metrics.width, height:metrics.height };
+      { r, visible } = canvasRenderRegion();
     ctx.setTransform(d, 0, 0, d, 0, 0);
     ctx.clearRect(0, 0, r.width, r.height);
     ctx.fillStyle = state.paint.outside;
@@ -2955,26 +3046,66 @@
     ctx.scale(state.scale, state.scale);
     ctx.fillStyle = state.paint.paper;
     ctx.fillRect(0, 0, SIZE, SIZE);
-    const l = Math.max(0, -state.panX / state.scale),
-      t = Math.max(0, -state.panY / state.scale),
-      rr = Math.min(SIZE, (r.width - state.panX) / state.scale),
-      b = Math.min(SIZE, (r.height - state.panY) / state.scale);
     ctx.save();
     ctx.beginPath();
     ctx.rect(0, 0, SIZE, SIZE);
     ctx.clip();
-    if (state.gridVisible) drawCanvasLineGrid(ctx, { x:l, y:t, w:rr - l, h:b - t }, state.scale);
+    if (state.gridVisible) drawCanvasLineGrid(ctx, visible, state.scale);
     ctx.restore();
     ctx.strokeStyle = state.paint.border;
     ctx.lineWidth = 2 / state.scale;
     ctx.strokeRect(0, 0, SIZE, SIZE);
     ctx.restore();
-    renderPlacedContentLayer({ x:l, y:t, w:rr - l, h:b - t });
-    renderInkLayer({ x:l, y:t, w:rr - l, h:b - t });
+  }
+  function renderCanvasContent() {
+    resetCanvasNavigationPreview();
+    const { visible } = canvasRenderRegion();
+    renderPlacedContentLayer(visible);
+    renderInkLayer(visible);
     renderInteractionLayer();
     positionWidgets();
     positionTextEditors();
     updateSelectionToolbar();
+  }
+  const canvasRenderTiming = (() => {
+    let enabled = false;
+    try { enabled = new URLSearchParams(location.search).get("renderTiming") === "1"; } catch {}
+    const records = [];
+    if (enabled) globalThis.__PENECHO_RENDER_TIMINGS__ = records;
+    return { enabled, records, limit:300 };
+  })();
+  function canvasRenderTimedStage(record, name, work) {
+    const startedAt = performance.now();
+    const result = work();
+    record[name] = performance.now() - startedAt;
+    return result;
+  }
+  function renderCanvasContentTimed(record) {
+    canvasRenderTimedStage(record, "resetPreviewMs", resetCanvasNavigationPreview);
+    const { visible } = canvasRenderTimedStage(record, "regionMs", canvasRenderRegion);
+    canvasRenderTimedStage(record, "placedContentMs", () => renderPlacedContentLayer(visible));
+    canvasRenderTimedStage(record, "inkMs", () => renderInkLayer(visible));
+    canvasRenderTimedStage(record, "interactionMs", renderInteractionLayer);
+    canvasRenderTimedStage(record, "widgetsMs", positionWidgets);
+    canvasRenderTimedStage(record, "textEditorsMs", positionTextEditors);
+    canvasRenderTimedStage(record, "selectionToolbarMs", updateSelectionToolbar);
+  }
+  function render() {
+    if (!canvasRenderTiming.enabled) {
+      renderCanvasBackground();
+      renderCanvasContent();
+      return;
+    }
+    const record = {
+      startedAt:performance.now(),
+      navigationPreview:view.classList.contains("canvas-navigation-previewing"),
+      scale:state.scale,
+    };
+    canvasRenderTimedStage(record, "backgroundMs", renderCanvasBackground);
+    canvasRenderTimedStage(record, "contentMs", () => renderCanvasContentTimed(record));
+    record.totalMs = performance.now() - record.startedAt;
+    canvasRenderTiming.records.push(record);
+    if (canvasRenderTiming.records.length > canvasRenderTiming.limit) canvasRenderTiming.records.splice(0, canvasRenderTiming.records.length - canvasRenderTiming.limit);
   }
   function drawSelectedAnimation(context) {
     const selected = pluginEnabled("animation") && animationEditChromeVisible() ? selectedAnimation() : null;
@@ -3627,7 +3758,13 @@
         busy:widget.favoriteBusy === true,
         activate:() => {
           if (widget.favoriteBusy) return;
-          window.dispatchEvent(new CustomEvent("penecho:community-widget-action", { detail:{ action:"favorite", widgetId:widget.id } }));
+          window.dispatchEvent(new CustomEvent("penecho:community-widget-action", { detail:{
+            action:"favorite",
+            widgetId:widget.id,
+            favorite:widget.favorite === true,
+            favoriteArtifactSha256:widget.favoriteArtifactSha256 || null,
+            sourceWidgetId:widget.favoriteSourceId,
+          } }));
         },
       });
       items.push({
@@ -5347,11 +5484,12 @@
       setNavigating(true);
       return false;
     }
-    const delta = canvasClientDelta(dx, dy);
+    const delta = canvasClientDelta(dx, dy),
+      previousPanX = state.panX,
+      previousPanY = state.panY;
     state.panX += delta.x;
     state.panY += delta.y;
-    updateCoordinates();
-    requestRender();
+    requestCanvasNavigationPreview(previousPanX, previousPanY);
     return true;
   }
   function zoomCanvasAt(clientX, clientY, deltaY) {

@@ -266,12 +266,14 @@ test("Viewer fit produces visible transforms for a multi-Widget Canvas", () => {
       return { x, y, w:maxX - x, h:maxY - y };
     },
     widgetBounds = () => widgets.reduce((bounds, widget) => unionLocalBounds(bounds, widget), null),
-    layer = {},
+    layer = {}, carrierProperties = new Map(),
     runtime = vm.runInNewContext(`(() => {
+      let canvasWidgetCarrierPanX = Number.NaN, canvasWidgetCarrierPanY = Number.NaN;
       ${functionSource(canvas, "fit")}
       ${functionSource(canvas, "updateWidgetRenderVisibility")}
+      ${functionSource(canvas, "syncCanvasWidgetCarrier")}
       ${functionSource(canvas, "positionWidget")}
-      return { fit, positionWidget };
+      return { fit, positionWidget, syncCanvasWidgetCarrier };
     })()`, {
       SIZE:20000,
       INITIAL_VIEW_ZOOM:1.5,
@@ -283,6 +285,7 @@ test("Viewer fit produces visible transforms for a multi-Widget Canvas", () => {
       animationLayer:{},
       placedContentLayer:{},
       inkLayer:{},
+      liveInkLayer:{},
       interactionLayer:layer,
       devicePixelRatio:1,
       canvasViewportMetrics:() => ({ rect, width:view.clientWidth, height:view.clientHeight, clientScaleX:1, clientScaleY:1 }),
@@ -294,21 +297,33 @@ test("Viewer fit produces visible transforms for a multi-Widget Canvas", () => {
       widgetBounds,
       unionLocalBounds,
       document:{ querySelector:() => ({ getBoundingClientRect:() => ({ bottom:56 }) }) },
+      scheduleLiveInkLayerWarmup() {},
       updateCoordinates() {},
       requestRender() {},
+      runtimeElementStyle:() => ({ setProperty:(name,value) => carrierProperties.set(name,value) }),
       sendWidgetInit() {},
       sendWidgetHostState() {},
     });
 
   runtime.fit();
+  runtime.syncCanvasWidgetCarrier();
   assert.ok(state.scale > .5 && state.scale < .54);
   for (const widget of widgets) runtime.positionWidget(widget);
   assert.equal(widgets[0].renderActive, true);
   assert.equal(widgets[1].renderActive, true);
   assert.equal(widgets[0].classes.has("widget-offscreen"), false);
   assert.equal(widgets[1].classes.has("widget-offscreen"), false);
-  assert.match(widgets[0].styleRule.style.transform, /^translate3d\(40(?:\.0+)?px,1\d\d(?:\.\d+)?px,0\) scale\(0\.5/);
-  assert.match(widgets[1].styleRule.style.transform, /^translate3d\(7\d\d(?:\.\d+)?px,3\d\d(?:\.\d+)?px,0\) scale\(0\.5/);
+  const carrierX = Number.parseFloat(carrierProperties.get("--canvas-widget-pan-x")),
+    carrierY = Number.parseFloat(carrierProperties.get("--canvas-widget-pan-y")),
+    visibleOrigin = (widget) => {
+      const match = /^translate3d\(([-\d.]+)px,([-\d.]+)px,0\)/.exec(widget.styleRule.style.transform);
+      return { x:carrierX + Number(match?.[1]), y:carrierY + Number(match?.[2]) };
+    };
+  assert.ok(Number.isFinite(carrierX) && Number.isFinite(carrierY));
+  assert.deepEqual(visibleOrigin(widgets[0]), { x:state.panX + widgets[0].x * state.scale, y:state.panY + widgets[0].y * state.scale });
+  assert.deepEqual(visibleOrigin(widgets[1]), { x:state.panX + widgets[1].x * state.scale, y:state.panY + widgets[1].y * state.scale });
+  assert.match(widgets[0].styleRule.style.transform, /^translate3d\(5\d\d(?:\.\d+)?px,1\d\d\d(?:\.\d+)?px,0\) scale\(0\.5/);
+  assert.match(widgets[1].styleRule.style.transform, /^translate3d\(1\d\d\d(?:\.\d+)?px,1\d\d\d(?:\.\d+)?px,0\) scale\(0\.5/);
   assert.equal(widgets[0].styleRule.style.width, "600px");
   assert.equal(widgets[1].styleRule.style.height, "600px");
 

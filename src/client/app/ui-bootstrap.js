@@ -378,6 +378,14 @@
     calibrateScreenClientRatio(e, true);
     state.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (e.pointerType === "touch") state.touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (state.panGesture?.id === e.pointerId && (e.pointerType !== "touch" || state.touches.size < 2)) {
+      if (old) {
+        moveCanvas(e.clientX - old.x, e.clientY - old.y);
+        state.panGesture.last = { x:e.clientX, y:e.clientY };
+        setNavigating(true);
+      }
+      return;
+    }
     updateHandObjectFocus(e);
     if (state.mode === "hand" && e.pointerType !== "touch" && Number(e.buttons) === 0) {
       const point = clientPoint(e);
@@ -429,22 +437,11 @@
         updateTouchGesture();
         return;
       }
-      if (state.panGesture?.id === e.pointerId && old) {
-        moveCanvas(e.clientX - old.x, e.clientY - old.y);
-        state.panGesture.last = { x: e.clientX, y: e.clientY };
-        setNavigating(true);
-      }
-      return;
-    }
-    if (state.panGesture?.id === e.pointerId) {
-      if (old) {
-        moveCanvas(e.clientX - old.x, e.clientY - old.y);
-        setNavigating(true);
-      }
       return;
     }
   });
   function end(e) {
+    finishCanvasNavigationPreview();
     if (state.viewMode) {
       state.pointers.delete(e.pointerId);
       if (e.pointerType === "touch") state.touches.delete(e.pointerId);

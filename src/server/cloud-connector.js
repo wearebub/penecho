@@ -659,7 +659,7 @@ class CloudConnector {
   }
 
   async saveWidgetFavorite(favorite) {
-    const result = await this.cloudRequest("/api/v1/favorites", { method:"POST", body:{ name:favorite.name, artifact:favorite.artifact, thumbnail:favorite.thumbnail || "", sourceItemId:favorite.sourceItemId || null } });
+    const result = await this.cloudRequest("/api/v1/favorites", { method:"POST", body:{ name:favorite.name, artifact:favorite.artifact, thumbnail:favorite.thumbnail || "", sourceItemId:favorite.sourceItemId || null, sourceWidgetId:favorite.sourceWidgetId || null } });
     return result.favorite;
   }
 

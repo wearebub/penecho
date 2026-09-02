@@ -1975,19 +1975,31 @@
   }
 
   /* One-click favorite on a widget: local snapshot always, cloud copy when signed in. */
-  async function toggleWidgetFavorite(widgetId) {
+  async function toggleWidgetFavorite(widgetId, current = null) {
     const bridge = window.PenEchoCommunityCanvas;
     if (!bridge?.widgetArtifact || !bridge.setWidgetFavorite) throw new Error(cloudT("favoriteUnsupported"));
-    const artifact = await bridge.widgetArtifact(widgetId);
-    const serialized = { name:String(artifact.widget?.title || cloudT("untitledWidget")).slice(0, 160), artifact, thumbnail:artifact.communityThumbnail?.dataBase64 || "", sourceItemId:artifact.widget?.communityOriginItemId || null };
-    const localWrite = await saveLocalFavorite({ ...serialized, cloudId:null }, true),
-      saved = localWrite.favorite;
-    if (!localWrite.created) {
-      await removeLocalFavorite(saved.artifactSha256);
-      if (accountSignedIn() && saved.cloudId) { try { await api(`/api/cloud/favorites/${encodeURIComponent(saved.cloudId)}`, { method:"DELETE" }); } catch {} }
-      bridge.setWidgetFavorite(widgetId, false);
+    if (current?.favorite === true) {
+      const sha256 = /^[0-9a-f]{64}$/i.test(String(current.favoriteArtifactSha256 || ""))
+          ? String(current.favoriteArtifactSha256).toLowerCase()
+          : "",
+        sourceWidgetId = String(current.sourceWidgetId || ""),
+        summary = sha256 ? null : (await localFavorites()).find((entry) => entry.sourceWidgetId === sourceWidgetId),
+        saved = sha256 ? await fullLocalFavorite({ artifactSha256:sha256 }) : summary ? await fullLocalFavorite(summary) : null;
+      if (saved?.cloudId && accountSignedIn()) await api(`/api/cloud/favorites/${encodeURIComponent(saved.cloudId)}`, { method:"DELETE" });
+      if (saved?.artifactSha256) await api(`/api/favorites/${encodeURIComponent(saved.artifactSha256)}`, { method:"DELETE" });
+      bridge.setWidgetFavorite(widgetId, false, false, "");
       return false;
     }
+    const artifact = await bridge.widgetArtifact(widgetId);
+    const serialized = {
+      name:String(artifact.widget?.title || cloudT("untitledWidget")).slice(0, 160),
+      artifact,
+      thumbnail:artifact.communityThumbnail?.dataBase64 || "",
+      sourceItemId:artifact.widget?.communityOriginItemId || null,
+      sourceWidgetId:current?.sourceWidgetId || null,
+    };
+    const localWrite = await saveLocalFavorite({ ...serialized, cloudId:null }, true),
+      saved = localWrite.favorite;
     if (accountSignedIn()) {
       let removedDuringUpload = false;
       try {
@@ -2002,11 +2014,11 @@
         if (error?.code === "storage_quota_exceeded") window.alert(cloudT("favoriteLocalOnlyQuota"));
       }
       if (removedDuringUpload) {
-        bridge.setWidgetFavorite(widgetId, false);
+        bridge.setWidgetFavorite(widgetId, false, false, "");
         return false;
       }
     }
-    bridge.setWidgetFavorite(widgetId, true);
+    bridge.setWidgetFavorite(widgetId, true, false, saved.artifactSha256);
     return true;
   }
 
@@ -2021,7 +2033,7 @@
       try {
         const localEntry = await fullLocalFavorite(entry), uploaded = (await api("/api/cloud/favorites", {
           method:"POST",
-          body:JSON.stringify({ name:localEntry.name, artifact:localEntry.artifact, thumbnail:localEntry.thumbnail, sourceItemId:localEntry.sourceItemId }),
+          body:JSON.stringify({ name:localEntry.name, artifact:localEntry.artifact, thumbnail:localEntry.thumbnail, sourceItemId:localEntry.sourceItemId, sourceWidgetId:localEntry.sourceWidgetId }),
         })).favorite;
         try { await linkLocalFavoriteToCloud(entry.artifactSha256, uploaded.id); }
         catch (error) {
@@ -2464,7 +2476,11 @@
     let completed = false;
     try {
       await refreshStatus();
-      await toggleWidgetFavorite(widgetId);
+      await toggleWidgetFavorite(widgetId, {
+        favorite:event.detail?.favorite === true,
+        favoriteArtifactSha256:event.detail?.favoriteArtifactSha256,
+        sourceWidgetId:event.detail?.sourceWidgetId,
+      });
       completed = true;
     } catch (error) {
       window.alert(error?.message || savedT("savedErrorToggle", "Could not update this favorite."));

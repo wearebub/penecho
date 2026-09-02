@@ -370,7 +370,7 @@ window.PENECHO_LOCALES.zh = {
   draftFading: "检测到继续书写，AI 草稿正在淡出",
   canvasChanged: "画布已变化，旧 AI 草稿已丢弃",
   draftReady: "拖动 AI 草稿内容可移动，拖动边角可缩放",
-  batchDraftReady: "拖动单项内容可单独移动；拖动组合外框或空白可整体移动，右下角可整体缩放",
+  batchDraftReady: "全部确认或全部丢弃",
   itemAccepted: "已确认这一项，其余草稿仍可调整",
   itemDiscarded: "已删除这一项，其余草稿仍可调整",
   copyText: "复制内容",

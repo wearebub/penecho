@@ -289,6 +289,7 @@
     viewSignature:"",
     latestChange:null,
     initialCanvasAutoHidePending:false,
+    initialCanvasAutoHideFrame:0,
   };
   sessionStorage.setItem(CANVAS_AGENT_CLIENT_KEY,canvasAgent.clientId);
   try {
@@ -1157,9 +1158,12 @@
   }
   function canvasAgentVisibleAssistantText(value) {
     const text=String(value||""),open="<penecho_canvas_title>",close="</penecho_canvas_title>";
-    if(!text.startsWith(open))return canvasAgentMessageText(text);
-    const end=text.indexOf(close,open.length);
-    return canvasAgentMessageText(end<0?text:text.slice(end+close.length).replace(/^\r?\n/,""));
+    const start=text.indexOf(open);
+    if(start<0)return canvasAgentMessageText(text);
+    const end=text.indexOf(close,start+open.length);
+    if(end<0)return canvasAgentMessageText(text);
+    const before=text.slice(0,start),after=text.slice(end+close.length),left=before.match(/(?:\r?\n[ \t]*)+$/)?.[0]||"",right=after.match(/^(?:[ \t]*\r?\n)+/)?.[0]||"",lineBreak=left.includes("\r\n")||right.includes("\r\n")?"\r\n":"\n",breaks=Math.min(2,Math.max((left.match(/\n/g)||[]).length,(right.match(/\n/g)||[]).length));
+    return canvasAgentMessageText(!before.trim()?after.slice(right.length):!after.trim()?before.slice(0,before.length-left.length):left&&right?`${before.slice(0,before.length-left.length)}${lineBreak.repeat(breaks)}${after.slice(right.length)}`:`${before}${after}`);
   }
   function canvasAgentNormalizeHistoryFile(value) {
     if(!value||typeof value!=="object"||!/^file-[0-9a-f]{24}$/.test(String(value.projectId||"")))return null;
@@ -1537,8 +1541,26 @@
   function canvasAgentCanvasIdentity({id,location}={}) {
     return id&&location?`${location}:${id}`:`draft:${canvasClientId()}`;
   }
+  function canvasAgentCancelInitialAutoHide() {
+    if(canvasAgent.initialCanvasAutoHideFrame)cancelAnimationFrame(canvasAgent.initialCanvasAutoHideFrame);
+    canvasAgent.initialCanvasAutoHideFrame=0;
+  }
+  function canvasAgentScheduleInitialAutoHide() {
+    canvasAgentCancelInitialAutoHide();
+    // First-stroke persistence runs before its queued Canvas render. The outer
+    // frame lets that render run and paint; only the following frame may hide
+    // the sidebar. An active stroke keeps postponing it.
+    canvasAgent.initialCanvasAutoHideFrame=requestAnimationFrame(()=>{
+      canvasAgent.initialCanvasAutoHideFrame=requestAnimationFrame(()=>{
+        canvasAgent.initialCanvasAutoHideFrame=0;
+        if(state.drawing){canvasAgentScheduleInitialAutoHide();return;}
+        if(!canvasAgentPanel.hidden)closeCanvasAgent({focus:false,animate:false});
+      });
+    });
+  }
   function canvasAgentCanvasDidChange(identity = null,options = null) {
     const clearProject=options?.clearProject===true,deferConversationStart=options?.deferConversationStart===true;
+    canvasAgentCancelInitialAutoHide();
     canvasAgent.initialCanvasAutoHidePending=true;
     canvasAgentPersistCurrentConversation();
     if(clearProject){
@@ -1561,11 +1583,12 @@
   }
   function canvasAgentDidStartUserConversation() {
     canvasAgent.initialCanvasAutoHidePending=false;
+    canvasAgentCancelInitialAutoHide();
   }
   function canvasAgentDidCommitUserCanvasChange(historyEntry, options = null) {
     if (!historyEntry || options?.allowAutoHide === false || !canvasAgent.initialCanvasAutoHidePending) return historyEntry;
     canvasAgent.initialCanvasAutoHidePending=false;
-    if (!canvasAgentPanel.hidden) closeCanvasAgent({focus:false});
+    if (!canvasAgentPanel.hidden) canvasAgentScheduleInitialAutoHide();
     return historyEntry;
   }
   function canvasAgentCanvasDidPersist(location,id) {
@@ -3687,15 +3710,19 @@
         candidate=clamp({x,y});
       if (clear(candidate)) return {...candidate,placement:`relative:${relation}`,crowded:false};
     }
-    const stage={x:Math.max(0,visible.x),y:Math.max(0,visible.y),w:Math.min(SIZE-visible.x,visible.w),h:Math.min(SIZE-visible.y,visible.h)}, candidates=[],seen=new Set(),add=(x,y)=>{const candidate=clamp({x,y}),key=`${Math.round(candidate.x)}:${Math.round(candidate.y)}`;if(candidate.x<stage.x||candidate.y<stage.y||candidate.x+w>stage.x+stage.w||candidate.y+h>stage.y+stage.h||seen.has(key))return;seen.add(key);candidates.push(candidate);};
+    const stage={x:Math.max(0,visible.x),y:Math.max(0,visible.y),w:Math.min(SIZE-visible.x,visible.w),h:Math.min(SIZE-visible.y,visible.h)}, center={x:stage.x+stage.w/2,y:stage.y+stage.h/2},autoAlign=["start","center","end"].includes(placement?.align)?placement.align:null,
+      candidateDistance=candidate=>autoAlign==="start"?Math.hypot(candidate.x-stage.x,candidate.y-stage.y):autoAlign==="end"?Math.hypot(candidate.x+candidate.w-(stage.x+stage.w),candidate.y+candidate.h-(stage.y+stage.h)):Math.hypot(candidate.x+candidate.w/2-center.x,candidate.y+candidate.h/2-center.y),
+      rankCandidates=(a,b)=>autoAlign?candidateDistance(a)-candidateDistance(b)||a.y-b.y||a.x-b.x:a.y-b.y||a.x-b.x,
+      candidates=[],seen=new Set(),add=(x,y)=>{const candidate=clamp({x,y}),key=`${Math.round(candidate.x)}:${Math.round(candidate.y)}`;if(candidate.x<stage.x||candidate.y<stage.y||candidate.x+w>stage.x+stage.w||candidate.y+h>stage.y+stage.h||seen.has(key))return;seen.add(key);candidates.push(candidate);};
     add(stage.x,stage.y);add(stage.x+stage.w-w,stage.y);add(stage.x,stage.y+stage.h-h);add(stage.x+stage.w-w,stage.y+stage.h-h);add(stage.x+(stage.w-w)/2,stage.y+(stage.h-h)/2);
     for(const box of occupied){add(box.x+box.w+gap,box.y);add(box.x-w-gap,box.y);add(box.x,box.y+box.h+gap);add(box.x,box.y-h-gap);add(box.x+box.w+gap,box.y+(box.h-h)/2);add(box.x+(box.w-w)/2,box.y+box.h+gap);}
-    candidates.sort((a,b)=>a.y-b.y||a.x-b.x);
+    candidates.sort(rankCandidates);
     for(const candidate of candidates)if(clear(candidate))return {...candidate,placement:"auto",crowded:false};
     const xs=[stage.x,stage.x+stage.w-w,...occupied.flatMap(box=>[box.x+box.w+gap,box.x-w-gap])].filter(x=>x>=stage.x&&x+w<=stage.x+stage.w).sort((a,b)=>a-b).slice(0,96),
       ys=[stage.y,stage.y+stage.h-h,...occupied.flatMap(box=>[box.y+box.h+gap,box.y-h-gap])].filter(y=>y>=stage.y&&y+h<=stage.y+stage.h).sort((a,b)=>a-b).slice(0,96);
-    for(const y of ys)for(const x of xs){const candidate=clamp({x,y});if(clear(candidate))return {...candidate,placement:"auto",crowded:false};}
-    const canvasCandidates=[],canvasSeen=new Set(),addCanvas=(x,y)=>{const candidate=clamp({x,y}),key=`${Math.round(candidate.x)}:${Math.round(candidate.y)}`;if(canvasSeen.has(key))return;canvasSeen.add(key);canvasCandidates.push(candidate);},content=canvasAgentContentBounds(),center={x:visible.x+visible.w/2,y:visible.y+visible.h/2};
+    const gridCandidates=[];for(const y of ys)for(const x of xs)gridCandidates.push(clamp({x,y}));gridCandidates.sort(rankCandidates);
+    for(const candidate of gridCandidates)if(clear(candidate))return {...candidate,placement:"auto",crowded:false};
+    const canvasCandidates=[],canvasSeen=new Set(),addCanvas=(x,y)=>{const candidate=clamp({x,y}),key=`${Math.round(candidate.x)}:${Math.round(candidate.y)}`;if(canvasSeen.has(key))return;canvasSeen.add(key);canvasCandidates.push(candidate);},content=canvasAgentContentBounds();
     addCanvas(center.x-w/2,center.y-h/2);addCanvas(0,0);addCanvas(SIZE-w,0);addCanvas(0,SIZE-h);addCanvas(SIZE-w,SIZE-h);
     for(const box of [...(content?[content]:[]),...occupied]){
       for(const alignX of [box.x,box.x+(box.w-w)/2,box.x+box.w-w]){addCanvas(alignX,box.y-h-gap);addCanvas(alignX,box.y+box.h+gap);}
@@ -3704,7 +3731,7 @@
     const fullXs=[0,SIZE-w,center.x-w/2,...occupied.flatMap(box=>[box.x-w-gap,box.x+box.w+gap])].map(x=>clamp({x,y:0}).x).filter((x,index,array)=>array.indexOf(x)===index).slice(0,128),
       fullYs=[0,SIZE-h,center.y-h/2,...occupied.flatMap(box=>[box.y-h-gap,box.y+box.h+gap])].map(y=>clamp({x:0,y}).y).filter((y,index,array)=>array.indexOf(y)===index).slice(0,128);
     for(const y of fullYs)for(const x of fullXs)addCanvas(x,y);
-    canvasCandidates.sort((a,b)=>Math.hypot(a.x+a.w/2-center.x,a.y+a.h/2-center.y)-Math.hypot(b.x+b.w/2-center.x,b.y+b.h/2-center.y)||a.y-b.y||a.x-b.x);
+    canvasCandidates.sort(autoAlign?rankCandidates:(a,b)=>Math.hypot(a.x+a.w/2-center.x,a.y+a.h/2-center.y)-Math.hypot(b.x+b.w/2-center.x,b.y+b.h/2-center.y)||a.y-b.y||a.x-b.x);
     for(const candidate of canvasCandidates)if(clear(candidate))return {...candidate,placement:"auto:canvas",crowded:false,offViewport:!(candidate.x>=visible.x&&candidate.y>=visible.y&&candidate.x+w<=visible.x+visible.w&&candidate.y+h<=visible.y+visible.h)};
     return {...clamp({x:center.x-w/2,y:center.y-h/2}),placement:"auto",crowded:true,offViewport:w>visible.w||h>visible.h};
   }
@@ -4184,6 +4211,7 @@
   function openCanvasAgent({focus=false}={}) {
     const options=arguments[0]||{},connect=options.connect!==false,animate=options.animate!==false;
     if (!canvasAgentAvailable()) return;
+    canvasAgentCancelInitialAutoHide();
     canvasAgentCancelPanelMotion();
     canvasAgentCancelDockedOpenWork();
     canvasAgentPanel.hidden = false;
@@ -4241,10 +4269,15 @@
   }
   function closeCanvasAgent(options) {
     const focus=options?.focus!==false,animate=options?.animate!==false;
+    canvasAgentCancelInitialAutoHide();
     canvasAgentCancelPanelMotion();
     canvasAgentCancelDockedOpenWork();
     const docked=canvasAgentDockedPanel();
     if(docked){
+      if(!animate){
+        canvasAgentPanel.classList.add("canvas-agent-no-motion");
+        requestAnimationFrame(()=>canvasAgentPanel.classList.remove("canvas-agent-no-motion"));
+      }
       canvasAgentToggle.setAttribute("aria-expanded","false");
       document.body.classList.remove("canvas-agent-open");
       if(focus)canvasAgentToggle.focus();
@@ -4484,7 +4517,7 @@
       canvasAgentAssertSubmitExecution(submitExecution);
       canvasAgentRow("user",displayText,displayAttachments);
       canvasAgentAssertSubmitExecution(submitExecution);
-      canvasAgentSendRequest(canvasAgent.running ? "steer" : "user_turn",{text:prompt,references:canvasAgentTurnReferences(),images:outgoingAttachments.map(attachment=>attachment.wire),fileIds:fileAttachments.map(attachment=>attachment.projectId),initialState,webSearchEnabled:canvasAgent.searchEnabled,canvasTitleNeeded:currentCanvasNeedsAgentName()&&canvasAgentConversationNeedsCanvasTitle(canvasAgent.currentConversation)});
+      canvasAgentSendRequest(canvasAgent.running ? "steer" : "user_turn",{text:prompt,references:canvasAgentTurnReferences(),images:outgoingAttachments.map(attachment=>attachment.wire),fileIds:fileAttachments.map(attachment=>attachment.projectId),initialState,webSearchEnabled:canvasAgent.searchEnabled,canvasTitleNeeded:currentCanvasNeedsAgentName()&&canvasAgentConversationNeedsCanvasTitle(canvasAgent.currentConversation),reasoningEffort:state.reasoningEffort});
       requestSent = true;
       focusComposerAfterSubmit=false;
       if(canvasAgentForm.contains(document.activeElement))document.activeElement.blur();

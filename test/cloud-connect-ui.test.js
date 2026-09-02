@@ -275,8 +275,10 @@ function boot({ status, remoteCloudStatus = null, cloudOrigin = "https://interna
       return Promise.resolve(jsonResponse(libraryPayload));
     }
     if (target === "/api/favorites" && options.method === "PUT") {
-      const existing = localFavoriteItems[0] || null,
-        favorite = { ...existing, ...JSON.parse(options.body), id:existing?.id || "local-favorite-1", artifactSha256:existing?.artifactSha256 || "b".repeat(64), cloudId:existing?.cloudId || null, createdAt:existing?.createdAt || Date.now() };
+      const input = JSON.parse(options.body), existing = localFavoriteItems.find((entry) => input.sourceWidgetId && entry.sourceWidgetId === input.sourceWidgetId) || localFavoriteItems[0] || null,
+        favorite = { ...existing, ...input, id:existing?.id || "local-favorite-1", artifactSha256:existing?.artifactSha256 || "b".repeat(64), cloudId:existing?.cloudId || null, createdAt:existing?.createdAt || Date.now() };
+      if (existing) Object.assign(existing, favorite);
+      else localFavoriteItems.push(favorite);
       return Promise.resolve(jsonResponse({ favorite }, existing ? 200 : 201));
     }
     if (target === "/api/favorites" || target === "/api/favorites?view=summary") {
@@ -341,7 +343,7 @@ function boot({ status, remoteCloudStatus = null, cloudOrigin = "https://interna
         if (widgetArtifactPromise) return widgetArtifactPromise;
         return widgetShareArtifact || ({ widget:{ id:"widget-1", title:"Widget" }, communityPreview:{ contentType:"image/webp", dataBase64:"AA==", width:800, height:500 } });
       },
-      setWidgetFavorite:(widgetId, favorite, busy = false) => favoriteStates.push({ widgetId, favorite, busy }),
+      setWidgetFavorite:(widgetId, favorite, busy = false, artifactSha256 = undefined) => favoriteStates.push({ widgetId, favorite, busy, ...(artifactSha256 !== undefined ? { artifactSha256 } : {}) }),
       canvasArtifact:async () => canvasShareArtifact || ({ name:"", communityPreview:{ contentType:"image/webp", dataBase64:"AA==", width:800, height:500 } }),
       lineageForArtifact:() => lineage,
     },
@@ -1444,27 +1446,30 @@ test("Cloud Center adds favorite Widgets to the current Canvas", async () => {
 });
 
 test("favoriting a Widget works on LAN HTTP without Web Crypto", async () => {
+  const sourceWidgetId = "123e4567-e89b-42d3-a456-426614174101";
   const run = boot({
     status:signedOutStatus(),
     widgetShareArtifact:{ widget:{ id:"widget-1", title:"LAN Widget" } },
   });
   await run.flush();
 
-  await run.window.dispatch("penecho:community-widget-action", { detail:{ action:"favorite", widgetId:"widget-1" } });
+  await run.window.dispatch("penecho:community-widget-action", { detail:{ action:"favorite", widgetId:"widget-1", sourceWidgetId } });
   await run.flush();
 
   assert.deepEqual(run.alerts, []);
   assert.deepEqual(run.favoriteStates, [
     { widgetId:"widget-1", favorite:undefined, busy:true },
-    { widgetId:"widget-1", favorite:true, busy:false },
+    { widgetId:"widget-1", favorite:true, busy:false, artifactSha256:"b".repeat(64) },
   ]);
   const request = run.fetchCalls.find((call) => call.url === "/api/favorites" && call.options.method === "PUT");
   assert.ok(request, "the local PenEcho service hashes and stores the favorite");
   assert.equal(JSON.parse(request.options.body).artifact.widget.title, "LAN Widget");
+  assert.equal(JSON.parse(request.options.body).sourceWidgetId, sourceWidgetId);
   assert.doesNotMatch(cloudScript, /crypto\.subtle\.digest/);
 });
 
 test("Cloud quota failure leaves the newly saved local favorite intact and explains local-only storage", async () => {
+  const sourceWidgetId = "123e4567-e89b-42d3-a456-426614174102";
   const run = boot({
     status:deviceStatus(),
     widgetShareArtifact:{ widget:{ id:"widget-1", title:"Keep local" }, communityThumbnail:{ contentType:"image/webp", dataBase64:"A".repeat(200_000) } },
@@ -1472,13 +1477,13 @@ test("Cloud quota failure leaves the newly saved local favorite intact and expla
   });
   await run.flush();
 
-  await run.window.dispatch("penecho:community-widget-action", { detail:{ action:"favorite", widgetId:"widget-1" } });
+  await run.window.dispatch("penecho:community-widget-action", { detail:{ action:"favorite", widgetId:"widget-1", sourceWidgetId } });
   await run.flush();
 
   assert.deepEqual(run.alerts, ["Cloud storage is full. Saved locally only."], "the user sees one concise local-only result");
   assert.deepEqual(run.favoriteStates, [
     { widgetId:"widget-1", favorite:undefined, busy:true },
-    { widgetId:"widget-1", favorite:true, busy:false },
+    { widgetId:"widget-1", favorite:true, busy:false, artifactSha256:"b".repeat(64) },
   ]);
   assert.equal(run.fetchCalls.filter((call) => call.url === "/api/favorites" && call.options.method === "PUT").length, 1);
   assert.ok(run.fetchCalls.some((call) => call.url === "/api/cloud/favorites" && call.options.method === "POST"));
@@ -1486,18 +1491,19 @@ test("Cloud quota failure leaves the newly saved local favorite intact and expla
 });
 
 test("clicking an already-favorite Widget removes the server-identified favorite", async () => {
-  const artifact = { widget:{ id:"widget-1", title:"LAN Widget" } },
-    existing = { id:"local-favorite-1", name:"LAN Widget", artifact, artifactSha256:"a".repeat(64), cloudId:null, createdAt:1 },
+  const sourceWidgetId = "123e4567-e89b-42d3-a456-426614174103",
+    artifact = { widget:{ id:"widget-1", title:"LAN Widget" } },
+    existing = { id:"local-favorite-1", name:"LAN Widget", artifact, artifactSha256:"a".repeat(64), sourceWidgetId, cloudId:null, createdAt:1 },
     run = boot({ status:signedOutStatus(), widgetShareArtifact:artifact, localFavoriteItems:[existing] });
   await run.flush();
 
-  await run.window.dispatch("penecho:community-widget-action", { detail:{ action:"favorite", widgetId:"widget-1" } });
+  await run.window.dispatch("penecho:community-widget-action", { detail:{ action:"favorite", widgetId:"widget-1", favorite:true, favoriteArtifactSha256:"a".repeat(64), sourceWidgetId } });
   await run.flush();
 
   assert.deepEqual(run.alerts, []);
   assert.deepEqual(run.favoriteStates, [
     { widgetId:"widget-1", favorite:undefined, busy:true },
-    { widgetId:"widget-1", favorite:false, busy:false },
+    { widgetId:"widget-1", favorite:false, busy:false, artifactSha256:"" },
   ]);
   assert.ok(run.fetchCalls.some((call) => call.url === `/api/favorites/${"a".repeat(64)}` && call.options.method === "DELETE"));
 });
@@ -1517,14 +1523,15 @@ test("Widget favorite busy state clears after a failed snapshot", async () => {
 });
 
 test("Widget favorite ignores repeat activation while its snapshot is still saving", async () => {
+  const sourceWidgetId = "123e4567-e89b-42d3-a456-426614174104";
   let releaseArtifact;
   const widgetArtifactPromise = new Promise((resolve) => { releaseArtifact = resolve; });
   const run = boot({ status:signedOutStatus(), widgetArtifactPromise });
   await run.flush();
 
-  const first = run.window.dispatch("penecho:community-widget-action", { detail:{ action:"favorite", widgetId:"widget-1" } });
+  const first = run.window.dispatch("penecho:community-widget-action", { detail:{ action:"favorite", widgetId:"widget-1", sourceWidgetId } });
   await run.flush();
-  const second = run.window.dispatch("penecho:community-widget-action", { detail:{ action:"favorite", widgetId:"widget-1" } });
+  const second = run.window.dispatch("penecho:community-widget-action", { detail:{ action:"favorite", widgetId:"widget-1", sourceWidgetId } });
   await run.flush();
 
   assert.deepEqual(run.favoriteStates, [{ widgetId:"widget-1", favorite:undefined, busy:true }]);
@@ -1533,9 +1540,26 @@ test("Widget favorite ignores repeat activation while its snapshot is still savi
   await run.flush();
   assert.deepEqual(run.favoriteStates, [
     { widgetId:"widget-1", favorite:undefined, busy:true },
-    { widgetId:"widget-1", favorite:true, busy:false },
+    { widgetId:"widget-1", favorite:true, busy:false, artifactSha256:"b".repeat(64) },
   ]);
   assert.equal(run.fetchCalls.filter((call) => call.url === "/api/favorites" && call.options.method === "PUT").length, 1);
+});
+
+test("stale repeat favorite requests stay selected and never turn an existing Widget favorite into a delete", async () => {
+  const sourceWidgetId = "123e4567-e89b-42d3-a456-426614174105",
+    existing = { id:"local-favorite-1", name:"LAN Widget", artifactSha256:"a".repeat(64), sourceWidgetId, cloudId:null, createdAt:1 },
+    run = boot({ status:signedOutStatus(), localFavoriteItems:[existing], widgetShareArtifact:{ widget:{ id:"widget-1", title:"LAN Widget" } } });
+  await run.flush();
+
+  await run.window.dispatch("penecho:community-widget-action", { detail:{ action:"favorite", widgetId:"widget-1", favorite:false, sourceWidgetId } });
+  await run.flush();
+
+  assert.deepEqual(run.favoriteStates, [
+    { widgetId:"widget-1", favorite:undefined, busy:true },
+    { widgetId:"widget-1", favorite:true, busy:false, artifactSha256:"a".repeat(64) },
+  ]);
+  assert.equal(run.fetchCalls.filter((call) => call.url === "/api/favorites" && call.options.method === "PUT").length, 1);
+  assert.equal(run.fetchCalls.filter((call) => call.options.method === "DELETE").length, 0);
 });
 
 test("share dialog and all category labels use the Chinese Cloud copy", async () => {
@@ -1669,6 +1693,9 @@ test("the local favorite API has no 1 MiB artifact or 128 KiB thumbnail cap", ()
   assert.match(serverSource, /\["artifact","thumbnail"\]\.includes\(key\)/, "local summaries keep both artifacts and thumbnails out of the list payload");
   assert.match(serverSource, /url\.pathname==="\/api\/cloud\/favorites"[\s\S]*?readJson\(req,MAX_SHARED_CANVAS_BYTES\)/);
   assert.match(serverSource, /url\.pathname === "\/api\/favorites"[\s\S]*?readJson\(req, MAX_SHARED_CANVAS_BYTES\)/);
+  assert.match(serverSource, /sourceWidgetId[\s\S]*?list\.filter\([\s\S]*?entry\.sourceWidgetId === sourceWidgetId[\s\S]*?entry\.artifactSha256 === sha256[\s\S]*?matches\.includes\(entry\)/);
+  assert.match(fs.readFileSync(path.join(ROOT, "src", "server", "cloud-connector.js"), "utf8"), /saveWidgetFavorite\(favorite\)[\s\S]*?sourceWidgetId:favorite\.sourceWidgetId \|\| null/);
+  assert.match(cloudScript, /syncLocalFavorites[\s\S]*?sourceWidgetId:localEntry\.sourceWidgetId/);
 });
 
 test("Cloud Connect refreshes views by interaction and keeps background watchers bounded", () => {

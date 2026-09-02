@@ -42,7 +42,7 @@
     return !state.currentSnapshotHasExplicitName && !state.currentCanvasSuggestedName;
   }
   function applyCurrentCanvasGeneratedName(value) {
-    const name=String(value||"").replace(/\s+/g," ").trim().slice(0,48);
+    const name=String(value||"").replace(/\s+/g," ").trim().slice(0,48).trim();
     if(!name||!currentCanvasNeedsAgentName())return false;
     state.currentCanvasSuggestedName=name;
     window.PenEchoStudioNavigator?.updateDocument?.();
