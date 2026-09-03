@@ -116,7 +116,7 @@ test("runtime-created controls opt into the same closed contract", () => {
   assert.doesNotMatch(appSources, /button\.dataset\.peList="double"/);
   assert.match(appSources, /titleText=t\(suggestion\.title\)/);
   assert.match(read("public/index.html"),/id="canvasAgentPromptPopup"[^>]*data-pe-list="icon-copy"/);
-  assert.match(appSources, /peButton\(button, kind === "delete" \? "danger" : "toolbar", "compact"\)/);
+  assert.match(appSources, /peButton\(button, kind === "delete" \? "danger" : kind === "refine" \? "secondary" : "toolbar", "compact"\)/);
   assert.match(appSources, /peButton\(remove,"toolbar","compact"\)/, "navigator session delete remains an inline toolbar action");
   assert.match(canvasRuntime, /className === "confirm" \? "composer-action" : className === "cancel" \? "icon" : "toolbar"/);
   assert.match(canvasRuntime, /document\.body\.classList\.contains\("studio-agent-docked"\)/);

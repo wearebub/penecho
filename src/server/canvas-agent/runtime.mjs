@@ -154,6 +154,8 @@ export const HARNESS_RUNTIME_PLUGIN_ALLOWLIST = Object.freeze([
 const HARNESS_RUNTIME_PLUGIN_IDS = new Set(HARNESS_RUNTIME_PLUGIN_ALLOWLIST)
 const CANVAS_TITLE_OPEN = '<penecho_canvas_title>'
 const CANVAS_TITLE_CLOSE = '</penecho_canvas_title>'
+const CANVAS_TITLE_OPEN_VARIANTS = Object.freeze([CANVAS_TITLE_OPEN, '<phenecho_canvas_title>'])
+const CANVAS_TITLE_CLOSE_VARIANTS = Object.freeze([CANVAS_TITLE_CLOSE, '</phenecho_canvas_title>'])
 const CANVAS_TITLE_ENVELOPE_LIMIT = 160
 const CANVAS_TITLE_REQUEST_CONTEXT = `This Canvas has no saved title. Without a tool call, separate task, or extra model request, summarize the conversation's subject, grounded primarily in its initial user request, as a concise title in the user's language (2-8 words or 4-16 Chinese characters, maximum 48 characters). At the very beginning of the final assistant text only, emit exactly one line: <penecho_canvas_title>title</penecho_canvas_title>. Then continue the normal answer immediately. The host hides this line and applies it only after the turn completes. If no reliable title is available, omit the line; never delay, retry, or fail the answer for the title.`
 
@@ -1736,18 +1738,44 @@ function messageText(message, { publicOnly = false } = {}) {
     : ''
 }
 
+function canvasTitleOpening(text, anywhere = false) {
+  let found=null
+  for(const value of CANVAS_TITLE_OPEN_VARIANTS){
+    const index=anywhere?text.indexOf(value):(text.startsWith(value)?0:-1)
+    if(index>=0&&(!found||index<found.index))found={index,value}
+  }
+  return found
+}
+
+function canvasTitleClosing(text, from) {
+  let found=null
+  for(const value of CANVAS_TITLE_CLOSE_VARIANTS){
+    const index=text.indexOf(value,from)
+    if(index>=0&&(!found||index<found.index))found={index,value}
+  }
+  return found
+}
+
+function canvasTitlePartialOpeningLength(text) {
+  for(let length=Math.min(text.length,Math.max(...CANVAS_TITLE_OPEN_VARIANTS.map(value=>value.length))-1);length>0;length--){
+    const suffix=text.slice(-length)
+    if(CANVAS_TITLE_OPEN_VARIANTS.some(value=>value.startsWith(suffix)))return length
+  }
+  return 0
+}
+
 export function parseCanvasTitleEnvelope(value, final = false) {
   const text=String(value||'')
-  if(!final&&CANVAS_TITLE_OPEN.startsWith(text)&&text.length<CANVAS_TITLE_OPEN.length)return {matched:false,complete:false,title:'',text:''}
-  const start=final?text.indexOf(CANVAS_TITLE_OPEN):(text.startsWith(CANVAS_TITLE_OPEN)?0:-1)
-  if(start<0)return {matched:false,complete:true,title:'',text}
-  const end=text.indexOf(CANVAS_TITLE_CLOSE,start+CANVAS_TITLE_OPEN.length)
-  if(end<0){
-    if(!final&&text.length-start<=CANVAS_TITLE_ENVELOPE_LIMIT)return {matched:false,complete:false,title:'',text:''}
+  if(!final&&CANVAS_TITLE_OPEN_VARIANTS.some(open=>open.startsWith(text)&&text.length<open.length))return {matched:false,complete:false,title:'',text:''}
+  const opening=canvasTitleOpening(text,final)
+  if(!opening)return {matched:false,complete:true,title:'',text}
+  const titleStart=opening.index+opening.value.length,closing=canvasTitleClosing(text,titleStart)
+  if(!closing){
+    if(!final&&text.length-opening.index<=CANVAS_TITLE_ENVELOPE_LIMIT)return {matched:false,complete:false,title:'',text:''}
     return {matched:false,complete:true,title:'',text}
   }
-  const title=text.slice(start+CANVAS_TITLE_OPEN.length,end).replace(/[\0-\x1f\x7f]+/g,' ').replace(/\s+/g,' ').trim().slice(0,48).trim(),
-    before=text.slice(0,start),after=text.slice(end+CANVAS_TITLE_CLOSE.length),left=before.match(/(?:\r?\n[ \t]*)+$/)?.[0]||'',right=after.match(/^(?:[ \t]*\r?\n)+/)?.[0]||'',
+  const title=text.slice(titleStart,closing.index).replace(/[\0-\x1f\x7f]+/g,' ').replace(/\s+/g,' ').trim().slice(0,48).trim(),
+    before=text.slice(0,opening.index),after=text.slice(closing.index+closing.value.length),left=before.match(/(?:\r?\n[ \t]*)+$/)?.[0]||'',right=after.match(/^(?:[ \t]*\r?\n)+/)?.[0]||'',
     lineBreak=left.includes('\r\n')||right.includes('\r\n')?'\r\n':'\n',breaks=Math.min(2,Math.max((left.match(/\n/g)||[]).length,(right.match(/\n/g)||[]).length)),
     visibleText=!before.trim()?after.slice(right.length):!after.trim()?before.slice(0,before.length-left.length):left&&right?`${before.slice(0,before.length-left.length)}${lineBreak.repeat(breaks)}${after.slice(right.length)}`:`${before}${after}`
   return {matched:true,complete:true,title,text:visibleText}
@@ -1764,13 +1792,13 @@ function projectCanvasTitleChunk(session, data, value) {
   const key=canvasTitleStreamKey(data),stream=session.canvasTitleStreams.get(key)||{buffer:'',decided:false}
   if(stream.decided)return text
   stream.buffer+=text
-  const start=stream.buffer.indexOf(CANVAS_TITLE_OPEN)
-  if(start>=0){
-    const end=stream.buffer.indexOf(CANVAS_TITLE_CLOSE,start+CANVAS_TITLE_OPEN.length)
-    if(end<0){
-      if(stream.buffer.length-start<=CANVAS_TITLE_ENVELOPE_LIMIT){
-        const visible=stream.buffer.slice(0,start)
-        stream.buffer=stream.buffer.slice(start)
+  const opening=canvasTitleOpening(stream.buffer,true)
+  if(opening){
+    const closing=canvasTitleClosing(stream.buffer,opening.index+opening.value.length)
+    if(!closing){
+      if(stream.buffer.length-opening.index<=CANVAS_TITLE_ENVELOPE_LIMIT){
+        const visible=stream.buffer.slice(0,opening.index)
+        stream.buffer=stream.buffer.slice(opening.index)
         session.canvasTitleStreams.set(key,stream)
         return visible
       }
@@ -1787,10 +1815,7 @@ function projectCanvasTitleChunk(session, data, value) {
     if(session.canvasTitleRequested&&parsed.matched&&parsed.title&&!session.canvasTitleCandidate)session.canvasTitleCandidate=parsed.title
     return parsed.text
   }
-  let retained=0
-  for(let length=Math.min(stream.buffer.length,CANVAS_TITLE_OPEN.length-1);length>0;length--){
-    if(CANVAS_TITLE_OPEN.startsWith(stream.buffer.slice(-length))){retained=length;break}
-  }
+  const retained=canvasTitlePartialOpeningLength(stream.buffer)
   const visible=retained?stream.buffer.slice(0,-retained):stream.buffer
   stream.buffer=retained?stream.buffer.slice(-retained):''
   session.canvasTitleStreams.set(key,stream)

@@ -373,7 +373,7 @@
     MAX_VISIBLE_TEXT_BOXES = 50,
     MIXED_FORMULA_MAX_LENGTH = 512,
     AI_TEXT_MAX_LENGTH = 1000,
-    COPY_FEEDBACK_MS = 1600,
+    COPY_STATUS_MS = 1600,
     NAVIGATION_HINT_VISIBLE_MS = 10000,
     ANIMATION_CONTROLS_VISIBLE_MS = 10000;
   const MAX_SHARP_OVERLAY_PIXELS = 8000000,
@@ -8269,8 +8269,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       key:`widget:${widget.id}:tool-refine`,
       kind:"refine",
       label:t("widgetRefine"),
-      baseWidth:28,
-      iconOnly:true,
+      baseWidth:92,
+      iconOnly:false,
       refineCandidate:options.refine,
       activate:(button) => void beginWidgetRefineConfirmation(options.refine, objectChromeAnchor(button)),
     });
@@ -8341,7 +8341,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
         groupHorizontalOffset:horizontalOffset,
         groupVerticalOffset:index * (34 + gap),
         controlScale:1,
-        baseHeight:options.objectToolbarKey ? 28 : 34,
+        baseHeight:(options.objectToolbarKey || item.kind === "refine") ? 28 : 34,
         handToolbar:Boolean(options.handToolbar),
         handToolbarKey:options.handToolbarKey || "",
         handToolbarHiding:Boolean(options.handToolbarHiding),
@@ -8418,7 +8418,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     return toolbarKey;
   }
   function objectChromePosition(box, kind, ignoreKey = "", spec = null, knownPositions = null) {
-    const baseWidth = spec?.baseWidth || (kind === "move" ? 34 : kind === "refine" ? 112 : 36),
+    const baseWidth = spec?.baseWidth || (kind === "move" ? 34 : kind === "refine" ? 92 : 36),
       baseHeight = spec?.baseHeight || 34,
       controlScale = spec?.controlScale || 1,
       width = baseWidth * controlScale,
@@ -8558,10 +8558,10 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       height = Math.max(42, element.offsetHeight || 42),
       screenBox = screenObjectBox(widgetBox(widget)),
       fallbackAnchor = {
-        x:screenBox.left + screenBox.width / 2 - 56,
+        x:screenBox.left + screenBox.width / 2 - 46,
         y:Math.max(8, screenBox.top - 41),
-        width:112,
-        height:34,
+        width:92,
+        height:28,
       },
       position = widgetRefineConfirmationPosition(confirmation.anchor || fallbackAnchor, layoutWidth, height, view.clientWidth, view.clientHeight);
     declaration?.setProperty("--widget-refine-confirm-x", `${position.x.toFixed(1)}px`);
@@ -8603,10 +8603,18 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   function createObjectChromeButton(key, kind, spec = null) {
     const button = document.createElement("button");
     button.type = "button";
-    if (kind !== "toolbar" && !spec?.standaloneDraftControl) peButton(button, kind === "delete" ? "danger" : "toolbar", "compact");
+    if (kind !== "toolbar" && !spec?.standaloneDraftControl) peButton(button, kind === "delete" ? "danger" : kind === "refine" ? "secondary" : "toolbar", "compact");
     button.className = kind === "toolbar" ? "object-chrome-button" : `object-chrome-button ${kind}`;
     button.dataset.objectChromeKey = key;
-    button.innerHTML = `${OBJECT_CHROME_ICONS[kind] || ""}${kind === "refine" ? '<span class="widget-refine-hint" hidden></span>' : ""}`;
+    button.innerHTML = OBJECT_CHROME_ICONS[kind] || "";
+    if (kind === "refine") {
+      const label = document.createElement("span"),
+        hint = document.createElement("span");
+      label.className = "widget-refine-button-label";
+      hint.className = "widget-refine-hint";
+      hint.hidden = true;
+      button.append(label, hint);
+    }
     ensureObjectChromeStyleRule(button);
     button.addEventListener("pointerdown", (event) => {
       event.preventDefault();
@@ -8895,7 +8903,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       if (spec.objectToolbar || spec.standaloneDraftControl) {
         button.removeAttribute("data-pe-button");
         button.removeAttribute("data-pe-density");
-      } else peButton(button, spec.kind === "delete" ? "danger" : "toolbar", "compact");
+      } else peButton(button, spec.kind === "delete" ? "danger" : spec.kind === "refine" ? "secondary" : "toolbar", "compact");
       button.classList.toggle("standalone-draft-control", Boolean(spec.standaloneDraftControl));
       button.classList.toggle("widget-tool", Boolean(spec.widgetTool));
       button.classList.toggle("widget-chrome-control", Boolean(spec.widgetTool || spec.objectToolbar || spec.objectToolbarItem));
@@ -8922,10 +8930,12 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       if (spec.kind === "refine" || spec.objectToolbar) button.removeAttribute("title");
       else button.title = spec.tooltip || label;
       if (spec.kind === "refine") {
-        const hint = button.querySelector(".widget-refine-hint"),
+        const buttonLabel = button.querySelector(".widget-refine-button-label"),
+          hint = button.querySelector(".widget-refine-hint"),
           visible = widgetRefineHintVisible(spec.refineCandidate),
           hintWidth = Math.min(320, Math.max(120, view.clientWidth - 24)),
           hintLeft = Math.max(12, Math.min(Math.max(12, view.clientWidth - hintWidth - 12), position.x)) - position.x;
+        buttonLabel.textContent = label;
         hint.textContent = t(spec.refineCandidate?.hintKey || "widgetRefineHint");
         hint.hidden = !visible;
         declaration?.setProperty("--refine-hint-left", `${hintLeft.toFixed(1)}px`);
@@ -15179,7 +15189,6 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     ctx.lineTo(b.x + b.w / 2 + s * 0.48, b.y + b.h + s * 0.08);
     ctx.stroke();
     ctx.restore();
-    drawCopyFeedback(ctx, b, s, p);
   }
   function drawPendingBatch(p, context = ctx, options = null) {
     const ctx = context,
@@ -15224,7 +15233,6 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       ctx.setLineDash(index === p.selectedIndex ? [] : [6 * unit, 6 * unit]);
       ctx.strokeRect(box.x, box.y, box.w, box.h);
       ctx.restore();
-      drawCopyFeedback(ctx, box, s, item);
     }
     ctx.save();
     ctx.strokeStyle = "#2679b8";
@@ -15315,28 +15323,6 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       }
       context.stroke();
     }
-    context.restore();
-  }
-  function drawCopyFeedback(context, box, s, target) {
-    if (target?.copyFeedbackGeneration !== state.copyGeneration || !Number.isFinite(target.copyFeedbackUntil) || target.copyFeedbackUntil <= performance.now()) return;
-    const unit = 1 / state.scale,
-      label = t("textCopied"),
-      fontSize = 11 * unit,
-      paddingX = 6 * unit,
-      paddingY = 4 * unit;
-    context.save();
-    context.font = `700 ${fontSize}px system-ui, sans-serif`;
-    const width = context.measureText(label).width + paddingX * 2,
-      height = fontSize + paddingY * 2,
-      x = Math.max(0, Math.min(SIZE - width, box.x + box.w / 2 - width / 2)),
-      above = box.y - s * 1.15 - height,
-      y = above >= 0 ? above : Math.min(SIZE - height, box.y + s * 0.95);
-    context.fillStyle = "#111827e8";
-    context.fillRect(x, y, width, height);
-    context.fillStyle = "#fff";
-    context.textAlign = "center";
-    context.textBaseline = "middle";
-    context.fillText(label, x + width / 2, y + height / 2);
     context.restore();
   }
   function drawResizeHandle(context, b, s) {
@@ -15502,7 +15488,6 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     const generation = ++state.copyGeneration,
       stillPending = () => state.copyGeneration === generation && state.pending === pending && (pending?.items ? pending.items.includes(target) : target === pending);
     setStatusKey("copyText");
-    requestRender();
     const copied = await writeClipboardText(text);
     if (!stillPending()) return copied;
     if (!copied) {
@@ -15510,17 +15495,10 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       return false;
     }
     setStatusKey("textCopied");
-    target.copyFeedbackGeneration = generation;
-    target.copyFeedbackUntil = performance.now() + COPY_FEEDBACK_MS;
-    requestRender();
     setTimeout(() => {
-      if (!stillPending() || target.copyFeedbackGeneration !== generation) return;
-      if (target.copyFeedbackUntil <= performance.now()) {
-        target.copyFeedbackUntil = 0;
-        requestRender();
-      }
+      if (!stillPending()) return;
       if (state.statusKey === "textCopied") setStatusKey(state.pending?.items ? "batchDraftReady" : state.pending ? "draftReady" : "ready");
-    }, COPY_FEEDBACK_MS + 30);
+    }, COPY_STATUS_MS + 30);
     return true;
   }
   function acceptPending(options) {
@@ -17713,12 +17691,11 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     return `${text.slice(0,end)}…`;
   }
   function canvasAgentVisibleAssistantText(value) {
-    const text=String(value||""),open="<penecho_canvas_title>",close="</penecho_canvas_title>";
-    const start=text.indexOf(open);
-    if(start<0)return canvasAgentMessageText(text);
-    const end=text.indexOf(close,start+open.length);
-    if(end<0)return canvasAgentMessageText(text);
-    const before=text.slice(0,start),after=text.slice(end+close.length),left=before.match(/(?:\r?\n[ \t]*)+$/)?.[0]||"",right=after.match(/^(?:[ \t]*\r?\n)+/)?.[0]||"",lineBreak=left.includes("\r\n")||right.includes("\r\n")?"\r\n":"\n",breaks=Math.min(2,Math.max((left.match(/\n/g)||[]).length,(right.match(/\n/g)||[]).length));
+    const text=String(value||""),opening=/<p(?:h)?enecho_canvas_title>/.exec(text);
+    if(!opening)return canvasAgentMessageText(text);
+    const start=opening.index,titleStart=start+opening[0].length,closing=/<\/p(?:h)?enecho_canvas_title>/.exec(text.slice(titleStart));
+    if(!closing)return canvasAgentMessageText(text);
+    const end=titleStart+closing.index,before=text.slice(0,start),after=text.slice(end+closing[0].length),left=before.match(/(?:\r?\n[ \t]*)+$/)?.[0]||"",right=after.match(/^(?:[ \t]*\r?\n)+/)?.[0]||"",lineBreak=left.includes("\r\n")||right.includes("\r\n")?"\r\n":"\n",breaks=Math.min(2,Math.max((left.match(/\n/g)||[]).length,(right.match(/\n/g)||[]).length));
     return canvasAgentMessageText(!before.trim()?after.slice(right.length):!after.trim()?before.slice(0,before.length-left.length):left&&right?`${before.slice(0,before.length-left.length)}${lineBreak.repeat(breaks)}${after.slice(right.length)}`:`${before}${after}`);
   }
   function canvasAgentNormalizeHistoryFile(value) {

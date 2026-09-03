@@ -3797,8 +3797,8 @@
       key:`widget:${widget.id}:tool-refine`,
       kind:"refine",
       label:t("widgetRefine"),
-      baseWidth:28,
-      iconOnly:true,
+      baseWidth:92,
+      iconOnly:false,
       refineCandidate:options.refine,
       activate:(button) => void beginWidgetRefineConfirmation(options.refine, objectChromeAnchor(button)),
     });
@@ -3869,7 +3869,7 @@
         groupHorizontalOffset:horizontalOffset,
         groupVerticalOffset:index * (34 + gap),
         controlScale:1,
-        baseHeight:options.objectToolbarKey ? 28 : 34,
+        baseHeight:(options.objectToolbarKey || item.kind === "refine") ? 28 : 34,
         handToolbar:Boolean(options.handToolbar),
         handToolbarKey:options.handToolbarKey || "",
         handToolbarHiding:Boolean(options.handToolbarHiding),
@@ -3946,7 +3946,7 @@
     return toolbarKey;
   }
   function objectChromePosition(box, kind, ignoreKey = "", spec = null, knownPositions = null) {
-    const baseWidth = spec?.baseWidth || (kind === "move" ? 34 : kind === "refine" ? 112 : 36),
+    const baseWidth = spec?.baseWidth || (kind === "move" ? 34 : kind === "refine" ? 92 : 36),
       baseHeight = spec?.baseHeight || 34,
       controlScale = spec?.controlScale || 1,
       width = baseWidth * controlScale,
@@ -4086,10 +4086,10 @@
       height = Math.max(42, element.offsetHeight || 42),
       screenBox = screenObjectBox(widgetBox(widget)),
       fallbackAnchor = {
-        x:screenBox.left + screenBox.width / 2 - 56,
+        x:screenBox.left + screenBox.width / 2 - 46,
         y:Math.max(8, screenBox.top - 41),
-        width:112,
-        height:34,
+        width:92,
+        height:28,
       },
       position = widgetRefineConfirmationPosition(confirmation.anchor || fallbackAnchor, layoutWidth, height, view.clientWidth, view.clientHeight);
     declaration?.setProperty("--widget-refine-confirm-x", `${position.x.toFixed(1)}px`);
@@ -4131,10 +4131,18 @@
   function createObjectChromeButton(key, kind, spec = null) {
     const button = document.createElement("button");
     button.type = "button";
-    if (kind !== "toolbar" && !spec?.standaloneDraftControl) peButton(button, kind === "delete" ? "danger" : "toolbar", "compact");
+    if (kind !== "toolbar" && !spec?.standaloneDraftControl) peButton(button, kind === "delete" ? "danger" : kind === "refine" ? "secondary" : "toolbar", "compact");
     button.className = kind === "toolbar" ? "object-chrome-button" : `object-chrome-button ${kind}`;
     button.dataset.objectChromeKey = key;
-    button.innerHTML = `${OBJECT_CHROME_ICONS[kind] || ""}${kind === "refine" ? '<span class="widget-refine-hint" hidden></span>' : ""}`;
+    button.innerHTML = OBJECT_CHROME_ICONS[kind] || "";
+    if (kind === "refine") {
+      const label = document.createElement("span"),
+        hint = document.createElement("span");
+      label.className = "widget-refine-button-label";
+      hint.className = "widget-refine-hint";
+      hint.hidden = true;
+      button.append(label, hint);
+    }
     ensureObjectChromeStyleRule(button);
     button.addEventListener("pointerdown", (event) => {
       event.preventDefault();
@@ -4423,7 +4431,7 @@
       if (spec.objectToolbar || spec.standaloneDraftControl) {
         button.removeAttribute("data-pe-button");
         button.removeAttribute("data-pe-density");
-      } else peButton(button, spec.kind === "delete" ? "danger" : "toolbar", "compact");
+      } else peButton(button, spec.kind === "delete" ? "danger" : spec.kind === "refine" ? "secondary" : "toolbar", "compact");
       button.classList.toggle("standalone-draft-control", Boolean(spec.standaloneDraftControl));
       button.classList.toggle("widget-tool", Boolean(spec.widgetTool));
       button.classList.toggle("widget-chrome-control", Boolean(spec.widgetTool || spec.objectToolbar || spec.objectToolbarItem));
@@ -4450,10 +4458,12 @@
       if (spec.kind === "refine" || spec.objectToolbar) button.removeAttribute("title");
       else button.title = spec.tooltip || label;
       if (spec.kind === "refine") {
-        const hint = button.querySelector(".widget-refine-hint"),
+        const buttonLabel = button.querySelector(".widget-refine-button-label"),
+          hint = button.querySelector(".widget-refine-hint"),
           visible = widgetRefineHintVisible(spec.refineCandidate),
           hintWidth = Math.min(320, Math.max(120, view.clientWidth - 24)),
           hintLeft = Math.max(12, Math.min(Math.max(12, view.clientWidth - hintWidth - 12), position.x)) - position.x;
+        buttonLabel.textContent = label;
         hint.textContent = t(spec.refineCandidate?.hintKey || "widgetRefineHint");
         hint.hidden = !visible;
         declaration?.setProperty("--refine-hint-left", `${hintLeft.toFixed(1)}px`);

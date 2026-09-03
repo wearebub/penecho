@@ -6368,6 +6368,61 @@ html.penecho-web-page-scale .canvas-agent-project-dialog {
   flex: 0 0 16px;
   stroke-width: 1.8;
 }
+/* AI Refine is a contextual action rather than another anonymous toolbar
+   glyph. It keeps the catalog's compact geometry and adds the requested
+   semantic tint without becoming a filled primary button. */
+:is(#pe-button-contract, .object-chrome-button.refine.solo-widget-tool)[data-pe-button="secondary"] {
+  display: inline-flex;
+  width: var(--object-control-width, 92px);
+  min-width: 0;
+  height: var(--object-control-height, 28px);
+  min-height: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 8px;
+  color: var(--pe-accent-label, var(--gold-bright, #ead28e));
+  border: 1px solid color-mix(in srgb, var(--pe-accent, var(--gold, #c6a35b)) 36%, var(--pe-line, var(--line)));
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--pe-accent, var(--gold, #c6a35b)) 8%, var(--pe-surface, var(--panel-raised, #201827)));
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  font: 500 12.5px/var(--object-control-height, 28px) var(--pe-font-ui, system-ui, -apple-system, "Segoe UI", sans-serif);
+  white-space: nowrap;
+  opacity: 1;
+}
+:is(#pe-button-contract, .object-chrome-button.refine.solo-widget-tool)[data-pe-button="secondary"] > svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  stroke-width: 1.7;
+}
+:is(#pe-button-contract, .object-chrome-button.refine.solo-widget-tool)[data-pe-button="secondary"]:is(:hover, .refine-hovered) {
+  color: var(--pe-accent-label, var(--gold-bright, #ead28e));
+  border-color: color-mix(in srgb, var(--pe-accent, var(--gold, #c6a35b)) 58%, var(--pe-line, var(--line)));
+  background: color-mix(in srgb, var(--pe-accent, var(--gold, #c6a35b)) 12%, var(--pe-surface, var(--panel-raised, #201827)));
+  box-shadow: none;
+}
+:is(#pe-button-contract, .object-chrome-button.refine.solo-widget-tool)[data-pe-button="secondary"]:focus-visible {
+  color: var(--pe-accent-label, var(--gold-bright, #ead28e));
+  border-color: var(--pe-accent, var(--gold, #c6a35b));
+  outline: 0;
+  background: color-mix(in srgb, var(--pe-accent, var(--gold, #c6a35b)) 10%, var(--pe-surface, var(--panel-raised, #201827)));
+  box-shadow: 0 0 0 2px var(--pe-accent-focus, color-mix(in srgb, var(--gold, #c6a35b) 28%, transparent));
+}
+:is(#pe-button-contract, .object-chrome-button.refine.solo-widget-tool)[data-pe-button="secondary"]:active {
+  color: var(--pe-accent-label, var(--gold-bright, #ead28e));
+  border-color: color-mix(in srgb, var(--pe-accent, var(--gold, #c6a35b)) 64%, var(--pe-line, var(--line)));
+  background: color-mix(in srgb, var(--pe-accent, var(--gold, #c6a35b)) 16%, var(--pe-surface, var(--panel-raised, #201827)));
+  box-shadow: none;
+}
+:is(#pe-button-contract, .object-chrome-button.refine.solo-widget-tool.refine-no-input)[data-pe-button="secondary"] {
+  color: var(--pe-ink-2, var(--muted, #a99c80));
+  border-color: var(--pe-line-strong, var(--line));
+  background: var(--pe-surface, var(--panel-raised, #201827));
+}
+.widget-refine-button-label { display: block; min-width: 0; pointer-events: none; }
 body[data-theme="studio"] :is(#pe-button-contract, .object-toolbar-shell) {
   color: var(--studio-text);
   border-color: var(--studio-line);
@@ -6394,6 +6449,18 @@ body[data-theme="studio"] :is(#pe-button-contract, .object-chrome-button.object-
 body[data-theme="studio"] :is(#pe-button-contract, .object-chrome-button.object-toolbar-item)[data-pe-button].cancel { color: var(--danger); }
 body[data-theme="studio"] :is(#pe-button-contract, .object-chrome-button.object-toolbar-item)[data-pe-button].accept { color: var(--confirm); }
 body[data-theme="studio"] :is(#pe-button-contract, .object-chrome-button.object-toolbar-item)[data-pe-button].merge { color: #a86208; }
+/* The shared button contract resets every toolbar SVG to an outline and the
+   Studio toolbar resets item color to muted. Restore the favorite's pressed
+   state after both resets so a saved Widget remains visibly selected. */
+:is(#pe-button-contract, .object-chrome-button.object-toolbar-item.favorite)[data-pe-button][aria-pressed="true"] {
+  color: var(--pe-accent-label, var(--gold-bright));
+}
+body[data-theme="studio"] :is(#pe-button-contract, .object-chrome-button.object-toolbar-item.favorite)[data-pe-button][aria-pressed="true"] {
+  color: var(--studio-accent-strong);
+}
+:is(#pe-button-contract, .object-chrome-button.object-toolbar-item.favorite)[data-pe-button][aria-pressed="true"] > svg {
+  fill: currentColor;
+}
 :is(#pe-button-contract, .object-chrome-button.object-toolbar-surface).hand-toolbar-hiding,
 :is(#pe-button-contract, .object-chrome-button.object-toolbar-item)[data-pe-button].hand-toolbar-hiding {
   pointer-events: none;

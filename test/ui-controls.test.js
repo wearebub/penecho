@@ -2078,6 +2078,7 @@ test("widget AI refinement is discoverable near ink and replaces only its locked
     accept = functionSource(app, "acceptPendingWidget"),
     reject = functionSource(app, "rejectPendingWidget"),
     cancel = functionSource(app, "cancelWidgetRefinement"),
+    createChromeButton = functionSource(app, "createObjectChromeButton"),
     mode = functionSource(app, "setCanvasMode"),
     snapshot = functionSource(app, "requestWidgetSnapshot"),
     chrome = functionSource(app, "objectChromeSpecs"),
@@ -2247,7 +2248,11 @@ test("widget AI refinement is discoverable near ink and replaces only its locked
   assert.match(syncChrome, /spec\.kind === "refine" \|\| spec\.objectToolbar\) button\.removeAttribute\("title"\)/);
   assert.doesNotMatch(syncChrome, /button\.title = spec\.kind === "refine"/);
   assert.doesNotMatch(app, /function widgetToolScale/);
-  assert.match(app, /function addWidgetToolSpecs\(specs, widget, options = \{\}\)[\s\S]*?objectToolbarItem:Boolean\(options\.objectToolbarKey\)[\s\S]*?baseHeight:options\.objectToolbarKey \? 28 : 34/);
+  assert.match(app, /function addWidgetToolSpecs\(specs, widget, options = \{\}\)[\s\S]*?objectToolbarItem:Boolean\(options\.objectToolbarKey\)[\s\S]*?baseHeight:\(options\.objectToolbarKey \|\| item\.kind === "refine"\) \? 28 : 34/);
+  assert.match(app, /kind:"refine"[\s\S]*?baseWidth:92,[\s\S]*?iconOnly:false/);
+  assert.match(createChromeButton, /kind === "refine" \? "secondary" : "toolbar"[\s\S]*?widget-refine-button-label/);
+  assert.match(syncChrome, /buttonLabel = button\.querySelector\("\.widget-refine-button-label"\)[\s\S]*?buttonLabel\.textContent = label/);
+  assert.match(css, /\.object-chrome-button\.refine\.solo-widget-tool\)\[data-pe-button="secondary"\][^{]*\{[^}]*height:\s*var\(--object-control-height, 28px\)[^}]*box-shadow:\s*none[^}]*font:\s*500 12\.5px\/var\(--object-control-height, 28px\)/);
   assert.match(app, /kind:"favorite"[\s\S]*?baseWidth:28,[\s\S]*?iconOnly:true/);
   assert.match(app, /kind:"share"[\s\S]*?baseWidth:28,[\s\S]*?iconOnly:true/);
   assert.match(syncChrome, /classList\.toggle\("icon-only", Boolean\(spec\.iconOnly \|\| spec\.objectToolbarItem\)\)/);
@@ -2278,6 +2283,9 @@ test("widget AI refinement is discoverable near ink and replaces only its locked
   assert.match(read("public/style.css"), /\.object-chrome-button\.widget-tool\.icon-only \{[^}]*gap: 0;[^}]*padding: 0;/);
   assert.doesNotMatch(functionSource(app, "createObjectChromeButton"), /object-chrome-label/);
   assert.match(read("public/style.css"), /\.object-chrome-button\.favorite\.is-favorite svg \{ fill: currentColor; \}/);
+  assert.match(read("public/style.css"), /object-chrome-button\.object-toolbar-item\.favorite\)\[data-pe-button\]\[aria-pressed="true"\] \{[^}]*color: var\(--pe-accent-label/);
+  assert.match(read("public/style.css"), /body\[data-theme="studio"\][^{]*object-chrome-button\.object-toolbar-item\.favorite\)\[data-pe-button\]\[aria-pressed="true"\] \{[^}]*color: var\(--studio-accent-strong\);/);
+  assert.match(read("public/style.css"), /object-chrome-button\.object-toolbar-item\.favorite\)\[data-pe-button\]\[aria-pressed="true"\] > svg \{\s*fill: currentColor;/);
   assert.match(read("public/style.css"), /\.object-chrome-button\.loading::after \{[^}]*animation: history-save-spin \.8s linear infinite;/);
   assert.match(read("public/style.css"), /object-chrome-button[^}]*scale\(var\(--object-control-scale, 1\)\)/);
   const canvasHtml = read("public/index.html"),
@@ -4181,12 +4189,11 @@ test("pending copy is exposed as a direct DOM chrome action", () => {
   assert.match(functionSource(app, "objectChromeLabel"), /kind === "copy"[\s\S]*?t\("copyText"\)/);
 });
 
-test("AI text copy uses the original command with an insecure-context fallback and local feedback", () => {
+test("AI text copy uses the original command with an insecure-context fallback and top status feedback", () => {
   const app = read("public/app.js"),
     clipboard = functionSource(app, "writeClipboardText"),
     fallback = functionSource(app, "fallbackCopyText"),
-    copy = functionSource(app, "copyPendingText"),
-    feedback = functionSource(app, "drawCopyFeedback");
+    copy = functionSource(app, "copyPendingText");
 
   assert.match(clipboard, /navigator\.clipboard\?\.writeText/);
   assert.match(clipboard, /fallbackCopyText\(text\)/);
@@ -4199,10 +4206,10 @@ test("AI text copy uses the original command with an insecure-context fallback a
   assert.match(copy, /generation = \+\+state\.copyGeneration/);
   assert.match(copy, /if \(!stillPending\(\)\) return copied/);
   assert.match(copy, /setStatusKey\("copyText"\)/);
-  assert.match(copy, /target\.copyFeedbackUntil = performance\.now\(\) \+ COPY_FEEDBACK_MS/);
   assert.match(copy, /setStatusKey\("textCopied"\)/);
-  assert.match(copy, /target\.copyFeedbackGeneration !== generation/);
-  assert.match(feedback, /label = t\("textCopied"\)/);
+  assert.match(copy, /setTimeout\([\s\S]*COPY_STATUS_MS \+ 30/);
+  assert.doesNotMatch(copy, /requestRender|copyFeedback/);
+  assert.doesNotMatch(app, /function drawCopyFeedback/);
 });
 
 test("clipboard fallback runs before awaiting a native clipboard attempt", async () => {
@@ -4256,7 +4263,7 @@ test("clipboard fallback runs before awaiting a native clipboard attempt", async
   assert.deepEqual(failed.calls, ["fallback", "native", "debug"]);
 });
 
-test("AI text copy ignores stale clipboard completions and stale feedback timers", async () => {
+test("AI text copy ignores stale clipboard completions and stale status timers", async () => {
   const source = functionSource(read("public/app.js"), "copyPendingText");
   function harness(writeClipboardText) {
     const pending = { copyText: "copy me" },
@@ -4269,11 +4276,9 @@ test("AI text copy ignores stale clipboard completions and stale feedback timers
       statuses,
       timers,
       copy: vm.runInNewContext(`(async ${source})`, {
-        COPY_FEEDBACK_MS: 1600,
-        performance: { now: () => 0 },
+        COPY_STATUS_MS: 1600,
         pendingTextTarget: (value) => value,
         pendingCopyValue: (value) => value?.copyText,
-        requestRender: () => {},
         setStatusKey: (key) => {
           state.statusKey = key;
           statuses.push(key);
@@ -4307,10 +4312,10 @@ test("AI text copy ignores stale clipboard completions and stale feedback timers
   const statusesBeforeOldTimer = current.statuses.slice();
   firstTimer();
   assert.deepEqual(current.statuses, statusesBeforeOldTimer);
-  assert.equal(current.pending.copyFeedbackGeneration, 2);
+  assert.equal(current.state.copyGeneration, 2);
 });
 
-test("batch drafts paint every body before selected feedback", () => {
+test("batch drafts paint every body before their chrome", () => {
   const source = functionSource(read("public/app.js"), "drawPendingBatch"),
     events = [],
     context = {
@@ -4333,7 +4338,6 @@ test("batch drafts paint every body before selected feedback", () => {
     draw = vm.runInNewContext(`(${source})`, {
       batchBounds: () => ({ x: 0, y: 0, w: 300, h: 180 }),
       ctx: context,
-      drawCopyFeedback: (_ctx, box) => events.push(`feedback:${box.id}`),
       drawResizeHandle: () => {},
       drawTextDraftSurface: (_ctx, box) => events.push(`surface:${box.id}`),
       pendingItemBounds: (item) => item.box,
@@ -4349,10 +4353,9 @@ test("batch drafts paint every body before selected feedback", () => {
     };
 
   draw(pending);
-  const firstFeedback = Math.min(events.indexOf("feedback:0"), events.indexOf("feedback:1")),
+  const firstChrome = events.indexOf("frame"),
     lastBody = Math.max(events.indexOf("body:0"), events.indexOf("body:1"));
-  assert.ok(firstFeedback > lastBody);
-  assert.ok(events.indexOf("feedback:1") < events.indexOf("feedback:0"));
+  assert.ok(firstChrome > lastBody);
 });
 
 test("batch draft action controls provide a 44px touch target", () => {

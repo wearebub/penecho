@@ -16,7 +16,9 @@ html.viewer-mode #settingsLayer,
 html.viewer-mode .canvas-navigation-lock,
 html.viewer-mode .canvas-navigation-lock-hint,
 html.viewer-mode .canvas-hint,
-html.viewer-mode #tip { display: none !important; }
+html.viewer-mode #tip,
+html.viewer-mode #canvasWelcome,
+html.viewer-mode .canvas-frame::after { display: none !important; }
 
 /* Widgets and placed content never capture the pointer: every gesture pans
    or zooms the canvas, which is exactly what a presentation viewer needs. */
@@ -41,9 +43,8 @@ html.viewer-mode, html.viewer-mode body { height: 100%; overflow: hidden; }
 }
 .viewer-topbar > * { pointer-events: auto; }
 
-/* Swiss-minimal viewer controls: one quiet brand surface, one grouped action
-   surface, and a single blue primary action. The restrained border/shadow is
-   enough to keep controls legible over arbitrary Canvas content. */
+/* Swiss-minimal viewer controls: one quiet brand surface and discrete actions.
+   The action row is layout-only so each button paints exactly one border. */
 .viewer-brand {
   flex: none;
   display: inline-flex;
@@ -78,11 +79,11 @@ html.viewer-mode, html.viewer-mode body { height: 100%; overflow: hidden; }
   max-width: calc(100% - 124px);
   align-items: center;
   gap: 4px;
-  padding: 4px;
-  border: 1px solid #e4e4e7;
-  border-radius: 14px;
-  background: #ffffff;
-  box-shadow: 0 4px 14px rgb(24 24 27 / .1);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
   opacity: .5;
   transition: opacity .18s ease;
 }
@@ -175,7 +176,7 @@ html.viewer-mode, html.viewer-mode body { height: 100%; overflow: hidden; }
   }
   .viewer-brand { width: 44px; padding: 7px; }
   .viewer-brand span { display: none; }
-  .viewer-actions { max-width: calc(100% - 52px); padding: 3px; gap: 2px; border-radius: 13px; }
+  .viewer-actions { max-width: calc(100% - 52px); gap: 2px; }
   .viewer-chip,
   .viewer-primary { min-height: 44px; padding-inline: 12px; }
   .viewer-account-action { max-width: min(28vw, 136px); }

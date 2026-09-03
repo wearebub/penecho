@@ -67,6 +67,7 @@ test("PenEcho Agent applies only a same-turn LLM title after completion without 
   assert.equal(visibleAssistantText("<penecho_canvas_title>旧标题</penecho_canvas_title>\n历史回答"),"历史回答");
   assert.equal(visibleAssistantText("历史回答\n\n<penecho_canvas_title>旧标题</penecho_canvas_title>"),"历史回答");
   assert.equal(visibleAssistantText("完成说明\n\n<penecho_canvas_title>旧标题</penecho_canvas_title>\n\n历史回答"),"完成说明\n\n历史回答");
+  assert.equal(visibleAssistantText("<phenecho_canvas_title>拼写容错标题</penecho_canvas_title>\n历史回答"),"历史回答");
   assert.equal(visibleAssistantText("<penecho_canvas_title>格式错误但正常回答"),"<penecho_canvas_title>格式错误但正常回答");
   assert.match(submit,/canvasTitleNeeded:currentCanvasNeedsAgentName\(\)&&canvasAgentConversationNeedsCanvasTitle\(canvasAgent\.currentConversation\)/);
   assert.match(submit,/reasoningEffort:state\.reasoningEffort/);
@@ -79,6 +80,9 @@ test("PenEcho Agent applies only a same-turn LLM title after completion without 
   assert.deepEqual(parseCanvasTitleEnvelope("完成说明\n\n<penecho_canvas_title>中间标题</penecho_canvas_title>\n\n正常回答",true),{matched:true,complete:true,title:"中间标题",text:"完成说明\n\n正常回答"});
   assert.deepEqual(parseCanvasTitleEnvelope("正文前 <penecho_canvas_title>\n  问候语 \n 核心概念  \n</penecho_canvas_title> 正文后",true),{matched:true,complete:true,title:"问候语 核心概念",text:"正文前  正文后"});
   assert.deepEqual(parseCanvasTitleEnvelope("正文<penecho_canvas_title>  并列标题  </penecho_canvas_title>后文",true),{matched:true,complete:true,title:"并列标题",text:"正文后文"});
+  assert.deepEqual(parseCanvasTitleEnvelope("<phenecho_canvas_title>Canvas性能优化架构分析</penecho_canvas_title>\n正常回答",true),{matched:true,complete:true,title:"Canvas性能优化架构分析",text:"正常回答"});
+  assert.deepEqual(parseCanvasTitleEnvelope("<penecho_canvas_title>结束标签拼写容错</phenecho_canvas_title>\n正常回答",true),{matched:true,complete:true,title:"结束标签拼写容错",text:"正常回答"});
+  assert.deepEqual(parseCanvasTitleEnvelope("<pheneco_canvas_title>不应宽泛匹配</penecho_canvas_title>\n正常回答",true),{matched:false,complete:true,title:"",text:"<pheneco_canvas_title>不应宽泛匹配</penecho_canvas_title>\n正常回答"});
   assert.equal(parseCanvasTitleEnvelope(`<penecho_canvas_title>${"a".repeat(47)} b</penecho_canvas_title>`,true).title,"a".repeat(47));
   assert.deepEqual(parseCanvasTitleEnvelope("<penecho_canvas_title>格式错误但正常回答",true),{matched:false,complete:true,title:"",text:"<penecho_canvas_title>格式错误但正常回答"});
   const session={canvasTitleRequested:true,canvasTitleCandidate:"",canvasTitleStreams:new Map()},event=(type,data)=>({type,data});
@@ -93,6 +97,10 @@ test("PenEcho Agent applies only a same-turn LLM title after completion without 
   assert.equal(publicSessionEvent(event("assistant/chunk",{turn:1,step:3,chunk:{type:"text-delta",text:"title>尾部标题</penecho_canvas_title>"}}),footerSession),null);
   assert.deepEqual(publicSessionEvent(event("assistant/message",{turn:1,step:3,message:{content:[{type:"text",text:"正常回答\n\n<penecho_canvas_title>尾部标题</penecho_canvas_title>"}]}}),footerSession),{kind:"assistant_message",turn:1,step:3,text:"正常回答",interrupted:false});
   assert.deepEqual(publicSessionEvent(event("turn/end",{turn:1,reason:{kind:"completed"}}),footerSession),{kind:"turn_end",turn:1,reason:{kind:"completed"},canvasTitle:"尾部标题"});
+  const typoSession={canvasTitleRequested:true,canvasTitleCandidate:"",canvasTitleStreams:new Map()};
+  assert.equal(publicSessionEvent(event("assistant/chunk",{turn:1,step:4,chunk:{type:"text-delta",text:"<phenecho_canvas_"}}),typoSession),null);
+  assert.deepEqual(publicSessionEvent(event("assistant/chunk",{turn:1,step:4,chunk:{type:"text-delta",text:"title>Canvas性能优化架构分析</penecho_canvas_title>\n正常回答"}}),typoSession),{kind:"assistant_delta",turn:1,step:4,text:"正常回答"});
+  assert.deepEqual(publicSessionEvent(event("turn/end",{turn:1,reason:{kind:"completed"}}),typoSession),{kind:"turn_end",turn:1,reason:{kind:"completed"},canvasTitle:"Canvas性能优化架构分析"});
   const laterSession={canvasTitleRequested:false,canvasTitleCandidate:"",canvasTitleStreams:new Map()};
   assert.equal(publicSessionEvent(event("assistant/chunk",{turn:2,step:1,chunk:{type:"text-delta",text:"<penecho_canvas_"}}),laterSession),null);
   assert.deepEqual(publicSessionEvent(event("assistant/chunk",{turn:2,step:1,chunk:{type:"text-delta",text:"title>后续标题不能显示</penecho_canvas_title>\n后续回答"}}),laterSession),{kind:"assistant_delta",turn:2,step:1,text:"后续回答"});

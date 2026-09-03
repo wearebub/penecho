@@ -113,6 +113,19 @@ test("the viewer controls stay quiet until hovered or focused", () => {
   assert.match(css, /\.viewer-actions:hover,[\s\S]*?\.viewer-actions:focus-within\s*\{\s*opacity:\s*1/);
 });
 
+test("the viewer removes edit guidance, the canvas seam, and the duplicate action border", () => {
+  const css = read("public/viewer.css");
+
+  assert.match(
+    css,
+    /html\.viewer-mode #canvasWelcome,[\s\S]*?html\.viewer-mode \.canvas-frame::after\s*\{\s*display:\s*none !important;/,
+  );
+  assert.match(
+    css,
+    /\.viewer-actions\s*\{[^}]*padding:\s*0;[^}]*border:\s*0;[^}]*border-radius:\s*0;[^}]*background:\s*transparent;[^}]*box-shadow:\s*none;/,
+  );
+});
+
 test("Widget hosts stay same-origin in Viewer and Cloud while the local app keeps loopback isolation", (t) => {
   const canvas = read("src/client/app/canvas-runtime.js"),
     source = functionSource(canvas, "widgetHostUrl"),

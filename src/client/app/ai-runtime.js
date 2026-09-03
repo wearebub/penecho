@@ -1560,7 +1560,6 @@
     ctx.lineTo(b.x + b.w / 2 + s * 0.48, b.y + b.h + s * 0.08);
     ctx.stroke();
     ctx.restore();
-    drawCopyFeedback(ctx, b, s, p);
   }
   function drawPendingBatch(p, context = ctx, options = null) {
     const ctx = context,
@@ -1605,7 +1604,6 @@
       ctx.setLineDash(index === p.selectedIndex ? [] : [6 * unit, 6 * unit]);
       ctx.strokeRect(box.x, box.y, box.w, box.h);
       ctx.restore();
-      drawCopyFeedback(ctx, box, s, item);
     }
     ctx.save();
     ctx.strokeStyle = "#2679b8";
@@ -1696,28 +1694,6 @@
       }
       context.stroke();
     }
-    context.restore();
-  }
-  function drawCopyFeedback(context, box, s, target) {
-    if (target?.copyFeedbackGeneration !== state.copyGeneration || !Number.isFinite(target.copyFeedbackUntil) || target.copyFeedbackUntil <= performance.now()) return;
-    const unit = 1 / state.scale,
-      label = t("textCopied"),
-      fontSize = 11 * unit,
-      paddingX = 6 * unit,
-      paddingY = 4 * unit;
-    context.save();
-    context.font = `700 ${fontSize}px system-ui, sans-serif`;
-    const width = context.measureText(label).width + paddingX * 2,
-      height = fontSize + paddingY * 2,
-      x = Math.max(0, Math.min(SIZE - width, box.x + box.w / 2 - width / 2)),
-      above = box.y - s * 1.15 - height,
-      y = above >= 0 ? above : Math.min(SIZE - height, box.y + s * 0.95);
-    context.fillStyle = "#111827e8";
-    context.fillRect(x, y, width, height);
-    context.fillStyle = "#fff";
-    context.textAlign = "center";
-    context.textBaseline = "middle";
-    context.fillText(label, x + width / 2, y + height / 2);
     context.restore();
   }
   function drawResizeHandle(context, b, s) {
@@ -1883,7 +1859,6 @@
     const generation = ++state.copyGeneration,
       stillPending = () => state.copyGeneration === generation && state.pending === pending && (pending?.items ? pending.items.includes(target) : target === pending);
     setStatusKey("copyText");
-    requestRender();
     const copied = await writeClipboardText(text);
     if (!stillPending()) return copied;
     if (!copied) {
@@ -1891,17 +1866,10 @@
       return false;
     }
     setStatusKey("textCopied");
-    target.copyFeedbackGeneration = generation;
-    target.copyFeedbackUntil = performance.now() + COPY_FEEDBACK_MS;
-    requestRender();
     setTimeout(() => {
-      if (!stillPending() || target.copyFeedbackGeneration !== generation) return;
-      if (target.copyFeedbackUntil <= performance.now()) {
-        target.copyFeedbackUntil = 0;
-        requestRender();
-      }
+      if (!stillPending()) return;
       if (state.statusKey === "textCopied") setStatusKey(state.pending?.items ? "batchDraftReady" : state.pending ? "draftReady" : "ready");
-    }, COPY_FEEDBACK_MS + 30);
+    }, COPY_STATUS_MS + 30);
     return true;
   }
   function acceptPending(options) {

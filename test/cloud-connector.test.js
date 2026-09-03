@@ -56,6 +56,7 @@ test("personal Widget favorites send one JSON object through the local Cloud acc
         artifact:{ format:"penecho-widget", formatVersion:1, widget:{ title:"Timer" } },
         thumbnail:"AA==",
         sourceItemId:null,
+        sourceWidgetId:"11111111-1111-4111-8111-111111111111",
       });
       return new Response(JSON.stringify({ favorite:{ id:"favorite-1", name:"Timer" } }), { status:201, headers:{ "content-type":"application/json" } });
     };
@@ -63,6 +64,7 @@ test("personal Widget favorites send one JSON object through the local Cloud acc
       name:"Timer",
       artifact:{ format:"penecho-widget", formatVersion:1, widget:{ title:"Timer" } },
       thumbnail:"AA==",
+      sourceWidgetId:"11111111-1111-4111-8111-111111111111",
     })).id, "favorite-1");
   } finally {
     global.fetch = originalFetch;

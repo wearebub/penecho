@@ -1159,12 +1159,11 @@
     return `${text.slice(0,end)}…`;
   }
   function canvasAgentVisibleAssistantText(value) {
-    const text=String(value||""),open="<penecho_canvas_title>",close="</penecho_canvas_title>";
-    const start=text.indexOf(open);
-    if(start<0)return canvasAgentMessageText(text);
-    const end=text.indexOf(close,start+open.length);
-    if(end<0)return canvasAgentMessageText(text);
-    const before=text.slice(0,start),after=text.slice(end+close.length),left=before.match(/(?:\r?\n[ \t]*)+$/)?.[0]||"",right=after.match(/^(?:[ \t]*\r?\n)+/)?.[0]||"",lineBreak=left.includes("\r\n")||right.includes("\r\n")?"\r\n":"\n",breaks=Math.min(2,Math.max((left.match(/\n/g)||[]).length,(right.match(/\n/g)||[]).length));
+    const text=String(value||""),opening=/<p(?:h)?enecho_canvas_title>/.exec(text);
+    if(!opening)return canvasAgentMessageText(text);
+    const start=opening.index,titleStart=start+opening[0].length,closing=/<\/p(?:h)?enecho_canvas_title>/.exec(text.slice(titleStart));
+    if(!closing)return canvasAgentMessageText(text);
+    const end=titleStart+closing.index,before=text.slice(0,start),after=text.slice(end+closing[0].length),left=before.match(/(?:\r?\n[ \t]*)+$/)?.[0]||"",right=after.match(/^(?:[ \t]*\r?\n)+/)?.[0]||"",lineBreak=left.includes("\r\n")||right.includes("\r\n")?"\r\n":"\n",breaks=Math.min(2,Math.max((left.match(/\n/g)||[]).length,(right.match(/\n/g)||[]).length));
     return canvasAgentMessageText(!before.trim()?after.slice(right.length):!after.trim()?before.slice(0,before.length-left.length):left&&right?`${before.slice(0,before.length-left.length)}${lineBreak.repeat(breaks)}${after.slice(right.length)}`:`${before}${after}`);
   }
   function canvasAgentNormalizeHistoryFile(value) {
