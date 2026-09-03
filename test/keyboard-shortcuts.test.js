@@ -34,21 +34,23 @@ test("Settings exposes a catalog-backed Keyboard shortcuts page", () => {
   assert.match(css, /@container \(max-width: 480px\)[\s\S]*?\.settings-shortcut-row\[data-pe-list="settings"\][^{]*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)/);
 });
 
-test("shortcut defaults cover Agent focus, save, history, editing, tools, and workspace actions", () => {
+test("shortcut defaults cover Agent focus, save, history, editing, and workspace actions", () => {
   const source = read("src/client/app/keyboard-shortcuts.js"), build = read("scripts/build-client.js");
   assert.match(build, /src\/client\/app\/keyboard-shortcuts\.js/);
   for (const [id, chord] of [
     ["focus-agent", "Tab"], ["save-canvas", "Mod+s"], ["undo", "Mod+z"],
-    ["redo", "Mod+Shift+z"], ["tool-pen", "p"], ["tool-hand", "h"],
-    ["tool-eraser", "e"], ["tool-select", "v"], ["tool-text", "t"],
-    ["new-canvas", "Mod+n"], ["canvas-library", "Mod+o"], ["toggle-grid", "g"],
+    ["redo", "Mod+Shift+z"], ["canvas-library", "Mod+o"],
     ["toggle-fullscreen", "Mod+Shift+f"], ["open-settings", "Mod+,"],
   ]) assert.match(source, new RegExp(`id:\\"${id}\\"[^\\n]*defaultChord:\\"${chord.replace(/[+]/g, "\\+")}\\"`));
+  for (const hiddenId of ["tool-pen", "tool-hand", "tool-eraser", "tool-select", "tool-text", "toggle-grid", "new-canvas"]) {
+    assert.doesNotMatch(source, new RegExp(`id:\\"${hiddenId}\\"`));
+  }
+  assert.doesNotMatch(source, /settingsShortcutGroupTools|group:"tools"|defaultChord:"g"|defaultChord:"Mod\+n"/);
   const perform = functionSource(source, "keyboardShortcutPerform");
   assert.match(perform, /openCanvasAgent\(\{ focus:true, animate:opening \}\)/);
   assert.match(perform, /void saveCurrentCanvas\(\)/);
   assert.match(perform, /querySelector\(`\[data-action="\$\{commandId\}"\]`\)\?\.click\(\)/);
-  assert.match(perform, /selectCanvasToolMode\("pen", \{ showHint:true \}\)/);
+  assert.doesNotMatch(perform, /selectCanvasToolMode|gridToggle|newCanvasBtn/);
   assert.match(perform, /openHistoryPanel\(\)/);
 });
 

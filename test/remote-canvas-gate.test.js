@@ -321,7 +321,7 @@ test("Remote Canvas gate stays compact, accessible and mobile-friendly", () => {
   assert.match(gateScript, /gate\.setAttribute\("aria-live", "polite"\)/);
   assert.match(gateScript, /card\.setAttribute\("aria-labelledby", "remoteCanvasTitle"\)/);
   assert.match(gateCss, /\.remote-canvas-card\s*\{[^}]*max-width:\s*480px/);
-  assert.match(gateCss, /\.remote-canvas-card h2\s*\{[^}]*font-size:\s*20px[^}]*letter-spacing:\s*0/);
+  assert.match(gateCss, /\.remote-canvas-card h2\s*\{[^}]*font-size:\s*17px[^}]*font-weight:\s*600[^}]*letter-spacing:\s*normal/);
   assert.match(gateCss, /\.remote-canvas-actions a\s*\{[^}]*min-height:\s*36px/);
   assert.match(gateCss, /@media \(pointer: coarse\)\s*\{[^}]*\.remote-canvas-actions a\s*\{\s*min-height:\s*44px/);
   assert.doesNotMatch(gateCss, /font-size:\s*clamp|letter-spacing:\s*-/);

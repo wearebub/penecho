@@ -72,7 +72,7 @@ test("Studio uses one UI family with only handwriting and technical exceptions",
   assert.match(css, /h1 strong\s*\{[^}]*font-weight:\s*600/);
   assert.match(css, /\.canvas-welcome strong\s*\{[^}]*font-weight:\s*600/);
   assert.match(css, /\.canvas-welcome > span:last-child\s*\{[^}]*font-weight:\s*400/);
-  assert.match(css, /\.text-editor-title\s*\{[^}]*font:\s*600[^}]*var\(--pe-font-ui/);
+  assert.match(css, /\.text-editor-title\s*\{[^}]*font:\s*500[^}]*var\(--pe-font-ui/);
   assert.match(css, /\.text-editor-button\s*\{[^}]*font:\s*500[^}]*var\(--pe-font-ui/);
   assert.match(css, /\.canvas-agent-file-type\s*\{[^}]*font:\s*600[^}]*var\(--pe-font-mono/);
   assert.match(css, /\.canvas-agent-reference-chip\s*\{[^}]*font-weight:\s*500/);
@@ -95,7 +95,9 @@ test("Agent activity reserves heavier emphasis for parsed Markdown", () => {
 
 test("scaled dialogs use the logical viewport instead of clipping enlarged text", () => {
   const scale = read("public/page-scale.js"), css = read("public/style.css"), cloud = read("public/cloud-connect.css");
-  assert.match(scale, /--penecho-canvas-page-viewport-width/);
+  assert.match(scale, /root\.dataset\.penechoPageScale/);
+  assert.doesNotMatch(scale, /root\.style/);
+  assert.match(css, /data-penecho-page-scale="90"[\s\S]*?--penecho-canvas-page-viewport-width/);
   assert.match(css, /\.settings-panel[^}]*--penecho-canvas-page-viewport-width/);
   assert.match(css, /html\.penecho-web-page-scale \.crafts-modal[\s\S]*--penecho-canvas-page-dynamic-height/);
   assert.match(cloud, /html\.penecho-web-page-scale \.penecho-cloud-dialog\.cloud-center[\s\S]*--penecho-canvas-page-dynamic-height/);

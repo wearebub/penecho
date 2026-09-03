@@ -4,20 +4,12 @@
     { id:"save-canvas", group:"essential", labelKey:"saveCanvas", descriptionKey:"shortcutSaveCanvasHelp", defaultChord:"Mod+s" },
     { id:"undo", group:"essential", labelKey:"undo", descriptionKey:"shortcutUndoHelp", defaultChord:"Mod+z" },
     { id:"redo", group:"essential", labelKey:"redo", descriptionKey:"shortcutRedoHelp", defaultChord:"Mod+Shift+z" },
-    { id:"tool-pen", group:"tools", labelKey:"pen", descriptionKey:"shortcutPenHelp", defaultChord:"p" },
-    { id:"tool-hand", group:"tools", labelKey:"hand", descriptionKey:"shortcutHandHelp", defaultChord:"h" },
-    { id:"tool-eraser", group:"tools", labelKey:"eraser", descriptionKey:"shortcutEraserHelp", defaultChord:"e" },
-    { id:"tool-select", group:"tools", labelKey:"select", descriptionKey:"shortcutSelectHelp", defaultChord:"v" },
-    { id:"tool-text", group:"tools", labelKey:"text", descriptionKey:"shortcutTextHelp", defaultChord:"t" },
-    { id:"new-canvas", group:"workspace", labelKey:"newCanvas", descriptionKey:"shortcutNewCanvasHelp", defaultChord:"Mod+n" },
     { id:"canvas-library", group:"workspace", labelKey:"shortcutCanvasLibrary", descriptionKey:"shortcutCanvasLibraryHelp", defaultChord:"Mod+o" },
-    { id:"toggle-grid", group:"workspace", labelKey:"shortcutToggleGrid", descriptionKey:"shortcutToggleGridHelp", defaultChord:"g" },
     { id:"toggle-fullscreen", group:"workspace", labelKey:"fullscreen", descriptionKey:"shortcutFullscreenHelp", defaultChord:"Mod+Shift+f" },
     { id:"open-settings", group:"workspace", labelKey:"settingsTitle", descriptionKey:"shortcutSettingsHelp", defaultChord:"Mod+," },
   ]);
   const KEYBOARD_SHORTCUT_GROUPS = Object.freeze([
     { id:"essential", labelKey:"settingsShortcutGroupEssential" },
-    { id:"tools", labelKey:"settingsShortcutGroupTools" },
     { id:"workspace", labelKey:"settingsShortcutGroupWorkspace" },
   ]);
   const KEYBOARD_SHORTCUT_SPECIAL_KEYS = new Map([
@@ -238,14 +230,7 @@
     }
     if (commandId === "save-canvas") { void saveCurrentCanvas(); return true; }
     if (commandId === "undo" || commandId === "redo") { document.querySelector(`[data-action="${commandId}"]`)?.click(); return true; }
-    if (commandId === "tool-pen") return selectCanvasToolMode("pen", { showHint:true });
-    if (commandId === "tool-hand") return selectCanvasToolMode("hand", { showHint:true });
-    if (commandId === "tool-eraser") return selectCanvasToolMode(state.eraserMode, { showHint:true });
-    if (commandId === "tool-select") return selectCanvasToolMode("select", { showHint:true });
-    if (commandId === "tool-text") return selectCanvasToolMode("text", { showHint:true });
-    if (commandId === "new-canvas") { document.querySelector("#newCanvasBtn")?.click(); return true; }
     if (commandId === "canvas-library") { openHistoryPanel(); return true; }
-    if (commandId === "toggle-grid") { document.querySelector("#gridToggle")?.click(); return true; }
     if (commandId === "toggle-fullscreen") { document.querySelector("#fullscreenBtn")?.click(); return true; }
     if (commandId === "open-settings") { if (settings.open) closeSettings(); else openSettings(); return true; }
     return false;

@@ -23,11 +23,10 @@ if (typeof window !== "undefined" && typeof document !== "undefined") {
 
   function applyCanvasPageScale(value, { persist = true } = {}) {
     currentScale = normalizeCanvasPageScale(value);
-    root.style.setProperty("--penecho-canvas-page-scale", String(currentScale));
-    root.style.setProperty("--penecho-canvas-page-viewport-width", `${100 / currentScale}vw`);
-    root.style.setProperty("--penecho-canvas-page-viewport-height", `${100 / currentScale}vh`);
-    root.style.setProperty("--penecho-canvas-page-dynamic-height", `${100 / currentScale}dvh`);
-    root.classList.toggle("penecho-web-page-scale", window.PENECHO_CONFIG?.desktopApp !== true && currentScale !== 1);
+    const webScale = window.PENECHO_CONFIG?.desktopApp !== true && currentScale !== 1;
+    root.classList.toggle("penecho-web-page-scale", webScale);
+    if (webScale) root.dataset.penechoPageScale = String(Math.round(currentScale * 100));
+    else delete root.dataset.penechoPageScale;
     if (persist) {
       try { localStorage.setItem(CANVAS_PAGE_SCALE_STORAGE_KEY, String(currentScale)); } catch {}
     }

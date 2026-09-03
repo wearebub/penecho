@@ -8,6 +8,7 @@ const vm = require("node:vm");
 
 const ROOT = path.resolve(__dirname, ".."),
   source = fs.readFileSync(path.join(ROOT, "public", "plugins.js"), "utf8"),
+  canvasRuntime = fs.readFileSync(path.join(ROOT, "src", "client", "app", "canvas-runtime.js"), "utf8"),
   pluginDirectory = path.join(ROOT, "public", "plugins"),
   pluginFiles = fs.readdirSync(pluginDirectory).filter((file) => file.endsWith(".md")).sort(),
   pluginBundles = fs.readdirSync(pluginDirectory, { withFileTypes:true })
@@ -18,6 +19,32 @@ const ROOT = path.resolve(__dirname, ".."),
   context = { window:{}, URL };
 vm.runInNewContext(source, context);
 const plugins = context.window.PENECHO_PLUGINS;
+
+test("Cloud General HTML widgets request browser-direct public HTTPS access", () => {
+  assert.match(canvasRuntime, /runtime === "cloud" && manifest\.id === "general"[\s\S]*?url\.searchParams\.set\("public-https", "1"\)/);
+});
+
+test("strict Widget snapshot preparation preserves the original capture error", async () => {
+  const debugEvents = [], snapshotError = Error("Widget snapshot timed out"),
+    prepare = vm.runInNewContext(`(async ${functionSource(canvasRuntime, "prepareVisibleWidgetSnapshots")})`, {
+      capturableWidgets:() => [{ id:"widget-science", snapshotImage:null }],
+      requestWidgetSnapshot:async () => { throw snapshotError; },
+      widgetSnapshotAbortError:() => Error("aborted"),
+      WIDGET_SNAPSHOT_TIMEOUT_MS:20_000,
+      WIDGET_HISTORY_SNAPSHOT_WAIT_MS:3_000,
+      debug:(...args) => debugEvents.push(args),
+      setTimeout:() => 0,
+    });
+  await assert.rejects(prepare(null, false), /Widget snapshot timed out/);
+  assert.equal(debugEvents.length, 0, "strict capture failures are not relabeled as a degraded preview");
+  assert.deepEqual(JSON.parse(JSON.stringify(await prepare(null, true))), { total:1, captured:0, missing:1 });
+  assert.equal(debugEvents[0][0], "widget-snapshot-degraded");
+});
+
+test("Widget snapshot errors retain the host-provided failure detail", () => {
+  assert.match(functionSource(canvasRuntime, "handleWidgetMessage"), /snapshotFailure = message\.type === "penecho-widget-snapshot-error"[\s\S]*?String\(message\.error[\s\S]*?pending\.reject\(Error\(snapshotFailure\)\)/);
+  assert.match(functionSource(canvasRuntime, "requestWidgetSnapshot"), /reject\(Error\("Widget snapshot timed out"\)\)/);
+});
 
 function functionSource(input, name) {
   const start = input.indexOf(`function ${name}(`), body = input.indexOf("{", start);

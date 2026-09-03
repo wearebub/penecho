@@ -1425,7 +1425,7 @@ test("shared PenEcho server canvases retain up to one hundred widgets, images, a
     assert.equal(imagesAccepted.status,201,JSON.stringify(imagesAcceptedBody));
     assert.equal(imagesAcceptedBody.canvas.imageCount,100);
     const imagesStored=await fetch(`${origin}/api/canvases/${encodeURIComponent(imagesAcceptedBody.canvas.id)}`).then(response=>response.json());
-    assert.equal(imagesStored.canvas.assets.find(asset=>asset.metadata?.resourceId==="image-1").metadata.plotExpression,"x^2+1");
+    assert.equal(imagesStored.canvas.images.find(image=>image.id==="image-1").plotExpression,"x^2+1");
 
     const imagesRejected=await fetch(`${origin}/api/canvases`,{
       method:"POST",
@@ -3100,10 +3100,12 @@ test("debug persistence redacts recognized and generated text", { timeout: 20000
 });
 
 test("static page keeps strict styles while allowing the pinned MathJax CDN", () => {
-  const html = fs.readFileSync(path.join(ROOT, "public", "index.html"), "utf8"), css = fs.readFileSync(path.join(ROOT, "public", "style.css"), "utf8"), app = fs.readFileSync(path.join(ROOT, "public", "app.js"), "utf8"), config=fs.readFileSync(path.join(ROOT,"public","mathjax-config.js"),"utf8"), server=fs.readFileSync(path.join(ROOT,"src","server","main.js"),"utf8");
+  const html = fs.readFileSync(path.join(ROOT, "public", "index.html"), "utf8"), css = fs.readFileSync(path.join(ROOT, "public", "style.css"), "utf8"), app = fs.readFileSync(path.join(ROOT, "public", "app.js"), "utf8"), pageScale=fs.readFileSync(path.join(ROOT,"public","page-scale.js"),"utf8"), config=fs.readFileSync(path.join(ROOT,"public","mathjax-config.js"),"utf8"), server=fs.readFileSync(path.join(ROOT,"src","server","main.js"),"utf8"), elementStyleWrites=[...app.matchAll(/([A-Za-z_$][\w$?.]*)\.style\.(?:setProperty|removeProperty|[A-Za-z_$][\w$]*\s*=)/g)].filter(([,owner])=>!owner.endsWith(".styleRule")).map(([write])=>write);
   assert.doesNotMatch(html, /\sstyle=/i);
   assert.match(css, /\.color-blue\s*\{/);
-  assert.doesNotMatch(app, /\.style\.|setAttribute\(\s*["']style["']/);
+  assert.deepEqual(elementStyleWrites,[]);
+  assert.doesNotMatch(app, /setAttribute\(\s*["']style["']/);
+  assert.doesNotMatch(pageScale,/\.style\.|setAttribute\(\s*["']style["']/);
   assert.match(html, /https:\/\/cdn\.jsdelivr\.net\/npm\/mathjax@3\.2\.2\/es5\/tex-svg\.js/);
   assert.match(html, /integrity="sha384-KKWa9jJ1MZvssLeOoXG6FiOAZfAgmzsIIfw8BXwI9\+kYm0lPCbC6yTQPBC00F1\/L"/);
   assert.match(html, /crossorigin="anonymous"/);

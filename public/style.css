@@ -61,6 +61,24 @@ body::before {
 
 main { position: relative; display: flex; width: 100%; min-height: 100vh; min-height: 100dvh; flex-direction: column; max-width: none; margin: 0 auto; padding: 6px clamp(6px, 1.2vw, 16px); }
 @media (min-width: 701px) {
+  html.penecho-web-page-scale[data-penecho-page-scale="90"] {
+    --penecho-canvas-page-scale: .9;
+    --penecho-canvas-page-viewport-width: 111.11111111111111vw;
+    --penecho-canvas-page-viewport-height: 111.11111111111111vh;
+    --penecho-canvas-page-dynamic-height: 111.11111111111111dvh;
+  }
+  html.penecho-web-page-scale[data-penecho-page-scale="110"] {
+    --penecho-canvas-page-scale: 1.1;
+    --penecho-canvas-page-viewport-width: 90.9090909090909vw;
+    --penecho-canvas-page-viewport-height: 90.9090909090909vh;
+    --penecho-canvas-page-dynamic-height: 90.9090909090909dvh;
+  }
+  html.penecho-web-page-scale[data-penecho-page-scale="125"] {
+    --penecho-canvas-page-scale: 1.25;
+    --penecho-canvas-page-viewport-width: 80vw;
+    --penecho-canvas-page-viewport-height: 80vh;
+    --penecho-canvas-page-dynamic-height: 80dvh;
+  }
   html.penecho-web-page-scale { zoom: var(--penecho-canvas-page-scale); }
   html.penecho-web-page-scale body,
   html.penecho-web-page-scale main {

@@ -128,9 +128,29 @@ test("PenEcho Agent chooses three context-specific primary intents",()=>{
   for(const item of Object.values(constants.library))assert.ok(["notes","files","create"].includes(item.category),`${item.prompt} needs one prompt category`);
   for(const [context,ids] of Object.entries(expected)){
     const set=vm.runInNewContext(`(()=>{${functionSource("canvasAgentPromptSuggestionSet")}return canvasAgentPromptSuggestionSet;})()`,{CANVAS_AGENT_PROMPT_LIBRARY:constants.library,CANVAS_AGENT_PROMPT_ADDITIONAL:constants.additional,CANVAS_AGENT_PROMPT_PRIMARY:constants.primary,canvasAgentPromptContext:()=>context})();
-    assert.equal(set.suggestions.length,context==="notes"?11:12);assert.deepEqual(Array.from(set.suggestions.slice(-3),item=>item.id),ids);
+    assert.equal(set.suggestions.length,context==="notes"?17:18);assert.deepEqual(Array.from(set.suggestions.slice(-3),item=>item.id),ids);
     assert.equal(defaultCategory(context),["image","spreadsheet","presentation","document","code","file","project"].includes(context)?"files":"notes");
   }
+});
+
+test("PenEcho Agent adds three distinct Files requests and three distinct Create requests",()=>{
+  const constants=promptConstants(),expected=[
+    ["compareFiles","files","Compare Related Files","比较相关文件"],
+    ["projectEvidence","files","Find Evidence Across the Project","查找项目依据"],
+    ["releaseReadiness","files","Review the Project for Release","检查发布就绪状态"],
+    ["interactivePrototype","create","Build a Clickable Prototype","构建可交互原型"],
+    ["interactiveCalculator","create","Create an Interactive Calculator","创建交互式计算器"],
+    ["selfCheckQuiz","create","Make a Self-Check Quiz","制作互动自测"],
+  ];
+  assert.deepEqual(Array.from(constants.additional.slice(-6)),expected.map(([id])=>id));
+  for(const [id,category,enTitle,zhTitle] of expected){
+    const item=constants.library[id];
+    assert.equal(item.category,category);assert.equal(translation(english,item.title),enTitle);assert.equal(translation(chinese,item.title),zhTitle);
+    assert.notEqual(translation(english,item.prompt),enTitle,"the selected value must use the full request, not its visible title");
+    assert.notEqual(translation(chinese,item.prompt),zhTitle,"the selected value must use the localized full request, not its visible title");
+  }
+  const additions=expected.map(([id])=>constants.library[id]);
+  assert.equal(new Set(additions.map(item=>item.prompt)).size,6);assert.equal(new Set(additions.map(item=>item.title)).size,6);
 });
 
 function interactiveScene(){
@@ -146,7 +166,7 @@ function interactiveScene(){
 
 test("PenEcho Agent renders contextual ideas as compact title-only rows",()=>{
   const scene=interactiveScene();scene.render(scene.set);
-  assert.deepEqual(scene.lists.map(list=>list.children.length),[6,4,2]);
+  assert.deepEqual(scene.lists.map(list=>list.children.length),[6,7,5]);
   assert.equal(scene.notes.hidden,false);assert.equal(scene.files.hidden,true);assert.equal(scene.create.hidden,true);
   const button=scene.notes.children.at(-1),preview=button.children[0],copy=button.children[1],title=copy.children[0];
   assert.equal(button.dataset.peItem,"icon-copy-action");assert.equal(button.dataset.peState,"default");assert.equal(button.className,"canvas-agent-prompt-row");assert.equal(preview.dataset.peRegion,"media");assert.equal(copy.dataset.peRegion,"copy");assert.equal(copy.children.length,1);assert.equal(title.tag,"strong");assert.equal(title.dataset.peRegion,"title");assert.equal(title.textContent,"Enhance My Handwritten Notes");assert.equal(button.getAttribute("aria-label"),"Enhance My Handwritten Notes");

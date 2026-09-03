@@ -3181,7 +3181,9 @@ test("PenEcho Agent UI and browser Facade support local and Cloud runtimes and a
   assert.doesNotMatch(functionSource(source,"canvasAgentUpdateConnectionButton"),/connectionSummary|apiUrl|provider/);
   assert.match(functionSource(source,"canvasAgentOpenConnectionSettings"),/selectSettingsPage\("connections"\)[\s\S]*openSettings\(\)/);
   assert.match(source,/canvasAgentConnectionButton\?\.addEventListener\("click",canvasAgentOpenConnectionSettings\)/);
-  assert.match(source,/function openCanvasAgent\([\s\S]{0,300}?settings\.connections\.length\)canvasAgentUpdateConnectionButton\(\);[\s\S]*?else void loadCanvasSettings\(\)/);
+  assert.match(functionSource(source,"canvasAgentPrepareOpenState"),/settings\.connections\.length\)canvasAgentUpdateConnectionButton\(\);[\s\S]*?else void loadCanvasSettings\(\)/);
+  assert.match(functionSource(source,"canvasAgentFinishDockedOpen"),/canvasAgentPrepareOpenState\(\)/);
+  assert.match(functionSource(source,"canvasAgentFinishFloatingOpen"),/canvasAgentPrepareOpenState\(\)/);
   assert.match(changeConnectionSource,/"change_connection"[\s\S]*webSearchEnabled:canvasAgent\.searchEnabled/);
   assert.doesNotMatch(changeConnectionSource,/canvasAgentClearTranscript|canvasAgentBeginLocalConversation|canvasAgentClearAttachments/);
   assert.match(http,/sendForHandshake[\s\S]*\["ready","error"\][\s\S]*handshakeId/);
@@ -3284,7 +3286,7 @@ test("PenEcho Agent UI and browser Facade support local and Cloud runtimes and a
   assert.match(functionSource(source,"canvasAgentCopyAssistantMessage"),/target\?\.messageText[\s\S]*?historyItem\.copyable!==true[\s\S]*?writeClipboardText\(text\)/);
   assert.match(functionSource(source,"canvasAgentAppendMessageElement"),/item\.role==="assistant"[\s\S]*?canvas-agent-message-copy[\s\S]*?item\.copyable===true/);
   assert.match(functionSource(source,"canvasAgentMarkTurnSummaryCopyable"),/currentConversation\?\.items[\s\S]*?lastToolIndex[\s\S]*?assistantRows\.values[\s\S]*?index>lastToolIndex[\s\S]*?historyItem\?\.final!==false[\s\S]*?candidates\.at\(-1\)[\s\S]*?canvasAgentSetAssistantCopyReady\(target,true\)/);
-  assert.match(source,/function canvasAgentHandleEvent[\s\S]*?assistant_delta[\s\S]*?final:false[\s\S]*?assistant_message[\s\S]*?turn_end[\s\S]*?reason\?\.kind==="completed"[\s\S]*?canvasAgentMarkTurnSummaryCopyable\(event\.turn\)/);
+  assert.match(source,/function canvasAgentHandleEvent[\s\S]*?assistant_delta[\s\S]*?historyItem\.final=false[\s\S]*?assistant_message[\s\S]*?historyItem\.final=true[\s\S]*?turn_end[\s\S]*?reason\?\.kind==="completed"[\s\S]*?canvasAgentMarkTurnSummaryCopyable\(event\.turn\)/);
   assert.match(source,/turn_end[\s\S]*?lastTurnError=event\.reason\?\.kind==="error"\?canvasAgentNormalizeError[\s\S]*?canvasAgentErrorRow\(canvasAgent\.lastTurnError[\s\S]*?canvasAgentErrorSummary\(canvasAgent\.lastTurnError\)/);
   assert.match(source,/agent_status[\s\S]*?status === "idle"&&canvasAgent\.lastTurnError[\s\S]*?canvasAgentErrorSummary\(canvasAgent\.lastTurnError\)/);
   assert.match(source,/status === "preparing"[\s\S]*?phase==="installing"\?"canvasAgentSettingUpCodex":phase==="repairing"\?"canvasAgentRepairingCodex":"canvasAgentCheckingCodex"/);
@@ -3442,7 +3444,8 @@ test("PenEcho Agent focus and active turns suppress Auto AI while submitted turn
   assert.doesNotMatch(syncTriggerState,/canvasAgentToggle\.setAttribute\("aria-busy"/);
   assert.doesNotMatch(functionSource(agent,"canvasAgentSyncTriggerState"),/canvasAgentPanel\.hidden/);
   assert.match(functionSource(agent,"canvasAgentAnimatePanel"),/pageLayoutRect\(canvasAgentToggle\)[\s\S]*document\.body\.append\(proxy\)[\s\S]*proxy\.animate/);
-  assert.match(functionSource(agent,"closeCanvasAgent"),/pageLayoutRect\(canvasAgentPanel\)[\s\S]*canvasAgentPanel\.hidden = true[\s\S]*canvasAgentSyncTriggerState\(\)[\s\S]*canvasAgentAnimatePanel\(false,panelRect\)/);
+  assert.match(functionSource(agent,"closeCanvasAgent"),/canvasAgentScheduleDockedCloseWork\(\);return[\s\S]*canvasAgentAnimatePanel\(false,panelRect,canvasAgentFinishDockedClose\)/);
+  assert.match(functionSource(agent,"canvasAgentFinishDockedClose"),/canvasAgentPanel\.hidden=true[\s\S]*canvasAgentSyncTriggerState\(\)[\s\S]*canvasAgentPersistCurrentConversation\(\)/);
   assert.match(agent,/let requestSent = false;[\s\S]*canvasAgentInput\.disabled = true[\s\S]*canvasAgentBeginRequest\(\)/);
   assert.match(agent,/canvasAgentSendRequest\(canvasAgent\.running \? "steer" : "user_turn"/);
 });

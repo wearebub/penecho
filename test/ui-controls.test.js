@@ -1658,6 +1658,9 @@ test("strict CSP dynamic layout uses stylesheet rules instead of element style a
   assert.match(helper, /sheet\.insertRule\(`\.\$\{className\} \{\}`/);
   for (const key of ["tour-layer", "tour-highlight", "tour-card", "tour-progress", "animation-controls", "canvas-image-selection", "selection-toolbar", "summon-copy"])
     assert.match(app, new RegExp(`runtimeElementStyle\\([^)]*["']${key}["']`));
+  assert.match(functionSource(app,"positionToolbarPopover"),/runtimeElementStyle\(popover, `toolbar-popover-\$\{popover\.id\}`\)[\s\S]*?setProperty\("left"[\s\S]*?setProperty\("top"/);
+  assert.match(functionSource(app,"canvasAgentOpenFeedbackMenu"),/runtimeElementStyle\(menu,"canvas-agent-feedback-menu"\)[\s\S]*?setProperty\("left"[\s\S]*?setProperty\("top"/);
+  assert.doesNotMatch(app,/\b(?:popover|menu)\.style\./);
   assert.doesNotMatch(app, /Reflect\.get\((?:tourLayer|tourHighlight|tourCard|tourProgressBar|animationControls|selectionToolbar), "style"\)/);
   assert.match(functionSource(app, "ensureObjectChromeStyleRule"), /sheet\.insertRule\(`\.\$\{className\} \{ --object-control-x: 0px; --object-control-y: 0px; z-index: 1; \}`/);
   assert.doesNotMatch(summon, /copyEl\.style\./);
@@ -1816,8 +1819,12 @@ test("live widgets use native canvas chrome, state-aware iframe gestures, and th
   assert.match(favoriteState, /widget\.favorite = favorite[\s\S]*?!favorite[\s\S]*?favoriteArtifactSha256 = ""[\s\S]*?widget\.favoriteBusy = busy === true[\s\S]*?syncObjectChrome\(\)/);
   assert.doesNotMatch(favoriteState, /contentVersion|favoritePendingVersion|changedWhileSaving/);
   assert.match(functionSource(app, "widgetRecord"), /favoriteSourceId:[\s\S]*?favoriteArtifactSha256:[\s\S]*?favoriteBusy: false/);
-  assert.match(functionSource(app, "serializedWidgets"), /favoriteSourceId:[\s\S]*?favoriteArtifactSha256/);
-  assert.match(functionSource(app, "communityWidgetArtifact"), /delete publicWidget\.favorite[\s\S]*?delete publicWidget\.favoriteSourceId[\s\S]*?delete publicWidget\.favoriteArtifactSha256/);
+  assert.match(functionSource(app, "widgetRecord"), /favoriteCloudId:[\s\S]*?favoriteCommunityItemId/);
+  assert.match(functionSource(app, "serializedWidgets"), /favoriteSourceId:[\s\S]*?favoriteArtifactSha256[\s\S]*?favoriteCloudId[\s\S]*?favoriteCommunityItemId/);
+  assert.match(functionSource(app, "communityWidgetArtifact"), /delete publicWidget\.favorite[\s\S]*?delete publicWidget\.favoriteSourceId[\s\S]*?delete publicWidget\.favoriteArtifactSha256[\s\S]*?delete publicWidget\.favoriteCloudId[\s\S]*?delete publicWidget\.favoriteCommunityItemId/);
+  const importWidget = functionSource(app, "importCommunityWidgetArtifact");
+  assert.match(importWidget, /delete source\.id[\s\S]*?delete source\.favorite[\s\S]*?favoriteState\?\.selected === true[\s\S]*?source\.favoriteSourceId[\s\S]*?source\.favoriteArtifactSha256[\s\S]*?source\.favoriteCloudId[\s\S]*?source\.favoriteCommunityItemId/);
+  assert.match(importWidget, /const widget = widgetRecord\(source\)[\s\S]*?return \{ id:widget\.id, title:widget\.title \}/, "a favorite import keeps its logical source identity but receives a fresh Canvas instance id");
   assert.match(messageHandler, /penecho-widget-snapshot-error[\s\S]*?console\.warn\("PenEcho widget snapshot failed:"/);
   assert.doesNotMatch(messageHandler, /requestWidgetSnapshot/);
   assert.equal((app.match(/requestWidgetSnapshot\(/g) || []).length, 4);
@@ -3218,7 +3225,7 @@ test("Studio uses glass workbench overlays, contextual pen properties, and a rig
   assert.match(functionSource(agent, "canvasAgentWorkbenchNeedsSync"), /dockedClass !== docked \|\| canvasAgentPanel\.parentElement !== expectedParent/);
   assert.match(functionSource(agent, "canvasAgentBeginPanelDrag"), /canvasAgentDockedPanel\(\)/);
   assert.match(functionSource(agent, "canvasAgentKeyboardPanelResize"), /canvasAgentFrame\.clientWidth\/CANVAS_AGENT_SIZE_STEPS/);
-  assert.match(functionSource(agent, "canvasAgentMaximumPanelWidth"), /Math\.min\(640,canvasAgentFrame\.clientWidth-16-navigatorReserve\)/);
+  assert.match(functionSource(agent, "canvasAgentMaximumPanelWidth"), /Math\.min\(canvasAgentFrame\.clientWidth\*0\.5,canvasAgentFrame\.clientWidth-16-navigatorReserve\)/);
   assert.match(css, /body\[data-theme="studio"\] \.top-row\s*\{[^}]*min-height:\s*42px[^}]*border-bottom:/);
   assert.match(css, /--studio-chrome-shadow-color:\s*rgba\(30, 35, 48, \.07\)/);
   assert.match(css, /body\[data-theme="studio"\] \.toolbar\s*\{[^}]*position:\s*absolute[^}]*top:\s*100%[^}]*min-height:\s*var\(--studio-toolbar-height\)[^}]*background:\s*var\(--studio-glass\)[^}]*box-shadow:\s*none[^}]*backdrop-filter:\s*saturate\(1\.2\) blur\(18px\)/);
@@ -3337,7 +3344,7 @@ test("PenEcho Agent launcher uses ordered toolbar compaction before the toolbar 
   assert.match(syncLayout, /canvasAgentToolbarHome\.append\(canvasAgentControl\)[\s\S]*?studio-toolbar-effort-compact[\s\S]*?canvasAgentToolbarOverflows\(\)[\s\S]*?studio-toolbar-controls-compact[\s\S]*?canvasAgentToolbarOverflows\(\)[\s\S]*?studio-toolbar-two-row[\s\S]*?return "two-row"/);
   assert.equal(syncLayout.indexOf("canvasAgentFrame.append(canvasAgentControl)", syncLayout.indexOf('body.classList.add("studio-toolbar-controls-compact")')), -1);
   assert.match(css, /studio-toolbar-effort-compact \.effort-label-full\s*\{[^}]*display:\s*none/);
-  assert.match(css, /studio-toolbar-effort-compact \.effort-label-short\s*\{[^}]*display:\s*inline/);
+  assert.match(css, /studio-toolbar-effort-compact \.effort-label-short\s*\{[^}]*display:\s*block/);
   assert.match(css, /studio-toolbar-controls-compact \.toolbar \.icon-button\s*\{[^}]*width:\s*27px/);
   assert.match(css, /canvas-agent-toolbar-home\s*\{[^}]*margin-left:\s*auto/);
   assert.match(css, /studio-toolbar-two-row\s*\{[^}]*--studio-toolbar-height:\s*68px/);
@@ -3384,7 +3391,7 @@ test("Studio title bar exposes document identity, explicit save state, and a bla
   assert.match(css, /body\[data-theme="studio"\] \.canvas-frame\s*\{[^}]*--studio-navigator-width:\s*264px[^}]*--studio-agent-edge-shift:\s*0px[^}]*--studio-navigator-edge-shift:\s*0px/);
   assert.match(css, /studio-agent-docked\.canvas-agent-open \.canvas-frame\s*\{[^}]*--studio-agent-edge-shift:\s*calc\(var\(--studio-agent-width\) - 4px\)/);
   assert.match(css, /studio-navigator-open \.canvas-frame\s*\{[^}]*--studio-navigator-edge-shift:\s*var\(--studio-navigator-width\)/);
-  assert.match(css, /body\[data-theme="studio"\] \.canvas-frame\s*\{[^}]*--studio-agent-width:\s*clamp\(360px, var\(--canvas-agent-width, 390px\), min\(calc\(100% - 16px - var\(--studio-navigator-edge-shift\)\), 640px\)\)/);
+  assert.match(css, /body\[data-theme="studio"\] \.canvas-frame\s*\{[^}]*--studio-agent-width:\s*clamp\(360px, var\(--canvas-agent-width, 390px\), min\(calc\(100% - 16px - var\(--studio-navigator-edge-shift\)\), 50%\)\)/);
   assert.doesNotMatch(css, /studio-navigator-open\.studio-agent-docked\.canvas-agent-open[^}]*--studio-agent-width:\s*336px/);
   assert.match(css, /body\[data-theme="studio"\] \.canvas-welcome\s*\{[^}]*inset:\s*var\(--studio-toolbar-height\) var\(--studio-agent-edge-shift\) 0 var\(--studio-navigator-edge-shift\)[^}]*align-content:\s*center[^}]*pointer-events:\s*none/);
   assert.match(css, /body\[data-theme="studio"\] \.canvas-welcome-kicker\s*\{[^}]*font:\s*600 2rem\/1\.05 var\(--pe-font-hand[^}]*letter-spacing:\s*\.015em[^}]*transform:\s*rotate\(-2deg\)/);
@@ -3892,7 +3899,8 @@ test("text tool toggles a real MD+TeX preview and confirms the unchanged source"
   assert.match(app, /function editTextBox\(item\)/);
   assert.match(app, /state\.mode !== "hand"[\s\S]*?sourceTextBoxId:item\.id/);
   assert.match(app, /handTarget = handPoint \? handObjectToolbarTargetAtPoint\(handPoint\) : null[\s\S]*?Number\(e\.button\) === 0 && handTarget\?\.kind === "text-box" && editTextBox\(handTarget\.object\)/);
-  assert.match(functionSource(app, "updateHandObjectHover"), /\["widget", "text-box"\]\.includes\(hovered\?\.kind\) \? null : hovered/);
+  assert.match(functionSource(app, "updateHandObjectHover"), /state\.handHoverKey = ""[\s\S]*releaseHandObjectFocus\(previousKey, "canvas-hover"\)[\s\S]*return false/);
+  assert.doesNotMatch(functionSource(app, "updateHandObjectHover"), /handObjectToolbarTargetAtPoint|focusHandObject/);
   assert.doesNotMatch(functionSource(app, "objectChromeSpecs"), /target:"text-box"/);
   assert.doesNotMatch(app, /function finishTextBoxChromeGesture\(|function updateTextBoxChromeGesture\(|textBoxGesture/);
   assert.match(app, /header\.addEventListener\("pointerdown"[\s\S]*?event\.target\.closest\("button"\)[\s\S]*?textEditorPointerDown\(event, editor, "move"\)/);

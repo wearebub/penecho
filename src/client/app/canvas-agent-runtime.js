@@ -144,8 +144,14 @@
       followCanvasCues:{category:"notes",prompt:"canvasAgentPromptFollowCanvasCues",title:"canvasAgentPromptFollowCanvasCuesTitle",focus:"canvasAgentPromptFocusFollowCanvasCues",icon:"revise"},
       ppt:{category:"files",prompt:"canvasAgentPromptPpt",title:"canvasAgentPromptPptTitle",focus:"canvasAgentPromptFocusSlides",icon:"slides"},
       excel:{category:"files",prompt:"canvasAgentPromptExcel",title:"canvasAgentPromptExcelTitle",focus:"canvasAgentPromptFocusAnalyze",icon:"data"},
+      compareFiles:{category:"files",prompt:"canvasAgentPromptCompareFiles",title:"canvasAgentPromptCompareFilesTitle",focus:"canvasAgentPromptFocusAnalyze",icon:"file"},
+      projectEvidence:{category:"files",prompt:"canvasAgentPromptProjectEvidence",title:"canvasAgentPromptProjectEvidenceTitle",focus:"canvasAgentPromptFocusExplain",icon:"study"},
+      releaseReadiness:{category:"files",prompt:"canvasAgentPromptReleaseReadiness",title:"canvasAgentPromptReleaseReadinessTitle",focus:"canvasAgentPromptFocusRevise",icon:"revise"},
       transformer:{category:"notes",prompt:"canvasAgentPromptTransformer",title:"canvasAgentPromptTransformerTitle",focus:"canvasAgentPromptFocusLearn",icon:"study"},
       ukTrip:{category:"create",prompt:"canvasAgentPromptUkTrip",title:"canvasAgentPromptUkTripTitle",focus:"canvasAgentPromptFocusPlan",icon:"plan"},
+      interactivePrototype:{category:"create",prompt:"canvasAgentPromptInteractivePrototype",title:"canvasAgentPromptInteractivePrototypeTitle",focus:"canvasAgentPromptFocusEnhance",icon:"visual"},
+      interactiveCalculator:{category:"create",prompt:"canvasAgentPromptInteractiveCalculator",title:"canvasAgentPromptInteractiveCalculatorTitle",focus:"canvasAgentPromptFocusAnalyze",icon:"data"},
+      selfCheckQuiz:{category:"create",prompt:"canvasAgentPromptSelfCheckQuiz",title:"canvasAgentPromptSelfCheckQuizTitle",focus:"canvasAgentPromptFocusLearn",icon:"study"},
       file:{category:"files",prompt:"canvasAgentPromptFile",title:"canvasAgentPromptFileTitle",focus:"canvasAgentPromptFocusExplain",icon:"file"},
       architecture:{category:"files",prompt:"canvasAgentPromptArchitecture",title:"canvasAgentPromptArchitectureTitle",focus:"canvasAgentPromptFocusArchitecture",icon:"architecture"},
       handwriting:{category:"notes",prompt:"canvasAgentPromptHandwriting",title:"canvasAgentPromptHandwritingTitle",focus:"canvasAgentPromptFocusEnhance",icon:"handwriting"},
@@ -191,7 +197,7 @@
       publish:["M12 15V3m0 0-4 4m4-4 4 4","M5 14v7h14v-7"],
       revise:["M4 17.5V21h3.5L18 10.5 14.5 7 4 17.5Z","M13.5 9l3.5 3.5M4 5h6M4 9h5"],
     }),
-    CANVAS_AGENT_PROMPT_ADDITIONAL = Object.freeze(["simpleDiagram","sequenceDiagramSource","organize","applyAnnotations","followCanvasCues","ppt","excel","transformer","ukTrip"]),
+    CANVAS_AGENT_PROMPT_ADDITIONAL = Object.freeze(["simpleDiagram","sequenceDiagramSource","organize","applyAnnotations","followCanvasCues","ppt","excel","transformer","ukTrip","compareFiles","projectEvidence","releaseReadiness","interactivePrototype","interactiveCalculator","selfCheckQuiz"]),
     CANVAS_AGENT_PROMPT_PRIMARY = Object.freeze({
       blank:["file","architecture","handwriting"],
       image:["imageVisual","imageLayer","imagePublish"],
@@ -2917,9 +2923,9 @@
       button.dataset.peState=active?"selected":"default";
     }
     menu.hidden=false;
-    const trigger=target.feedbackButton.getBoundingClientRect(),menuRect=menu.getBoundingClientRect(),gap=6,left=Math.max(8,Math.min(trigger.left,window.innerWidth-menuRect.width-8)),below=trigger.bottom+gap,top=below+menuRect.height<=window.innerHeight-8?below:Math.max(8,trigger.top-menuRect.height-gap);
-    menu.style.left=`${Math.round(left)}px`;
-    menu.style.top=`${Math.round(top)}px`;
+    const trigger=target.feedbackButton.getBoundingClientRect(),menuRect=menu.getBoundingClientRect(),gap=6,left=Math.max(8,Math.min(trigger.left,window.innerWidth-menuRect.width-8)),below=trigger.bottom+gap,top=below+menuRect.height<=window.innerHeight-8?below:Math.max(8,trigger.top-menuRect.height-gap),menuStyle=runtimeElementStyle(menu,"canvas-agent-feedback-menu");
+    menuStyle?.setProperty("left",`${Math.round(left)}px`);
+    menuStyle?.setProperty("top",`${Math.round(top)}px`);
     const initial=menu.querySelector('[aria-checked="true"]')||menu.querySelector("button");
     initial?.focus({preventScroll:true});
   }

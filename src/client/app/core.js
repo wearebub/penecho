@@ -493,7 +493,6 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       settingsShortcutInstructions: "Press Escape to cancel. Press Backspace or Delete to remove a shortcut.",
       settingsShortcutResetAll: "Reset all",
       settingsShortcutGroupEssential: "Essentials",
-      settingsShortcutGroupTools: "Canvas tools",
       settingsShortcutGroupWorkspace: "Workspace",
       settingsShortcutNotSet: "Not set",
       settingsShortcutPressKeys: "Press keys…",
@@ -513,16 +512,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       shortcutSaveCanvasHelp: "Save or overwrite the current Canvas using its existing location.",
       shortcutUndoHelp: "Undo the latest Canvas change.",
       shortcutRedoHelp: "Redo the latest undone Canvas change.",
-      shortcutPenHelp: "Switch to the Pen tool while the Canvas has focus.",
-      shortcutHandHelp: "Switch to the Hand tool for navigation and object interaction.",
-      shortcutEraserHelp: "Switch to the most recently used eraser mode.",
-      shortcutSelectHelp: "Switch to the lasso selection tool.",
-      shortcutTextHelp: "Switch to the Canvas text tool.",
-      shortcutNewCanvasHelp: "Start the existing New Canvas flow.",
       shortcutCanvasLibrary: "Canvas Library",
       shortcutCanvasLibraryHelp: "Open saved Canvases and storage locations.",
-      shortcutToggleGrid: "Toggle Canvas grid",
-      shortcutToggleGridHelp: "Show or hide the Canvas grid.",
       shortcutFullscreenHelp: "Enter or leave full-screen Canvas view.",
       shortcutSettingsHelp: "Open Settings from the Canvas workspace.",
       settingsAppearance: "Appearance",
@@ -1152,8 +1143,14 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       canvasAgentPromptFollowCanvasCuesTitle: "Follow My Canvas Cues",
       canvasAgentPromptPptTitle: "Create a Presentation Layout",
       canvasAgentPromptExcelTitle: "Chart Spreadsheet Insights",
+      canvasAgentPromptCompareFilesTitle: "Compare Related Files",
+      canvasAgentPromptProjectEvidenceTitle: "Find Evidence Across the Project",
+      canvasAgentPromptReleaseReadinessTitle: "Review the Project for Release",
       canvasAgentPromptTransformerTitle: "Explain Transformer Architecture",
       canvasAgentPromptUkTripTitle: "Plan a UK Journey",
+      canvasAgentPromptInteractivePrototypeTitle: "Build a Clickable Prototype",
+      canvasAgentPromptInteractiveCalculatorTitle: "Create an Interactive Calculator",
+      canvasAgentPromptSelfCheckQuizTitle: "Make a Self-Check Quiz",
       canvasAgentPromptFileTitle: "Explain the Current File",
       canvasAgentPromptArchitectureTitle: "Map the Project Architecture",
       canvasAgentPromptHandwritingTitle: "Enhance My Handwritten Notes",
@@ -1191,8 +1188,14 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       canvasAgentPromptPpt: "Turn the current view into a presentation-ready layout and send the final image in chat.",
       canvasAgentPromptHandwriting: "Keep the current handwriting completely unchanged—do not edit, erase, or move it. Add a transparent explanatory layer over it; overlap is acceptable only if the original strokes remain clearly visible, and use annotations, connectors, links, graphics, or motion where appropriate to make the notes more vivid and intuitive.",
       canvasAgentPromptExcel: "Chart the attached spreadsheet's key metrics, trends, anomalies, and conclusions.",
+      canvasAgentPromptCompareFiles: "Compare the selected or related files. Show meaningful differences, conflicting facts, and missing information in one compact view, then recommend what to keep or reconcile.",
+      canvasAgentPromptProjectEvidence: "Search the current project for evidence related to my question. Cite exact files and sections, connect findings across sources, and clearly separate confirmed facts from assumptions.",
+      canvasAgentPromptReleaseReadiness: "Review the current project's changed code, configuration, tests, and documentation. Prioritize release blockers, explain impact, and propose the smallest verification checklist.",
       canvasAgentPromptTransformer: "Explain Transformer with a layered diagram and pseudocode, including data flow and tensor shapes.",
       canvasAgentPromptUkTrip: "Create a 15-day UK travel map with daily routes, transport, stays, and highlights.",
+      canvasAgentPromptInteractivePrototype: "Turn the current sketch or requirements into a working interface prototype on Canvas. Include the main states, navigation, realistic sample content, and essential interactions.",
+      canvasAgentPromptInteractiveCalculator: "Turn the formulas or rules I provide into an interactive calculator on Canvas, with labeled inputs, live results, validation, explanations, and reset.",
+      canvasAgentPromptSelfCheckQuiz: "Turn the current notes or attached material into an interactive self-check quiz with varied questions, immediate explanations, progress, and retry.",
       canvasAgentPromptOrganize: "Turn the current canvas into clear visual notes, with themes, hierarchy, and information gaps.",
       canvasAgentPromptApplyAnnotations: "Apply my new Canvas annotations and sketches: add, remove, move, resize, or reconnect only clearly marked content, and ask about ambiguity first.",
       canvasAgentPromptFollowCanvasCues: "Follow my latest Canvas drawings, images, text boxes, and annotations. Continue and refine the work without changing unmarked content; ask if unclear.",
@@ -1230,8 +1233,14 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       canvasAgentPromptFollowCanvasCuesSummary: "Continue from the latest cues without changing unmarked content.",
       canvasAgentPromptPptSummary: "Turn this view into a presentation layout and return the final image.",
       canvasAgentPromptExcelSummary: "Chart the spreadsheet's key metrics, trends, anomalies, and conclusions.",
+      canvasAgentPromptCompareFilesSummary: "Compare related files for differences, conflicts, gaps, and recommended resolutions.",
+      canvasAgentPromptProjectEvidenceSummary: "Find project evidence, cite exact sources, and separate facts from assumptions.",
+      canvasAgentPromptReleaseReadinessSummary: "Identify release blockers and produce a prioritized verification checklist.",
       canvasAgentPromptTransformerSummary: "Explain Transformer with layers, data flow, shapes, and pseudocode.",
       canvasAgentPromptUkTripSummary: "Map a 15-day UK trip with routes, transport, stays, and highlights.",
+      canvasAgentPromptInteractivePrototypeSummary: "Turn a sketch or requirements into a working interactive Canvas prototype.",
+      canvasAgentPromptInteractiveCalculatorSummary: "Turn formulas or rules into a validated interactive Canvas calculator.",
+      canvasAgentPromptSelfCheckQuizSummary: "Turn notes or files into an interactive quiz with explanations and progress.",
       canvasAgentPromptFileSummary: "Explain this file's purpose, structure, relationships, and details visually.",
       canvasAgentPromptArchitectureSummary: "Map project modules, dependencies, data flow, and key directories.",
       canvasAgentPromptHandwritingSummary: "Preserve the handwriting and add a transparent visual explanation layer.",
@@ -2069,6 +2078,21 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     });
     return true;
   }
+  function focusTargetAvailableOutsideLayer(layer, target) {
+    return Boolean(target?.isConnected && typeof target.focus === "function" && target.disabled !== true && target !== document.body && !layer?.contains(target) && !target.closest?.('[hidden], [inert], [aria-hidden="true"]'));
+  }
+  function hideLayerWithoutRetainedFocus(layer, ...focusTargets) {
+    if (!layer) return false;
+    const active = document.activeElement;
+    if (layer.contains(active)) {
+      const target = focusTargets.find((candidate) => focusTargetAvailableOutsideLayer(layer, candidate));
+      target?.focus({ preventScroll:true });
+      if (layer.contains(document.activeElement)) active?.blur?.();
+    }
+    layer.hidden = true;
+    layer.setAttribute("aria-hidden", "true");
+    return true;
+  }
   function scheduleFeatureTourPosition() {
     if (!featureTour.active || featureTour.positionFrame) return;
     featureTour.positionFrame = requestAnimationFrame(positionFeatureTour);
@@ -2211,10 +2235,10 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     featureTour.resizeObserver = null;
     stopActiveFeatureTourObserver();
     featureTour.targets = [];
-    tourLayer.hidden = true;
-    tourLayer.setAttribute("aria-hidden", "true");
-    syncFeatureTourPreview(null);
     tourMain.inert = false;
+    const restoreTarget = focusTargetAvailableOutsideLayer(tourLayer, restoreFocus) ? restoreFocus : settingsButton;
+    hideLayerWithoutRetainedFocus(tourLayer, restore ? restoreTarget : settingsButton, settingsButton);
+    syncFeatureTourPreview(null);
     document.body.classList.remove("tour-open");
     runtimeElementStyle(tourHighlight, "tour-highlight")?.setProperty("visibility", "hidden");
     runtimeElementStyle(tourCard, "tour-card")?.setProperty("visibility", "hidden");
@@ -2222,10 +2246,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     requestAnimationFrame(() => {
       if (featureTour.active) return;
       if (options.changelog !== false && maybeShowChangelog()) return;
-      if (restore) {
-        const target = restoreFocus?.isConnected && restoreFocus !== document.body ? restoreFocus : settingsButton;
-        target?.focus({ preventScroll: true });
-      }
+      if (restore && document.activeElement !== restoreTarget) restoreTarget?.focus({ preventScroll: true });
     });
     if (options.retry !== false) scheduleFeatureTourPendingRetry();
     return true;
@@ -2350,12 +2371,12 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     changelog.active = false;
     changelog.restoreFocus = null;
     markChangelogSeen();
-    changelogLayer.hidden = true;
-    changelogLayer.setAttribute("aria-hidden", "true");
     document.body.classList.remove("changelog-open");
     tourMain.inert = featureTour.active || !pluginPopover.hidden;
+    const restoreTarget = focusTargetAvailableOutsideLayer(changelogLayer, restoreFocus) ? restoreFocus : settingsButton;
+    hideLayerWithoutRetainedFocus(changelogLayer, restoreTarget, settingsButton);
     requestAnimationFrame(() => {
-      if (!featureTour.active && !changelog.active) restoreFocus?.focus({ preventScroll: true });
+      if (!featureTour.active && !changelog.active && document.activeElement !== restoreTarget) restoreTarget?.focus({ preventScroll: true });
     });
     scheduleFeatureTourPendingRetry();
     return true;
@@ -2417,14 +2438,14 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   }
   function closeConfiguration(restore = true) {
     if (!settings.configurationMode) return false;
-    const restoreFocus = settings.configurationRestoreFocus;
+    const restoreFocus = settings.configurationRestoreFocus,
+      restoreTarget = focusTargetAvailableOutsideLayer(configurationLayer, restoreFocus) ? restoreFocus : settingsButton;
     settings.configurationMode = "";
     settings.configurationRestoreFocus = null;
     hideSettingsEffortOptions();
-    configurationLayer.hidden = true;
-    configurationLayer.setAttribute("aria-hidden", "true");
+    hideLayerWithoutRetainedFocus(configurationLayer, restore ? restoreTarget : settingsButton, settingsButton);
     canvasSettingsForm.hidden = true;
-    if (restore) requestAnimationFrame(() => restoreFocus?.focus({ preventScroll:true }));
+    if (restore && document.activeElement !== restoreTarget) requestAnimationFrame(() => restoreTarget?.focus({ preventScroll:true }));
     return true;
   }
   function updateSettingsProviderFields() {
@@ -3286,10 +3307,11 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       controlLeft = (controlRect.left - hostRect.left) / scaleX,
       controlWidth = controlRect.width / scaleX,
       desiredLeft = options.align === "center" ? controlLeft + (controlWidth - popover.offsetWidth) / 2 : controlLeft,
-      maxLeft = Math.max(inset, host.offsetWidth - popover.offsetWidth - inset);
+      maxLeft = Math.max(inset, host.offsetWidth - popover.offsetWidth - inset),
+      popoverStyle = runtimeElementStyle(popover, `toolbar-popover-${popover.id}`);
     popover.classList.add("toolbar-anchored-popover");
-    popover.style.left = `${Math.max(inset, Math.min(desiredLeft, maxLeft))}px`;
-    popover.style.top = `${(anchorBottom - hostRect.top) / scaleY + (Number(options.gap) || 8)}px`;
+    popoverStyle?.setProperty("left", `${Math.max(inset, Math.min(desiredLeft, maxLeft))}px`);
+    popoverStyle?.setProperty("top", `${(anchorBottom - hostRect.top) / scaleY + (Number(options.gap) || 8)}px`);
   }
   function positionOpenToolbarPopovers() {
     positionToolbarPopover("#autoControl", "#autoDelayPopover");
@@ -4057,15 +4079,15 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   }
   function hidePluginControl() {
     if (pluginPopover.hidden) return;
-    pluginPopover.hidden = true;
-    pluginPopover.setAttribute("aria-hidden", "true");
+    const restore = state.pluginDialogRestoreFocus;
     document.body.classList.remove("plugin-open");
     if (!featureTour.active) tourMain.inert = false;
+    const restoreTarget = focusTargetAvailableOutsideLayer(pluginPopover, restore) ? restore : settingsButton;
+    hideLayerWithoutRetainedFocus(pluginPopover, restoreTarget, settingsButton);
     pluginButton.classList.remove("active");
     pluginButton.setAttribute("aria-expanded", "false");
-    const restore = state.pluginDialogRestoreFocus;
     state.pluginDialogRestoreFocus = null;
-    if (restore?.isConnected) restore.focus({ preventScroll:true });
+    if (document.activeElement !== restoreTarget) restoreTarget?.focus({ preventScroll:true });
   }
   function setPluginTab(tab) {
     const selected = ["local", "create", "server"].includes(tab) ? tab : "local",

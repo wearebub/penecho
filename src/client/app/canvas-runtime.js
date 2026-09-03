@@ -1223,6 +1223,8 @@
       favoriteSourceId: widget.favoriteSourceId,
       ...(widget.favorite ? { favorite:true } : {}),
       ...(widget.favoriteArtifactSha256 ? { favoriteArtifactSha256:widget.favoriteArtifactSha256 } : {}),
+      ...(widget.favoriteCloudId ? { favoriteCloudId:widget.favoriteCloudId } : {}),
+      ...(widget.favoriteCommunityItemId ? { favoriteCommunityItemId:widget.favoriteCommunityItemId } : {}),
       ...(widget.widgetType === "diagram_source" ? { source:widget.source } : { html:widget.html }),
       ...(widget.diagramKind ? { diagramKind:widget.diagramKind } : {}),
       ...(widget.sourceFormat ? { sourceFormat:widget.sourceFormat } : {}),
@@ -1307,6 +1309,8 @@
       favoriteSourceId: PRIVATE_WIDGET_FAVORITE_ID.test(String(item.favoriteSourceId || "")) ? item.favoriteSourceId : newPrivateWidgetFavoriteId(),
       favorite: item.favorite === true,
       favoriteArtifactSha256: /^[0-9a-f]{64}$/i.test(String(item.favoriteArtifactSha256 || "")) ? item.favoriteArtifactSha256.toLowerCase() : "",
+      favoriteCloudId: PRIVATE_WIDGET_FAVORITE_ID.test(String(item.favoriteCloudId || "")) ? String(item.favoriteCloudId).toLowerCase() : null,
+      favoriteCommunityItemId: PRIVATE_WIDGET_FAVORITE_ID.test(String(item.favoriteCommunityItemId || "")) ? String(item.favoriteCommunityItemId).toLowerCase() : null,
       favoriteBusy: false,
       downloadBusy: false,
     };
@@ -1350,15 +1354,25 @@
     delete publicWidget.favorite;
     delete publicWidget.favoriteSourceId;
     delete publicWidget.favoriteArtifactSha256;
+    delete publicWidget.favoriteCloudId;
+    delete publicWidget.favoriteCommunityItemId;
     return { format:"penecho-widget", formatVersion:1, widget:publicWidget, ...communityImages };
   }
-  function setCommunityWidgetFavorite(widgetId, favorite, busy = false, artifactSha256 = undefined) {
+  function setCommunityWidgetFavorite(widgetId, favorite, busy = false, artifactSha256 = undefined, reference = undefined) {
     const widget = state.widgets.find((item) => item.id === widgetId);
     if (!widget) return false;
     if (typeof favorite === "boolean") {
       widget.favorite = favorite;
-      if (!favorite) widget.favoriteArtifactSha256 = "";
+      if (!favorite) {
+        widget.favoriteArtifactSha256 = "";
+        widget.favoriteCloudId = null;
+        widget.favoriteCommunityItemId = null;
+      }
       else if (/^[0-9a-f]{64}$/i.test(String(artifactSha256 || ""))) widget.favoriteArtifactSha256 = String(artifactSha256).toLowerCase();
+    }
+    if (reference && typeof reference === "object") {
+      if (Object.hasOwn(reference, "cloudFavoriteId")) widget.favoriteCloudId = PRIVATE_WIDGET_FAVORITE_ID.test(String(reference.cloudFavoriteId || "")) ? String(reference.cloudFavoriteId).toLowerCase() : null;
+      if (Object.hasOwn(reference, "communityItemId")) widget.favoriteCommunityItemId = PRIVATE_WIDGET_FAVORITE_ID.test(String(reference.communityItemId || "")) ? String(reference.communityItemId).toLowerCase() : null;
     }
     widget.favoriteBusy = busy === true;
     syncObjectChrome();
@@ -1369,8 +1383,23 @@
     if (!artifact || artifact.format !== "penecho-widget" || artifact.formatVersion !== 1 || !artifact.widget) throw Error("The community Widget is invalid.");
     if (state.pendingWidget) acceptPendingWidget({ restoreMode:false });
     if (state.widgetEdit) acceptWidgetEdit();
-    const visible = viewportRect(), source = { ...artifact.widget };
+    const visible = viewportRect(), source = { ...artifact.widget }, favoriteState = options?.favoriteState;
     delete source.id;
+    // Favorite membership is private Canvas state. Never trust it from a
+    // shareable artifact; only the authenticated Favorites loader may attach
+    // the stable logical source identity and the current storage references.
+    delete source.favorite;
+    delete source.favoriteSourceId;
+    delete source.favoriteArtifactSha256;
+    delete source.favoriteCloudId;
+    delete source.favoriteCommunityItemId;
+    if (favoriteState?.selected === true) {
+      source.favorite = true;
+      if (PRIVATE_WIDGET_FAVORITE_ID.test(String(favoriteState.sourceWidgetId || ""))) source.favoriteSourceId = String(favoriteState.sourceWidgetId).toLowerCase();
+      if (/^[0-9a-f]{64}$/i.test(String(favoriteState.artifactSha256 || ""))) source.favoriteArtifactSha256 = String(favoriteState.artifactSha256).toLowerCase();
+      if (PRIVATE_WIDGET_FAVORITE_ID.test(String(favoriteState.cloudFavoriteId || ""))) source.favoriteCloudId = String(favoriteState.cloudFavoriteId).toLowerCase();
+      if (PRIVATE_WIDGET_FAVORITE_ID.test(String(favoriteState.communityItemId || ""))) source.favoriteCommunityItemId = String(favoriteState.communityItemId).toLowerCase();
+    }
     // Fit the widget into the visible canvas: oversized widgets shrink
     // uniformly (content scales through the shell transform) and land centered
     // instead of spilling past the viewport edges.
@@ -1419,6 +1448,7 @@
     }
     if (configuredAccessSession) url.searchParams.set("access-session", configuredAccessSession);
     if (runtime === "cloud") url.searchParams.set("remote-canvas", "1");
+    if (runtime === "cloud" && manifest.id === "general") url.searchParams.set("public-https", "1");
     for (const origin of manifest.connect) url.searchParams.append("connect", origin);
     return url.href;
   }
@@ -1708,7 +1738,7 @@
           const timer = setTimeout(() => {
             widgetSnapshotRequests.delete(requestId);
             if(signal&&pending?.abort)signal.removeEventListener("abort",pending.abort);
-            reject(Error(t("widgetExportFailed")));
+            reject(Error("Widget snapshot timed out"));
           }, remaining());
           const abort=()=>{
             if(widgetSnapshotRequests.get(requestId)!==pending)return;
@@ -1797,8 +1827,11 @@
     pending.signal?.removeEventListener("abort",pending.abort);
     if (message.type === "penecho-widget-snapshot-error" || typeof message.dataUrl !== "string" || !message.dataUrl.startsWith("data:image/png;base64,")
       || !Number.isFinite(message.width) || message.width <= 0 || !Number.isFinite(message.height) || message.height <= 0) {
-      if (message.type === "penecho-widget-snapshot-error") console.warn("PenEcho widget snapshot failed:", String(message.error || "unknown error").slice(0, 300));
-      pending.reject(Error(t("widgetExportFailed")));
+      const snapshotFailure = message.type === "penecho-widget-snapshot-error"
+        ? String(message.error || t("widgetExportFailed")).replace(/[\r\n\t]+/g, " ").slice(0, 300)
+        : t("widgetExportFailed");
+      if (message.type === "penecho-widget-snapshot-error") console.warn("PenEcho widget snapshot failed:", snapshotFailure);
+      pending.reject(Error(snapshotFailure));
       return;
     }
     try {
@@ -2348,7 +2381,7 @@
           ]);
           else await request;
         } catch (error) {
-          if(signal?.aborted)throw error;
+          if(signal?.aborted || !bestEffort)throw error;
           debug("widget-snapshot-degraded", { widgetId:widget.id, error:String(error?.message || error).slice(0, 300) });
         }
         return Boolean(widget.snapshotImage);
@@ -2356,7 +2389,7 @@
         capturedCount = captured.filter(Boolean).length;
       return { total:widgets.length, captured:capturedCount, missing:widgets.length - capturedCount };
     } catch (error) {
-      if(signal?.aborted)throw error;
+      if(signal?.aborted || !bestEffort)throw error;
       debug("widget-snapshot-preparation-failed", { error:String(error?.message || error).slice(0, 300) });
       const captured = widgets.filter((widget) => widget.snapshotImage).length;
       return { total:widgets.length, captured, missing:widgets.length - captured };
@@ -3945,6 +3978,8 @@
             favorite:widget.favorite === true,
             favoriteArtifactSha256:widget.favoriteArtifactSha256 || null,
             sourceWidgetId:widget.favoriteSourceId,
+            favoriteCloudId:widget.favoriteCloudId || null,
+            favoriteCommunityItemId:widget.favoriteCommunityItemId || null,
           } }));
         },
       });

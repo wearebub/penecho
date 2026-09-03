@@ -1541,7 +1541,11 @@ function readSharedCanvas(id) {
   const details=metadata||sharedCanvasMetadata(snapshot,DEFAULT_CANVAS_PROJECT_ID);
   return snapshot.bundleVersion===2
     ?{...snapshot,id,createdAt:details.createdAt,updatedAt:details.updatedAt,name:details.name,projectId:details.projectId}
-    :{...snapshot,projectId:metadata?.projectId||DEFAULT_CANVAS_PROJECT_ID};
+    :{
+      ...snapshot,
+      ...(metadata?{name:metadata.name,updatedAt:metadata.updatedAt}:{}),
+      projectId:metadata?.projectId||DEFAULT_CANVAS_PROJECT_ID,
+    };
 }
 function saveSharedCanvas(value, overwriteId = null) {
   let existingMetadata=null;

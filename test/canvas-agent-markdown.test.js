@@ -264,7 +264,7 @@ test("PenEcho Agent enables response copy only for the last completed assistant 
   const intermediateItem={type:"message",role:"assistant",turn:4,step:1,final:true,copyable:false},toolItem={type:"tool",turn:4,step:2},summaryItem={type:"message",role:"assistant",turn:4,step:3,final:true,copyable:false},otherTurnItem={type:"message",role:"assistant",turn:3,step:8,final:true,copyable:false},
     intermediate={messageText:"Inspecting the canvas",historyItem:intermediateItem},summary={messageText:"Final summary",historyItem:summaryItem},otherTurn={messageText:"Other turn",historyItem:otherTurnItem},marked=[],
     canvasAgent={currentConversation:{items:[intermediateItem,toolItem,summaryItem,otherTurnItem]},assistantRows:new Map([["4:1:intermediate",intermediate],["3:8:other",otherTurn],["4:3:summary",summary]])};
-  const mark=vm.runInNewContext(`(()=>{${functionSource("canvasAgentAssistantPosition")}\n${functionSource("canvasAgentMarkTurnSummaryCopyable")}return canvasAgentMarkTurnSummaryCopyable;})()`,{canvasAgent,canvasAgentSetAssistantCopyReady:(target,ready)=>{target.historyItem.copyable=ready;marked.push(target);}});
+  const mark=vm.runInNewContext(`(()=>{${functionSource("canvasAgentAssistantPosition")}\n${functionSource("canvasAgentMarkTurnSummaryCopyable")}return canvasAgentMarkTurnSummaryCopyable;})()`,{canvasAgent,canvasAgentSetAssistantCopyReady:(target,ready)=>{target.historyItem.copyable=ready;marked.push(target);},canvasAgentSyncAssistantActions(){}});
   assert.equal(mark(4),true);
   assert.deepEqual(marked,[summary]);
   assert.equal(intermediate.historyItem.copyable,false);

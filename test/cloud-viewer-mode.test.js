@@ -81,7 +81,8 @@ test("Canvas viewer restores the published bundle in memory without importing it
   assert.match(viewerRestore, /decodeSnapshotTilesInBatches/);
   assert.match(viewerRestore, /decodeSnapshotImagesInBatches/);
   assert.match(viewerRestore, /restoreWidgets\(item\.widgets\)/);
-  assert.match(viewerRestore, /restoreTextBoxes\(item\.textBoxes\)/);
+  assert.match(viewerRestore, /await restoreTextBoxes\(item\.textBoxes, 1\)/);
+  assert.match(viewerRestore, /void refreshVisibleTextBoxQuality\(\)/);
   assert.match(viewerRestore, /fitViewerCanvas\(\)/);
   assert.doesNotMatch(viewerRestore, /saveDeviceSnapshot\(/);
   assert.doesNotMatch(viewerRestore, /refreshSnapshots\(/);

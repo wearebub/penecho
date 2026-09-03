@@ -31,6 +31,65 @@ test("feature tour exposes an accessible dialog and replay entry point", () => {
   assert.ok(html.indexOf('src="tour.js"') < html.indexOf('src="app.js"'));
 });
 
+test("custom dialog layers release focus before hiding from accessibility APIs", () => {
+  const app = read("public/app.js"), calls = [], document = { body:{} };
+  let active = {
+    blur() {
+      calls.push("blur");
+      document.activeElement = document.body;
+    },
+  };
+  const hiddenTarget = {
+      isConnected:true,
+      closest() { return { hidden:true }; },
+      focus() { calls.push("hidden-focus"); },
+    },
+    visibleTarget = {
+      isConnected:true,
+      closest() { return null; },
+      focus() {
+        calls.push("focus");
+        document.activeElement = visibleTarget;
+      },
+    },
+    layer = {
+      contains(value) { return value === active; },
+      set hidden(value) { calls.push(`hidden:${value}`); },
+      setAttribute(name, value) { calls.push(`${name}:${value}`); },
+    },
+    hideLayer = vm.runInNewContext(`(()=>{${functionSource(app, "focusTargetAvailableOutsideLayer")}\n${functionSource(app, "hideLayerWithoutRetainedFocus")}\nreturn hideLayerWithoutRetainedFocus;})()`, { document });
+
+  document.activeElement = active;
+  hideLayer(layer, hiddenTarget, visibleTarget);
+  assert.deepEqual(calls, ["focus", "hidden:true", "aria-hidden:true"]);
+
+  calls.length = 0;
+  active = {
+    blur() {
+      calls.push("blur");
+      document.activeElement = document.body;
+    },
+  };
+  document.activeElement = active;
+  hideLayer(layer);
+  assert.deepEqual(calls, ["blur", "hidden:true", "aria-hidden:true"]);
+
+  for (const [name, layerName] of [
+    ["closeFeatureTour", "tourLayer"],
+    ["closeChangelog", "changelogLayer"],
+    ["closeConfiguration", "configurationLayer"],
+    ["hidePluginControl", "pluginPopover"],
+  ]) {
+    const start = app.indexOf(`function ${name}(`),
+      end = app.indexOf("\n  function ", start + 1),
+      close = app.slice(start, end < 0 ? app.length : end);
+    assert.notEqual(start, -1, `missing function ${name}`);
+    assert.match(close, new RegExp(`hideLayerWithoutRetainedFocus\\(${layerName}`));
+    assert.doesNotMatch(close, new RegExp(`${layerName}\\.hidden\\s*=\\s*true`));
+    assert.doesNotMatch(close, new RegExp(`${layerName}\\.setAttribute\\(\\"aria-hidden\\",\\s*\\"true\\"\\)`));
+  }
+});
+
 test("feature tour follows the requested concise order with stable targets", () => {
   const app = read("public/app.js"),
     ordered = [

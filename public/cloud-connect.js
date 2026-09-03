@@ -1724,7 +1724,7 @@
     permission.addEventListener("change",updatePublishAvailability);
   }
 
-  async function takeFurther(itemId) {
+  async function takeFurther(itemId, importOptions = null) {
     const encodedItemId = encodeURIComponent(itemId);
     let downloaded;
     if (window.PENECHO_CONFIG?.runtime === "cloud") {
@@ -1745,7 +1745,7 @@
     const item = downloaded.item;
     if (item?.kind === "widget") {
       if (!window.PenEchoCommunityCanvas?.importWidget) throw new Error(cloudT("communityWidgetImportUnavailable"));
-      await window.PenEchoCommunityCanvas.importWidget(downloaded.artifact, item);
+      await window.PenEchoCommunityCanvas.importWidget(downloaded.artifact, item, importOptions);
     } else if (item?.kind === "canvas") {
       if (!window.PenEchoCommunityCanvas?.importCanvas) throw new Error(cloudT("communityCanvasImportUnavailable"));
       await window.PenEchoCommunityCanvas.importCanvas(downloaded.artifact, item);
@@ -1953,6 +1953,25 @@
     return (await api(`/api/favorites/${encodeURIComponent(sha256)}/cloud`, { method:"PATCH", body:JSON.stringify({ cloudId }) })).favorite;
   }
 
+  const FAVORITE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+  function favoriteUuid(value) {
+    return FAVORITE_UUID.test(String(value || "")) ? String(value).toLowerCase() : null;
+  }
+
+  function privateFavoriteCraftKey(entry) {
+    const sourceWidgetId = favoriteUuid(entry?.sourceWidgetId);
+    return `widget:${sourceWidgetId ? `source:${sourceWidgetId}` : `artifact:${entry?.artifactSha256 || entry?.id}`}`;
+  }
+
+  function favoriteWidgetImportOptions(favorite, { cloudFavoriteId = null, communityItemId = null } = {}) {
+    const cloudId = favoriteUuid(cloudFavoriteId || favorite?.cloudId),
+      communityId = favoriteUuid(communityItemId),
+      sourceWidgetId = favoriteUuid(favorite?.sourceWidgetId) || favoriteUuid(favorite?.id) || communityId || cloudId,
+      artifactSha256 = /^[0-9a-f]{64}$/i.test(String(favorite?.artifactSha256 || "")) ? String(favorite.artifactSha256).toLowerCase() : null;
+    return { favoriteState:{ selected:true, sourceWidgetId, artifactSha256, cloudFavoriteId:cloudId, communityItemId:communityId } };
+  }
+
   function thumbnailDataUrl(favorite, communityId = null) {
     const base64 = favorite.thumbnail || favorite.artifact?.communityThumbnail?.dataBase64 || favorite.artifact?.communityPreview?.dataBase64;
     const contentType = favorite.thumbnail ? "image/webp" : (favorite.artifact?.communityThumbnail || favorite.artifact?.communityPreview)?.contentType || "image/webp";
@@ -1983,12 +2002,26 @@
       const sha256 = /^[0-9a-f]{64}$/i.test(String(current.favoriteArtifactSha256 || ""))
           ? String(current.favoriteArtifactSha256).toLowerCase()
           : "",
-        sourceWidgetId = String(current.sourceWidgetId || ""),
-        summary = sha256 ? null : (await localFavorites()).find((entry) => entry.sourceWidgetId === sourceWidgetId),
-        saved = sha256 ? await fullLocalFavorite({ artifactSha256:sha256 }) : summary ? await fullLocalFavorite(summary) : null;
-      if (saved?.cloudId && accountSignedIn()) await api(`/api/cloud/favorites/${encodeURIComponent(saved.cloudId)}`, { method:"DELETE" });
+        sourceWidgetId = favoriteUuid(current.sourceWidgetId),
+        currentCloudId = favoriteUuid(current.favoriteCloudId),
+        communityItemId = favoriteUuid(current.favoriteCommunityItemId);
+      let saved = null;
+      if (!isCloudRuntime() && sha256) {
+        try { saved = await fullLocalFavorite({ artifactSha256:sha256 }); }
+        catch (error) { if (error?.status !== 404) throw error; }
+      }
+      // The hash identifies a stored snapshot version, not the logical Widget.
+      // If another Canvas updated that favorite, resolve its latest snapshot by
+      // the stable source Widget id before removing it.
+      if (!isCloudRuntime() && !saved && sourceWidgetId) {
+        const summary = (await localFavorites()).find((entry) => favoriteUuid(entry.sourceWidgetId) === sourceWidgetId);
+        if (summary) saved = await fullLocalFavorite(summary);
+      }
+      const cloudId = currentCloudId || favoriteUuid(saved?.cloudId);
+      if (cloudId) await api(`/api/cloud/favorites/${encodeURIComponent(cloudId)}`, { method:"DELETE" });
+      if (communityItemId) await api(`/api/cloud/community/${encodeURIComponent(communityItemId)}/favorite`, { method:"DELETE" });
       if (saved?.artifactSha256) await api(`/api/favorites/${encodeURIComponent(saved.artifactSha256)}`, { method:"DELETE" });
-      bridge.setWidgetFavorite(widgetId, false, false, "");
+      bridge.setWidgetFavorite(widgetId, false, false, "", { cloudFavoriteId:null, communityItemId:null });
       return false;
     }
     const artifact = await bridge.widgetArtifact(widgetId);
@@ -1999,12 +2032,19 @@
       sourceItemId:artifact.widget?.communityOriginItemId || null,
       sourceWidgetId:current?.sourceWidgetId || null,
     };
+    if (isCloudRuntime()) {
+      const cloudFavorite = (await api("/api/cloud/favorites", { method:"POST", body:JSON.stringify(serialized) })).favorite;
+      bridge.setWidgetFavorite(widgetId, true, false, cloudFavorite.artifactSha256 || "", { cloudFavoriteId:cloudFavorite.id, communityItemId:null });
+      return true;
+    }
     const localWrite = await saveLocalFavorite({ ...serialized, cloudId:null }, true),
       saved = localWrite.favorite;
+    let cloudFavoriteId = favoriteUuid(saved.cloudId);
     if (accountSignedIn()) {
       let removedDuringUpload = false;
       try {
         const cloudFavorite = (await api("/api/cloud/favorites", { method:"POST", body:JSON.stringify(serialized) })).favorite;
+        cloudFavoriteId = favoriteUuid(cloudFavorite.id);
         try { await linkLocalFavoriteToCloud(saved.artifactSha256, cloudFavorite.id); }
         catch (error) {
           if (error?.status !== 404) throw error;
@@ -2015,11 +2055,11 @@
         if (error?.code === "storage_quota_exceeded") window.alert(cloudT("favoriteLocalOnlyQuota"));
       }
       if (removedDuringUpload) {
-        bridge.setWidgetFavorite(widgetId, false, false, "");
+        bridge.setWidgetFavorite(widgetId, false, false, "", { cloudFavoriteId:null, communityItemId:null });
         return false;
       }
     }
-    bridge.setWidgetFavorite(widgetId, true, false, saved.artifactSha256);
+    bridge.setWidgetFavorite(widgetId, true, false, saved.artifactSha256, { cloudFavoriteId, communityItemId:null });
     return true;
   }
 
@@ -2062,7 +2102,7 @@
   const FAVORITE_PAGE_SIZE = 20;
 
   function favoriteCraftsFromLocal(locals) {
-    return locals.map((entry) => ({ key:`widget:${entry.artifactSha256}`, kind:"widget", sources:[{ type:"local", entry }] }));
+    return locals.map((entry) => ({ key:privateFavoriteCraftKey(entry), kind:"widget", sources:[{ type:"local", entry }] }));
   }
 
   function favoriteCraftsFromFeed(items) {
@@ -2071,10 +2111,10 @@
         const entry = { ...(item.item || {}), favoritedAt:item.favoritedAt };
         return item.kind === "canvas"
           ? { key:`canvas:${entry.id}`, kind:"canvas", sources:[{ type:"community", entry }] }
-          : { key:`widget:${entry.artifactSha256 || entry.artifact?.sha256 || entry.id}`, kind:"widget", sources:[{ type:"community", entry }] };
+          : { key:`widget:artifact:${entry.artifactSha256 || entry.artifact?.sha256 || entry.id}`, kind:"widget", sources:[{ type:"community", entry }] };
       }
       const entry = { ...(item.favorite || {}), favoritedAt:item.favoritedAt };
-      return { key:`widget:${entry.artifactSha256 || entry.id}`, kind:"widget", sources:[{ type:"cloud", entry }] };
+      return { key:privateFavoriteCraftKey(entry), kind:"widget", sources:[{ type:"cloud", entry }] };
     }).filter((entry) => !entry.key.endsWith(":undefined"));
   }
 
@@ -2229,18 +2269,28 @@
   }
 
   async function addCraftToCanvas(merged) {
-    const local = merged.sources.find((entry) => entry.type === "local");
+    const local = merged.sources.find((entry) => entry.type === "local"),
+      cloud = merged.sources.find((entry) => entry.type === "cloud"),
+      community = merged.sources.find((entry) => entry.type === "community");
     if (local) {
       if (!window.PenEchoCommunityCanvas?.importWidget) throw new Error(cloudT("widgetImportUnavailable"));
       const favorite = await fullLocalFavorite(local.entry);
-      await window.PenEchoCommunityCanvas.importWidget(favorite.artifact, favorite.sourceItemId ? { id:favorite.sourceItemId, name:favorite.name } : null);
+      await window.PenEchoCommunityCanvas.importWidget(
+        favorite.artifact,
+        favorite.sourceItemId ? { id:favorite.sourceItemId, name:favorite.name } : null,
+        favoriteWidgetImportOptions(favorite, { cloudFavoriteId:favorite.cloudId || cloud?.entry?.id, communityItemId:community?.entry?.id }),
+      );
       return;
     }
-    const cloudEntry = (merged.sources.find((entry) => entry.type === "cloud") || merged.sources.find((entry) => entry.type === "community"))?.entry;
-    if (merged.sources.some((entry) => entry.type === "community")) return takeFurther(cloudEntry.id);
+    if (community) return takeFurther(community.entry.id, favoriteWidgetImportOptions(community.entry, { communityItemId:community.entry.id }));
+    const cloudEntry = cloud?.entry;
     if (!window.PenEchoCommunityCanvas?.importWidget) throw new Error(cloudT("widgetImportUnavailable"));
     const favorite = await fullCloudFavorite(cloudEntry);
-    await window.PenEchoCommunityCanvas.importWidget(favorite.artifact, favorite.sourceItemId ? { id:favorite.sourceItemId, name:favorite.name } : null);
+    await window.PenEchoCommunityCanvas.importWidget(
+      favorite.artifact,
+      favorite.sourceItemId ? { id:favorite.sourceItemId, name:favorite.name } : null,
+      favoriteWidgetImportOptions(favorite, { cloudFavoriteId:favorite.id }),
+    );
   }
 
   async function activateFavoriteCraft(merged) {
@@ -2382,7 +2432,7 @@
     }
     const removeFromCache = (key) => {
       if (craftsPager) {
-        craftsPager.locals = craftsPager.locals.filter((entry) => `widget:${entry.artifactSha256}` !== key);
+        craftsPager.locals = craftsPager.locals.filter((entry) => privateFavoriteCraftKey(entry) !== key);
         craftsPager.remote = craftsPager.remote.filter((entry) => entry.key !== key);
         renderCraftsList(favoritePagerEntries(craftsPager));
       }
@@ -2503,6 +2553,8 @@
         favorite:event.detail?.favorite === true,
         favoriteArtifactSha256:event.detail?.favoriteArtifactSha256,
         sourceWidgetId:event.detail?.sourceWidgetId,
+        favoriteCloudId:event.detail?.favoriteCloudId,
+        favoriteCommunityItemId:event.detail?.favoriteCommunityItemId,
       });
       completed = true;
     } catch (error) {
