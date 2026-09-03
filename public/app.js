@@ -142,7 +142,7 @@
     MAX_HISTORY = 30,
     DEFAULT_AUTO_DELAY = 5000,
     DEFAULT_AI_TIMEOUT = 260000,
-    PEN_SIZE_MIN = 4,
+    PEN_SIZE_MIN = 3,
     PEN_SIZE_MAX = 8,
     screen = document.querySelector("#screen"),
     view = document.querySelector("#viewport"),
@@ -562,10 +562,10 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       tourBack: "Back",
       tourNext: "Next",
       tourDone: "Finish",
-      tourCanvasAgentLauncherTitle: "Open the full PenEcho Agent",
-      tourCanvasAgentLauncherBody: "Use the PenEcho Agent button in the canvas lower-right corner for multi-step work. It can research, analyze folders and files, search the web, use the current canvas as context, and turn the result into a structured Visual Explorer or edit the canvas directly.",
-      tourCanvasAgentPanelTitle: "Work from the panel at the lower right",
-      tourCanvasAgentPanelBody: "PenEcho Agent opens at the lower right. Type or handwrite a request; add files or a read-only folder project, reference a Widget, and enable web search when available. Drag the header to move it, or drag an edge to resize it.",
+      tourCanvasAgentLauncherTitle: "Open PenEcho Agent",
+      tourCanvasAgentLauncherBody: "On larger screens, use the Agent control at the right end of the toolbar. On narrow screens, use the floating button at the lower right. Start multi-step work with folders, files, web research, and the current canvas.",
+      tourCanvasAgentPanelTitle: "Work in the Agent panel",
+      tourCanvasAgentPanelBody: "PenEcho Agent opens as a right sidebar on larger screens and a bottom panel on narrow screens. Type or handwrite a request, add files or a read-only folder project, reference a Widget, and enable web search when available. Resize the desktop sidebar from its left edge.",
       tourEffortTitle: "Choose how deeply AI reasons",
       tourEffortBody: "AI Effort controls the reasoning depth used for each request. Higher levels suit difficult derivations and multi-step problems, but can take longer. Configured uses the default selected in your local setup.",
       tourHandTitle: "Move objects with the Hand tool",
@@ -593,12 +593,10 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       changelogDialog: "PenEcho release notes",
       changelogClose: "Close release notes",
       changelogBadge: "What's new",
-      changelogTitle: "PenEcho Agent, built for longer work",
-      changelogCanvasAgentResearch: "Turn folders, files, web research, and canvas context into structured visual work from the PenEcho Agent in the canvas lower-right corner.",
-      changelogCanvasAgentWorkspace: "Visual Explorer brings research, analysis, planning, and editable on-canvas delivery into one workflow—with less tool switching and rework.",
-      changelogAgentContinuity: "Keep the same conversation when projects, search, or model connections change, and continue after an inactivity timeout or request-round limit with completed work preserved.",
-      changelogAgentMath: "Read larger file sections with explicit continuation and see inline or display TeX rendered clearly in Agent summaries.",
-      changelogEraserMemory: "PenEcho remembers whether you last chose the eraser or area eraser across canvases and reloads.",
+      changelogTitle: "A simpler, more focused Studio",
+      changelogFrostedStudio: "A simpler frosted Studio brings the toolbar, Navigator, Agent, settings, and dialogs into one restrained visual system. Translucent materials, fine hairlines, and lighter controls keep the Canvas visible and the workspace easy to scan.",
+      changelogResponsiveWorkspace: "The workspace now adapts more naturally to wide and narrow screens. Controls remain compact, the Agent moves between a right sidebar and bottom panel, and important actions stay within reach as the toolbar wraps.",
+      changelogPerformanceAndDetails: "Drawing, erasing, panning, and zooming feel faster, while sharper text, steadier Widgets and object controls, improved Agent suggestions and attachments, interface scale and palette choices, a 3 px pen, and desktop reliability refinements round out the release.",
       settingsTitle: "Settings",
       settingsClose: "Close settings",
       settingsSubtitle: "Choose a category, then adjust its settings without leaving this window.",
@@ -606,7 +604,45 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       settingsNavAppearance: "Appearance",
       settingsNavConnections: "AI & connections",
       settingsNavCanvas: "Canvas",
+      settingsNavShortcuts: "Keyboard shortcuts",
       settingsNavAbout: "Help & about",
+      settingsShortcuts: "Keyboard shortcuts",
+      settingsShortcutsHelp: "Choose a command, then press the keys you want to use.",
+      settingsShortcutInstructions: "Press Escape to cancel. Press Backspace or Delete to remove a shortcut.",
+      settingsShortcutResetAll: "Reset all",
+      settingsShortcutGroupEssential: "Essentials",
+      settingsShortcutGroupTools: "Canvas tools",
+      settingsShortcutGroupWorkspace: "Workspace",
+      settingsShortcutNotSet: "Not set",
+      settingsShortcutPressKeys: "Press keys…",
+      settingsShortcutEdit: "Change shortcut for {command}",
+      settingsShortcutReset: "Reset shortcut for {command}",
+      settingsShortcutRecording: "Press a new shortcut for {command}.",
+      settingsShortcutConflict: "{shortcut} is already used by {command}.",
+      settingsShortcutInvalid: "{shortcut} cannot be used as a shortcut.",
+      settingsShortcutReserved: "{shortcut} is reserved by the system or browser.",
+      settingsShortcutUpdated: "Shortcut updated for {command}.",
+      settingsShortcutCleared: "Shortcut removed for {command}.",
+      settingsShortcutResetDone: "Shortcut reset for {command}.",
+      settingsShortcutResetAllDone: "All shortcuts were reset.",
+      settingsShortcutCancelled: "Shortcut change cancelled.",
+      shortcutFocusAgent: "Focus PenEcho Agent",
+      shortcutFocusAgentHelp: "Open Agent when needed and move focus to the conversation box.",
+      shortcutSaveCanvasHelp: "Save or overwrite the current Canvas using its existing location.",
+      shortcutUndoHelp: "Undo the latest Canvas change.",
+      shortcutRedoHelp: "Redo the latest undone Canvas change.",
+      shortcutPenHelp: "Switch to the Pen tool while the Canvas has focus.",
+      shortcutHandHelp: "Switch to the Hand tool for navigation and object interaction.",
+      shortcutEraserHelp: "Switch to the most recently used eraser mode.",
+      shortcutSelectHelp: "Switch to the lasso selection tool.",
+      shortcutTextHelp: "Switch to the Canvas text tool.",
+      shortcutNewCanvasHelp: "Start the existing New Canvas flow.",
+      shortcutCanvasLibrary: "Canvas Library",
+      shortcutCanvasLibraryHelp: "Open saved Canvases and storage locations.",
+      shortcutToggleGrid: "Toggle Canvas grid",
+      shortcutToggleGridHelp: "Show or hide the Canvas grid.",
+      shortcutFullscreenHelp: "Enter or leave full-screen Canvas view.",
+      shortcutSettingsHelp: "Open Settings from the Canvas workspace.",
       settingsAppearance: "Appearance",
       settingsAppearanceHelp: "Studio stays consistent while its accent and supporting neutrals change together.",
       settingsColorScheme: "Color scheme",
@@ -1879,7 +1915,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   const AI_SUPERSEDED = "AI_SUPERSEDED";
   const FEATURE_TOUR_STORAGE_KEY = "penecho-tour-progress";
   const CHANGELOG_STORAGE_KEY = "penecho-changelog-seen";
-  const CHANGELOG_VERSION = "1.1.7";
+  const CHANGELOG_VERSION = "1.2.0";
   // Keep seen IDs stable. Add a new ID (or bump its -vN suffix) to show only that feature to returning users.
   const FEATURE_TOUR_STEPS = Object.freeze([
     { id: "core-effort-v1", targets: ["#aiEffortButton"], titleKey: "tourEffortTitle", bodyKey: "tourEffortBody", placement: "bottom", radius: 8 },
@@ -1891,8 +1927,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     { id: "core-fullscreen-v1", targets: ["#fullscreenBtn"], titleKey: "tourFullscreenTitle", bodyKey: "tourFullscreenBody", placement: "bottom", radius: 7 },
     { id: "cloud-share-canvas-v1", targets: ["#shareCanvasBtn"], titleKey: "tourShareCanvasTitle", bodyKey: "tourShareCanvasBody", placement: "bottom", radius: 7 },
     { id: "cloud-workspace-v1", targets: ["#cloudAccountBtn"], titleKey: "tourCloudTitle", bodyKey: "tourCloudBody", placement: "bottom", radius: 8 },
-    { id: "canvas-agent-launcher-v1", targets: ["#canvasAgentControl"], titleKey: "tourCanvasAgentLauncherTitle", bodyKey: "tourCanvasAgentLauncherBody", placement: "top", radius: 9, padding: 4 },
-    { id: "canvas-agent-panel-v1", targets: ["#canvasAgentPanel"], titleKey: "tourCanvasAgentPanelTitle", bodyKey: "tourCanvasAgentPanelBody", placement: "left", radius: 18, padding: 4, preview: "canvas-agent-panel" },
+    { id: "canvas-agent-launcher-v2", targets: ["#canvasAgentToggle"], titleKey: "tourCanvasAgentLauncherTitle", bodyKey: "tourCanvasAgentLauncherBody", placement: "bottom", radius: 9, padding: 4 },
+    { id: "canvas-agent-panel-v2", targets: ["#canvasAgentPanel"], titleKey: "tourCanvasAgentPanelTitle", bodyKey: "tourCanvasAgentPanelBody", placement: "left", radius: 18, padding: 4, preview: "canvas-agent-panel" },
     { id: "core-manual-ai-v1", targets: ["#aiOrb"], titleKey: "tourManualAITitle", bodyKey: "tourManualAIBody", placement: "left", radius: 50 },
     { id: "core-status-v1", targets: ["#aiStatusArea"], titleKey: "tourStatusTitle", bodyKey: "tourStatusBody", placement: "bottom", radius: 999 },
     { id: "core-navigation-v1", targets: ["#viewport"], titleKey: "tourCanvasTitle", bodyKey: "tourCanvasBody", placement: "center", radius: 10, padding: 5 },
@@ -2098,8 +2134,9 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   function featureTourStepAvailable(step) {
     if (step?.preview === "canvas-agent-panel") {
       const panel = document.querySelector("#canvasAgentPanel"),
-        toggle = document.querySelector("#canvasAgentToggle");
-      return Boolean(panel?.isConnected && featureTourTargetRect({ targets:["#canvasAgentToggle"] }, toggle ? [toggle] : []));
+        panelRect = featureTourTargetRect(step),
+        toggleRect = featureTourTargetRect({ targets:["#canvasAgentToggle"] });
+      return Boolean(panel?.isConnected && (panelRect || toggleRect));
     }
     return Boolean(featureTourTargetRect(step));
   }
@@ -4614,6 +4651,83 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       y:Number.isFinite(y) ? y : 2,
     };
   }
+  let canvasTextQualityGeneration = 0;
+  function textRasterPixels(image) {
+    const width = Number(image?.width), height = Number(image?.height);
+    return Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0 ? width * height : 0;
+  }
+  function textImageRasterRatio(image) {
+    const logicalWidth = Number(image?.logicalWidth), logicalHeight = Number(image?.logicalHeight),
+      widthRatio = logicalWidth > 0 ? Number(image?.width) / logicalWidth : 0,
+      heightRatio = logicalHeight > 0 ? Number(image?.height) / logicalHeight : 0;
+    if (widthRatio > 0 && heightRatio > 0) return Math.min(widthRatio, heightRatio);
+    return Math.max(widthRatio, heightRatio, 1);
+  }
+  function textRasterExtraPixels(item, image = item?.image) {
+    const logicalWidth = Math.max(1, Number(image?.logicalWidth) || Number(item?.w) || 1),
+      logicalHeight = Math.max(1, Number(image?.logicalHeight) || Number(item?.h) || 1);
+    return Math.max(0, textRasterPixels(image) - logicalWidth * logicalHeight);
+  }
+  function desiredCanvasTextRasterRatio(scale = state.scale) {
+    return Math.min(3, Math.max(1, (devicePixelRatio || 1) * Math.max(1, Number(scale) || 1)));
+  }
+  function textRasterRatioForBudget(item, targetRatio, remainingPixels) {
+    const currentRatio = textImageRasterRatio(item?.image),
+      currentPixels = textRasterPixels(item?.image),
+      logicalPixels = Math.max(1, Number(item?.w) * Number(item?.h)),
+      affordablePixels = Math.min(MAX_SHARP_OVERLAY_ITEM_PIXELS, currentPixels + Math.max(0, Number(remainingPixels) || 0)),
+      affordableRatio = Math.sqrt(affordablePixels / logicalPixels);
+    return Math.min(targetRatio, affordableRatio) > currentRatio * 1.05 ? Math.min(targetRatio, affordableRatio) : currentRatio;
+  }
+  function releaseTextRaster(image) {
+    if (image?.tagName === "CANVAS") image.width = image.height = 1;
+  }
+  async function renderTextBoxImage(item, pixelRatio = desiredCanvasTextRasterRatio()) {
+    const fontFamily = normalizeTextBoxFontFamily(item.fontFamily),
+      color = item.color || state.inkColor;
+    try {
+      return { image:await mixedTextImage(item.text, item.fontSize, color, item.maxWidth, 1.35, fontFamily, pixelRatio), mixedFallback:false };
+    } catch {
+      return { image:textImage(item.text, item.fontSize, color, item.maxWidth, 1.35, fontFamily, TEXT_INPUT_MAX_LENGTH, pixelRatio), mixedFallback:true };
+    }
+  }
+  async function refreshVisibleTextBoxQuality() {
+    const generation = ++canvasTextQualityGeneration;
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    if (generation !== canvasTextQualityGeneration || view.classList.contains("canvas-navigation-previewing")) return false;
+    const targetRatio = desiredCanvasTextRasterRatio(),
+      visible = canvasRenderRegion().visible,
+      candidates = visible.w > 0 && visible.h > 0 ? visibleTextBoxes(visible) : [],
+      retainedExtraPixels = state.textBoxes.reduce((sum, item) => sum + textRasterExtraPixels(item), 0);
+    let remainingPixels = Math.max(0, MAX_SHARP_OVERLAY_PIXELS - state.sharpOverlayPixels - retainedExtraPixels),
+      changed = false;
+    for (const item of candidates) {
+      if (generation !== canvasTextQualityGeneration) return false;
+      const currentImage = item.image,
+        requestedRatio = textRasterRatioForBudget(item, targetRatio, remainingPixels);
+      if (requestedRatio <= textImageRasterRatio(currentImage) * 1.05) continue;
+      let rendered;
+      try { rendered = await renderTextBoxImage(item, requestedRatio); }
+      catch { continue; }
+      const image = rendered.image,
+        renderedRatio = textImageRasterRatio(image),
+        renderedPixels = textRasterPixels(image),
+        additionalPixels = Math.max(0, textRasterExtraPixels(item, image) - textRasterExtraPixels(item, currentImage));
+      if (generation !== canvasTextQualityGeneration || !state.textBoxes.includes(item) || item.image !== currentImage
+        || renderedRatio <= textImageRasterRatio(currentImage) * 1.05 || renderedPixels > MAX_SHARP_OVERLAY_ITEM_PIXELS
+        || additionalPixels > remainingPixels) {
+        releaseTextRaster(image);
+        if (generation !== canvasTextQualityGeneration) return false;
+        continue;
+      }
+      item.image = image;
+      remainingPixels -= additionalPixels;
+      changed = true;
+    }
+    if (generation !== canvasTextQualityGeneration || !changed) return false;
+    renderPlacedContentLayer(canvasRenderRegion().visible);
+    return true;
+  }
   function textBoxHistoryRecord(item) {
     return {
       id:item.id,
@@ -4657,14 +4771,10 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     }
     return null;
   }
-  async function fittedTextBoxContent(text, fontSize, color, maxWidth, fontFamily = TEXT_EDITOR_FONT_FAMILY) {
+  async function fittedTextBoxContent(text, fontSize, color, maxWidth, fontFamily = TEXT_EDITOR_FONT_FAMILY, pixelRatio = desiredCanvasTextRasterRatio()) {
     fontFamily = normalizeTextBoxFontFamily(fontFamily);
     const render = async () => {
-      try {
-        return { image:await mixedTextImage(text, fontSize, color, maxWidth, 1.35, fontFamily), mixedFallback:false };
-      } catch {
-        return { image:textImage(text, fontSize, color, maxWidth, 1.35, fontFamily, TEXT_INPUT_MAX_LENGTH), mixedFallback:true };
-      }
+      return renderTextBoxImage({ text, fontSize, color, maxWidth, fontFamily }, pixelRatio);
     };
     maxWidth = Math.min(SIZE, Math.max(fontSize * 3, maxWidth));
     let result = await render(),
@@ -4687,7 +4797,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       height:Math.min(SIZE, height),
     };
   }
-  async function renderedTextBoxRecord(item) {
+  async function renderedTextBoxRecord(item, pixelRatio = desiredCanvasTextRasterRatio()) {
     if (!item || typeof item !== "object" || typeof item.text !== "string" || !item.text.trim() || item.text.length > TEXT_INPUT_MAX_LENGTH) return null;
     const x = Number(item.x),
       y = Number(item.y),
@@ -4695,7 +4805,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       maxWidth = Number(item.maxWidth);
     if (![x, y, fontSize, maxWidth].every(Number.isFinite) || x < 0 || y < 0 || fontSize < 1 || fontSize > 2000 || maxWidth < fontSize * 3 || maxWidth > SIZE) return null;
     const color = item.color || state.inkColor,
-      fitted = await fittedTextBoxContent(item.text, fontSize, color, maxWidth, item.fontFamily),
+      fitted = await fittedTextBoxContent(item.text, fontSize, color, maxWidth, item.fontFamily, pixelRatio),
       width = fitted.width,
       height = fitted.height,
       fittedX = Math.max(0, Math.min(SIZE - width, x)),
@@ -4715,7 +4825,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       image:fitted.image,
     };
   }
-  async function restoreTextBoxes(items) {
+  async function restoreTextBoxes(items, pixelRatio = 1) {
+    canvasTextQualityGeneration++;
     clearHandToolbarTargets("text-box");
     clearTextEditors();
     state.textBoxes = [];
@@ -4724,8 +4835,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     for (const item of Array.isArray(items) ? items.slice(0, MAX_VISIBLE_TEXT_BOXES) : []) {
       let record = null;
       try {
-        if (item?.image) record = textBoxHistoryRecord(item);
-        else record = await renderedTextBoxRecord(item);
+        if (item?.image && textImageRasterRatio(item.image) >= pixelRatio / 1.05) record = textBoxHistoryRecord(item);
+        else record = await renderedTextBoxRecord(item, pixelRatio);
       } catch {
         // One invalid or unsupported text box must not make an otherwise valid
         // saved Canvas impossible to restore.
@@ -4738,6 +4849,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     }
     positionTextEditors();
     requestRender();
+    void refreshVisibleTextBoxQuality();
   }
 
   function imageBox(item) {
@@ -6013,14 +6125,17 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   }
   let canvasWidgetCarrierPanX = Number.NaN;
   let canvasWidgetCarrierPanY = Number.NaN;
-  function syncCanvasWidgetCarrier() {
-    if (canvasWidgetCarrierPanX === state.panX && canvasWidgetCarrierPanY === state.panY) return;
+  let canvasWidgetCarrierPreviewScale = Number.NaN;
+  function syncCanvasWidgetCarrier(previewScale = 1) {
+    if (canvasWidgetCarrierPanX === state.panX && canvasWidgetCarrierPanY === state.panY && canvasWidgetCarrierPreviewScale === previewScale) return;
     const style = runtimeElementStyle(view, "canvas-widget-carrier");
     if (!style) return;
     style.setProperty("--canvas-widget-pan-x", `${state.panX}px`);
     style.setProperty("--canvas-widget-pan-y", `${state.panY}px`);
+    style.setProperty("--canvas-widget-preview-scale", String(previewScale));
     canvasWidgetCarrierPanX = state.panX;
     canvasWidgetCarrierPanY = state.panY;
+    canvasWidgetCarrierPreviewScale = previewScale;
   }
   function positionWidget(widget) {
     if (!widget.shell) return;
@@ -7241,16 +7356,34 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   let canvasNavigationPreviewSettleTimer = 0;
   let canvasNavigationPreviewPanX = 0;
   let canvasNavigationPreviewPanY = 0;
+  let canvasNavigationPreviewScale = 1;
+  let canvasNavigationPreviewViewportWidth = 0;
+  let canvasNavigationPreviewViewportHeight = 0;
   let canvasNavigationPreviewRebaseX = CANVAS_NAVIGATION_REBASE_MIN_PX;
   let canvasNavigationPreviewRebaseY = CANVAS_NAVIGATION_REBASE_MIN_PX;
+  function canvasNavigationPreviewTransform() {
+    const scale = state.scale / canvasNavigationPreviewScale;
+    return {
+      scale,
+      x:state.panX - canvasNavigationPreviewPanX * scale,
+      y:state.panY - canvasNavigationPreviewPanY * scale,
+    };
+  }
+  function canvasNavigationPreviewDisplacement(transform = canvasNavigationPreviewTransform()) {
+    const scaleDelta = transform.scale - 1;
+    return {
+      x:Math.max(Math.abs(transform.x), Math.abs(transform.x + canvasNavigationPreviewViewportWidth * scaleDelta)),
+      y:Math.max(Math.abs(transform.y), Math.abs(transform.y + canvasNavigationPreviewViewportHeight * scaleDelta)),
+    };
+  }
   function applyCanvasNavigationPreview() {
     const style = runtimeElementStyle(view, "canvas-navigation-preview"),
-      x = state.panX - canvasNavigationPreviewPanX,
-      y = state.panY - canvasNavigationPreviewPanY;
+      { scale, x, y } = canvasNavigationPreviewTransform();
     style?.setProperty("--canvas-navigation-preview-x", `${x}px`);
     style?.setProperty("--canvas-navigation-preview-y", `${y}px`);
+    style?.setProperty("--canvas-navigation-preview-scale", String(scale));
     style?.setProperty("--canvas-navigation-preview-paper", state.paint.paper);
-    syncCanvasWidgetCarrier();
+    syncCanvasWidgetCarrier(scale);
     view.classList.add("canvas-navigation-previewing");
   }
   function resetCanvasNavigationPreview() {
@@ -7260,6 +7393,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     canvasNavigationPreviewSettleTimer = 0;
     canvasNavigationPreviewPanX = state.panX;
     canvasNavigationPreviewPanY = state.panY;
+    canvasNavigationPreviewScale = state.scale;
+    syncCanvasWidgetCarrier();
     view.classList.remove("canvas-navigation-previewing");
   }
   function finishCanvasNavigationPreview() {
@@ -7268,6 +7403,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     if (!view.classList.contains("canvas-navigation-previewing")) return false;
     flushCoordinatesUpdate();
     if (!state.renderQueued) render();
+    void refreshVisibleTextBoxQuality();
     return true;
   }
   function canvasNavigationPreviewStep() {
@@ -7277,14 +7413,21 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     requestCoordinatesUpdate();
     requestAnimationLayerRender();
     if (state.renderQueued) return;
-    if (Math.abs(state.panX - canvasNavigationPreviewPanX) >= canvasNavigationPreviewRebaseX
-      || Math.abs(state.panY - canvasNavigationPreviewPanY) >= canvasNavigationPreviewRebaseY) render();
+    const displacement = canvasNavigationPreviewDisplacement();
+    if (displacement.x >= canvasNavigationPreviewRebaseX || displacement.y >= canvasNavigationPreviewRebaseY) {
+      render();
+      void refreshVisibleTextBoxQuality();
+    }
   }
-  function requestCanvasNavigationPreview(previousPanX, previousPanY) {
+  function requestCanvasNavigationPreview(previousPanX, previousPanY, previousScale = state.scale) {
+    canvasTextQualityGeneration++;
     if (!view.classList.contains("canvas-navigation-previewing")) {
       canvasNavigationPreviewPanX = previousPanX;
       canvasNavigationPreviewPanY = previousPanY;
+      canvasNavigationPreviewScale = previousScale;
       const { width, height } = canvasViewportMetrics();
+      canvasNavigationPreviewViewportWidth = width;
+      canvasNavigationPreviewViewportHeight = height;
       canvasNavigationPreviewRebaseX = Math.max(CANVAS_NAVIGATION_REBASE_MIN_PX, width * CANVAS_NAVIGATION_REBASE_VIEWPORT_RATIO);
       canvasNavigationPreviewRebaseY = Math.max(CANVAS_NAVIGATION_REBASE_MIN_PX, height * CANVAS_NAVIGATION_REBASE_VIEWPORT_RATIO);
       view.classList.add("canvas-navigation-previewing");
@@ -8681,6 +8824,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     if (kind === "refine") {
       const label = document.createElement("span"),
         hint = document.createElement("span");
+      button.dataset.peMaterial = "control-glass";
+      button.dataset.peState = "default";
       label.className = "widget-refine-button-label";
       hint.className = "widget-refine-hint";
       hint.hidden = true;
@@ -10082,13 +10227,16 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       distance = Math.max(1, Math.hypot(first.x - second.x, first.y - second.y)),
       next = Math.max(0.03, Math.min(2, (g.scale * distance) / g.distance)),
       anchorX = (g.center.x - g.panX) / g.scale,
-      anchorY = (g.center.y - g.panY) / g.scale;
+      anchorY = (g.center.y - g.panY) / g.scale,
+      previousPanX = state.panX,
+      previousPanY = state.panY,
+      previousScale = state.scale;
     state.scale = next;
     state.panX = center.x - anchorX * next;
     state.panY = center.y - anchorY * next;
     requestCoordinatesUpdate();
     setNavigating(true);
-    requestRender();
+    requestCanvasNavigationPreview(previousPanX, previousPanY, previousScale);
     return true;
   }
   function moveCanvas(dx, dy) {
@@ -10113,12 +10261,15 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       factor = deltaY < 0 ? 1.12 : 0.89,
       next = Math.max(0.03, Math.min(2, state.scale * factor)),
       px = point.x,
-      py = point.y;
+      py = point.y,
+      previousPanX = state.panX,
+      previousPanY = state.panY,
+      previousScale = state.scale;
     state.panX = px - ((px - state.panX) * next) / state.scale;
     state.panY = py - ((py - state.panY) * next) / state.scale;
     state.scale = next;
     requestCoordinatesUpdate();
-    requestRender();
+    requestCanvasNavigationPreview(previousPanX, previousPanY, previousScale);
     wheelNavigating();
     return true;
   }
@@ -11316,7 +11467,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       restoreWidgets(item.widgets);
       applyTheme(item.theme);
       restoreImages(imageResult.value);
-      await restoreTextBoxes(item.textBoxes);
+      await restoreTextBoxes(item.textBoxes, 1);
       if (!loadIsCurrent()) throw Error("The read-only Canvas load was superseded.");
 
       // A viewer URL does not own a local snapshot. Preserve artifact extension
@@ -11337,6 +11488,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       closeHistoryPanel();
       fitViewerCanvas();
       render();
+      void refreshVisibleTextBoxQuality();
       return { id:String(item.id || ""), name:state.currentSnapshotName };
     } catch (error) {
       if (decodedTiles?.size) releaseSnapshotTileCanvases(decodedTiles);
@@ -11693,7 +11845,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       restoreWidgets(item.widgets);
       applyTheme(item.theme);
       restoreImages(images);
-      await restoreTextBoxes(item.textBoxes);
+      await restoreTextBoxes(item.textBoxes, 1);
       if (item.view) {
         state.scale = Math.max(0.03, Math.min(2, item.view.scale));
         state.panX = item.view.panX;
@@ -11719,6 +11871,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       window.PenEchoStudioNavigator?.updateDocument?.();
       setHistoryActivity(t("snapshotLoading").replace("{name}", displayName), t("snapshotLoadApplying"), 100);
       render();
+      void refreshVisibleTextBoxQuality();
       closeHistoryPanel();
       setStatusKey("snapshotLoaded");
       return true;
@@ -17854,12 +18007,13 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     if (!value || typeof value !== "object") return null;
     const id=canvasAgentHistoryText(value.id,128), createdAt=Number(value.createdAt), updatedAt=Number(value.updatedAt);
     if (!id || !Number.isFinite(createdAt) || !Number.isFinite(updatedAt)) return null;
+    const items=canvasAgentRestoreLegacyCopyableSummaries((Array.isArray(value.items)?value.items:[]).slice(-CANVAS_AGENT_HISTORY_ITEM_LIMIT).map(canvasAgentNormalizeHistoryItem).filter(Boolean));
     return {
       id,
       createdAt,
       updatedAt,
       title:canvasAgentHistoryText(value.title,120),
-      items:canvasAgentRestoreLegacyCopyableSummaries((Array.isArray(value.items)?value.items:[]).slice(-CANVAS_AGENT_HISTORY_ITEM_LIMIT).map(canvasAgentNormalizeHistoryItem).filter(Boolean)),
+      items,
     };
   }
   function canvasAgentReadHistoryStore() {
@@ -17938,6 +18092,9 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   }
   function canvasAgentConversationNeedsCanvasTitle(conversation) {
     return !(conversation?.items||[]).some(item=>item?.type==="message"&&item.role==="assistant"&&String(item.text||"").trim());
+  }
+  function canvasAgentShouldRequestCanvasTitle(conversation) {
+    return currentCanvasNeedsAgentName() && (!state.currentSnapshotId || canvasAgentConversationNeedsCanvasTitle(conversation));
   }
   function canvasAgentPersistCurrentConversation() {
     clearTimeout(canvasAgent.historyPersistTimer);
@@ -18021,6 +18178,11 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   function canvasAgentHideHistoryPopover() {
     canvasAgentHistoryPopover.hidden=true;
     canvasAgentHistory.setAttribute("aria-expanded","false");
+  }
+  function canvasAgentHistoryFocusDidLeave(event) {
+    const target=event.relatedTarget;
+    if(target instanceof Node&&(canvasAgentHistoryPopover.contains(target)||canvasAgentHistory.contains(target)))return;
+    canvasAgentHideHistoryPopover();
   }
   function canvasAgentSetHistoryViewing(viewing) {
     canvasAgent.viewingHistoryId=viewing?String(viewing):"";
@@ -19424,8 +19586,10 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   }
   function canvasAgentReportEvaluation(action,context) {
     if(!["like","criticism","retry"].includes(action))return false;
+    const conversationId=String(canvasAgent.currentConversation?.id||"").trim();
+    if(!conversationId)return false;
     const metadata=context&&typeof context==="object"?context:canvasAgentEvaluationContext(),controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),10_000),client=canvasAgentEvaluationClientMetadata();
-    const payload={eventId:canvasClientId(),action,modelName:String(metadata.modelName||"default").slice(0,200),channel:String(metadata.channel||"unknown").slice(0,80),...client};
+    const payload={eventId:canvasClientId(),conversationId,action,modelName:String(metadata.modelName||"default").slice(0,200),channel:String(metadata.channel||"unknown").slice(0,80),...client};
     try {
       const request=fetch("/api/v1/model-evaluation",{method:"POST",headers:authenticatedApiHeaders({accept:"application/json","content-type":"application/json"}),credentials:"omit",cache:"no-store",keepalive:true,signal:controller.signal,body:JSON.stringify(payload)});
       void Promise.resolve(request).catch(()=>{}).finally(()=>clearTimeout(timeout));
@@ -19435,8 +19599,11 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   function canvasAgentLatestRetryItem() {
     return canvasAgent.currentConversation?.items?.findLast(item=>item?.type==="message"&&item.role==="assistant"&&item.copyable===true&&String(item.text||"").trim())||null;
   }
+  function canvasAgentCanShowRetryTarget(target) {
+    return Boolean(target?.historyItem===canvasAgentLatestRetryItem()&&target.historyItem.evaluationModel&&target.historyItem.evaluationChannel);
+  }
   function canvasAgentCanRetryTarget(target) {
-    return Boolean(target?.historyItem===canvasAgentLatestRetryItem()&&target.historyItem.evaluationModel&&target.historyItem.evaluationChannel&&!canvasAgent.running&&!canvasAgent.requestPending&&!canvasAgent.attachmentBusy&&!canvasAgent.projectUploadBusy&&!canvasAgent.pendingApproval&&!canvasAgentInput.disabled);
+    return Boolean(canvasAgentCanShowRetryTarget(target)&&!canvasAgent.running&&!canvasAgent.requestPending&&!canvasAgent.attachmentBusy&&!canvasAgent.projectUploadBusy&&!canvasAgent.pendingApproval&&!canvasAgentInput.disabled);
   }
   function canvasAgentCloseFeedbackMenu({restoreFocus=false}={}) {
     const menu=canvasAgent.feedbackMenu,target=canvasAgent.feedbackTarget;
@@ -19520,14 +19687,16 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     if(!canvasAgentCanRetryTarget(target))return false;
     const context=canvasAgentEvaluationContext({preferSelected:true});
     canvasAgentReportEvaluation("retry",context);
-    target.retryButton.disabled=true;
-    target.retryButton.dataset.peState="disabled";
-    return canvasAgentSubmitMessage({
+    const submission=canvasAgentSubmitMessage({
       textOverride:"Regenerate your answer to my immediately preceding request. Make a fresh attempt using the same request and relevant conversation context. Do not mention this retry instruction.",
       displayTextOverride:t("canvasAgentRetryMessage"),
       includeDraftMedia:false,
       clearInput:false,
     });
+    canvasAgentSyncAssistantActions();
+    const submitted=await submission;
+    canvasAgentSyncAssistantActions();
+    return submitted;
   }
   function canvasAgentSyncAssistantActionState(target) {
     if(!target?.copyActions)return;
@@ -19538,7 +19707,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     target.feedbackButton.disabled=!evaluationReady;
     target.feedbackButton.setAttribute("aria-pressed",String(Boolean(target.historyItem.evaluation)));
     target.feedbackButton.dataset.peState=target.historyItem.evaluation?"selected":evaluationReady?"default":"disabled";
-    target.retryButton.hidden=!evaluationReady;
+    target.retryButton.hidden=!canvasAgentCanShowRetryTarget(target);
     target.retryButton.disabled=!canvasAgentCanRetryTarget(target);
     target.retryButton.dataset.peState=target.retryButton.disabled?"disabled":"default";
     if(!ready){
@@ -19583,6 +19752,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     const target=candidates.at(-1)?.target;
     if(!target)return false;
     canvasAgentSetAssistantCopyReady(target,true);
+    canvasAgentSyncAssistantActions();
     return true;
   }
   function canvasAgentCaptureAttachment(event) {
@@ -19886,6 +20056,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       }
     }
     if (!canvasAgentTranscript.childElementCount) canvasAgentRenderEmpty();
+    canvasAgentSyncAssistantActions();
     canvasAgentScrollToLatest(true);
     canvasAgentSyncInputHint();
   }
@@ -21217,6 +21388,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     const current=Math.max(0,controls.indexOf(document.activeElement)),index=event.key==="Home"?0:event.key==="End"?controls.length-1:event.key==="ArrowDown"?(current+1)%controls.length:(current+controls.length-1)%controls.length;
     controls[index].focus({preventScroll:true});
   });
+  canvasAgentHistoryPopover.addEventListener("focusout",canvasAgentHistoryFocusDidLeave);
   canvasAgentHistoryReturn.addEventListener("click",canvasAgentReturnToCurrentConversation);
   document.addEventListener("keydown",event=>{
     if (event.key !== "Escape" || canvasAgentPanel.hidden) return;
@@ -21376,7 +21548,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       canvasAgentAssertSubmitExecution(submitExecution);
       canvasAgentRow("user",displayText,displayAttachments);
       canvasAgentAssertSubmitExecution(submitExecution);
-      canvasAgentSendRequest(canvasAgent.running ? "steer" : "user_turn",{text:prompt,references:canvasAgentTurnReferences(),images:outgoingAttachments.map(attachment=>attachment.wire),fileIds:fileAttachments.map(attachment=>attachment.projectId),initialState,webSearchEnabled:canvasAgent.searchEnabled,canvasTitleNeeded:currentCanvasNeedsAgentName()&&canvasAgentConversationNeedsCanvasTitle(canvasAgent.currentConversation),reasoningEffort:state.reasoningEffort});
+      canvasAgentSendRequest(canvasAgent.running ? "steer" : "user_turn",{text:prompt,references:canvasAgentTurnReferences(),images:outgoingAttachments.map(attachment=>attachment.wire),fileIds:fileAttachments.map(attachment=>attachment.projectId),initialState,webSearchEnabled:canvasAgent.searchEnabled,canvasTitleNeeded:canvasAgentShouldRequestCanvasTitle(canvasAgent.currentConversation),reasoningEffort:state.reasoningEffort});
       requestSent = true;
       focusComposerAfterSubmit=false;
       if(canvasAgentForm.contains(document.activeElement))document.activeElement.blur();
@@ -22339,6 +22511,311 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     setStudioNavigatorTab(studioNavigatorActiveTab, { persist:false });
     syncStudioNavigatorTheme(state.theme);
   }
+  const KEYBOARD_SHORTCUT_STORAGE_KEY = "penecho-keyboard-shortcuts-v1";
+  const KEYBOARD_SHORTCUT_COMMANDS = Object.freeze([
+    { id:"focus-agent", group:"essential", labelKey:"shortcutFocusAgent", descriptionKey:"shortcutFocusAgentHelp", defaultChord:"Tab" },
+    { id:"save-canvas", group:"essential", labelKey:"saveCanvas", descriptionKey:"shortcutSaveCanvasHelp", defaultChord:"Mod+s" },
+    { id:"undo", group:"essential", labelKey:"undo", descriptionKey:"shortcutUndoHelp", defaultChord:"Mod+z" },
+    { id:"redo", group:"essential", labelKey:"redo", descriptionKey:"shortcutRedoHelp", defaultChord:"Mod+Shift+z" },
+    { id:"tool-pen", group:"tools", labelKey:"pen", descriptionKey:"shortcutPenHelp", defaultChord:"p" },
+    { id:"tool-hand", group:"tools", labelKey:"hand", descriptionKey:"shortcutHandHelp", defaultChord:"h" },
+    { id:"tool-eraser", group:"tools", labelKey:"eraser", descriptionKey:"shortcutEraserHelp", defaultChord:"e" },
+    { id:"tool-select", group:"tools", labelKey:"select", descriptionKey:"shortcutSelectHelp", defaultChord:"v" },
+    { id:"tool-text", group:"tools", labelKey:"text", descriptionKey:"shortcutTextHelp", defaultChord:"t" },
+    { id:"new-canvas", group:"workspace", labelKey:"newCanvas", descriptionKey:"shortcutNewCanvasHelp", defaultChord:"Mod+n" },
+    { id:"canvas-library", group:"workspace", labelKey:"shortcutCanvasLibrary", descriptionKey:"shortcutCanvasLibraryHelp", defaultChord:"Mod+o" },
+    { id:"toggle-grid", group:"workspace", labelKey:"shortcutToggleGrid", descriptionKey:"shortcutToggleGridHelp", defaultChord:"g" },
+    { id:"toggle-fullscreen", group:"workspace", labelKey:"fullscreen", descriptionKey:"shortcutFullscreenHelp", defaultChord:"Mod+Shift+f" },
+    { id:"open-settings", group:"workspace", labelKey:"settingsTitle", descriptionKey:"shortcutSettingsHelp", defaultChord:"Mod+," },
+  ]);
+  const KEYBOARD_SHORTCUT_GROUPS = Object.freeze([
+    { id:"essential", labelKey:"settingsShortcutGroupEssential" },
+    { id:"tools", labelKey:"settingsShortcutGroupTools" },
+    { id:"workspace", labelKey:"settingsShortcutGroupWorkspace" },
+  ]);
+  const KEYBOARD_SHORTCUT_SPECIAL_KEYS = new Map([
+    [" ", "Space"], ["Spacebar", "Space"], ["Esc", "Escape"], ["Left", "ArrowLeft"],
+    ["Right", "ArrowRight"], ["Up", "ArrowUp"], ["Down", "ArrowDown"],
+  ]);
+  const KEYBOARD_SHORTCUT_RESERVED = new Set(["Mod+q", "Mod+w", "Mod+r", "Mod+t", "Mod+l"]);
+  let keyboardShortcutBindings = keyboardShortcutLoadBindings(),
+    keyboardShortcutRecordingId = "",
+    keyboardShortcutStatus = null;
+
+  function keyboardShortcutCommand(commandId) {
+    return KEYBOARD_SHORTCUT_COMMANDS.find((command) => command.id === commandId) || null;
+  }
+  function keyboardShortcutDefaults() {
+    return Object.fromEntries(KEYBOARD_SHORTCUT_COMMANDS.map((command) => [command.id, command.defaultChord]));
+  }
+  function keyboardShortcutLoadBindings() {
+    const bindings = keyboardShortcutDefaults();
+    try {
+      const saved = JSON.parse(localStorage.getItem(KEYBOARD_SHORTCUT_STORAGE_KEY) || "null");
+      if (!saved || typeof saved !== "object" || Array.isArray(saved)) return bindings;
+      for (const command of KEYBOARD_SHORTCUT_COMMANDS) {
+        if (Object.prototype.hasOwnProperty.call(saved, command.id) && typeof saved[command.id] === "string") bindings[command.id] = saved[command.id];
+      }
+    } catch {}
+    return bindings;
+  }
+  function keyboardShortcutPersistBindings() {
+    try { localStorage.setItem(KEYBOARD_SHORTCUT_STORAGE_KEY, JSON.stringify(keyboardShortcutBindings)); }
+    catch {}
+  }
+  function keyboardShortcutKey(event) {
+    const raw = KEYBOARD_SHORTCUT_SPECIAL_KEYS.get(event.key) || event.key;
+    if (!raw || ["Control", "Meta", "Alt", "Shift", "AltGraph", "OS"].includes(raw)) return "";
+    if (raw.length === 1) return raw.toLocaleLowerCase("en-US");
+    if (/^F(?:[1-9]|1[0-9]|2[0-4])$/i.test(raw)) return raw.toUpperCase();
+    return raw;
+  }
+  function keyboardShortcutChordFromEvent(event) {
+    const key = keyboardShortcutKey(event);
+    if (!key) return "";
+    const parts = [];
+    if (event.ctrlKey || event.metaKey) parts.push("Mod");
+    if (event.altKey) parts.push("Alt");
+    if (event.shiftKey) parts.push("Shift");
+    parts.push(key);
+    return parts.join("+");
+  }
+  function keyboardShortcutChordKey(chord) {
+    return String(chord || "").split("+").at(-1) || "";
+  }
+  function keyboardShortcutChordHasModifier(chord) {
+    return /(?:^|\+)(?:Mod|Alt|Shift)(?:\+|$)/.test(chord);
+  }
+  function keyboardShortcutChordAllowed(chord) {
+    const key = keyboardShortcutChordKey(chord);
+    if (!key) return false;
+    if (KEYBOARD_SHORTCUT_RESERVED.has(chord)) return false;
+    return key.length === 1 || ["Tab", "Enter", "Escape", "Space", "Backspace", "Delete", "Home", "End", "PageUp", "PageDown", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(key) || /^F(?:[1-9]|1[0-9]|2[0-4])$/.test(key);
+  }
+  function keyboardShortcutIsMac() {
+    return /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent || "");
+  }
+  function keyboardShortcutDisplay(chord) {
+    if (!chord) return t("settingsShortcutNotSet");
+    const mac = keyboardShortcutIsMac(), labels = {
+      Mod:mac ? "⌘" : "Ctrl", Alt:mac ? "⌥" : "Alt", Shift:mac ? "⇧" : "Shift",
+      Tab:"Tab", Enter:mac ? "↩" : "Enter", Escape:"Esc", Space:"Space", Backspace:mac ? "⌫" : "Backspace",
+      Delete:mac ? "⌦" : "Delete", ArrowLeft:"←", ArrowRight:"→", ArrowUp:"↑", ArrowDown:"↓",
+      PageUp:"Page Up", PageDown:"Page Down",
+    };
+    return chord.split("+").map((part) => labels[part] || (part.length === 1 ? part.toLocaleUpperCase(state.language === "zh" ? "zh-CN" : "en-US") : part)).join(mac ? " " : " + ");
+  }
+  function keyboardShortcutFormat(key, values = {}) {
+    let value = t(key);
+    for (const [name, replacement] of Object.entries(values)) value = value.replace(`{${name}}`, replacement);
+    return value;
+  }
+  function keyboardShortcutSetStatus(key, values = {}, stateName = "") {
+    keyboardShortcutStatus = key ? { key, values, stateName } : null;
+    const status = document.querySelector("#settingsShortcutStatus");
+    if (!status) return;
+    status.textContent = keyboardShortcutStatus ? keyboardShortcutFormat(key, values) : "";
+    status.dataset.state = stateName;
+  }
+  function keyboardShortcutFocusEditor(commandId) {
+    requestAnimationFrame(() => document.querySelector(`[data-shortcut-edit="${commandId}"]`)?.focus({ preventScroll:true }));
+  }
+  function renderKeyboardShortcuts() {
+    const container = document.querySelector("#settingsShortcutList");
+    if (!container) return;
+    container.replaceChildren();
+    for (const group of KEYBOARD_SHORTCUT_GROUPS) {
+      const section = document.createElement("section"), heading = document.createElement("h4"), list = document.createElement("div");
+      section.className = "settings-shortcut-group";
+      heading.textContent = t(group.labelKey);
+      heading.id = `settingsShortcutGroup-${group.id}`;
+      list.className = "settings-shortcut-list";
+      list.dataset.peContainer = "component";
+      section.setAttribute("aria-labelledby", heading.id);
+      for (const command of KEYBOARD_SHORTCUT_COMMANDS.filter((item) => item.group === group.id)) {
+        const row = document.createElement("div"), copy = document.createElement("div"), title = document.createElement("strong"), description = document.createElement("small"), actions = document.createElement("div"), edit = document.createElement("button"), binding = document.createElement("kbd"), reset = document.createElement("button");
+        const chord = keyboardShortcutBindings[command.id] || "", recording = keyboardShortcutRecordingId === command.id;
+        row.className = "settings-shortcut-row";
+        row.dataset.peList = "settings";
+        row.dataset.peState = recording ? "selected" : "default";
+        copy.className = "settings-shortcut-copy";
+        copy.dataset.peRegion = "copy";
+        title.textContent = t(command.labelKey);
+        description.textContent = t(command.descriptionKey);
+        copy.append(title, description);
+        actions.className = "settings-shortcut-actions";
+        actions.dataset.peRegion = "control-rail";
+        edit.type = "button";
+        edit.className = "settings-shortcut-binding";
+        edit.dataset.shortcutEdit = command.id;
+        edit.dataset.peButton = "secondary";
+        edit.dataset.peDensity = "compact";
+        edit.dataset.peState = recording ? "selected" : "default";
+        edit.setAttribute("aria-pressed", String(recording));
+        edit.setAttribute("aria-label", keyboardShortcutFormat("settingsShortcutEdit", { command:t(command.labelKey) }));
+        binding.textContent = recording ? t("settingsShortcutPressKeys") : keyboardShortcutDisplay(chord);
+        edit.append(binding);
+        reset.type = "button";
+        reset.className = "settings-shortcut-reset";
+        reset.dataset.shortcutReset = command.id;
+        reset.dataset.peButton = "icon";
+        reset.dataset.peDensity = "compact";
+        reset.hidden = chord === command.defaultChord;
+        reset.setAttribute("aria-label", keyboardShortcutFormat("settingsShortcutReset", { command:t(command.labelKey) }));
+        reset.title = reset.getAttribute("aria-label");
+        reset.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8v5h5M6.6 16.2A7 7 0 1 0 6 8.8L5 10"/></svg>';
+        actions.append(edit, reset);
+        row.append(copy, actions);
+        list.append(row);
+      }
+      section.append(heading, list);
+      container.append(section);
+    }
+    if (keyboardShortcutStatus) keyboardShortcutSetStatus(keyboardShortcutStatus.key, keyboardShortcutStatus.values, keyboardShortcutStatus.stateName);
+  }
+  function keyboardShortcutStartRecording(commandId) {
+    const command = keyboardShortcutCommand(commandId);
+    if (!command) return false;
+    keyboardShortcutRecordingId = commandId;
+    keyboardShortcutSetStatus("settingsShortcutRecording", { command:t(command.labelKey) });
+    renderKeyboardShortcuts();
+    keyboardShortcutFocusEditor(commandId);
+    return true;
+  }
+  function keyboardShortcutStopRecording({ restoreFocus = true } = {}) {
+    const commandId = keyboardShortcutRecordingId;
+    keyboardShortcutRecordingId = "";
+    renderKeyboardShortcuts();
+    if (restoreFocus && commandId) keyboardShortcutFocusEditor(commandId);
+  }
+  function keyboardShortcutAssign(commandId, chord) {
+    const command = keyboardShortcutCommand(commandId);
+    if (!command) return false;
+    const conflict = chord && KEYBOARD_SHORTCUT_COMMANDS.find((item) => item.id !== commandId && keyboardShortcutBindings[item.id] === chord);
+    if (conflict) {
+      keyboardShortcutSetStatus("settingsShortcutConflict", { shortcut:keyboardShortcutDisplay(chord), command:t(conflict.labelKey) }, "error");
+      return false;
+    }
+    keyboardShortcutBindings = { ...keyboardShortcutBindings, [commandId]:chord };
+    keyboardShortcutPersistBindings();
+    keyboardShortcutSetStatus(chord ? "settingsShortcutUpdated" : "settingsShortcutCleared", { command:t(command.labelKey) }, "success");
+    keyboardShortcutRecordingId = "";
+    renderKeyboardShortcuts();
+    keyboardShortcutFocusEditor(commandId);
+    return true;
+  }
+  function keyboardShortcutReset(commandId) {
+    const command = keyboardShortcutCommand(commandId);
+    if (!command) return false;
+    keyboardShortcutRecordingId = "";
+    keyboardShortcutBindings = { ...keyboardShortcutBindings, [commandId]:command.defaultChord };
+    keyboardShortcutPersistBindings();
+    keyboardShortcutSetStatus("settingsShortcutResetDone", { command:t(command.labelKey) }, "success");
+    renderKeyboardShortcuts();
+    keyboardShortcutFocusEditor(commandId);
+    return true;
+  }
+  function keyboardShortcutResetAll() {
+    keyboardShortcutRecordingId = "";
+    keyboardShortcutBindings = keyboardShortcutDefaults();
+    keyboardShortcutPersistBindings();
+    keyboardShortcutSetStatus("settingsShortcutResetAllDone", {}, "success");
+    renderKeyboardShortcuts();
+  }
+  function keyboardShortcutTextEditingTarget(target) {
+    return Boolean(target?.closest?.('input, textarea, select, [contenteditable=""], [contenteditable="true"], [role="textbox"]'));
+  }
+  function keyboardShortcutInteractiveTarget(target) {
+    return keyboardShortcutTextEditingTarget(target) || Boolean(target?.closest?.('button, a[href], [role="button"], [role="tab"], [role="menuitem"], [role="option"], summary'));
+  }
+  function keyboardShortcutBlockingSurfaceOpen() {
+    return Boolean(settings.open || settings.configurationMode || document.querySelector("dialog[open]") || document.querySelector(".plugin-modal-layer:not([hidden]), .changelog-layer:not([hidden]), .tour-layer:not([hidden]), .history-panel.open"));
+  }
+  function keyboardShortcutCanRun(command, event, chord) {
+    if (!command || event.isComposing || event.repeat) return false;
+    if (command.id === "open-settings" && settings.open) return true;
+    if (keyboardShortcutBlockingSurfaceOpen()) return false;
+    if (command.id === "focus-agent") {
+      if (!canvasAgentAvailable()) return false;
+      return event.target?.id !== "canvasAgentInput";
+    }
+    if (keyboardShortcutTextEditingTarget(event.target)) return command.id === "save-canvas";
+    if (!keyboardShortcutChordHasModifier(chord) && keyboardShortcutInteractiveTarget(event.target)) return false;
+    return true;
+  }
+  function keyboardShortcutPerform(commandId) {
+    if (commandId === "focus-agent") {
+      const opening = canvasAgentPanel.hidden || !document.body.classList.contains("canvas-agent-open");
+      openCanvasAgent({ focus:true, animate:opening });
+      return true;
+    }
+    if (commandId === "save-canvas") { void saveCurrentCanvas(); return true; }
+    if (commandId === "undo" || commandId === "redo") { document.querySelector(`[data-action="${commandId}"]`)?.click(); return true; }
+    if (commandId === "tool-pen") return selectCanvasToolMode("pen", { showHint:true });
+    if (commandId === "tool-hand") return selectCanvasToolMode("hand", { showHint:true });
+    if (commandId === "tool-eraser") return selectCanvasToolMode(state.eraserMode, { showHint:true });
+    if (commandId === "tool-select") return selectCanvasToolMode("select", { showHint:true });
+    if (commandId === "tool-text") return selectCanvasToolMode("text", { showHint:true });
+    if (commandId === "new-canvas") { document.querySelector("#newCanvasBtn")?.click(); return true; }
+    if (commandId === "canvas-library") { openHistoryPanel(); return true; }
+    if (commandId === "toggle-grid") { document.querySelector("#gridToggle")?.click(); return true; }
+    if (commandId === "toggle-fullscreen") { document.querySelector("#fullscreenBtn")?.click(); return true; }
+    if (commandId === "open-settings") { if (settings.open) closeSettings(); else openSettings(); return true; }
+    return false;
+  }
+  function handleKeyboardShortcutKeydown(event) {
+    if (keyboardShortcutRecordingId) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (event.key === "Escape") {
+        keyboardShortcutSetStatus("settingsShortcutCancelled");
+        keyboardShortcutStopRecording();
+        return;
+      }
+      if ((event.key === "Backspace" || event.key === "Delete") && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey) {
+        keyboardShortcutAssign(keyboardShortcutRecordingId, "");
+        return;
+      }
+      const chord = keyboardShortcutChordFromEvent(event);
+      if (!chord) return;
+      if (!keyboardShortcutChordAllowed(chord)) {
+        keyboardShortcutSetStatus(KEYBOARD_SHORTCUT_RESERVED.has(chord) ? "settingsShortcutReserved" : "settingsShortcutInvalid", { shortcut:keyboardShortcutDisplay(chord) }, "error");
+        return;
+      }
+      keyboardShortcutAssign(keyboardShortcutRecordingId, chord);
+      return;
+    }
+    const chord = keyboardShortcutChordFromEvent(event);
+    if (!chord) return;
+    const command = KEYBOARD_SHORTCUT_COMMANDS.find((item) => keyboardShortcutBindings[item.id] === chord);
+    if (!keyboardShortcutCanRun(command, event, chord)) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    keyboardShortcutPerform(command.id);
+  }
+
+  const settingsShortcutList = document.querySelector("#settingsShortcutList"),
+    settingsShortcutResetAll = document.querySelector("#settingsShortcutResetAll");
+  settingsShortcutList?.addEventListener("click", (event) => {
+    const edit = event.target.closest("[data-shortcut-edit]"), reset = event.target.closest("[data-shortcut-reset]");
+    if (edit) keyboardShortcutStartRecording(edit.dataset.shortcutEdit);
+    else if (reset) keyboardShortcutReset(reset.dataset.shortcutReset);
+  });
+  settingsShortcutResetAll?.addEventListener("click", keyboardShortcutResetAll);
+  window.addEventListener("keydown", handleKeyboardShortcutKeydown, true);
+  window.addEventListener("penecho:languagechange", renderKeyboardShortcuts);
+  window.addEventListener("storage", (event) => {
+    if (event.key !== KEYBOARD_SHORTCUT_STORAGE_KEY) return;
+    keyboardShortcutBindings = keyboardShortcutLoadBindings();
+    keyboardShortcutRecordingId = "";
+    renderKeyboardShortcuts();
+  });
+  renderKeyboardShortcuts();
+  window.PenEchoKeyboardShortcuts = Object.freeze({
+    bindings:() => ({ ...keyboardShortcutBindings }),
+    reset:keyboardShortcutResetAll,
+    open:() => { selectSettingsPage("shortcuts"); return openSettings(); },
+  });
 // Pointer and control bindings, portable snapshots, and application startup.
   const ERASER_TOOL_MENU_MS = 5000;
   let eraserToolMenuTimer = 0;

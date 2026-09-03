@@ -400,8 +400,8 @@ test("desktop shell and Forge config keep the renderer isolated and package nati
   assert.match(main, /width:820,[\s\S]*?height:680,[\s\S]*?minWidth:660,[\s\S]*?minHeight:540/);
   assert.match(main, /minHeight:540,[\s\S]*?useContentSize:true/);
   assert.match(main, /vibrancy:"under-window"[\s\S]*?backgroundMaterial:"mica"/);
-  assert.equal(rootPackage.version, "1.1.7");
-  assert.equal(rootPackage.config.desktopVersion, "1.1.7");
+  assert.equal(rootPackage.version, "1.2.0");
+  assert.equal(rootPackage.config.desktopVersion, "1.2.0");
   assert.match(html, /data-install-cli="kimi-cli"/);
   assert.match(html, /github\.com\/MoonshotAI\/kimi-code/);
   assert.match(html, /data-i18n="installGuide">Guide<\/a>/);

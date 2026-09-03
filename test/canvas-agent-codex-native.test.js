@@ -1166,6 +1166,13 @@ test("Codex Native rejects duplicate dynamic tool call ids before a mutation can
 test("Codex Native rejects an unsupported custom effort without closing the logical session", async t => {
   const harness=await createNativeHarness();
   t.after(()=>harness.cleanup());
+  const requestTraceDirectory=path.join(harness.directory,"logs","requests"),traceErrors=[];
+  const {createCanvasAgentRequestTracer}=require("../src/server/canvas-agent/request-trace.js");
+  harness.host.conversationTrace=createCanvasAgentRequestTracer({
+    requestTraceDirectory,
+    logger:error=>traceErrors.push(error),
+    prune:()=>{},
+  });
   const session=await harness.connect(),process=harness.processes[0];
   let requestNumber=0;
   process.requestHandler=async(method,params)=>{
@@ -1180,6 +1187,7 @@ test("Codex Native rejects an unsupported custom effort without closing the logi
     setImmediate(()=>{
       process.emitNotification("turn/started",{threadId:process.threadId,turn:{id:turnId}});
       process.emitNotification("item/agentMessage/delta",{threadId:process.threadId,turnId,delta:"Recovered without a new conversation."});
+      process.emitNotification("item/completed",{threadId:process.threadId,turnId,item:{type:"agentMessage",text:"Recovered without a new conversation."}});
       process.emitNotification("turn/completed",{threadId:process.threadId,turn:{id:turnId,status:"completed",items:[]}});
     });
     return{turn:{id:turnId}};
@@ -1188,11 +1196,24 @@ test("Codex Native rejects an unsupported custom effort without closing the logi
   assert.equal(process.requests.filter(request=>request.method==="turn/start")[0].params.effort,"test");
   assert.equal(process.closedCount,0);
   assert.equal(harness.host.sessions.has(session.id),true);
-  const recovered=await harness.host.submit(session,"valid effort",false,[],{},null,[],false,"medium");
+  const recovered=await harness.host.submit(session,"valid effort",false,[],{},null,[],false,"xhigh");
   assert.equal(recovered.output,"Recovered without a new conversation.");
   assert.equal(harness.processes.length,1);
-  assert.equal(process.requests.filter(request=>request.method==="turn/start")[1].params.effort,"medium");
+  assert.equal(process.requests.filter(request=>request.method==="turn/start")[1].params.effort,"xhigh");
   assert.equal(harness.host.sessions.has(session.id),true);
+  const traces=fs.readdirSync(requestTraceDirectory,{withFileTypes:true})
+    .filter(entry=>entry.isDirectory())
+    .map(entry=>JSON.parse(fs.readFileSync(path.join(requestTraceDirectory,entry.name,"trace.json"),"utf8"))),
+    failed=traces.find(trace=>trace.status==="failed"),completed=traces.find(trace=>trace.status==="completed");
+  assert.equal(traceErrors.length,0,JSON.stringify(traceErrors));
+  assert.equal(traces.length,2);
+  assert.equal(failed.connection.effort,"test");
+  assert.equal(failed.steps[0].requestedEffort,"test");
+  assert.equal(failed.steps[0].providerEffort,"test");
+  assert.equal(completed.connection.effort,"xhigh");
+  assert.equal(completed.steps[0].requestedEffort,"xhigh");
+  assert.equal(completed.steps[0].providerEffort,"xhigh");
+  assert.equal(completed.steps[0].outbound.connection.effort,"xhigh");
 });
 
 test("Codex Native process crashes fail the turn and rehydrate behind the same logical session", async t => {

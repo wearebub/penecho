@@ -24,7 +24,7 @@
     MAX_HISTORY = 30,
     DEFAULT_AUTO_DELAY = 5000,
     DEFAULT_AI_TIMEOUT = 260000,
-    PEN_SIZE_MIN = 4,
+    PEN_SIZE_MIN = 3,
     PEN_SIZE_MAX = 8,
     screen = document.querySelector("#screen"),
     view = document.querySelector("#viewport"),
@@ -444,10 +444,10 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       tourBack: "Back",
       tourNext: "Next",
       tourDone: "Finish",
-      tourCanvasAgentLauncherTitle: "Open the full PenEcho Agent",
-      tourCanvasAgentLauncherBody: "Use the PenEcho Agent button in the canvas lower-right corner for multi-step work. It can research, analyze folders and files, search the web, use the current canvas as context, and turn the result into a structured Visual Explorer or edit the canvas directly.",
-      tourCanvasAgentPanelTitle: "Work from the panel at the lower right",
-      tourCanvasAgentPanelBody: "PenEcho Agent opens at the lower right. Type or handwrite a request; add files or a read-only folder project, reference a Widget, and enable web search when available. Drag the header to move it, or drag an edge to resize it.",
+      tourCanvasAgentLauncherTitle: "Open PenEcho Agent",
+      tourCanvasAgentLauncherBody: "On larger screens, use the Agent control at the right end of the toolbar. On narrow screens, use the floating button at the lower right. Start multi-step work with folders, files, web research, and the current canvas.",
+      tourCanvasAgentPanelTitle: "Work in the Agent panel",
+      tourCanvasAgentPanelBody: "PenEcho Agent opens as a right sidebar on larger screens and a bottom panel on narrow screens. Type or handwrite a request, add files or a read-only folder project, reference a Widget, and enable web search when available. Resize the desktop sidebar from its left edge.",
       tourEffortTitle: "Choose how deeply AI reasons",
       tourEffortBody: "AI Effort controls the reasoning depth used for each request. Higher levels suit difficult derivations and multi-step problems, but can take longer. Configured uses the default selected in your local setup.",
       tourHandTitle: "Move objects with the Hand tool",
@@ -475,12 +475,10 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       changelogDialog: "PenEcho release notes",
       changelogClose: "Close release notes",
       changelogBadge: "What's new",
-      changelogTitle: "PenEcho Agent, built for longer work",
-      changelogCanvasAgentResearch: "Turn folders, files, web research, and canvas context into structured visual work from the PenEcho Agent in the canvas lower-right corner.",
-      changelogCanvasAgentWorkspace: "Visual Explorer brings research, analysis, planning, and editable on-canvas delivery into one workflow—with less tool switching and rework.",
-      changelogAgentContinuity: "Keep the same conversation when projects, search, or model connections change, and continue after an inactivity timeout or request-round limit with completed work preserved.",
-      changelogAgentMath: "Read larger file sections with explicit continuation and see inline or display TeX rendered clearly in Agent summaries.",
-      changelogEraserMemory: "PenEcho remembers whether you last chose the eraser or area eraser across canvases and reloads.",
+      changelogTitle: "A simpler, more focused Studio",
+      changelogFrostedStudio: "A simpler frosted Studio brings the toolbar, Navigator, Agent, settings, and dialogs into one restrained visual system. Translucent materials, fine hairlines, and lighter controls keep the Canvas visible and the workspace easy to scan.",
+      changelogResponsiveWorkspace: "The workspace now adapts more naturally to wide and narrow screens. Controls remain compact, the Agent moves between a right sidebar and bottom panel, and important actions stay within reach as the toolbar wraps.",
+      changelogPerformanceAndDetails: "Drawing, erasing, panning, and zooming feel faster, while sharper text, steadier Widgets and object controls, improved Agent suggestions and attachments, interface scale and palette choices, a 3 px pen, and desktop reliability refinements round out the release.",
       settingsTitle: "Settings",
       settingsClose: "Close settings",
       settingsSubtitle: "Choose a category, then adjust its settings without leaving this window.",
@@ -488,7 +486,45 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       settingsNavAppearance: "Appearance",
       settingsNavConnections: "AI & connections",
       settingsNavCanvas: "Canvas",
+      settingsNavShortcuts: "Keyboard shortcuts",
       settingsNavAbout: "Help & about",
+      settingsShortcuts: "Keyboard shortcuts",
+      settingsShortcutsHelp: "Choose a command, then press the keys you want to use.",
+      settingsShortcutInstructions: "Press Escape to cancel. Press Backspace or Delete to remove a shortcut.",
+      settingsShortcutResetAll: "Reset all",
+      settingsShortcutGroupEssential: "Essentials",
+      settingsShortcutGroupTools: "Canvas tools",
+      settingsShortcutGroupWorkspace: "Workspace",
+      settingsShortcutNotSet: "Not set",
+      settingsShortcutPressKeys: "Press keys…",
+      settingsShortcutEdit: "Change shortcut for {command}",
+      settingsShortcutReset: "Reset shortcut for {command}",
+      settingsShortcutRecording: "Press a new shortcut for {command}.",
+      settingsShortcutConflict: "{shortcut} is already used by {command}.",
+      settingsShortcutInvalid: "{shortcut} cannot be used as a shortcut.",
+      settingsShortcutReserved: "{shortcut} is reserved by the system or browser.",
+      settingsShortcutUpdated: "Shortcut updated for {command}.",
+      settingsShortcutCleared: "Shortcut removed for {command}.",
+      settingsShortcutResetDone: "Shortcut reset for {command}.",
+      settingsShortcutResetAllDone: "All shortcuts were reset.",
+      settingsShortcutCancelled: "Shortcut change cancelled.",
+      shortcutFocusAgent: "Focus PenEcho Agent",
+      shortcutFocusAgentHelp: "Open Agent when needed and move focus to the conversation box.",
+      shortcutSaveCanvasHelp: "Save or overwrite the current Canvas using its existing location.",
+      shortcutUndoHelp: "Undo the latest Canvas change.",
+      shortcutRedoHelp: "Redo the latest undone Canvas change.",
+      shortcutPenHelp: "Switch to the Pen tool while the Canvas has focus.",
+      shortcutHandHelp: "Switch to the Hand tool for navigation and object interaction.",
+      shortcutEraserHelp: "Switch to the most recently used eraser mode.",
+      shortcutSelectHelp: "Switch to the lasso selection tool.",
+      shortcutTextHelp: "Switch to the Canvas text tool.",
+      shortcutNewCanvasHelp: "Start the existing New Canvas flow.",
+      shortcutCanvasLibrary: "Canvas Library",
+      shortcutCanvasLibraryHelp: "Open saved Canvases and storage locations.",
+      shortcutToggleGrid: "Toggle Canvas grid",
+      shortcutToggleGridHelp: "Show or hide the Canvas grid.",
+      shortcutFullscreenHelp: "Enter or leave full-screen Canvas view.",
+      shortcutSettingsHelp: "Open Settings from the Canvas workspace.",
       settingsAppearance: "Appearance",
       settingsAppearanceHelp: "Studio stays consistent while its accent and supporting neutrals change together.",
       settingsColorScheme: "Color scheme",
@@ -1761,7 +1797,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   const AI_SUPERSEDED = "AI_SUPERSEDED";
   const FEATURE_TOUR_STORAGE_KEY = "penecho-tour-progress";
   const CHANGELOG_STORAGE_KEY = "penecho-changelog-seen";
-  const CHANGELOG_VERSION = "1.1.7";
+  const CHANGELOG_VERSION = "1.2.0";
   // Keep seen IDs stable. Add a new ID (or bump its -vN suffix) to show only that feature to returning users.
   const FEATURE_TOUR_STEPS = Object.freeze([
     { id: "core-effort-v1", targets: ["#aiEffortButton"], titleKey: "tourEffortTitle", bodyKey: "tourEffortBody", placement: "bottom", radius: 8 },
@@ -1773,8 +1809,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     { id: "core-fullscreen-v1", targets: ["#fullscreenBtn"], titleKey: "tourFullscreenTitle", bodyKey: "tourFullscreenBody", placement: "bottom", radius: 7 },
     { id: "cloud-share-canvas-v1", targets: ["#shareCanvasBtn"], titleKey: "tourShareCanvasTitle", bodyKey: "tourShareCanvasBody", placement: "bottom", radius: 7 },
     { id: "cloud-workspace-v1", targets: ["#cloudAccountBtn"], titleKey: "tourCloudTitle", bodyKey: "tourCloudBody", placement: "bottom", radius: 8 },
-    { id: "canvas-agent-launcher-v1", targets: ["#canvasAgentControl"], titleKey: "tourCanvasAgentLauncherTitle", bodyKey: "tourCanvasAgentLauncherBody", placement: "top", radius: 9, padding: 4 },
-    { id: "canvas-agent-panel-v1", targets: ["#canvasAgentPanel"], titleKey: "tourCanvasAgentPanelTitle", bodyKey: "tourCanvasAgentPanelBody", placement: "left", radius: 18, padding: 4, preview: "canvas-agent-panel" },
+    { id: "canvas-agent-launcher-v2", targets: ["#canvasAgentToggle"], titleKey: "tourCanvasAgentLauncherTitle", bodyKey: "tourCanvasAgentLauncherBody", placement: "bottom", radius: 9, padding: 4 },
+    { id: "canvas-agent-panel-v2", targets: ["#canvasAgentPanel"], titleKey: "tourCanvasAgentPanelTitle", bodyKey: "tourCanvasAgentPanelBody", placement: "left", radius: 18, padding: 4, preview: "canvas-agent-panel" },
     { id: "core-manual-ai-v1", targets: ["#aiOrb"], titleKey: "tourManualAITitle", bodyKey: "tourManualAIBody", placement: "left", radius: 50 },
     { id: "core-status-v1", targets: ["#aiStatusArea"], titleKey: "tourStatusTitle", bodyKey: "tourStatusBody", placement: "bottom", radius: 999 },
     { id: "core-navigation-v1", targets: ["#viewport"], titleKey: "tourCanvasTitle", bodyKey: "tourCanvasBody", placement: "center", radius: 10, padding: 5 },
@@ -1980,8 +2016,9 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   function featureTourStepAvailable(step) {
     if (step?.preview === "canvas-agent-panel") {
       const panel = document.querySelector("#canvasAgentPanel"),
-        toggle = document.querySelector("#canvasAgentToggle");
-      return Boolean(panel?.isConnected && featureTourTargetRect({ targets:["#canvasAgentToggle"] }, toggle ? [toggle] : []));
+        panelRect = featureTourTargetRect(step),
+        toggleRect = featureTourTargetRect({ targets:["#canvasAgentToggle"] });
+      return Boolean(panel?.isConnected && (panelRect || toggleRect));
     }
     return Boolean(featureTourTargetRect(step));
   }

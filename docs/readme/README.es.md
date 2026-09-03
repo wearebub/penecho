@@ -90,13 +90,13 @@ Escribe una pregunta, ecuación, diagrama o idea incompleta en cualquier lugar d
 
 **Echoes** permite explorar, marcar como favoritos y reutilizar lienzos y widgets públicos en doce categorías. Puedes publicar tus propios Crafts, abrirlos en un visor web de solo lectura y conservar su linaje entre versiones.
 
-## Novedades de la versión 1.1.7
+## Novedades de la versión 1.2.0
 
-- **PenEcho Agent.** Trabaja con archivos locales, proyectos de carpetas de solo lectura, investigación web, contexto del lienzo, creación visual y edición directa en un único flujo de varios pasos.
-- **Visual Explorer.** Transforma investigación, documentos, notas y planes en un resultado visual adaptable que conecta la vista general con los detalles y las evidencias.
-- **Menos cambios de contexto y retrabajo.** Investiga, analiza, estructura, visualiza, revisa y corrige en el mismo espacio; el resultado permanece editable sobre el lienzo.
-- **Entrega visual progresiva.** Recibe antes versiones completas de Visual Explorer y refínalas en el mismo lugar, sin regenerarlas desde cero.
-- **Más contexto de trabajo.** Añade PDF, Word, PowerPoint, Excel, imágenes, código o carpetas de solo lectura; referencia widgets y escritura existentes y usa búsqueda web cuando esté disponible.
+- **Un Studio esmerilado más sencillo.** La barra de herramientas, el Navigator, el Agent, los ajustes y los diálogos comparten ahora una transparencia contenida, líneas finas y controles más ligeros. El lienzo permanece visible y el espacio de trabajo resulta más sereno.
+- **Jerarquía más clara y menos ruido visual.** Las herramientas principales siguen al alcance, las acciones secundarias se retiran hasta que hacen falta y el historial, los favoritos, el estado de Cloud y el Agent usan el mismo lenguaje visual.
+- **Un espacio de trabajo adaptable.** Los controles permanecen compactos en pantallas anchas y estrechas, el Agent cambia entre una barra lateral derecha y un panel inferior, y las acciones importantes siguen visibles cuando la barra se reorganiza.
+- **Interacción más rápida con el lienzo.** La tinta en vivo de baja latencia y las actualizaciones coordinadas hacen que dibujar, borrar, desplazar y ampliar se sienta más inmediato, manteniendo activos los Widgets y recuperando texto nítido al terminar.
+- **Otras mejoras.** Se han refinado las sugerencias y adjuntos del Agent, los controles de objetos, la escala y las paletas, los dispositivos vinculados y la fiabilidad de escritorio; también se añade una punta de 3 px.
 
 ## Novedades anteriores
 

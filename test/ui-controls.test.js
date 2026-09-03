@@ -21,21 +21,21 @@ const functionSource = (source, name) => {
   assert.fail(`unterminated function ${name}`);
 };
 
-test("selected pen width stays at 4-8 px while pressure follows the main Canvas curve", () => {
+test("selected pen width stays at 3-8 px with a 4 px default while pressure follows the main Canvas curve", () => {
   const html = read("public/index.html"), app = read("public/app.js");
   const control = html.match(/<input id="penSize"[^>]*>/)?.[0] || "";
-  assert.match(control, /min="4"/);
+  assert.match(control, /min="3"/);
   assert.match(control, /max="8"/);
   assert.match(control, /step="1"/);
   assert.match(control, /value="4"/);
-  assert.match(app, /PEN_SIZE_MIN = 4,[\s\S]*?PEN_SIZE_MAX = 8/);
+  assert.match(app, /PEN_SIZE_MIN = 3,[\s\S]*?PEN_SIZE_MAX = 8/);
   assert.doesNotMatch(app, /PEN_STROKE_MIN|PEN_PRESSURE_TIP_RATIO|function clampStrokeWidth/);
   const clampSource = functionSource(app, "clampPenWidth"), pressureSource = functionSource(app, "pressureWidth");
   assert.match(clampSource, /Math\.max\(PEN_SIZE_MIN, Math\.min\(PEN_SIZE_MAX, width\)\)/);
   assert.match(pressureSource, /e\.pressure <= 0[\s\S]*?Math\.max\(3, Math\.min\(16, state\.pen \* \(0\.72 \+ e\.pressure \* 0\.7\)\)\)/);
   assert.match(app, /document\.querySelector\("#penSize"\)\.oninput = \(e\) => \{[\s\S]*?state\.pen = clampPenWidth\(Math\.round\(Number\(e\.target\.value\)\)\)/);
-  const clamp = Function("PEN_SIZE_MIN", "PEN_SIZE_MAX", `return (${clampSource});`)(4, 8);
-  assert.deepEqual([clamp(2), clamp(6), clamp(12)], [4, 6, 8]);
+  const clamp = Function("PEN_SIZE_MIN", "PEN_SIZE_MAX", `return (${clampSource});`)(3, 8);
+  assert.deepEqual([clamp(2), clamp(6), clamp(12)], [3, 6, 8]);
   const state = { pen:8 }, pressureWidth = Function("state", `return (${pressureSource});`)(state);
   assert.ok(Math.abs(pressureWidth({ pointerType:"pen", pressure:1 }) - 11.36) < 1e-9);
   state.pen = 4;
@@ -78,10 +78,14 @@ test("active pen drawing paints a live layer before committing authoritative ink
   assert.doesNotMatch(app, /function requestInkLayerRender/);
 });
 
-test("hand panning previews Canvas content on the compositor before the exact redraw", () => {
+test("hand panning and Canvas zoom preview content on the compositor before the exact redraw", () => {
   const app = read("public/app.js"), css = read("public/style.css"),
     pointerMove = app.slice(app.indexOf('screen.addEventListener("pointermove"'), app.indexOf("function end(e)")),
     moveCanvasSource = functionSource(app, "moveCanvas"),
+    zoomCanvasSource = functionSource(app, "zoomCanvasAt"),
+    pinchCanvasSource = functionSource(app, "updateTouchGesture"),
+    previewTransform = functionSource(app, "canvasNavigationPreviewTransform"),
+    previewDisplacement = functionSource(app, "canvasNavigationPreviewDisplacement"),
     applyPreview = functionSource(app, "applyCanvasNavigationPreview"),
     resetPreview = functionSource(app, "resetCanvasNavigationPreview"),
     finishPreview = functionSource(app, "finishCanvasNavigationPreview"),
@@ -94,39 +98,52 @@ test("hand panning previews Canvas content on the compositor before the exact re
     panFastPath = pointerMove.indexOf('if (state.panGesture?.id === e.pointerId && (e.pointerType !== "touch" || state.touches.size < 2))'),
     handFocusWork = pointerMove.indexOf("updateHandObjectFocus(e)");
   assert.match(moveCanvasSource, /previousPanX = state\.panX[\s\S]*?previousPanY = state\.panY[\s\S]*?requestCanvasNavigationPreview\(previousPanX, previousPanY\)/);
+  assert.match(zoomCanvasSource, /previousScale = state\.scale[\s\S]*?requestCanvasNavigationPreview\(previousPanX, previousPanY, previousScale\)/);
+  assert.match(pinchCanvasSource, /previousScale = state\.scale[\s\S]*?requestCanvasNavigationPreview\(previousPanX, previousPanY, previousScale\)/);
   assert.match(viewportMetrics, /if \(canvasViewportMetricsCache\) return canvasViewportMetricsCache[\s\S]*?requestAnimationFrame[\s\S]*?canvasViewportMetricsCache = null/);
   assert.doesNotMatch(moveCanvasSource, /requestRender\(|render\(/);
+  assert.doesNotMatch(zoomCanvasSource, /requestRender\(|\brender\(/);
+  assert.doesNotMatch(pinchCanvasSource, /requestRender\(|\brender\(/);
   assert.doesNotMatch(requestPreview, /applyCanvasNavigationPreview\(\)/);
   assert.match(requestPreview, /view\.classList\.add\("canvas-navigation-previewing"\)[\s\S]*?setTimeout\(finishCanvasNavigationPreview, CANVAS_NAVIGATION_SETTLE_MS\)[\s\S]*?requestAnimationFrame\(canvasNavigationPreviewStep\)/);
-  assert.match(applyPreview, /--canvas-navigation-preview-paper[\s\S]*?state\.paint\.paper/);
-  assert.match(applyPreview, /syncCanvasWidgetCarrier\(\)/);
-  assert.match(previewStep, /applyCanvasNavigationPreview\(\)[\s\S]*?requestCoordinatesUpdate\(\)[\s\S]*?canvasNavigationPreviewRebaseX[\s\S]*?canvasNavigationPreviewRebaseY[\s\S]*?render\(\)/);
+  assert.match(previewTransform, /scale = state\.scale \/ canvasNavigationPreviewScale[\s\S]*?x:state\.panX - canvasNavigationPreviewPanX \* scale[\s\S]*?y:state\.panY - canvasNavigationPreviewPanY \* scale/);
+  assert.match(previewDisplacement, /canvasNavigationPreviewViewportWidth \* scaleDelta[\s\S]*?canvasNavigationPreviewViewportHeight \* scaleDelta/);
+  assert.match(applyPreview, /canvasNavigationPreviewTransform\(\)[\s\S]*?--canvas-navigation-preview-scale[\s\S]*?--canvas-navigation-preview-paper[\s\S]*?state\.paint\.paper/);
+  assert.match(applyPreview, /syncCanvasWidgetCarrier\(scale\)/);
+  assert.match(finishPreview, /render\(\)[\s\S]*?refreshVisibleTextBoxQuality\(\)/);
+  assert.match(previewStep, /applyCanvasNavigationPreview\(\)[\s\S]*?requestCoordinatesUpdate\(\)[\s\S]*?canvasNavigationPreviewDisplacement\(\)[\s\S]*?displacement\.x[\s\S]*?displacement\.y[\s\S]*?render\(\)[\s\S]*?refreshVisibleTextBoxQuality\(\)/);
+  assert.doesNotMatch(previewStep, /state\.panX - canvasNavigationPreviewPanX|state\.panY - canvasNavigationPreviewPanY/);
   assert.match(functionSource(app, "updateCoordinates"), /coords\.textContent !== text[\s\S]*?coords\.textContent = text/);
   assert.doesNotMatch(previewStep, /CANVAS_NAVIGATION_EXACT_FRAME_MS|now\s*-/);
   assert.doesNotMatch(previewStep, /renderCanvasBackground\(|renderCanvasContent\(/);
   assert.match(endSource, /finishCanvasNavigationPreview\(\)/);
   assert.match(renderContent, /resetCanvasNavigationPreview\(\)[\s\S]*?renderPlacedContentLayer\(visible\)[\s\S]*?renderInkLayer\(visible\)[\s\S]*?positionWidgets\(\)/);
   assert.ok(panFastPath >= 0 && panFastPath < handFocusWork, "an active pan must bypass object-focus and hover work");
-  assert.match(css, /\.widget-layer\s*\{[^}]*overflow:\s*visible[^}]*translate3d\(var\(--canvas-widget-pan-x[^}]*will-change:\s*transform/);
-  assert.match(css, /#viewport\.canvas-navigation-previewing :is\(#screen,[^}]*\.placed-content-layer[^}]*\.ink-layer[^}]*\)[^{]*\{[^}]*translate3d\(var\(--canvas-navigation-preview-x[^}]*will-change:\s*transform/);
+  assert.match(css, /\.widget-layer\s*\{[^}]*overflow:\s*visible[^}]*translate3d\(var\(--canvas-widget-pan-x[^}]*scale\(var\(--canvas-widget-preview-scale[^}]*transform-origin:\s*0 0/);
+  assert.match(css, /#viewport\.canvas-navigation-previewing \.widget-layer\s*\{[^}]*will-change:\s*transform/);
+  assert.match(css, /#viewport\.canvas-navigation-previewing :is\(#screen,[^}]*\.placed-content-layer[^}]*\.ink-layer[^}]*\)[^{]*\{[^}]*translate3d\(var\(--canvas-navigation-preview-x[^}]*scale\(var\(--canvas-navigation-preview-scale[^}]*transform-origin:\s*0 0[^}]*will-change:\s*transform/);
   assert.doesNotMatch(css, /#viewport\.canvas-navigation-previewing :is\([^}]*\.widget-layer/);
   assert.match(css, /#coords\s*\{[^}]*contain:\s*layout paint/);
   assert.match(css, /body\[data-theme="studio"\]:has\(#viewport:is\(\.canvas-chrome-lightweight, \.is-drawing\)\) \.toolbar\s*\{[^}]*background:\s*color-mix\(in srgb, var\(--studio-toolbar\) 88%, transparent\)[^}]*backdrop-filter:\s*none/);
-  const state = { panX:10, panY:20, navigationLocked:false, renderQueued:false, paint:{ paper:"#fafafa" } }, classes = new Set(), properties = new Map(), frames = [], timers = new Map(), counts = { coordinates:0, animation:0, exact:0 },
+  const state = { scale:1, panX:-10000, panY:-8000, navigationLocked:false, renderQueued:false, paint:{ paper:"#fafafa" } }, classes = new Set(), properties = new Map(), frames = [], timers = new Map(), counts = { coordinates:0, animation:0, exact:0, quality:0 },
     harness = vm.runInNewContext(`(() => {
       const CANVAS_NAVIGATION_SETTLE_MS = 80, CANVAS_NAVIGATION_REBASE_VIEWPORT_RATIO = 0.60, CANVAS_NAVIGATION_REBASE_MIN_PX = 192;
-      let canvasNavigationPreviewFrame = 0, canvasNavigationPreviewSettleTimer = 0, canvasNavigationPreviewPanX = 0, canvasNavigationPreviewPanY = 0;
+      let canvasNavigationPreviewFrame = 0, canvasNavigationPreviewSettleTimer = 0, canvasNavigationPreviewPanX = 0, canvasNavigationPreviewPanY = 0, canvasNavigationPreviewScale = 1, canvasNavigationPreviewViewportWidth = 0, canvasNavigationPreviewViewportHeight = 0;
       let canvasNavigationPreviewRebaseX = CANVAS_NAVIGATION_REBASE_MIN_PX, canvasNavigationPreviewRebaseY = CANVAS_NAVIGATION_REBASE_MIN_PX;
-      let canvasWidgetCarrierPanX = Number.NaN, canvasWidgetCarrierPanY = Number.NaN;
+      let canvasWidgetCarrierPanX = Number.NaN, canvasWidgetCarrierPanY = Number.NaN, canvasWidgetCarrierPreviewScale = Number.NaN, canvasTextQualityGeneration = 0;
       ${widgetCarrier}
+      ${previewTransform}
+      ${previewDisplacement}
       ${applyPreview}
       ${resetPreview}
       function render() { counts.exact++; resetCanvasNavigationPreview(); }
+      function refreshVisibleTextBoxQuality() { counts.quality++; return Promise.resolve(true); }
       ${finishPreview}
       ${previewStep}
       ${requestPreview}
       ${moveCanvasSource}
-      return { moveCanvas, finishCanvasNavigationPreview };
+      ${zoomCanvasSource}
+      return { moveCanvas, zoomCanvasAt, finishCanvasNavigationPreview };
     })()`, {
       state,
       view:{ clientWidth:1000, clientHeight:800, classList:{ add:value=>classes.add(value), remove:value=>classes.delete(value), contains:value=>classes.has(value) } },
@@ -136,31 +153,45 @@ test("hand panning previews Canvas content on the compositor before the exact re
       setTimeout:callback=>{const id=timers.size+1;timers.set(id,callback);return id;},
       clearTimeout:id=>timers.delete(id),
       canvasClientDelta:(x,y)=>({ x,y }),
+      canvasClientPosition:(x,y)=>({ x,y }),
       canvasViewportMetrics:()=>({ width:1000, height:800 }),
       requestCoordinatesUpdate:()=>counts.coordinates++,
       flushCoordinatesUpdate:()=>counts.coordinates++,
       requestAnimationLayerRender:()=>counts.animation++,
       setNavigating:()=>{},
+      wheelNavigating:()=>{},
       counts,
     });
   assert.equal(harness.moveCanvas(6,-4),true);
-  assert.deepEqual({ panX:state.panX, panY:state.panY },{ panX:16, panY:16 });
+  assert.deepEqual({ panX:state.panX, panY:state.panY },{ panX:-9994, panY:-8004 });
   assert.ok(classes.has("canvas-navigation-previewing"));
   frames.shift()(110);
   assert.equal(properties.get("--canvas-navigation-preview-x"),"6px");
   assert.equal(properties.get("--canvas-navigation-preview-y"),"-4px");
+  assert.equal(properties.get("--canvas-navigation-preview-scale"),"1");
   assert.equal(properties.get("--canvas-navigation-preview-paper"),"#fafafa");
-  assert.equal(properties.get("--canvas-widget-pan-x"),"16px");
-  assert.equal(properties.get("--canvas-widget-pan-y"),"16px");
-  assert.deepEqual(counts,{ coordinates:1, animation:1, exact:0 });
+  assert.equal(properties.get("--canvas-widget-pan-x"),"-9994px");
+  assert.equal(properties.get("--canvas-widget-pan-y"),"-8004px");
+  assert.equal(properties.get("--canvas-widget-preview-scale"),"1");
+  assert.deepEqual(counts,{ coordinates:1, animation:1, exact:0, quality:0 });
   assert.equal(frames.length,0);
   assert.equal(harness.moveCanvas(700,0),true);
   frames.shift()(140);
-  assert.deepEqual(counts,{ coordinates:2, animation:2, exact:1 });
+  assert.deepEqual(counts,{ coordinates:2, animation:2, exact:1, quality:1 });
   assert.ok(!classes.has("canvas-navigation-previewing"));
   assert.equal(harness.moveCanvas(8,3),true);
   assert.equal(harness.finishCanvasNavigationPreview(),true);
-  assert.deepEqual(counts,{ coordinates:3, animation:2, exact:2 });
+  assert.deepEqual(counts,{ coordinates:3, animation:2, exact:2, quality:2 });
+  frames.length = 0;
+  assert.equal(harness.zoomCanvasAt(100,100,-1),true);
+  frames.shift()(180);
+  assert.ok(Math.abs(Number.parseFloat(properties.get("--canvas-navigation-preview-x")) + 12) < 1e-9);
+  assert.ok(Math.abs(Number.parseFloat(properties.get("--canvas-navigation-preview-y")) + 12) < 1e-9);
+  assert.equal(properties.get("--canvas-navigation-preview-scale"),"1.12");
+  assert.equal(properties.get("--canvas-widget-preview-scale"),"1.12");
+  assert.equal(counts.exact,2,"far-away Canvas origins must not trigger an exact redraw for a small visible zoom step");
+  assert.equal(harness.finishCanvasNavigationPreview(),true);
+  assert.deepEqual(counts,{ coordinates:6, animation:3, exact:3, quality:3 });
 });
 
 test("canvas file actions are in the top-right header and available in History", () => {
@@ -1028,8 +1059,10 @@ test("canvas navigation lock freezes only the outer view and leaves locked widge
   assert.match(move, /if \(state\.navigationLocked\)[\s\S]*?return false[\s\S]*?canvasClientDelta\(dx, dy\)[\s\S]*?state\.panX \+= delta\.x/);
   assert.match(zoom, /if \(state\.navigationLocked\)[\s\S]*?return false[\s\S]*?state\.scale = next/);
   assert.match(pinch, /if \(state\.navigationLocked\)[\s\S]*?return false[\s\S]*?state\.scale = next/);
-  assert.match(zoom, /requestCoordinatesUpdate\(\)[\s\S]*?requestRender\(\)/);
-  assert.match(pinch, /requestCoordinatesUpdate\(\)[\s\S]*?requestRender\(\)/);
+  assert.match(zoom, /requestCoordinatesUpdate\(\)[\s\S]*?requestCanvasNavigationPreview\(previousPanX, previousPanY, previousScale\)/);
+  assert.match(pinch, /requestCoordinatesUpdate\(\)[\s\S]*?requestCanvasNavigationPreview\(previousPanX, previousPanY, previousScale\)/);
+  assert.doesNotMatch(zoom, /requestRender\(|\brender\(/);
+  assert.doesNotMatch(pinch, /requestRender\(/);
   assert.doesNotMatch(pinch, /\brender\(\)/);
   assert.match(hostState, /navigationLocked:state\.navigationLocked/);
   assert.doesNotMatch(host, /addEventListener\("wheel"|penecho-widget-wheel|penecho-widget-pan-(?:start|move|end)/);
@@ -2347,9 +2380,15 @@ test("widget AI refinement is discoverable near ink and replaces only its locked
   assert.doesNotMatch(app, /function widgetToolScale/);
   assert.match(app, /function addWidgetToolSpecs\(specs, widget, options = \{\}\)[\s\S]*?objectToolbarItem:Boolean\(options\.objectToolbarKey\)[\s\S]*?baseHeight:\(options\.objectToolbarKey \|\| item\.kind === "refine"\) \? 28 : 34/);
   assert.match(app, /kind:"refine"[\s\S]*?baseWidth:92,[\s\S]*?iconOnly:false/);
-  assert.match(createChromeButton, /kind === "refine" \? "secondary" : "toolbar"[\s\S]*?widget-refine-button-label/);
+  assert.match(createChromeButton, /kind === "refine" \? "secondary" : "toolbar"[\s\S]*?button\.dataset\.peMaterial = "control-glass"[\s\S]*?button\.dataset\.peState = "default"[\s\S]*?widget-refine-button-label/);
   assert.match(syncChrome, /buttonLabel = button\.querySelector\("\.widget-refine-button-label"\)[\s\S]*?buttonLabel\.textContent = label/);
   assert.match(css, /\.object-chrome-button\.refine\.solo-widget-tool\)\[data-pe-button="secondary"\][^{]*\{[^}]*height:\s*var\(--object-control-height, 28px\)[^}]*box-shadow:\s*none[^}]*font:\s*500 12\.5px\/var\(--object-control-height, 28px\)/);
+  assert.match(css, /\.object-chrome-button\.refine\.solo-widget-tool\)\[data-pe-button="secondary"\]\[data-pe-material="control-glass"\]\s*\{[^}]*border-radius:\s*5px[^}]*background:\s*transparent[^}]*backdrop-filter:\s*blur\(14px\) saturate\(1\.12\)[^}]*animation:\s*widget-refine-button-in 180ms/);
+  assert.match(css, /@keyframes widget-refine-button-in\s*\{\s*from\s*\{[^}]*opacity:\s*0[^}]*translate:\s*0 3px[^}]*\}\s*to\s*\{[^}]*opacity:\s*1[^}]*translate:\s*0 0/);
+  assert.match(css, /\.object-chrome-button\.refine\.solo-widget-tool\)\[data-pe-button="secondary"\]\[data-pe-material="control-glass"\]:is\(:hover, \.refine-hovered\)\s*\{[^}]*background:\s*transparent/);
+  assert.match(css, /#viewport:is\(\.is-drawing, \.canvas-navigation-previewing\)[^}]*\.object-chrome-button\.refine\.solo-widget-tool[^}]*\{[^}]*backdrop-filter:\s*none/);
+  assert.match(css, /#viewport:is\(\.is-drawing, \.canvas-navigation-previewing\)[^}]*\.object-chrome-button\.refine\.solo-widget-tool[^}]*\{[^}]*animation:\s*none[^}]*translate:\s*none/);
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.object-chrome-button\.refine\.solo-widget-tool[^}]*\{[^}]*animation:\s*none[^}]*translate:\s*none/);
   assert.match(app, /kind:"favorite"[\s\S]*?baseWidth:28,[\s\S]*?iconOnly:true/);
   assert.match(app, /kind:"share"[\s\S]*?baseWidth:28,[\s\S]*?iconOnly:true/);
   assert.match(syncChrome, /classList\.toggle\("icon-only", Boolean\(spec\.iconOnly \|\| spec\.objectToolbarItem\)\)/);
@@ -3808,7 +3847,7 @@ test("text tool toggles a real MD+TeX preview and confirms the unchanged source"
   assert.match(app, /header\.className = "text-editor-header object-toolbar-shell"/);
   assert.match(app, /header\.append\(cancelButton, title, helpButton, mixedModeButton, acceptButton\)/);
   assert.match(app, /openTextHelp\(editor, helpButton\)/);
-  assert.match(app, /function fittedTextBoxContent\(text, fontSize, color, maxWidth, fontFamily = TEXT_EDITOR_FONT_FAMILY\)/);
+  assert.match(app, /function fittedTextBoxContent\(text, fontSize, color, maxWidth, fontFamily = TEXT_EDITOR_FONT_FAMILY, pixelRatio = desiredCanvasTextRasterRatio\(\)\)/);
   assert.match(app, /function textEditorContentMetrics\(editor\)/);
   assert.match(app, /function textImageContentInset\(image\)/);
   assert.match(app, /function textBoxOriginFromEditor\(editor, contentMetrics, contentInset, scale\)/);
@@ -4197,6 +4236,50 @@ test("the magic orb becomes a device-scoped stop button while an AI request is a
   assert.match(functionSource(app, "activeWidgetRefinement"), /aiPreparation\?\.widgetEdit \|\| state\.activeAI\?\.widgetEdit/);
 });
 
+test("settled Canvas zoom upgrades only visible text raster caches within the shared pixel budget", () => {
+  const canvas = read("src/client/app/canvas-runtime.js"), persistence = read("src/client/app/persistence.js"),
+    desiredSource = functionSource(canvas, "desiredCanvasTextRasterRatio"),
+    pixelsSource = functionSource(canvas, "textRasterPixels"),
+    ratioSource = functionSource(canvas, "textImageRasterRatio"),
+    extraSource = functionSource(canvas, "textRasterExtraPixels"),
+    budgetSource = functionSource(canvas, "textRasterRatioForBudget"),
+    renderImage = functionSource(canvas, "renderTextBoxImage"),
+    refresh = functionSource(canvas, "refreshVisibleTextBoxQuality"),
+    restore = functionSource(canvas, "restoreTextBoxes"),
+    finishPreview = functionSource(canvas, "finishCanvasNavigationPreview"),
+    desired = Function("state", "devicePixelRatio", `return (${desiredSource});`)({ scale:1 }, 2),
+    textRasterPixels = Function(`return (${pixelsSource});`)(),
+    textImageRasterRatio = Function(`return (${ratioSource});`)(),
+    textRasterExtraPixels = Function("textRasterPixels", `return (${extraSource});`)(textRasterPixels),
+    ratioForBudget = Function("textImageRasterRatio", "textRasterPixels", "MAX_SHARP_OVERLAY_ITEM_PIXELS", `return (${budgetSource});`)(textImageRasterRatio, textRasterPixels, 40000),
+    item = { w:100, h:100, image:{ width:100, height:100, logicalWidth:100, logicalHeight:100 } };
+
+  assert.equal(desired(0.5), 2);
+  assert.equal(desired(1.5), 3);
+  assert.equal(desired(4), 3);
+  assert.equal(ratioForBudget(item, 3, 1000000), 2, "one cached text raster cannot exceed the per-item budget");
+  assert.ok(Math.abs(ratioForBudget(item, 3, 5000) - Math.sqrt(1.5)) < 1e-9);
+  assert.equal(ratioForBudget(item, 3, 1000), 1, "an upgrade smaller than five percent is skipped");
+  assert.equal(textRasterExtraPixels(item, { width:200, height:200, logicalWidth:100, logicalHeight:100 }), 30000);
+
+  assert.match(renderImage, /mixedTextImage\([^)]*pixelRatio\)[\s\S]*?textImage\([^)]*pixelRatio\)/);
+  assert.match(refresh, /requestAnimationFrame\(\(\) => requestAnimationFrame\(resolve\)\)/);
+  assert.match(refresh, /view\.classList\.contains\("canvas-navigation-previewing"\)/);
+  assert.match(refresh, /canvasRenderRegion\(\)\.visible[\s\S]*?visibleTextBoxes\(visible\)/);
+  assert.match(refresh, /state\.textBoxes\.reduce\(\(sum, item\) => sum \+ textRasterExtraPixels\(item\), 0\)/);
+  assert.match(refresh, /MAX_SHARP_OVERLAY_PIXELS - state\.sharpOverlayPixels - retainedExtraPixels/);
+  assert.match(refresh, /textRasterRatioForBudget\(item, targetRatio, remainingPixels\)/);
+  assert.match(refresh, /generation !== canvasTextQualityGeneration[\s\S]*?!state\.textBoxes\.includes\(item\)[\s\S]*?item\.image !== currentImage/);
+  assert.match(refresh, /renderedRatio <= textImageRasterRatio\(currentImage\) \* 1\.05[\s\S]*?renderedPixels > MAX_SHARP_OVERLAY_ITEM_PIXELS[\s\S]*?additionalPixels > remainingPixels/);
+  assert.match(refresh, /item\.image = image[\s\S]*?remainingPixels -= additionalPixels[\s\S]*?renderPlacedContentLayer\(canvasRenderRegion\(\)\.visible\)/);
+  assert.doesNotMatch(refresh, /state\.userRevision|saveUserCanvasChange|requestRender\(|\brender\(/);
+  assert.match(restore, /textImageRasterRatio\(item\.image\) >= pixelRatio \/ 1\.05[\s\S]*?renderedTextBoxRecord\(item, pixelRatio\)/);
+  assert.match(restore, /pixelRatio = 1[\s\S]*?requestRender\(\)[\s\S]*?refreshVisibleTextBoxQuality\(\)/);
+  assert.match(finishPreview, /render\(\)[\s\S]*?void refreshVisibleTextBoxQuality\(\)/);
+  assert.match(persistence, /restoreTextBoxes\(item\.textBoxes, 1\)/);
+  assert.match(persistence, /fitViewerCanvas\(\);[\s\S]*?render\(\);[\s\S]*?void refreshVisibleTextBoxQuality\(\)/);
+});
+
 test("AI text defaults to the cross-platform handwritten font and remembers explicit choices", () => {
   const html = read("public/index.html"), core = read("src/client/app/core.js"), canvas = read("src/client/app/canvas-runtime.js"), ai = read("src/client/app/ai-runtime.js"), agent = read("src/client/app/canvas-agent-runtime.js"), bootstrap = read("src/client/app/ui-bootstrap.js"), app = read("public/app.js"),
     handwrittenOption = html.match(/<option[^>]*data-i18n="fontHand"[^>]*>/)?.[0] || "",
@@ -4226,7 +4309,7 @@ test("AI text defaults to the cross-platform handwritten font and remembers expl
   assert.match(ai, /fontFamily = family \|\| AI_FONT_HANDWRITTEN/);
   assert.match(ai, /resolvedFamily = family \|\| AI_FONT_HANDWRITTEN/);
   assert.match(fitTextBox, /fontFamily = normalizeTextBoxFontFamily\(fontFamily\)/);
-  assert.match(renderTextBox, /fittedTextBoxContent\(item\.text, fontSize, color, maxWidth, item\.fontFamily\)/);
+  assert.match(renderTextBox, /fittedTextBoxContent\(item\.text, fontSize, color, maxWidth, item\.fontFamily, pixelRatio\)/);
   assert.match(renderTextBox, /fontFamily:fitted\.fontFamily/);
   assert.match(prepareAgentItems, /fontFamily:state\.aiFont/);
   assert.match(app, /AI_FONT_HANDWRITTEN = "Bradley Hand, Segoe Print, Comic Sans MS, cursive"/);

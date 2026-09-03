@@ -1001,7 +1001,7 @@
       restoreWidgets(item.widgets);
       applyTheme(item.theme);
       restoreImages(imageResult.value);
-      await restoreTextBoxes(item.textBoxes);
+      await restoreTextBoxes(item.textBoxes, 1);
       if (!loadIsCurrent()) throw Error("The read-only Canvas load was superseded.");
 
       // A viewer URL does not own a local snapshot. Preserve artifact extension
@@ -1022,6 +1022,7 @@
       closeHistoryPanel();
       fitViewerCanvas();
       render();
+      void refreshVisibleTextBoxQuality();
       return { id:String(item.id || ""), name:state.currentSnapshotName };
     } catch (error) {
       if (decodedTiles?.size) releaseSnapshotTileCanvases(decodedTiles);
@@ -1378,7 +1379,7 @@
       restoreWidgets(item.widgets);
       applyTheme(item.theme);
       restoreImages(images);
-      await restoreTextBoxes(item.textBoxes);
+      await restoreTextBoxes(item.textBoxes, 1);
       if (item.view) {
         state.scale = Math.max(0.03, Math.min(2, item.view.scale));
         state.panX = item.view.panX;
@@ -1404,6 +1405,7 @@
       window.PenEchoStudioNavigator?.updateDocument?.();
       setHistoryActivity(t("snapshotLoading").replace("{name}", displayName), t("snapshotLoadApplying"), 100);
       render();
+      void refreshVisibleTextBoxQuality();
       closeHistoryPanel();
       setStatusKey("snapshotLoaded");
       return true;

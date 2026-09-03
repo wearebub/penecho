@@ -90,13 +90,13 @@ Schreibe eine Frage, Gleichung, Skizze oder unfertige Idee an eine beliebige Ste
 
 In **Echoes** kannst du öffentliche Leinwände und Widgets in zwölf Kategorien entdecken, favorisieren und wiederverwenden. Eigene Crafts lassen sich veröffentlichen, in einem schreibgeschützten Web-Viewer öffnen und mit ihrer Versionsabstammung weiterentwickeln.
 
-## Neu in Version 1.1.7
+## Neu in Version 1.2.0
 
-- **PenEcho Agent.** Bearbeite lokale Dateien, schreibgeschützte Ordnerprojekte, Webrecherche, Leinwandkontext, visuelle Erstellung und direkte Änderungen in einem durchgängigen, mehrstufigen Ablauf.
-- **Visual Explorer.** Verwandle Recherche, Dokumente, Notizen und Pläne in ein responsives visuelles Ergebnis, das vom Überblick zu Details und Belegen führt.
-- **Weniger Wechsel und Nacharbeit.** Recherchieren, analysieren, strukturieren, visualisieren, prüfen und überarbeiten geschieht im selben Arbeitsbereich; das Ergebnis bleibt direkt auf der Leinwand editierbar.
-- **Progressive visuelle Lieferung.** Vollständige Visual-Explorer-Versionen erscheinen früh und können an Ort und Stelle weiter verfeinert werden, statt jedes Mal neu erzeugt zu werden.
-- **Mehr Arbeitskontext.** Nutze PDF, Word, PowerPoint, Excel, Bilder, Code, schreibgeschützte Ordner, vorhandene Widgets, Handschrift und – sofern verfügbar – Internetsuche.
+- **Ein schlichteres Studio mit dezentem Milchglas.** Werkzeugleiste, Navigator, Agent, Einstellungen und Dialoge nutzen nun eine gemeinsame, zurückhaltende Transparenz, feine Konturen und leichtere Bedienelemente. So bleibt die Arbeitsfläche sichtbar und die Oberfläche ruhiger.
+- **Klarere Hierarchie und weniger visuelle Unruhe.** Wichtige Werkzeuge bleiben griffbereit, während sekundäre Aktionen zurücktreten; Verlauf, Favoriten, Cloud-Status und Agent folgen derselben visuellen Sprache.
+- **Ein responsiver Arbeitsbereich.** Kompakte Bedienelemente passen sich breiten und schmalen Fenstern an, der Agent wechselt zwischen rechter Seitenleiste und unterem Bereich, und wichtige Aktionen bleiben auch bei umbrechender Werkzeugleiste sichtbar.
+- **Schnellere Canvas-Interaktion.** Live-Tinte mit niedriger Latenz und koordinierte Bildaktualisierungen machen Zeichnen, Radieren, Verschieben und Zoomen direkter; Widgets bleiben aktiv und Text erscheint nach der Bewegung wieder scharf.
+- **Weitere Verbesserungen.** Agent-Vorschläge und Anhänge, Objektsteuerungen, Skalierung und Farbpaletten, verknüpfte Geräte und die Desktop-Zuverlässigkeit wurden verfeinert; hinzu kommt eine 3-px-Stiftspitze.
 
 ## Frühere Höhepunkte
 

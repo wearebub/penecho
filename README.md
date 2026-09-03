@@ -131,19 +131,15 @@ In the app, signing in adds:
 - **Linked device.** Pair this host with a one-time key from Cloud → Devices, and your signed-in browsers and apps can reach it from anywhere through Cloud relay. Remote access to your canvas host without exposing it to the internet; API credentials still live only on that device. Pause, resume, or remove the link at any time.
 - **Echoes: co-creation and knowledge sharing.** Browse public Canvases and Widgets across twelve categories, favorite them into a personal library that syncs through Cloud, and add community Widgets straight into your own Canvas. Publish a Canvas of your own with a share category so others can learn from it, build on it, and Echo it — with Craft lineage preserved between versions.
 
-## 🔔 What's new in 1.1.7
+## 🔔 What's new in 1.2.0
 
-- **PenEcho Agent.** Start below the canvas and keep one multi-step workflow moving across local files, read-only folder projects, web research, canvas context, visual creation, and direct canvas edits.
-- **Visual Explorer.** Convert research, documents, notes, and plans into a responsive visual artifact organized from overview to detail and evidence—not a pile of generic cards or a transcript trapped in chat.
-- **A shorter path to useful output.** Research, analyze, structure, visualize, review, and revise in the same workspace. The result stays editable on the canvas, reducing context switching, copy-paste, manual diagramming, and rework.
-- **Progressive visual delivery.** PenEcho Agent can place and review complete Visual Explorer revisions as it works, so useful visual results arrive sooner and can be refined in place instead of regenerated from scratch.
-- **Broader working context.** Add PDF, Word, PowerPoint, Excel, images, code, or a read-only folder project; reference existing Widgets and handwriting; use Internet Search when available; and continue through large text and document attachments with explicit reading offsets.
-- **Continuous Agent conversations.** Change the selected project, Internet Search context, model connection, or canvas capabilities without losing the current conversation or pasted draft files. If a request reaches its inactivity timeout or round limit, the next message continues in the same conversation with completed results preserved.
-- **Long-running requests with clear limits.** Model timeout is now a progress-aware inactivity deadline rather than a fixed total-time cap. Configure a per-request PenEcho Agent limit of at least 50 rounds with no maximum; the default is 100.
-- **Readable mathematics in Agent replies.** Inline and display TeX now render as accessible math in final summaries, with the original notation preserved as a safe fallback when rendering is unavailable.
-- **Remembered eraser choice.** PenEcho keeps the selected eraser or area-eraser mode across canvases and reloads.
+- **A simpler frosted Studio.** The toolbar, Navigator, Agent, settings, dialogs, and compact controls now share a restrained translucent material with fine hairlines. The workspace feels lighter and more coherent while keeping the Canvas clearly visible.
+- **Clearer hierarchy, less interface noise.** Primary tools stay within reach, secondary controls recede until needed, and Cloud status, history, favorites, and Agent surfaces follow the same visual and interaction language.
+- **A responsive workbench.** Controls remain compact across wide and narrow screens, the Agent adapts between a right sidebar and bottom panel, and important actions remain visible when the toolbar wraps. Interface scale and Studio palette choices make the workspace comfortable in more environments.
+- **Faster Canvas interaction.** A low-latency live ink layer and coordinated frame work make drawing, erasing, panning, and zooming feel more immediate, while Widgets remain live and text returns sharper after movement.
+- **Smaller improvements together.** Agent suggestions and attachments, Widget and object controls, linked-device viewing, request feedback, long-running tasks, and desktop reliability have been refined; the pen also adds a finer 3 px option.
 
-1.0.0 introduced [PenEcho Cloud](https://penecho.ai), private versioned projects, linked-device remote access, Echoes, public Crafts, and synced favorites. 0.9.0 added multiple AI connections with one-click switching, project-based shared canvases, guided in-place Refine, unified-diff incremental edits, SSE streaming, and request progress with cancellation. See [Releases](https://github.com/penecho/penecho/releases) for the full history.
+1.1.7 stabilized the PenEcho Agent runtime and managed Codex CLI integration. 1.0.0 introduced [PenEcho Cloud](https://penecho.ai), private versioned projects, linked-device remote access, Echoes, public Crafts, and synced favorites. 0.9.0 added multiple AI connections with one-click switching, project-based shared canvases, guided in-place Refine, unified-diff incremental edits, SSE streaming, and request progress with cancellation. See [Releases](https://github.com/penecho/penecho/releases) for the full history.
 
 ## 📖 How it works
 

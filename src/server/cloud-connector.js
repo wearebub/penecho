@@ -6,6 +6,7 @@ const os = require("os");
 const net = require("net");
 const { createHash, randomBytes, timingSafeEqual } = require("crypto");
 const { WebSocket } = require("ws");
+const { forwardModelEvaluation } = require("./model-evaluation.js");
 
 const MAX_RELAY_MESSAGE_BYTES = 140 * 1024 * 1024;
 const MAX_CLOUD_BUNDLE_BYTES = 32 * 1024 * 1024;
@@ -15,6 +16,8 @@ const ACCOUNT_SIGNOUT_TIMEOUT_MS = 5_000;
 const CLOUD_REQUEST_TIMEOUT_MS = 30_000;
 const BROWSER_AUTHORIZATION_MS = 10 * 60_000;
 const PUBLIC_MESSAGE_TIMEOUT_MS = 3_500;
+const MODEL_EVALUATION_QUEUE_TTL_MS = 10_000;
+const MODEL_EVALUATION_QUEUE_LIMIT = 32;
 const BROWSER_CALLBACK_PATH = "/api/cloud/sign-in/callback";
 const CLOUD_AI_CONTEXT_KEY = "__penechoCloudAi";
 const LOCAL_CONNECTION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -189,6 +192,7 @@ class CloudConnector {
     this.accountRefreshTimer = null;
     this.reconnectAttempt = 0;
     this.stopped = false;
+    this.closed = false;
     this.connectionState = "disconnected";
     this.lastConnectedAt = null;
     this.lastSeenAt = null;
@@ -199,6 +203,8 @@ class CloudConnector {
     this.browserAuthorizations = new Map();
     this.accountSignInSeq = 0;
     this.deviceOperationSeq = 0;
+    this.modelEvaluationQueue = [];
+    this.modelEvaluationQueueRunning = false;
     this.expireAccountSessionIfNeeded();
   }
 
@@ -360,6 +366,36 @@ class CloudConnector {
       throw error;
     }
     return payload;
+  }
+
+  async reportModelEvaluation(event, timeoutMs = 10_000) {
+    this.expireAccountSessionIfNeeded();
+    const configuration = this.configuration, token = accountToken(configuration) || deviceToken(configuration);
+    if (!configuration?.origin || !token) throw cloudSignInRequiredError("Sign in to or pair this PenEcho server with PenEcho Cloud before reporting model evaluation feedback.");
+    return forwardModelEvaluation(fetch, configuration.origin, token, event, timeoutMs);
+  }
+
+  enqueueModelEvaluation(event, ttlMs = MODEL_EVALUATION_QUEUE_TTL_MS) {
+    if(this.closed||this.modelEvaluationQueue.length>=MODEL_EVALUATION_QUEUE_LIMIT)return false;
+    const ttl=Math.max(1,Math.min(MODEL_EVALUATION_QUEUE_TTL_MS,Number(ttlMs)||MODEL_EVALUATION_QUEUE_TTL_MS));
+    this.modelEvaluationQueue.push({event,expiresAt:Date.now()+ttl});
+    setImmediate(()=>void this.drainModelEvaluationQueue());
+    return true;
+  }
+
+  async drainModelEvaluationQueue() {
+    if(this.modelEvaluationQueueRunning||this.closed)return;
+    this.modelEvaluationQueueRunning=true;
+    try{
+      while(!this.closed&&this.modelEvaluationQueue.length){
+        const item=this.modelEvaluationQueue.shift(),remaining=item.expiresAt-Date.now();
+        if(remaining<=0)continue;
+        try{await this.reportModelEvaluation(item.event,remaining);}catch{}
+      }
+    }finally{
+      this.modelEvaluationQueueRunning=false;
+      if(!this.closed&&this.modelEvaluationQueue.length)setImmediate(()=>void this.drainModelEvaluationQueue());
+    }
   }
 
   async communityRequest(pathname) {
@@ -926,6 +962,7 @@ class CloudConnector {
 
   stop() {
     this.stopped = true;
+    this.modelEvaluationQueue.length = 0;
     this.clearTimers();
     if (this.socket) {
       try { this.socket.close(1001, "local server stopping"); } catch {}
@@ -936,6 +973,7 @@ class CloudConnector {
 
   close() {
     this.stop();
+    this.closed = true;
     clearInterval(this.accountRefreshTimer);
     this.accountRefreshTimer = null;
   }

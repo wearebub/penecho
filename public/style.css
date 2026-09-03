@@ -1440,6 +1440,7 @@ body.tour-open { overflow: hidden; }
 .tour-progress-track { height: 3px; margin: 12px 0 15px; overflow: hidden; border-radius: 999px; background: color-mix(in srgb, var(--line) 64%, transparent); }
 .tour-progress-track span { display: block; width: 0; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--gold), var(--gold-bright)); transition: width .2s ease; }
 .tour-card h2 { margin: 0; overflow-wrap: anywhere; color: var(--ink); font: 750 1.08rem/1.28 system-ui, "Noto Sans SC", sans-serif; letter-spacing: -.01em; }
+#tourTitle:focus { outline: none; }
 .tour-card p { margin: 9px 0 0; overflow-wrap: anywhere; color: color-mix(in srgb, var(--ink) 83%, var(--muted)); font: .82rem/1.62 system-ui, "Noto Sans SC", sans-serif; white-space: pre-line; }
 .tour-actions { display: flex; justify-content: flex-end; gap: 8px; margin: 17px 0 0; }
 .tour-actions button { min-width: 78px; min-height: 34px; padding: 7px 12px; color: var(--ink); border: 1px solid var(--line); border-radius: 7px; background: color-mix(in srgb, var(--panel) 90%, transparent); font: 700 .76rem/1 system-ui, sans-serif; cursor: pointer; }
@@ -1499,7 +1500,7 @@ body[data-theme="scifi"] .canvas-navigation-lock:not(.locked):hover,
 body[data-theme="scifi"] .canvas-navigation-lock:not(.locked):focus-visible { opacity: .66; }
 #screen { position: absolute; inset: 0; width: 100%; height: 100%; cursor: crosshair; touch-action: none; }
 .animation-layer { position: absolute; z-index: 1; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-.widget-layer { position: absolute; z-index: 1; inset: 0; overflow: visible; pointer-events: none; transform: translate3d(var(--canvas-widget-pan-x, 0), var(--canvas-widget-pan-y, 0), 0); will-change: transform; }
+.widget-layer { position: absolute; z-index: 1; inset: 0; overflow: visible; pointer-events: none; transform: translate3d(var(--canvas-widget-pan-x, 0), var(--canvas-widget-pan-y, 0), 0) scale(var(--canvas-widget-preview-scale, 1)); transform-origin: 0 0; }
 .selected-widget-material { position: absolute; z-index: 0; top: 0; left: 0; box-sizing: border-box; width: var(--selected-widget-material-width, 0); height: var(--selected-widget-material-height, 0); pointer-events: none; border-radius: 7px; outline: 0; background: color-mix(in srgb, var(--panel-raised, #ffffff) 14%, transparent); -webkit-backdrop-filter: saturate(1.08) blur(8px); backdrop-filter: saturate(1.08) blur(8px); clip-path: polygon(0 0, 100% 0, 100% var(--selected-widget-toolbar-height, 34px), var(--selected-widget-body-width, 100%) var(--selected-widget-toolbar-height, 34px), var(--selected-widget-body-width, 100%) 100%, 0 100%); filter: drop-shadow(0 4px 8px color-mix(in srgb, var(--studio-chrome-shadow-color, rgba(30, 35, 48, .07)) 72%, transparent)); opacity: 1; transform: translate3d(var(--selected-widget-material-x, 0), var(--selected-widget-material-y, 0), 0); transform-origin: top left; transition: opacity 200ms ease-out; }
 .selected-widget-material[hidden] { display: none; }
 .selected-widget-material.hand-toolbar-hiding { opacity: 0; }
@@ -1527,7 +1528,8 @@ body[data-theme="studio"] #viewport .canvas-widget.object-toolbar-attached::afte
 .interaction-layer { position: absolute; z-index: 3; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 .object-chrome-layer { position: absolute; z-index: 4; inset: 0; overflow: hidden; pointer-events: none; }
 #viewport.canvas-navigation-previewing { background-color: var(--canvas-navigation-preview-paper, var(--paper)); }
-#viewport.canvas-navigation-previewing :is(#screen, .image-material-layer, .placed-content-layer, .ink-layer, .live-ink-layer, .object-chrome-layer, .selection-overlay-layer, .text-editor-layer) { transform: translate3d(var(--canvas-navigation-preview-x, 0), var(--canvas-navigation-preview-y, 0), 0); will-change: transform; }
+#viewport.canvas-navigation-previewing .widget-layer { will-change: transform; }
+#viewport.canvas-navigation-previewing :is(#screen, .image-material-layer, .placed-content-layer, .ink-layer, .live-ink-layer, .object-chrome-layer, .selection-overlay-layer, .text-editor-layer) { transform: translate3d(var(--canvas-navigation-preview-x, 0), var(--canvas-navigation-preview-y, 0), 0) scale(var(--canvas-navigation-preview-scale, 1)); transform-origin: 0 0; will-change: transform; }
 .canvas-image-selection { position: absolute; z-index: 0; top: 0; left: 0; width: var(--image-selection-width, 0); height: var(--image-selection-height, 0); pointer-events: none; transform: translate3d(var(--image-selection-x, 0), var(--image-selection-y, 0), 0); transform-origin: top left; }
 .canvas-image-selection[hidden] { display: none; }
 .object-chrome-button { position: absolute; top: 0; left: 0; display: grid; width: 36px; height: 34px; padding: 0; place-items: center; pointer-events: auto; color: #475569; border: 1px dashed rgba(38, 121, 184, .5); border-radius: 5px; background: rgba(255, 255, 255, .88); box-shadow: none; backdrop-filter: none; cursor: pointer; touch-action: none; opacity: 1; transform: translate3d(var(--object-control-x, 0), var(--object-control-y, 0), 0) scale(var(--object-control-scale, 1)); transform-origin: top left; transition: color .16s ease, border-color .16s ease, background-color .16s ease, opacity .22s ease; }
@@ -2755,7 +2757,9 @@ body[data-theme="studio"] .canvas-frame.canvas-agent-resizing .canvas-agent-cont
 .crafts-refresh-spinner { width: 11px; height: 11px; flex: 0 0 11px; border: 1.5px solid color-mix(in srgb, currentColor 30%, transparent); border-right-color: currentColor; border-radius: 50%; animation: crafts-refresh-spin .75s linear infinite; }
 @keyframes crafts-refresh-spin { to { transform: rotate(360deg); } }
 .crafts-list { min-width: 0; min-height: 0; overflow: hidden auto; padding: 8px 16px 20px; background: transparent; overscroll-behavior: contain; }
-.crafts-load-more { display: block; width: fit-content; min-width: 104px; margin: 14px auto 0; }
+.crafts-page-sentinel { width: 100%; height: 1px; pointer-events: none; }
+.crafts-retry-row { box-sizing: border-box; display: flex; min-height: 80px; align-items: center; justify-content: center; }
+.crafts-retry { box-sizing: border-box; width: fit-content; height: 30px; min-width: 104px; min-height: 30px; padding: 0 10px; font-size: 12.5px; font-weight: 500; line-height: 1; }
 .crafts-empty { margin: 0; padding: 64px 16px; color: var(--muted); font-size: 12.5px; line-height: 1.5; text-align: center; }
 .crafts-row { display: grid; grid-template-areas: "preview copy" "preview footer"; grid-template-columns: 88px minmax(0, 1fr); column-gap: 12px; row-gap: 4px; align-items: center; min-height: 78px; padding: 9px 8px; overflow: visible; border: 0; border-bottom: 1px solid color-mix(in srgb, var(--line) 62%, transparent); border-radius: 8px; background: var(--panel-raised); transition: background-color .16s cubic-bezier(.22, 1, .36, 1); }
 .crafts-row:hover, .crafts-row:focus-within { background: color-mix(in srgb, var(--panel) 72%, var(--panel-raised)); box-shadow: none; }
@@ -2824,7 +2828,7 @@ body[data-theme="studio"] .canvas-frame.canvas-agent-resizing .canvas-agent-cont
 .crafts-list.is-grid .crafts-kind-badge { flex: 0 0 auto; }
 .crafts-list.is-grid .crafts-source { min-width: 0; max-width: 100%; flex: 0 1 auto; }
 .crafts-list.is-grid .crafts-actions { justify-self: end; gap: 4px; }
-.crafts-list.is-grid > .crafts-empty, .crafts-list.is-grid > .crafts-load-more { grid-column: 1 / -1; }
+.crafts-list.is-grid > :is(.crafts-empty, .crafts-page-sentinel, .crafts-retry-row) { grid-column: 1 / -1; }
 
 @media (max-width: 760px) {
   #craftsPopover { padding: 8px; }
@@ -5214,8 +5218,124 @@ body[data-theme="studio"] #aiFont[data-pe-control="select"] {
   font: var(--pe-type-regular) var(--pe-type-label)/1.35 var(--pe-font-ui);
 }
 
+/* Keyboard shortcuts use the catalog's Settings XL/nav-content and
+   data-pe-list="settings" anatomy: one bounded group, inset separators,
+   copy first, and a stable compact control rail. */
+.settings-shortcuts-page > .settings-group { padding-top: 0; }
+.settings-shortcuts-heading { align-items: center; }
+.settings-shortcuts-heading > div { min-width: 0; }
+.settings-shortcuts-heading > button { min-width: max-content; }
+.settings-shortcut-instructions {
+  margin: -2px 0 16px;
+  color: var(--pe-ink-2, var(--muted));
+  font: 400 12.5px/1.45 var(--pe-font-ui, system-ui, sans-serif);
+}
+.settings-shortcut-groups { display: grid; gap: 18px; }
+.settings-shortcut-group { min-width: 0; }
+.settings-shortcut-group > h4 {
+  margin: 0 0 7px;
+  color: var(--pe-ink-2, var(--muted));
+  font: 500 13px/1.35 var(--pe-font-ui, system-ui, sans-serif);
+}
+.settings-shortcut-list {
+  overflow: hidden;
+  border: 1px solid var(--pe-line, var(--line));
+  border-radius: 10px;
+  background: var(--pe-surface, var(--panel-raised));
+}
+.settings-shortcut-row[data-pe-list="settings"] {
+  display: grid;
+  min-width: 0;
+  min-height: 56px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 9px 11px;
+  border-bottom: 1px solid var(--pe-line, var(--line));
+}
+.settings-shortcut-row[data-pe-list="settings"]:last-child { border-bottom: 0; }
+.settings-shortcut-row[data-pe-state="selected"] { background: var(--pe-selected, color-mix(in srgb, var(--gold) 8%, transparent)); }
+.settings-shortcut-copy { min-width: 0; }
+.settings-shortcut-copy > strong {
+  display: block;
+  color: var(--pe-ink, var(--ink));
+  font: 500 13px/1.35 var(--pe-font-ui, system-ui, sans-serif);
+}
+.settings-shortcut-copy > small {
+  display: block;
+  margin-top: 2px;
+  color: var(--pe-ink-2, var(--muted));
+  font: 400 12.5px/1.4 var(--pe-font-ui, system-ui, sans-serif);
+}
+.settings-shortcut-actions {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+}
+.settings-shortcut-binding[data-pe-button="secondary"] {
+  width: auto;
+  min-width: 108px;
+  max-width: 220px;
+  height: 32px;
+  min-height: 32px;
+  justify-content: center;
+  overflow: hidden;
+}
+.settings-shortcut-binding > kbd {
+  overflow: hidden;
+  font: 400 12px/1.35 var(--pe-font-mono, ui-monospace, monospace);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.settings-shortcut-binding[aria-pressed="true"] {
+  color: var(--pe-accent-label, var(--gold-bright));
+  border-color: var(--pe-accent, var(--gold));
+  background: transparent;
+  box-shadow: none;
+}
+.settings-shortcut-reset[data-pe-button="icon"] {
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  min-height: 32px;
+}
+.settings-shortcut-reset > svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.settings-shortcut-status {
+  min-height: 18px;
+  margin: 12px 0 0;
+  color: var(--pe-ink-2, var(--muted));
+  font: 400 12.5px/1.4 var(--pe-font-ui, system-ui, sans-serif);
+}
+.settings-shortcut-status[data-state="success"] { color: var(--pe-success, #277a4c); }
+.settings-shortcut-status[data-state="error"] { color: var(--pe-danger, #b42318); }
+
+@container (max-width: 480px) {
+  .settings-shortcuts-heading { align-items: flex-start; }
+  .settings-shortcut-row[data-pe-list="settings"] {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+    gap: 8px;
+    padding-block: 10px;
+  }
+  .settings-shortcut-actions { justify-content: flex-start; }
+  .settings-shortcut-binding[data-pe-button="secondary"] { max-width: min(100%, 220px); }
+}
+
 @media (pointer: coarse) {
   body[data-theme="studio"] label.settings-row:has(> #aiFont[data-pe-control="select"]) { min-height: 44px; }
+  .settings-shortcut-binding[data-pe-button="secondary"],
+  .settings-shortcut-reset[data-pe-button="icon"] { min-height: 44px; }
+  .settings-shortcut-reset[data-pe-button="icon"] { width: 44px; min-width: 44px; }
 }
 
 /* Canvas Library — PenEcho Design Language manager XL/nav-content/glass.
@@ -6351,10 +6471,10 @@ html.penecho-web-page-scale .canvas-agent-project-dialog {
   flex: 0 0 16px;
   stroke-width: 1.8;
 }
-/* AI Refine is a contextual action rather than another anonymous toolbar
-   glyph. It keeps the catalog's compact geometry and adds the requested
-   semantic tint without becoming a filled primary button. */
-:is(#pe-button-contract, .object-chrome-button.refine.solo-widget-tool)[data-pe-button="secondary"] {
+/* AI Refine maps to the catalog's ordinary compact secondary button. Its
+   accent stays in the label and hairline while a bounded control-glass blur
+   and one composited entrance provide material and reveal without a tint fill. */
+:is(#pe-button-contract, .object-chrome-button.refine.solo-widget-tool)[data-pe-button="secondary"][data-pe-material="control-glass"] {
   display: inline-flex;
   width: var(--object-control-width, 92px);
   min-width: 0;
@@ -6367,43 +6487,69 @@ html.penecho-web-page-scale .canvas-agent-project-dialog {
   color: var(--pe-accent-label, var(--gold-bright, #ead28e));
   border: 1px solid color-mix(in srgb, var(--pe-accent, var(--gold, #c6a35b)) 36%, var(--pe-line, var(--line)));
   border-radius: 5px;
-  background: color-mix(in srgb, var(--pe-accent, var(--gold, #c6a35b)) 8%, var(--pe-surface, var(--panel-raised, #201827)));
+  background: transparent;
   box-shadow: none;
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
+  -webkit-backdrop-filter: blur(14px) saturate(1.12);
+  backdrop-filter: blur(14px) saturate(1.12);
   font: 500 12.5px/var(--object-control-height, 28px) var(--pe-font-ui, system-ui, -apple-system, "Segoe UI", sans-serif);
   white-space: nowrap;
   opacity: 1;
+  animation: widget-refine-button-in 180ms cubic-bezier(.22, 1, .36, 1) both;
 }
-:is(#pe-button-contract, .object-chrome-button.refine.solo-widget-tool)[data-pe-button="secondary"] > svg {
+@keyframes widget-refine-button-in {
+  from { opacity: 0; translate: 0 3px; }
+  to { opacity: 1; translate: 0 0; }
+}
+:is(#pe-button-contract, .object-chrome-button.refine.solo-widget-tool)[data-pe-button="secondary"][data-pe-material="control-glass"] > svg {
   width: 14px;
   height: 14px;
   flex: 0 0 14px;
   stroke-width: 1.7;
 }
-:is(#pe-button-contract, .object-chrome-button.refine.solo-widget-tool)[data-pe-button="secondary"]:is(:hover, .refine-hovered) {
+:is(#pe-button-contract, .object-chrome-button.refine.solo-widget-tool)[data-pe-button="secondary"][data-pe-material="control-glass"]:is(:hover, .refine-hovered) {
   color: var(--pe-accent-label, var(--gold-bright, #ead28e));
   border-color: color-mix(in srgb, var(--pe-accent, var(--gold, #c6a35b)) 58%, var(--pe-line, var(--line)));
-  background: color-mix(in srgb, var(--pe-accent, var(--gold, #c6a35b)) 12%, var(--pe-surface, var(--panel-raised, #201827)));
+  background: transparent;
   box-shadow: none;
 }
-:is(#pe-button-contract, .object-chrome-button.refine.solo-widget-tool)[data-pe-button="secondary"]:focus-visible {
+:is(#pe-button-contract, .object-chrome-button.refine.solo-widget-tool)[data-pe-button="secondary"][data-pe-material="control-glass"]:focus-visible {
   color: var(--pe-accent-label, var(--gold-bright, #ead28e));
   border-color: var(--pe-accent, var(--gold, #c6a35b));
   outline: 0;
-  background: color-mix(in srgb, var(--pe-accent, var(--gold, #c6a35b)) 10%, var(--pe-surface, var(--panel-raised, #201827)));
+  background: transparent;
   box-shadow: 0 0 0 2px var(--pe-accent-focus, color-mix(in srgb, var(--gold, #c6a35b) 28%, transparent));
 }
-:is(#pe-button-contract, .object-chrome-button.refine.solo-widget-tool)[data-pe-button="secondary"]:active {
+:is(#pe-button-contract, .object-chrome-button.refine.solo-widget-tool)[data-pe-button="secondary"][data-pe-material="control-glass"]:active {
   color: var(--pe-accent-label, var(--gold-bright, #ead28e));
   border-color: color-mix(in srgb, var(--pe-accent, var(--gold, #c6a35b)) 64%, var(--pe-line, var(--line)));
-  background: color-mix(in srgb, var(--pe-accent, var(--gold, #c6a35b)) 16%, var(--pe-surface, var(--panel-raised, #201827)));
+  background: transparent;
   box-shadow: none;
 }
-:is(#pe-button-contract, .object-chrome-button.refine.solo-widget-tool.refine-no-input)[data-pe-button="secondary"] {
+:is(#pe-button-contract, .object-chrome-button.refine.solo-widget-tool.refine-no-input)[data-pe-button="secondary"][data-pe-material="control-glass"] {
   color: var(--pe-ink-2, var(--muted, #a99c80));
   border-color: var(--pe-line-strong, var(--line));
-  background: var(--pe-surface, var(--panel-raised, #201827));
+  background: transparent;
+}
+#viewport:is(.is-drawing, .canvas-navigation-previewing) :is(#pe-button-contract, .object-chrome-button.refine.solo-widget-tool)[data-pe-button="secondary"][data-pe-material="control-glass"],
+[data-pe-reduced-transparency="true"] :is(#pe-button-contract, .object-chrome-button.refine.solo-widget-tool)[data-pe-button="secondary"][data-pe-material="control-glass"] {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+#viewport:is(.is-drawing, .canvas-navigation-previewing) :is(#pe-button-contract, .object-chrome-button.refine.solo-widget-tool)[data-pe-button="secondary"][data-pe-material="control-glass"] {
+  animation: none;
+  translate: none;
+}
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  :is(#pe-button-contract, .object-chrome-button.refine.solo-widget-tool)[data-pe-button="secondary"][data-pe-material="control-glass"] {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  :is(#pe-button-contract, .object-chrome-button.refine.solo-widget-tool)[data-pe-button="secondary"][data-pe-material="control-glass"] {
+    animation: none;
+    translate: none;
+  }
 }
 /* Keep the AI Refine confirmation check as a semantic hairline action. The
    shared button states must not turn it back into a filled primary control. */

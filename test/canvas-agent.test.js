@@ -41,7 +41,7 @@ const waitFor=async(predicate,timeoutMs=2000)=>{
   throw new Error("Timed out waiting for PenEcho Agent test state.");
 };
 
-test("PenEcho Agent applies only a same-turn LLM title after completion without auto-saving",async()=>{
+test("PenEcho Agent applies only a same-turn LLM title and retries naming an unsaved Canvas",async()=>{
   const persistence=read("src/client/app/persistence.js"),agent=read("src/client/app/canvas-agent-runtime.js"),runtimeSource=read("src/server/canvas-agent/runtime.mjs"),
     native=read("src/server/canvas-agent/codex-native-host.mjs"),http=read("src/server/canvas-agent/http.js"),updates={document:0,agent:0},state={
     currentSnapshotName:"Aug 30, 2026, 9:00 AM",
@@ -58,18 +58,30 @@ test("PenEcho Agent applies only a same-turn LLM title after completion without 
   state.currentCanvasSuggestedName="";
   state.currentSnapshotHasExplicitName=true;
   assert.equal(apply("已有名称不能覆盖"),false);
-  const submit=functionSource(agent,"canvasAgentSubmitMessage"),applySource=functionSource(persistence,"applyCurrentCanvasGeneratedName"),
+  const submit=functionSource(agent,"canvasAgentSubmitMessage"),applySource=functionSource(persistence,"applyCurrentCanvasGeneratedName"),requestState={
+      currentSnapshotId:null,
+      currentSnapshotHasExplicitName:false,
+      currentCanvasSuggestedName:"",
+    },
     conversationNeedsTitle=vm.runInNewContext(`(${functionSource(agent,"canvasAgentConversationNeedsCanvasTitle")})`),
+    shouldRequestTitle=vm.runInNewContext(`(()=>{${functionSource(persistence,"currentCanvasNeedsAgentName")}\n${functionSource(agent,"canvasAgentConversationNeedsCanvasTitle")}\n${functionSource(agent,"canvasAgentShouldRequestCanvasTitle")}\nreturn canvasAgentShouldRequestCanvasTitle;})()`,{state:requestState}),
     visibleAssistantText=Function("CANVAS_AGENT_HISTORY_TEXT_LIMIT",`${functionSource(agent,"canvasAgentMessageText")}\n${functionSource(agent,"canvasAgentVisibleAssistantText")}\nreturn canvasAgentVisibleAssistantText;`)(20_000),
     {parseCanvasTitleEnvelope,publicSessionEvent}=await import("../src/server/canvas-agent/runtime.mjs");
   assert.equal(conversationNeedsTitle({items:[{type:"message",role:"user",text:"请优化画布"}]}),true);
   assert.equal(conversationNeedsTitle({items:[{type:"message",role:"assistant",text:"第一轮回复",final:true}]}),false);
+  assert.equal(shouldRequestTitle({items:[{type:"message",role:"assistant",text:"第一轮回复",final:true}]}),true);
+  requestState.currentSnapshotId="saved-canvas";
+  assert.equal(shouldRequestTitle({items:[{type:"message",role:"assistant",text:"第一轮回复",final:true}]}),false);
+  assert.equal(shouldRequestTitle({items:[{type:"message",role:"user",text:"请优化画布"}]}),true);
+  requestState.currentSnapshotId=null;
+  requestState.currentCanvasSuggestedName="已有建议标题";
+  assert.equal(shouldRequestTitle({items:[{type:"message",role:"assistant",text:"第一轮回复",final:true}]}),false);
   assert.equal(visibleAssistantText("<penecho_canvas_title>旧标题</penecho_canvas_title>\n历史回答"),"历史回答");
   assert.equal(visibleAssistantText("历史回答\n\n<penecho_canvas_title>旧标题</penecho_canvas_title>"),"历史回答");
   assert.equal(visibleAssistantText("完成说明\n\n<penecho_canvas_title>旧标题</penecho_canvas_title>\n\n历史回答"),"完成说明\n\n历史回答");
   assert.equal(visibleAssistantText("<phenecho_canvas_title>拼写容错标题</penecho_canvas_title>\n历史回答"),"历史回答");
   assert.equal(visibleAssistantText("<penecho_canvas_title>格式错误但正常回答"),"<penecho_canvas_title>格式错误但正常回答");
-  assert.match(submit,/canvasTitleNeeded:currentCanvasNeedsAgentName\(\)&&canvasAgentConversationNeedsCanvasTitle\(canvasAgent\.currentConversation\)/);
+  assert.match(submit,/canvasTitleNeeded:canvasAgentShouldRequestCanvasTitle\(canvasAgent\.currentConversation\)/);
   assert.match(submit,/reasoningEffort:state\.reasoningEffort/);
   assert.doesNotMatch(submit,/applyCurrentCanvasGeneratedName|suggestCurrentCanvasNameFromQuestion/);
   assert.match(agent,/function canvasAgentHandleEvent[\s\S]*?event\.reason\?\.kind==="completed"[\s\S]*?applyCurrentCanvasGeneratedName\(event\.canvasTitle\)/);
@@ -2922,6 +2934,24 @@ test("PenEcho Agent preserves the logical conversation and pasted draft files wh
   assert.doesNotMatch(ensureSearch,/canvasAgentStartNewConversation|new_conversation/);
   assert.match(changeContext,/"change_context"[\s\S]*?conversationId:canvasAgent\.currentConversation\?\.id/);
   assert.doesNotMatch(changeContext,/canvasAgentBeginLocalConversation|canvasAgentClearTranscript|canvasAgentClearAttachments/);
+});
+
+test("PenEcho Agent session popover closes when focus leaves the popover and its trigger",()=>{
+  const source=read("src/client/app/canvas-agent-runtime.js"),handlerSource=functionSource(source,"canvasAgentHistoryFocusDidLeave");
+  class FakeNode {}
+  const inside=new FakeNode(),trigger=new FakeNode(),outside=new FakeNode(),hidden=[],handler=vm.runInNewContext(`(${handlerSource})`,{
+    Node:FakeNode,
+    canvasAgentHistoryPopover:{contains:target=>target===inside},
+    canvasAgentHistory:{contains:target=>target===trigger},
+    canvasAgentHideHistoryPopover:()=>hidden.push(true),
+  });
+  handler({relatedTarget:inside});
+  handler({relatedTarget:trigger});
+  assert.equal(hidden.length,0);
+  handler({relatedTarget:outside});
+  handler({relatedTarget:null});
+  assert.equal(hidden.length,2);
+  assert.match(source,/canvasAgentHistoryPopover\.addEventListener\("focusout",canvasAgentHistoryFocusDidLeave\)/);
 });
 
 test("PenEcho Agent maps provider failures to concise localized error categories",()=>{

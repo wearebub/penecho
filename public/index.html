@@ -158,7 +158,7 @@
           </div>
           <div id="penToolProperties" class="tool-properties pen-tool-properties" role="group" data-i18n-aria="pen" aria-label="Pen">
             <label class="range-control"><span data-i18n="penSize">Pen size</span>
-              <input id="penSize" type="range" min="4" max="8" step="1" value="4" data-i18n-aria="penSize" aria-label="Pen size">
+              <input id="penSize" type="range" min="3" max="8" step="1" value="4" data-i18n-aria="penSize" aria-label="Pen size">
               <output id="penSizeValue">4 px</output>
             </label>
             <div class="color-orb-control" data-color-control="ink">
@@ -916,6 +916,9 @@
           <button id="settingsNavCanvas" type="button" role="tab" data-settings-page-target="canvas" aria-controls="settingsPageCanvas" aria-selected="false" tabindex="-1" data-pe-button="menu-item">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v12H4zM8 21h8M12 17v4"/><path d="m8 12 2-2 2 2 3-3 2 2"/></svg><span data-i18n="settingsNavCanvas">Canvas</span>
           </button>
+          <button id="settingsNavShortcuts" type="button" role="tab" data-settings-page-target="shortcuts" aria-controls="settingsPageShortcuts" aria-selected="false" tabindex="-1" data-pe-button="menu-item">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 9h.01M11 9h.01M15 9h.01M18 9h.01M7 13h.01M11 13h.01M15 13h3M7 16h8"/></svg><span data-i18n="settingsNavShortcuts">Keyboard shortcuts</span>
+          </button>
           <button id="settingsNavAbout" type="button" role="tab" data-settings-page-target="about" aria-controls="settingsPageAbout" aria-selected="false" tabindex="-1" data-pe-button="menu-item">
             <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></svg><span data-i18n="settingsNavAbout">Help &amp; about</span>
           </button>
@@ -1116,6 +1119,20 @@
           </div>
             </section>
           </section>
+          <section id="settingsPageShortcuts" class="settings-page settings-shortcuts-page" role="tabpanel" aria-labelledby="settingsNavShortcuts" data-settings-page="shortcuts" hidden>
+            <section class="settings-group" aria-labelledby="settingsShortcutsHeading">
+              <div class="settings-section-heading settings-shortcuts-heading">
+                <div>
+                  <h3 id="settingsShortcutsHeading" data-i18n="settingsShortcuts">Keyboard shortcuts</h3>
+                  <p data-i18n="settingsShortcutsHelp">Choose a command, then press the keys you want to use.</p>
+                </div>
+                <button id="settingsShortcutResetAll" type="button" data-i18n="settingsShortcutResetAll" data-pe-button="secondary" data-pe-density="compact">Reset all</button>
+              </div>
+              <p class="settings-shortcut-instructions" data-i18n="settingsShortcutInstructions">Press Escape to cancel. Press Backspace or Delete to remove a shortcut.</p>
+              <div id="settingsShortcutList" class="settings-shortcut-groups"></div>
+              <p id="settingsShortcutStatus" class="settings-shortcut-status" role="status" aria-live="polite"></p>
+            </section>
+          </section>
           <section id="settingsPageAbout" class="settings-page" role="tabpanel" aria-labelledby="settingsNavAbout" data-settings-page="about" hidden>
             <section class="settings-group" aria-labelledby="settingsHelpHeading">
           <h3 id="settingsHelpHeading" data-i18n="settingsHelpSection">Help &amp; about</h3>
@@ -1172,21 +1189,19 @@
       <header class="changelog-header">
         <div class="changelog-heading">
           <span class="changelog-badge" data-i18n="changelogBadge">What's new</span>
-          <span class="changelog-version">1.1.7</span>
+          <span class="changelog-version">1.2.0</span>
         </div>
         <button id="changelogClose" class="changelog-close" type="button" data-i18n-aria="changelogClose" aria-label="Close release notes" data-i18n-title="changelogClose" title="Close release notes" data-pe-button="icon" data-pe-density="compact">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
         </button>
       </header>
       <div class="changelog-scroll">
-        <h2 id="changelogTitle" data-i18n="changelogTitle">PenEcho Agent, built for longer work</h2>
+        <h2 id="changelogTitle" data-i18n="changelogTitle">A simpler, more focused Studio</h2>
         <section class="changelog-release">
           <ul>
-            <li data-i18n="changelogCanvasAgentResearch">Turn folders, files, web research, and canvas context into structured visual work from the PenEcho Agent below the canvas.</li>
-            <li data-i18n="changelogCanvasAgentWorkspace">Visual Explorer brings research, analysis, planning, and editable on-canvas delivery into one workflow—with less tool switching and rework.</li>
-            <li data-i18n="changelogAgentContinuity">Keep the same conversation when projects, search, or model connections change, and continue after an inactivity timeout or request-round limit with completed work preserved.</li>
-            <li data-i18n="changelogAgentMath">Read larger file sections with explicit continuation and see inline or display TeX rendered clearly in Agent summaries.</li>
-            <li data-i18n="changelogEraserMemory">PenEcho remembers whether you last chose the eraser or area eraser across canvases and reloads.</li>
+            <li data-i18n="changelogFrostedStudio">A simpler frosted Studio brings the toolbar, Navigator, Agent, settings, and dialogs into one restrained visual system. Translucent materials, fine hairlines, and lighter controls keep the Canvas visible and the workspace easy to scan.</li>
+            <li data-i18n="changelogResponsiveWorkspace">The workspace now adapts more naturally to wide and narrow screens. Controls remain compact, the Agent moves between a right sidebar and bottom panel, and important actions stay within reach as the toolbar wraps.</li>
+            <li data-i18n="changelogPerformanceAndDetails">Drawing, erasing, panning, and zooming feel faster, while sharper text, steadier Widgets and object controls, improved Agent suggestions and attachments, interface scale and palette choices, a 3 px pen, and desktop reliability refinements round out the release.</li>
           </ul>
         </section>
       </div>

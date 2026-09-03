@@ -1,0 +1,89 @@
+"use strict";
+
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+
+const ROOT = path.resolve(__dirname, "..");
+const read = (file) => fs.readFileSync(path.join(ROOT, file), "utf8");
+const functionSource = (source, name) => {
+  const start = source.indexOf(`function ${name}(`);
+  assert.notEqual(start, -1, `missing function ${name}`);
+  const body = source.indexOf("{", start);
+  let depth = 0;
+  for (let index = body; index < source.length; index++) {
+    if (source[index] === "{") depth++;
+    else if (source[index] === "}" && --depth === 0) return source.slice(start, index + 1);
+  }
+  assert.fail(`unterminated function ${name}`);
+};
+
+test("Settings exposes a catalog-backed Keyboard shortcuts page", () => {
+  const html = read("public/index.html"), css = read("public/style.css");
+  const panel = html.slice(html.indexOf('id="settingsPanel"'), html.indexOf('id="configurationLayer"'));
+  for (const page of ["appearance", "connections", "canvas", "shortcuts", "about"]) {
+    assert.match(panel, new RegExp(`data-settings-page-target="${page}"`));
+    assert.match(panel, new RegExp(`data-settings-page="${page}"`));
+  }
+  assert.match(panel, /id="settingsShortcutList"/);
+  assert.match(panel, /id="settingsShortcutResetAll"[^>]*data-pe-button="secondary"[^>]*data-pe-density="compact"/);
+  assert.match(panel, /id="settingsShortcutStatus"[^>]*role="status"[^>]*aria-live="polite"/);
+  assert.match(css, /Keyboard shortcuts use the catalog's Settings XL\/nav-content/);
+  assert.match(css, /\.settings-shortcut-row\[data-pe-list="settings"\]\s*\{[^}]*min-height:\s*56px[^}]*grid-template-columns:\s*minmax\(0, 1fr\) auto/);
+  assert.match(css, /@container \(max-width: 480px\)[\s\S]*?\.settings-shortcut-row\[data-pe-list="settings"\][^{]*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)/);
+});
+
+test("shortcut defaults cover Agent focus, save, history, editing, tools, and workspace actions", () => {
+  const source = read("src/client/app/keyboard-shortcuts.js"), build = read("scripts/build-client.js");
+  assert.match(build, /src\/client\/app\/keyboard-shortcuts\.js/);
+  for (const [id, chord] of [
+    ["focus-agent", "Tab"], ["save-canvas", "Mod+s"], ["undo", "Mod+z"],
+    ["redo", "Mod+Shift+z"], ["tool-pen", "p"], ["tool-hand", "h"],
+    ["tool-eraser", "e"], ["tool-select", "v"], ["tool-text", "t"],
+    ["new-canvas", "Mod+n"], ["canvas-library", "Mod+o"], ["toggle-grid", "g"],
+    ["toggle-fullscreen", "Mod+Shift+f"], ["open-settings", "Mod+,"],
+  ]) assert.match(source, new RegExp(`id:\\"${id}\\"[^\\n]*defaultChord:\\"${chord.replace(/[+]/g, "\\+")}\\"`));
+  const perform = functionSource(source, "keyboardShortcutPerform");
+  assert.match(perform, /openCanvasAgent\(\{ focus:true, animate:opening \}\)/);
+  assert.match(perform, /void saveCurrentCanvas\(\)/);
+  assert.match(perform, /querySelector\(`\[data-action="\$\{commandId\}"\]`\)\?\.click\(\)/);
+  assert.match(perform, /selectCanvasToolMode\("pen", \{ showHint:true \}\)/);
+  assert.match(perform, /openHistoryPanel\(\)/);
+});
+
+test("shortcut normalization treats Control and Command as the same cross-platform modifier", () => {
+  const source = read("src/client/app/keyboard-shortcuts.js"), special = new Map([
+    [" ", "Space"], ["Spacebar", "Space"], ["Esc", "Escape"], ["Left", "ArrowLeft"],
+    ["Right", "ArrowRight"], ["Up", "ArrowUp"], ["Down", "ArrowDown"],
+  ]);
+  const key = Function("KEYBOARD_SHORTCUT_SPECIAL_KEYS", `return (${functionSource(source, "keyboardShortcutKey")});`)(special);
+  const chord = Function("keyboardShortcutKey", `return (${functionSource(source, "keyboardShortcutChordFromEvent")});`)(key);
+  assert.equal(chord({ key:"s", ctrlKey:true, metaKey:false, altKey:false, shiftKey:false }), "Mod+s");
+  assert.equal(chord({ key:"S", ctrlKey:false, metaKey:true, altKey:false, shiftKey:true }), "Mod+Shift+s");
+  assert.equal(chord({ key:"Tab", ctrlKey:false, metaKey:false, altKey:false, shiftKey:false }), "Tab");
+  assert.equal(chord({ key:"Control", ctrlKey:true, metaKey:false, altKey:false, shiftKey:false }), "");
+});
+
+test("shortcut recording rejects conflicts, supports clearing, and protects text and modal contexts", () => {
+  const source = read("src/client/app/keyboard-shortcuts.js"), assign = functionSource(source, "keyboardShortcutAssign"), handler = functionSource(source, "handleKeyboardShortcutKeydown"), context = functionSource(source, "keyboardShortcutCanRun");
+  assert.match(assign, /KEYBOARD_SHORTCUT_COMMANDS\.find\([\s\S]*?keyboardShortcutBindings\[item\.id\] === chord/);
+  assert.match(assign, /settingsShortcutConflict/);
+  assert.match(handler, /event\.key === "Escape"[\s\S]*?settingsShortcutCancelled/);
+  assert.match(handler, /event\.key === "Backspace" \|\| event\.key === "Delete"[\s\S]*?keyboardShortcutAssign\(keyboardShortcutRecordingId, ""\)/);
+  assert.match(context, /keyboardShortcutBlockingSurfaceOpen\(\)/);
+  assert.match(context, /command\.id === "focus-agent"[\s\S]*?!canvasAgentAvailable\(\)[\s\S]*?event\.target\?\.id !== "canvasAgentInput"/);
+  assert.match(context, /keyboardShortcutTextEditingTarget\(event\.target\)\) return command\.id === "save-canvas"/);
+  assert.match(source, /window\.addEventListener\("keydown", handleKeyboardShortcutKeydown, true\)/);
+});
+
+test("shortcut settings are localized in English and Chinese", () => {
+  const core = read("src/client/app/core.js"), zh = read("public/locales/zh.js");
+  for (const key of [
+    "settingsNavShortcuts", "settingsShortcuts", "settingsShortcutConflict", "settingsShortcutResetAll",
+    "shortcutFocusAgent", "shortcutSaveCanvasHelp", "shortcutCanvasLibrary", "shortcutSettingsHelp",
+  ]) {
+    assert.match(core, new RegExp(`\\b${key}:\\s*"`));
+    assert.match(zh, new RegExp(`\\b${key}:\\s*"`));
+  }
+});

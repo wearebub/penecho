@@ -9,12 +9,18 @@ const { test } = require("node:test");
 const ROOT = path.resolve(__dirname, "..");
 const cloudScript = fs.readFileSync(path.join(ROOT, "public", "cloud-connect.js"), "utf8");
 const cloudCss = fs.readFileSync(path.join(ROOT, "public", "cloud-connect.css"), "utf8");
+const studioCss = fs.readFileSync(path.join(ROOT, "public", "style.css"), "utf8");
 const serverSource = fs.readFileSync(path.join(ROOT, "src", "server", "main.js"), "utf8");
 
 test("Cloud storage help stays concise in both languages", () => {
   assert.match(cloudScript, /storageHelp:"Saved versions are never overwritten\."/);
   assert.match(cloudScript, /storageHelp:"已保存版本不会被覆盖。"/);
   assert.doesNotMatch(cloudScript, /Every successful save creates an immutable revision|每次成功保存都会创建不可变版本/);
+});
+
+test("the toolbar Favorites retry is vertically centered in a full status row", () => {
+  assert.match(studioCss, /\.crafts-retry-row\s*\{[^}]*display:\s*flex[^}]*min-height:\s*80px[^}]*align-items:\s*center[^}]*justify-content:\s*center/);
+  assert.match(studioCss, /\.crafts-retry\s*\{[^}]*box-sizing:\s*border-box[^}]*height:\s*30px[^}]*min-height:\s*30px[^}]*padding:\s*0 10px[^}]*line-height:\s*1/);
 });
 
 class FakeElement {
@@ -173,7 +179,7 @@ const signedOutStatus = (device = {}) => ({
   browserSignIn:{ pending:false },
 });
 
-function boot({ status, remoteCloudStatus = null, cloudOrigin = "https://internaltest.penecho.ai", runtime, language = "en", communityItem, communityArtifact, lineage = null, library, communityFavorites = [], widgetFavorites = [], localFavoriteItems = [], cloudFavoriteSaveError = null, serverDesktopApp = false, rendererDesktopBridge = false, publishItem, canvasShareArtifact, widgetShareArtifact, widgetArtifactPromise = null, widgetArtifactError = null, navigatorOverrides = {}, withCrafts = false, sessionStorageEntries = {} } = {}) {
+function boot({ status, remoteCloudStatus = null, cloudOrigin = "https://internaltest.penecho.ai", runtime, language = "en", communityItem, communityArtifact, lineage = null, library, communityFavorites = [], widgetFavorites = [], localFavoriteItems = [], cloudFavoriteSaveError = null, cloudFavoriteFeedError = null, serverDesktopApp = false, rendererDesktopBridge = false, publishItem, canvasShareArtifact, widgetShareArtifact, widgetArtifactPromise = null, widgetArtifactError = null, navigatorOverrides = {}, withCrafts = false, sessionStorageEntries = {} } = {}) {
   const timers = makeTimers();
   const documentListeners = new Map();
   const document = {
@@ -242,6 +248,7 @@ function boot({ status, remoteCloudStatus = null, cloudOrigin = "https://interna
   let deferredAccountError = null;
   let releaseAccountError = null;
   let communityFavoritesPayload = communityFavorites;
+  let favoriteFeedError = cloudFavoriteFeedError;
   let holdCommunityFavorites = false;
   let communityFavoriteResolvers = [];
   let libraryPayload = library || { workspace:{}, projects:[], canvases:[], sync:{ bundleVersion:2, conflictPolicy:"base-revision-required" } };
@@ -305,6 +312,11 @@ function boot({ status, remoteCloudStatus = null, cloudOrigin = "https://interna
     const favoriteDetail=target.match(/^\/api\/(?:cloud\/favorites|v1\/favorites)\/([0-9a-f-]{36})$/i);
     if(favoriteDetail&&!options.method){const favorite=widgetFavorites.find((entry)=>entry.id===favoriteDetail[1]);return Promise.resolve(favorite?jsonResponse({favorite}):{ok:false,status:404,json:async()=>({error:"not found"})});}
     if (target.startsWith("/api/cloud/favorites/feed?") || target.startsWith("/api/v1/favorites/feed?")) {
+      if (favoriteFeedError) return Promise.resolve({
+        ok:false,
+        status:favoriteFeedError.status || 403,
+        json:async () => ({ error:favoriteFeedError.code || "cloud_request_not_authorized", message:favoriteFeedError.message || "PenEcho Cloud rejected this request." }),
+      });
       const query = new URL(target, "http://canvas.test").searchParams, kind = query.get("kind") || "all",
         limit = Number(query.get("limit")) || 20, offset = Number(query.get("cursor")) || 0,
         entries = [
@@ -331,6 +343,12 @@ function boot({ status, remoteCloudStatus = null, cloudOrigin = "https://interna
   const opened = [];
   const openedLocal = [];
   const favoriteStates = [];
+  const intersectionObservers = [];
+  class FakeIntersectionObserver {
+    constructor(callback) { this.callback = callback; this.active = false; this.node = null; intersectionObservers.push(this); }
+    observe(node) { this.node = node; this.active = true; }
+    disconnect() { this.active = false; }
+  }
   const windowObject = {
     PENECHO_CONFIG:{ accessSessionToken:"test-session", cloudOrigin, cloudEnvironment:cloudOrigin.includes("internaltest") ? "uat" : "prod", desktopApp:serverDesktopApp, ...(runtime ? { runtime } : {}) },
     PENECHO_REMOTE_CLOUD_STATUS:remoteCloudStatus,
@@ -366,7 +384,7 @@ function boot({ status, remoteCloudStatus = null, cloudOrigin = "https://interna
       setItem:(key, value) => { sessionStorageEntries[key] = String(value); },
       removeItem:(key) => { delete sessionStorageEntries[key]; },
     }, crypto:{},
-    fetch, setTimeout:timers.setTimeout, clearTimeout:timers.clearTimeout, queueMicrotask,
+    fetch, setTimeout:timers.setTimeout, clearTimeout:timers.clearTimeout, queueMicrotask, IntersectionObserver:FakeIntersectionObserver,
     URL, URLSearchParams, Date, console, Blob, File:FakeFile, Image:FakeImage,
   };
   vm.runInNewContext(cloudScript, context, { filename:"public/cloud-connect.js" });
@@ -376,6 +394,11 @@ function boot({ status, remoteCloudStatus = null, cloudOrigin = "https://interna
     overlay:() => document.querySelector(".penecho-cloud-overlay"),
     setStatus(next) { statusPayload = next; },
     setStatusError(error) { statusError = error; },
+    setCloudFavoriteFeedError(next) { favoriteFeedError = next; },
+    activeIntersectionObserverCount:() => intersectionObservers.filter((observer) => observer.active).length,
+    triggerFavoriteIntersections() {
+      for (const observer of intersectionObservers.filter((candidate) => candidate.active)) observer.callback([{ isIntersecting:true, target:observer.node }]);
+    },
     freezeStale(next) { stalePayload = next; deferStatus = true; },
     releaseStale:() => releaseStale?.(),
     freezeAccountError(error) { deferredAccountError = error; },
@@ -477,6 +500,11 @@ test("Cloud header reserves the green dot for an online device", () => {
   const css = fs.readFileSync(path.join(ROOT, "public/cloud-connect.css"), "utf8");
   assert.match(css, /\.cloud-account-button\[data-state="connected"\] \.cloud-account-dot \{ background: #10b981/);
   assert.doesNotMatch(css, /\.cloud-account-button\[data-state="signed-in"\] \.cloud-account-dot/);
+});
+
+test("Cloud header optically centers the account label without moving the control", () => {
+  const css = fs.readFileSync(path.join(ROOT, "public/cloud-connect.css"), "utf8");
+  assert.match(css, /\.cloud-account-label\s*\{[^}]*line-height:\s*1\.8[^}]*transform:\s*translateY\(-1px\)/);
 });
 
 async function openCloudCenter(run) {
@@ -1265,13 +1293,91 @@ test("the toolbar Favorites picker appends its next cursor page", async () => {
   await run.flush();
 
   assert.equal(flatten(run.craftsList).filter((node) => node.className === "crafts-row").length, 20);
-  const more = flatten(run.craftsList).find((node) => node.className?.includes?.("crafts-load-more"));
-  assert.equal(more?.textContent, "Load more");
-  more.click();
+  assert.equal(flatten(run.craftsList).some((node) => node.textContent === "Load more"), false);
+  assert.ok(flatten(run.craftsList).find((node) => node.className === "crafts-page-sentinel"));
+  assert.equal(run.activeIntersectionObserverCount(), 1);
+  run.triggerFavoriteIntersections();
   await run.flush();
 
   assert.equal(flatten(run.craftsList).filter((node) => node.className === "crafts-row").length, 21);
   assert.ok(run.fetchCalls.some((call) => call.url === "/api/cloud/favorites/feed?kind=all&limit=20&cursor=20"));
+  assert.equal(run.activeIntersectionObserverCount(), 0, "the consumed sentinel disconnects when no next page remains");
+});
+
+test("the toolbar Favorites picker stops automatic Cloud retries and clears Retry after recovery", async () => {
+  const localFavoriteItems = Array.from({ length:3 }, (_, index) => ({
+    id:`local-favorite-${index + 1}`,
+    name:`Local Widget ${index + 1}`,
+    artifactSha256:String(index + 1).padStart(64, "a"),
+    artifact:{ format:"penecho-widget", formatVersion:1, widget:{ id:`widget-${index + 1}`, title:`Local Widget ${index + 1}` } },
+    thumbnail:"AA==",
+    cloudId:null,
+    createdAt:index + 1,
+  }));
+  const run = boot({
+    status:deviceStatus(),
+    localFavoriteItems,
+    cloudFavoriteFeedError:{ status:403, message:"PenEcho Cloud rejected this request while the account session remains valid." },
+    cloudFavoriteSaveError:{ status:403, message:"PenEcho Cloud rejected this request." },
+    withCrafts:true,
+  });
+  const feedCalls = () => run.fetchCalls.filter((call) => call.url.startsWith("/api/cloud/favorites/feed?")).length;
+  const uploadCalls = () => run.fetchCalls.filter((call) => call.url === "/api/cloud/favorites" && call.options.method === "POST").length;
+  await run.flush();
+
+  run.craftsButton.click();
+  await run.flush();
+
+  const retryRow = flatten(run.craftsList).find((node) => node.className === "crafts-retry-row");
+  const retry = flatten(retryRow).find((node) => node.className?.split?.(/\s+/).includes("crafts-retry"));
+  assert.equal(retry?.textContent, "Retry");
+  assert.equal(feedCalls(), 1);
+  assert.equal(uploadCalls(), 0, "a failed feed must not fan out into background upload failures");
+  assert.equal(run.activeIntersectionObserverCount(), 0, "Retry is a manual action, not an infinite-scroll sentinel");
+
+  run.triggerFavoriteIntersections();
+  await run.flush();
+  assert.equal(feedCalls(), 1, "a visible Retry button must not automatically request again");
+
+  run.setCloudFavoriteFeedError(null);
+  retry.click();
+  await run.flush();
+
+  assert.equal(feedCalls(), 2);
+  assert.equal(flatten(run.craftsList).some((node) => node.textContent === "Retry"), false, "successful recovery removes Retry");
+  assert.equal(uploadCalls(), 1, "one authorization failure stops the remaining local upload batch");
+});
+
+test("Remote Canvas toolbar Favorites keeps a failed retry manual and uses the Cloud API directly", async () => {
+  const run = boot({
+    runtime:"cloud",
+    status:deviceStatus({ connected:true }),
+    remoteCloudStatus:{ accountName:"Remote User", deviceOnline:true },
+    cloudFavoriteFeedError:{ status:403, message:"PenEcho Cloud rejected this request." },
+    withCrafts:true,
+  });
+  const feedCalls = () => run.fetchCalls.filter((call) => call.url.startsWith("/api/v1/favorites/feed?")).length;
+  await run.flush();
+
+  run.craftsButton.click();
+  await run.flush();
+
+  const retryRow = flatten(run.craftsList).find((node) => node.className === "crafts-retry-row");
+  const retry = flatten(retryRow).find((node) => node.className?.split?.(/\s+/).includes("crafts-retry"));
+  assert.equal(retry?.textContent, "Retry");
+  assert.equal(feedCalls(), 1);
+  assert.equal(run.activeIntersectionObserverCount(), 0);
+
+  run.triggerFavoriteIntersections();
+  await run.flush();
+  assert.equal(feedCalls(), 1);
+
+  run.setCloudFavoriteFeedError(null);
+  retry.click();
+  await run.flush();
+  assert.equal(feedCalls(), 2);
+  assert.equal(flatten(run.craftsList).some((node) => node.textContent === "Retry"), false);
+  assert.equal(run.fetchCalls.some((call) => call.url.startsWith("/api/cloud/favorites/feed?")), false);
 });
 
 test("the toolbar Favorites picker shows Widgets and opens favorite Canvases as a new Canvas", async () => {
@@ -1760,6 +1866,7 @@ test("Cloud Center uses a compact workbench shell and restores 44px coarse-point
   assert.match(cloudCss, /\.cloud-nav-meta\s*\{[^}]*overflow:\s*hidden[^}]*text-overflow:\s*ellipsis[^}]*white-space:\s*nowrap/);
   assert.match(cloudCss, /\.cloud-account-name\s*\{[^}]*overflow-wrap:\s*anywhere[^}]*white-space:\s*normal/);
   assert.match(cloudCss, /\.cloud-settings-group\s*\{[^}]*border:\s*1px solid var\(--ai-line\)[^}]*border-radius:\s*\.625rem/);
+  assert.match(cloudCss, /\.cloud-sign-in-group\s*\{[^}]*background:\s*transparent[^}]*border:\s*0/);
   assert.match(cloudCss, /\.cloud-favorite-filters\s*\{[^}]*background:\s*var\(--ai-well\)[^}]*border:\s*1px solid var\(--ai-line\)/);
   assert.match(cloudCss, /\.cloud-favorite-filter\s*\{[^}]*min-height:\s*2rem/);
   assert.match(cloudCss, /\.cloud-favorite-filter\.active\s*\{[^}]*background:\s*var\(--ai-surface\)[^}]*color:\s*var\(--ai-accent\)/);

@@ -1322,16 +1322,17 @@
       if (!rows.length && pager.loading) rows.push(el("div", { class:"cloud-message", role:"status", text:cloudT("loadingFavorites") }));
       else if (!rows.length && pager.error) rows.push(el("div", { class:"cloud-message error", role:"alert", text:pager.error?.message || cloudT("favoriteLoadFailed") }));
       else if (!rows.length) rows.push(el("div", { class:"cloud-empty", text:cloudT(emptyKey) }));
-      if (favoritePagerHasMore(pager)) {
+      if (pager.error || favoritePagerHasMore(pager)) {
+        const retrying = Boolean(pager.error);
         const more = el("button", {
           class:"cloud-button cloud-favorites-load-more",
           type:"button",
           disabled:Boolean(pager.loading),
           text:pager.loading ? cloudT("loadingFavorites") : pager.error ? cloudT("retryFavorites") : cloudT("loadMoreFavorites"),
-          onclick:() => void load(false),
+          onclick:() => void load(retrying),
         });
         rows.push(more);
-        observer = observeFavoritePagerSentinel(more, null, () => load(false));
+        if (!retrying && !pager.loading) observer = observeFavoritePagerSentinel(more, null, () => load(false));
       }
       content.replaceChildren(...rows);
     }
@@ -2042,7 +2043,11 @@
           continue;
         }
         synced += 1;
-      } catch {}
+      } catch (error) {
+        // An account/session rejection applies to the whole batch. Continuing
+        // would only send the same unauthorized request once per local item.
+        if (error?.status === 401 || error?.status === 403) break;
+      }
     }
     return { synced };
   }
@@ -2130,13 +2135,14 @@
     const promise = (async () => {
       if (reset) {
         if (!pager.visibleLimit) pager.visibleLimit = FAVORITE_PAGE_SIZE;
+        let cloudLoaded = false;
         const localTask = (isCloudRuntime() ? Promise.resolve([]) : localFavorites()).then((locals) => {
           if (generation !== pager.generation) return;
           pager.locals = locals.filter((entry) => pager.kind !== "canvas");
-          scheduleLocalFavoriteSync(pager.locals);
           onUpdate(pager);
         }), cloudTask = cloudFavoritePage(pager.kind).then((page) => {
           if (generation !== pager.generation) return;
+          cloudLoaded = true;
           pager.remote = favoriteCraftsFromFeed(page.items);
           pager.nextCursor = page.pagination?.nextCursor || null;
           pager.remoteHasMore = Boolean(page.pagination?.hasMore && pager.nextCursor);
@@ -2149,7 +2155,13 @@
           onUpdate(pager);
         });
         await Promise.all([localTask, cloudTask]);
-        if (generation === pager.generation) pager.visibleLimit = FAVORITE_PAGE_SIZE;
+        if (generation === pager.generation) {
+          pager.visibleLimit = FAVORITE_PAGE_SIZE;
+          // Do not fan a failed Cloud authorization out into one POST per
+          // unsynced local favorite. A successful feed proves the account
+          // route is available before the background upload begins.
+          if (cloudLoaded) scheduleLocalFavoriteSync(pager.locals);
+        }
         return pager;
       }
       if (pager.remoteHasMore) {
@@ -2173,7 +2185,12 @@
   function observeFavoritePagerSentinel(node, root, loadMore) {
     if (typeof IntersectionObserver !== "function") return null;
     const observer = new IntersectionObserver((entries) => {
-      if (entries.some((entry) => entry.isIntersecting)) loadMore();
+      if (!entries.some((entry) => entry.isIntersecting)) return;
+      // A rendered sentinel owns exactly one automatic page request. The
+      // subsequent render creates the next sentinel only when another page
+      // still exists, preventing repeated callbacks for the same page.
+      observer.disconnect();
+      loadMore();
     }, { root, rootMargin:"160px 0px" });
     observer.observe(node);
     return observer;
@@ -2372,16 +2389,22 @@
       void refreshCraftsList({ reset:true });
     };
     rows.push(...visibleEntries.map((entry) => craftsRow(entry, removeFromCache)));
-    if (craftsPager && favoritePagerHasMore(craftsPager)) {
-      const more = el("button", {
-        class:"cloud-button crafts-load-more",
+    if (craftsPager?.error) {
+      const retry = el("button", {
+        class:"cloud-button crafts-retry",
         type:"button",
-        disabled:Boolean(craftsPager.loading),
-        text:craftsPager.loading ? cloudT("loadingFavorites") : craftsPager.error ? cloudT("retryFavorites") : cloudT("loadMoreFavorites"),
-        onclick:() => void refreshCraftsList(),
+        text:cloudT("retryFavorites"),
       });
-      rows.push(more);
-      craftsObserver = observeFavoritePagerSentinel(more, craftsList, () => refreshCraftsList());
+      retry.addEventListener("click", () => {
+        if (retry.disabled) return;
+        retry.disabled = true;
+        void refreshCraftsList({ reset:true });
+      });
+      rows.push(el("div", { class:"crafts-retry-row", role:"status" }, [retry]));
+    } else if (craftsPager && favoritePagerHasMore(craftsPager)) {
+      const sentinel = el("div", { class:"crafts-page-sentinel", "aria-hidden":"true" });
+      rows.push(sentinel);
+      if (!craftsPager.loading) craftsObserver = observeFavoritePagerSentinel(sentinel, craftsList, () => refreshCraftsList());
     }
     craftsList.replaceChildren(...rows);
   }

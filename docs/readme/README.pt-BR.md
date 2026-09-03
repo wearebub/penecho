@@ -90,13 +90,13 @@ O [PenEcho Cloud](https://penecho.ai), lançado na versão 1.0.0, é totalmente 
 
 O **Echoes** permite explorar, favoritar e reutilizar telas e widgets públicos em doze categorias. Você pode publicar seus próprios Crafts, abri-los em um visualizador Web somente leitura e preservar a linhagem entre versões.
 
-## Novidades da versão 1.1.7
+## Novidades da versão 1.2.0
 
-- **PenEcho Agent.** Trabalhe com arquivos locais, projetos de pastas somente leitura, pesquisa na Web, contexto da tela, criação visual e edição direta em um único fluxo de várias etapas.
-- **Visual Explorer.** Transforme pesquisas, documentos, notas e planos em um resultado visual responsivo que conecta visão geral, detalhes e evidências.
-- **Menos troca de contexto e retrabalho.** Pesquise, analise, estruture, visualize, revise e refine no mesmo espaço; o resultado continua editável na tela.
-- **Entrega visual progressiva.** Receba versões completas do Visual Explorer mais cedo e refine-as no próprio local, sem gerar tudo novamente do zero.
-- **Mais contexto de trabalho.** Adicione PDF, Word, PowerPoint, Excel, imagens, código ou pastas somente leitura; referencie Widgets e escrita existentes e use pesquisa na Internet quando disponível.
+- **Um Studio fosco mais simples.** Barra de ferramentas, Navigator, Agent, configurações e diálogos agora compartilham transparência contida, linhas finas e controles mais leves. A tela continua visível e o espaço de trabalho fica mais tranquilo.
+- **Hierarquia mais clara e menos ruído visual.** As ferramentas principais permanecem ao alcance, as ações secundárias recuam até serem necessárias, e histórico, favoritos, estado do Cloud e Agent seguem a mesma linguagem visual.
+- **Um espaço de trabalho responsivo.** Os controles continuam compactos em telas largas e estreitas, o Agent alterna entre a barra lateral direita e o painel inferior, e as ações importantes permanecem visíveis quando a barra quebra linha.
+- **Interação mais rápida com a tela.** A tinta ao vivo de baixa latência e as atualizações coordenadas tornam desenho, borracha, movimento e zoom mais imediatos, mantendo os Widgets ativos e o texto nítido após o movimento.
+- **Outras melhorias.** Sugestões e anexos do Agent, controles de objetos, escala e paletas, dispositivos vinculados e confiabilidade no desktop foram refinados; também há uma ponta de 3 px.
 
 ## Destaques anteriores
 

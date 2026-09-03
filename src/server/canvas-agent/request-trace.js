@@ -312,8 +312,12 @@ function createCanvasAgentRequestTracer({ requestTraceDirectory, logger = () => 
       return;
     }
     const state = stateFor(entry);
+    // A Canvas Agent session can override its configured reasoning effort per
+    // turn. Every trace entry carries the current request connection snapshot,
+    // so refresh it before a turn begins instead of retaining the session's
+    // original configured effort for every subsequent request.
+    if (entry.connection) state.connection = safeValue(entry.connection);
     if (entry.phase === "resume") {
-      if (entry.connection) state.connection = safeValue(entry.connection);
       return;
     }
     if (entry.phase === "asset") {

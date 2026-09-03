@@ -43,16 +43,16 @@ test("feature tour follows the requested concise order with stable targets", () 
       "core-fullscreen-v1",
       "cloud-share-canvas-v1",
       "cloud-workspace-v1",
-      "canvas-agent-launcher-v1",
-      "canvas-agent-panel-v1",
+      "canvas-agent-launcher-v2",
+      "canvas-agent-panel-v2",
       "core-manual-ai-v1",
       "core-status-v1",
       "core-navigation-v1",
     ];
   for (let index = 1; index < ordered.length; index++) assert.ok(app.indexOf(ordered[index - 1]) < app.indexOf(ordered[index]));
-  for (const selector of ["#aiEffortButton", "#craftsButton", "#handToolBtn", "#lassoToolBtn", "#textToolBtn", "#imagePickerBtn", "#fullscreenBtn", "#shareCanvasBtn", "#cloudAccountBtn", "#canvasAgentControl", "#canvasAgentPanel", "#aiOrb", "#aiStatusArea", "#viewport"])
+  for (const selector of ["#aiEffortButton", "#craftsButton", "#handToolBtn", "#lassoToolBtn", "#textToolBtn", "#imagePickerBtn", "#fullscreenBtn", "#shareCanvasBtn", "#cloudAccountBtn", "#canvasAgentToggle", "#canvasAgentPanel", "#aiOrb", "#aiStatusArea", "#viewport"])
     assert.match(app, new RegExp(selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
-  assert.match(app, /canvas-agent-panel-v1[^\n]*preview: "canvas-agent-panel"/);
+  assert.match(app, /canvas-agent-panel-v2[^\n]*preview: "canvas-agent-panel"/);
   assert.match(app, /openCanvasAgent\(\{ focus:false, connect:false, animate:false \}\)/);
   assert.match(app, /closeCanvasAgent\(\{ focus:false, animate:false \}\)/);
 });
@@ -115,6 +115,7 @@ test("feature tour persists seen ids, supports replay, and repositions accessibl
   assert.match(css, /\.tour-card\s*\{[^}]*width:\s*min\(400px, calc\(var\(--tour-viewport-width, 100vw\) - 24px\)\)/);
   assert.match(css, /\.tour-card-scroll\s*\{[^}]*max-height:\s*calc\(var\(--tour-viewport-height, 100dvh\) - 26px\)[^}]*overflow:\s*auto;[^}]*touch-action:\s*pan-y pinch-zoom/);
   assert.match(css, /\.tour-highlight\s*\{[^}]*pointer-events:\s*none/);
+  assert.match(css, /#tourTitle:focus\s*\{[^}]*outline:\s*none/);
   assert.match(css, /\.tour-actions button:not\(\.tour-primary\):hover:not\(:disabled\)/);
   assert.match(css, /\.tour-actions \.tour-primary\s*\{[^}]*color:\s*#fff;/);
   assert.match(css, /\.tour-actions \.tour-primary:hover\s*\{[^}]*color:\s*#fff;/);
@@ -130,7 +131,7 @@ test("feature tour persists seen ids, supports replay, and repositions accessibl
   assert.doesNotMatch(app, /resolveInitialLanguage\([^)]*navigator/);
 });
 
-test("1.1.7 changelog introduces PenEcho Agent visual productivity in a concise one-page dialog", () => {
+test("1.2.0 changelog leads with the frosted Studio interface and keeps other improvements concise", () => {
   const html = read("public/index.html"),
     app = read("public/app.js"),
     css = read("public/style.css"),
@@ -141,10 +142,10 @@ test("1.1.7 changelog introduces PenEcho Agent visual productivity in a concise 
   assert.doesNotMatch(layer, /aria-describedby=/);
   for (const id of ["changelogClose", "changelogTitle"]) assert.match(layer, new RegExp(`id="${id}"`));
   for (const id of ["changelogIntro", "changelogCurrentVersion", "changelogDone"]) assert.doesNotMatch(layer, new RegExp(`id="${id}"`));
-  assert.match(layer, />1\.1\.7</);
+  assert.match(layer, />1\.2\.0</);
   assert.doesNotMatch(layer, /class="changelog-demo"|class="changelog-release changelog-earlier"/);
   assert.match(app, /CHANGELOG_STORAGE_KEY = "penecho-changelog-seen"/);
-  assert.match(app, /CHANGELOG_VERSION = "1\.1\.7"/);
+  assert.match(app, /CHANGELOG_VERSION = "1\.2\.0"/);
   assert.match(app, /localStorage\.getItem\(CHANGELOG_STORAGE_KEY\) === CHANGELOG_VERSION/);
   assert.match(app, /localStorage\.setItem\(CHANGELOG_STORAGE_KEY, CHANGELOG_VERSION\)/);
   assert.match(app, /function maybeStartOnboarding\(\)\s*\{\s*if \(window\.PENECHO_CONFIG\?\.runtime === "viewer"\) return false;\s*if \(!maybeStartFeatureTour\(\)\) maybeShowChangelog\(\);/);
@@ -152,7 +153,7 @@ test("1.1.7 changelog introduces PenEcho Agent visual productivity in a concise 
   assert.match(app, /changelogLayer\.addEventListener\("keydown", handleChangelogKeydown\)/);
   assert.match(css, /\.changelog-layer\s*\{[^}]*position:\s*fixed;[^}]*inset:\s*0;[^}]*place-items:\s*center/);
   assert.match(css, /\.changelog-dialog\s*\{[^}]*width:\s*min\(620px,[^}]*max-height:/);
-  for (const key of ["changelogDialog", "changelogBadge", "changelogTitle", "changelogCanvasAgentResearch", "changelogCanvasAgentWorkspace", "changelogAgentContinuity", "changelogAgentMath", "changelogEraserMemory"]) {
+  for (const key of ["changelogDialog", "changelogBadge", "changelogTitle", "changelogFrostedStudio", "changelogResponsiveWorkspace", "changelogPerformanceAndDetails"]) {
     assert.match(app, new RegExp(`${key}:`), `missing English ${key}`);
     assert.match(zh, new RegExp(`${key}:`), `missing Chinese ${key}`);
   }
@@ -160,17 +161,13 @@ test("1.1.7 changelog introduces PenEcho Agent visual productivity in a concise 
     assert.doesNotMatch(app, new RegExp(`${key}:`));
     assert.doesNotMatch(zh, new RegExp(`${key}:`));
   }
-  assert.equal((layer.match(/<li data-i18n="changelog/g) || []).length, 5);
-  assert.match(app, /changelogCanvasAgentResearch:[^\n]*folders, files, web research[^\n]*structured visual work/);
-  assert.match(app, /changelogCanvasAgentWorkspace:[^\n]*Visual Explorer[^\n]*less tool switching and rework/);
-  assert.match(app, /changelogAgentContinuity:[^\n]*same conversation[^\n]*request-round limit/);
-  assert.match(app, /changelogAgentMath:[^\n]*explicit continuation[^\n]*TeX/);
-  assert.match(app, /changelogEraserMemory:[^\n]*eraser or area eraser/);
-  assert.match(zh, /changelogCanvasAgentResearch:[^\n]*画布右下角[^\n]*结构化视觉成果/);
-  assert.match(zh, /changelogCanvasAgentWorkspace:[^\n]*Visual Explorer[^\n]*减少工具切换与返工/);
-  assert.match(zh, /changelogAgentContinuity:[^\n]*保持同一会话[^\n]*轮次上限/);
-  assert.match(zh, /changelogAgentMath:[^\n]*续读位置[^\n]*TeX/);
-  assert.match(zh, /changelogEraserMemory:[^\n]*橡皮擦[^\n]*范围橡皮擦/);
+  assert.equal((layer.match(/<li data-i18n="changelog/g) || []).length, 3);
+  assert.match(app, /changelogFrostedStudio:[^\n]*frosted Studio[^\n]*Translucent materials[^\n]*Canvas visible/);
+  assert.match(app, /changelogResponsiveWorkspace:[^\n]*wide and narrow screens[^\n]*right sidebar and[^\n]*bottom panel/);
+  assert.match(app, /changelogPerformanceAndDetails:[^\n]*Drawing, erasing, panning, and zooming[^\n]*3 px pen/);
+  assert.match(zh, /changelogFrostedStudio:[^\n]*磨砂 Studio[^\n]*半透明材质[^\n]*画布始终清晰可见/);
+  assert.match(zh, /changelogResponsiveWorkspace:[^\n]*宽屏和窄屏[^\n]*右侧栏[^\n]*底部面板/);
+  assert.match(zh, /changelogPerformanceAndDetails:[^\n]*书写、擦除、平移和缩放[^\n]*3 px 细笔尖/);
 });
 
 test("feature tour copy is complete in English and Chinese", () => {
@@ -236,6 +233,19 @@ test("feature tour copy is complete in English and Chinese", () => {
   assert.match(zh, /tourCloudBody:[^\n]*私密画布[^\n]*收藏的画布或组件/);
   assert.match(zh, /请求进度|正在观察/);
   assert.match(zh, /双指.*缩放/);
-  assert.match(zh, /tourCanvasAgentLauncherBody:[^\n]*画布右下角[^\n]*多步骤/);
-  assert.match(zh, /tourCanvasAgentPanelBody:[^\n]*右下角[^\n]*只读文件夹项目/);
+  assert.match(zh, /tourCanvasAgentLauncherBody:[^\n]*工具栏最右侧[^\n]*多步骤/);
+  assert.match(zh, /tourCanvasAgentPanelBody:[^\n]*右侧栏[^\n]*底部面板[^\n]*只读文件夹项目/);
+});
+
+test("feature tour follows the responsive Agent toolbar and panel locations", () => {
+  const app = read("public/app.js"),
+    zh = read("public/locales/zh.js");
+  assert.match(app, /id: "canvas-agent-launcher-v2", targets: \["#canvasAgentToggle"\][^\n]*placement: "bottom"/);
+  assert.match(app, /id: "canvas-agent-panel-v2", targets: \["#canvasAgentPanel"\][^\n]*placement: "left"[^\n]*preview: "canvas-agent-panel"/);
+  assert.doesNotMatch(app, /canvas-agent-(?:launcher|panel)-v1/);
+  assert.match(app, /function featureTourStepAvailable\(step\)[\s\S]*?panelRect = featureTourTargetRect\(step\)[\s\S]*?toggleRect = featureTourTargetRect\(\{ targets:\["#canvasAgentToggle"\] \}\)[\s\S]*?panelRect \|\| toggleRect/);
+  assert.match(app, /tourCanvasAgentLauncherBody:[^\n]*right end of the toolbar[^\n]*lower right/);
+  assert.match(app, /tourCanvasAgentPanelBody:[^\n]*right sidebar[^\n]*bottom panel/);
+  assert.match(zh, /tourCanvasAgentLauncherBody:[^\n]*工具栏最右侧[^\n]*右下角/);
+  assert.match(zh, /tourCanvasAgentPanelBody:[^\n]*右侧栏[^\n]*底部面板/);
 });

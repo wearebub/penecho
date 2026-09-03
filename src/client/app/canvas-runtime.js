@@ -90,6 +90,83 @@
       y:Number.isFinite(y) ? y : 2,
     };
   }
+  let canvasTextQualityGeneration = 0;
+  function textRasterPixels(image) {
+    const width = Number(image?.width), height = Number(image?.height);
+    return Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0 ? width * height : 0;
+  }
+  function textImageRasterRatio(image) {
+    const logicalWidth = Number(image?.logicalWidth), logicalHeight = Number(image?.logicalHeight),
+      widthRatio = logicalWidth > 0 ? Number(image?.width) / logicalWidth : 0,
+      heightRatio = logicalHeight > 0 ? Number(image?.height) / logicalHeight : 0;
+    if (widthRatio > 0 && heightRatio > 0) return Math.min(widthRatio, heightRatio);
+    return Math.max(widthRatio, heightRatio, 1);
+  }
+  function textRasterExtraPixels(item, image = item?.image) {
+    const logicalWidth = Math.max(1, Number(image?.logicalWidth) || Number(item?.w) || 1),
+      logicalHeight = Math.max(1, Number(image?.logicalHeight) || Number(item?.h) || 1);
+    return Math.max(0, textRasterPixels(image) - logicalWidth * logicalHeight);
+  }
+  function desiredCanvasTextRasterRatio(scale = state.scale) {
+    return Math.min(3, Math.max(1, (devicePixelRatio || 1) * Math.max(1, Number(scale) || 1)));
+  }
+  function textRasterRatioForBudget(item, targetRatio, remainingPixels) {
+    const currentRatio = textImageRasterRatio(item?.image),
+      currentPixels = textRasterPixels(item?.image),
+      logicalPixels = Math.max(1, Number(item?.w) * Number(item?.h)),
+      affordablePixels = Math.min(MAX_SHARP_OVERLAY_ITEM_PIXELS, currentPixels + Math.max(0, Number(remainingPixels) || 0)),
+      affordableRatio = Math.sqrt(affordablePixels / logicalPixels);
+    return Math.min(targetRatio, affordableRatio) > currentRatio * 1.05 ? Math.min(targetRatio, affordableRatio) : currentRatio;
+  }
+  function releaseTextRaster(image) {
+    if (image?.tagName === "CANVAS") image.width = image.height = 1;
+  }
+  async function renderTextBoxImage(item, pixelRatio = desiredCanvasTextRasterRatio()) {
+    const fontFamily = normalizeTextBoxFontFamily(item.fontFamily),
+      color = item.color || state.inkColor;
+    try {
+      return { image:await mixedTextImage(item.text, item.fontSize, color, item.maxWidth, 1.35, fontFamily, pixelRatio), mixedFallback:false };
+    } catch {
+      return { image:textImage(item.text, item.fontSize, color, item.maxWidth, 1.35, fontFamily, TEXT_INPUT_MAX_LENGTH, pixelRatio), mixedFallback:true };
+    }
+  }
+  async function refreshVisibleTextBoxQuality() {
+    const generation = ++canvasTextQualityGeneration;
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    if (generation !== canvasTextQualityGeneration || view.classList.contains("canvas-navigation-previewing")) return false;
+    const targetRatio = desiredCanvasTextRasterRatio(),
+      visible = canvasRenderRegion().visible,
+      candidates = visible.w > 0 && visible.h > 0 ? visibleTextBoxes(visible) : [],
+      retainedExtraPixels = state.textBoxes.reduce((sum, item) => sum + textRasterExtraPixels(item), 0);
+    let remainingPixels = Math.max(0, MAX_SHARP_OVERLAY_PIXELS - state.sharpOverlayPixels - retainedExtraPixels),
+      changed = false;
+    for (const item of candidates) {
+      if (generation !== canvasTextQualityGeneration) return false;
+      const currentImage = item.image,
+        requestedRatio = textRasterRatioForBudget(item, targetRatio, remainingPixels);
+      if (requestedRatio <= textImageRasterRatio(currentImage) * 1.05) continue;
+      let rendered;
+      try { rendered = await renderTextBoxImage(item, requestedRatio); }
+      catch { continue; }
+      const image = rendered.image,
+        renderedRatio = textImageRasterRatio(image),
+        renderedPixels = textRasterPixels(image),
+        additionalPixels = Math.max(0, textRasterExtraPixels(item, image) - textRasterExtraPixels(item, currentImage));
+      if (generation !== canvasTextQualityGeneration || !state.textBoxes.includes(item) || item.image !== currentImage
+        || renderedRatio <= textImageRasterRatio(currentImage) * 1.05 || renderedPixels > MAX_SHARP_OVERLAY_ITEM_PIXELS
+        || additionalPixels > remainingPixels) {
+        releaseTextRaster(image);
+        if (generation !== canvasTextQualityGeneration) return false;
+        continue;
+      }
+      item.image = image;
+      remainingPixels -= additionalPixels;
+      changed = true;
+    }
+    if (generation !== canvasTextQualityGeneration || !changed) return false;
+    renderPlacedContentLayer(canvasRenderRegion().visible);
+    return true;
+  }
   function textBoxHistoryRecord(item) {
     return {
       id:item.id,
@@ -133,14 +210,10 @@
     }
     return null;
   }
-  async function fittedTextBoxContent(text, fontSize, color, maxWidth, fontFamily = TEXT_EDITOR_FONT_FAMILY) {
+  async function fittedTextBoxContent(text, fontSize, color, maxWidth, fontFamily = TEXT_EDITOR_FONT_FAMILY, pixelRatio = desiredCanvasTextRasterRatio()) {
     fontFamily = normalizeTextBoxFontFamily(fontFamily);
     const render = async () => {
-      try {
-        return { image:await mixedTextImage(text, fontSize, color, maxWidth, 1.35, fontFamily), mixedFallback:false };
-      } catch {
-        return { image:textImage(text, fontSize, color, maxWidth, 1.35, fontFamily, TEXT_INPUT_MAX_LENGTH), mixedFallback:true };
-      }
+      return renderTextBoxImage({ text, fontSize, color, maxWidth, fontFamily }, pixelRatio);
     };
     maxWidth = Math.min(SIZE, Math.max(fontSize * 3, maxWidth));
     let result = await render(),
@@ -163,7 +236,7 @@
       height:Math.min(SIZE, height),
     };
   }
-  async function renderedTextBoxRecord(item) {
+  async function renderedTextBoxRecord(item, pixelRatio = desiredCanvasTextRasterRatio()) {
     if (!item || typeof item !== "object" || typeof item.text !== "string" || !item.text.trim() || item.text.length > TEXT_INPUT_MAX_LENGTH) return null;
     const x = Number(item.x),
       y = Number(item.y),
@@ -171,7 +244,7 @@
       maxWidth = Number(item.maxWidth);
     if (![x, y, fontSize, maxWidth].every(Number.isFinite) || x < 0 || y < 0 || fontSize < 1 || fontSize > 2000 || maxWidth < fontSize * 3 || maxWidth > SIZE) return null;
     const color = item.color || state.inkColor,
-      fitted = await fittedTextBoxContent(item.text, fontSize, color, maxWidth, item.fontFamily),
+      fitted = await fittedTextBoxContent(item.text, fontSize, color, maxWidth, item.fontFamily, pixelRatio),
       width = fitted.width,
       height = fitted.height,
       fittedX = Math.max(0, Math.min(SIZE - width, x)),
@@ -191,7 +264,8 @@
       image:fitted.image,
     };
   }
-  async function restoreTextBoxes(items) {
+  async function restoreTextBoxes(items, pixelRatio = 1) {
+    canvasTextQualityGeneration++;
     clearHandToolbarTargets("text-box");
     clearTextEditors();
     state.textBoxes = [];
@@ -200,8 +274,8 @@
     for (const item of Array.isArray(items) ? items.slice(0, MAX_VISIBLE_TEXT_BOXES) : []) {
       let record = null;
       try {
-        if (item?.image) record = textBoxHistoryRecord(item);
-        else record = await renderedTextBoxRecord(item);
+        if (item?.image && textImageRasterRatio(item.image) >= pixelRatio / 1.05) record = textBoxHistoryRecord(item);
+        else record = await renderedTextBoxRecord(item, pixelRatio);
       } catch {
         // One invalid or unsupported text box must not make an otherwise valid
         // saved Canvas impossible to restore.
@@ -214,6 +288,7 @@
     }
     positionTextEditors();
     requestRender();
+    void refreshVisibleTextBoxQuality();
   }
 
   function imageBox(item) {
@@ -1489,14 +1564,17 @@
   }
   let canvasWidgetCarrierPanX = Number.NaN;
   let canvasWidgetCarrierPanY = Number.NaN;
-  function syncCanvasWidgetCarrier() {
-    if (canvasWidgetCarrierPanX === state.panX && canvasWidgetCarrierPanY === state.panY) return;
+  let canvasWidgetCarrierPreviewScale = Number.NaN;
+  function syncCanvasWidgetCarrier(previewScale = 1) {
+    if (canvasWidgetCarrierPanX === state.panX && canvasWidgetCarrierPanY === state.panY && canvasWidgetCarrierPreviewScale === previewScale) return;
     const style = runtimeElementStyle(view, "canvas-widget-carrier");
     if (!style) return;
     style.setProperty("--canvas-widget-pan-x", `${state.panX}px`);
     style.setProperty("--canvas-widget-pan-y", `${state.panY}px`);
+    style.setProperty("--canvas-widget-preview-scale", String(previewScale));
     canvasWidgetCarrierPanX = state.panX;
     canvasWidgetCarrierPanY = state.panY;
+    canvasWidgetCarrierPreviewScale = previewScale;
   }
   function positionWidget(widget) {
     if (!widget.shell) return;
@@ -2717,16 +2795,34 @@
   let canvasNavigationPreviewSettleTimer = 0;
   let canvasNavigationPreviewPanX = 0;
   let canvasNavigationPreviewPanY = 0;
+  let canvasNavigationPreviewScale = 1;
+  let canvasNavigationPreviewViewportWidth = 0;
+  let canvasNavigationPreviewViewportHeight = 0;
   let canvasNavigationPreviewRebaseX = CANVAS_NAVIGATION_REBASE_MIN_PX;
   let canvasNavigationPreviewRebaseY = CANVAS_NAVIGATION_REBASE_MIN_PX;
+  function canvasNavigationPreviewTransform() {
+    const scale = state.scale / canvasNavigationPreviewScale;
+    return {
+      scale,
+      x:state.panX - canvasNavigationPreviewPanX * scale,
+      y:state.panY - canvasNavigationPreviewPanY * scale,
+    };
+  }
+  function canvasNavigationPreviewDisplacement(transform = canvasNavigationPreviewTransform()) {
+    const scaleDelta = transform.scale - 1;
+    return {
+      x:Math.max(Math.abs(transform.x), Math.abs(transform.x + canvasNavigationPreviewViewportWidth * scaleDelta)),
+      y:Math.max(Math.abs(transform.y), Math.abs(transform.y + canvasNavigationPreviewViewportHeight * scaleDelta)),
+    };
+  }
   function applyCanvasNavigationPreview() {
     const style = runtimeElementStyle(view, "canvas-navigation-preview"),
-      x = state.panX - canvasNavigationPreviewPanX,
-      y = state.panY - canvasNavigationPreviewPanY;
+      { scale, x, y } = canvasNavigationPreviewTransform();
     style?.setProperty("--canvas-navigation-preview-x", `${x}px`);
     style?.setProperty("--canvas-navigation-preview-y", `${y}px`);
+    style?.setProperty("--canvas-navigation-preview-scale", String(scale));
     style?.setProperty("--canvas-navigation-preview-paper", state.paint.paper);
-    syncCanvasWidgetCarrier();
+    syncCanvasWidgetCarrier(scale);
     view.classList.add("canvas-navigation-previewing");
   }
   function resetCanvasNavigationPreview() {
@@ -2736,6 +2832,8 @@
     canvasNavigationPreviewSettleTimer = 0;
     canvasNavigationPreviewPanX = state.panX;
     canvasNavigationPreviewPanY = state.panY;
+    canvasNavigationPreviewScale = state.scale;
+    syncCanvasWidgetCarrier();
     view.classList.remove("canvas-navigation-previewing");
   }
   function finishCanvasNavigationPreview() {
@@ -2744,6 +2842,7 @@
     if (!view.classList.contains("canvas-navigation-previewing")) return false;
     flushCoordinatesUpdate();
     if (!state.renderQueued) render();
+    void refreshVisibleTextBoxQuality();
     return true;
   }
   function canvasNavigationPreviewStep() {
@@ -2753,14 +2852,21 @@
     requestCoordinatesUpdate();
     requestAnimationLayerRender();
     if (state.renderQueued) return;
-    if (Math.abs(state.panX - canvasNavigationPreviewPanX) >= canvasNavigationPreviewRebaseX
-      || Math.abs(state.panY - canvasNavigationPreviewPanY) >= canvasNavigationPreviewRebaseY) render();
+    const displacement = canvasNavigationPreviewDisplacement();
+    if (displacement.x >= canvasNavigationPreviewRebaseX || displacement.y >= canvasNavigationPreviewRebaseY) {
+      render();
+      void refreshVisibleTextBoxQuality();
+    }
   }
-  function requestCanvasNavigationPreview(previousPanX, previousPanY) {
+  function requestCanvasNavigationPreview(previousPanX, previousPanY, previousScale = state.scale) {
+    canvasTextQualityGeneration++;
     if (!view.classList.contains("canvas-navigation-previewing")) {
       canvasNavigationPreviewPanX = previousPanX;
       canvasNavigationPreviewPanY = previousPanY;
+      canvasNavigationPreviewScale = previousScale;
       const { width, height } = canvasViewportMetrics();
+      canvasNavigationPreviewViewportWidth = width;
+      canvasNavigationPreviewViewportHeight = height;
       canvasNavigationPreviewRebaseX = Math.max(CANVAS_NAVIGATION_REBASE_MIN_PX, width * CANVAS_NAVIGATION_REBASE_VIEWPORT_RATIO);
       canvasNavigationPreviewRebaseY = Math.max(CANVAS_NAVIGATION_REBASE_MIN_PX, height * CANVAS_NAVIGATION_REBASE_VIEWPORT_RATIO);
       view.classList.add("canvas-navigation-previewing");
@@ -4157,6 +4263,8 @@
     if (kind === "refine") {
       const label = document.createElement("span"),
         hint = document.createElement("span");
+      button.dataset.peMaterial = "control-glass";
+      button.dataset.peState = "default";
       label.className = "widget-refine-button-label";
       hint.className = "widget-refine-hint";
       hint.hidden = true;
@@ -5558,13 +5666,16 @@
       distance = Math.max(1, Math.hypot(first.x - second.x, first.y - second.y)),
       next = Math.max(0.03, Math.min(2, (g.scale * distance) / g.distance)),
       anchorX = (g.center.x - g.panX) / g.scale,
-      anchorY = (g.center.y - g.panY) / g.scale;
+      anchorY = (g.center.y - g.panY) / g.scale,
+      previousPanX = state.panX,
+      previousPanY = state.panY,
+      previousScale = state.scale;
     state.scale = next;
     state.panX = center.x - anchorX * next;
     state.panY = center.y - anchorY * next;
     requestCoordinatesUpdate();
     setNavigating(true);
-    requestRender();
+    requestCanvasNavigationPreview(previousPanX, previousPanY, previousScale);
     return true;
   }
   function moveCanvas(dx, dy) {
@@ -5589,12 +5700,15 @@
       factor = deltaY < 0 ? 1.12 : 0.89,
       next = Math.max(0.03, Math.min(2, state.scale * factor)),
       px = point.x,
-      py = point.y;
+      py = point.y,
+      previousPanX = state.panX,
+      previousPanY = state.panY,
+      previousScale = state.scale;
     state.panX = px - ((px - state.panX) * next) / state.scale;
     state.panY = py - ((py - state.panY) * next) / state.scale;
     state.scale = next;
     requestCoordinatesUpdate();
-    requestRender();
+    requestCanvasNavigationPreview(previousPanX, previousPanY, previousScale);
     wheelNavigating();
     return true;
   }

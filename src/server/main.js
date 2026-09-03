@@ -40,7 +40,7 @@ const {
 } = require("./canvas-agent/turn-limit.js");
 const { macosRemoteRoots, windowsDriveRoots } = require("./canvas-agent/host-roots.js");
 const { consumeNativePickerGrant } = require("./canvas-agent/native-picker-grants.js");
-const { normalizeModelEvaluation, forwardModelEvaluation } = require("./model-evaluation.js");
+const { normalizeModelEvaluation } = require("./model-evaluation.js");
 const {
   PUBLIC_FETCH_MAX_URL_LENGTH,
   PUBLIC_FETCH_TIMEOUT_MS,
@@ -3173,7 +3173,7 @@ const server = http.createServer(async (req, res) => {
     catch(error){return send(res,error?.message==="Request too large"?413:400,{error:"Model evaluation feedback is invalid."});}
     if(!event)return send(res,400,{error:"Model evaluation feedback is invalid."});
     send(res,202,{accepted:true});
-    setImmediate(()=>void forwardModelEvaluation(fetch,DEFAULT_CLOUD_ORIGIN,event,10_000).catch(error=>log({type:"model-evaluation-forward-error",reason:error?.name==="TimeoutError"?"timeout":"unavailable"})));
+    cloudConnector?.enqueueModelEvaluation(event,10_000);
     return;
   }
   if (url.pathname.startsWith("/api/local-access/")) {

@@ -90,13 +90,13 @@ npm start
 
 **Echoes** permet d'explorer, de mettre en favoris et de réutiliser des canevas et widgets publics dans douze catégories. Vous pouvez publier vos propres Crafts, les ouvrir dans un visualiseur Web en lecture seule et conserver leur filiation entre les versions.
 
-## Nouveautés de la version 1.1.7
+## Nouveautés de la version 1.2.0
 
-- **PenEcho Agent.** Enchaînez fichiers locaux, projets de dossiers en lecture seule, recherche Web, contexte du canevas, création visuelle et édition directe dans un seul flux en plusieurs étapes.
-- **Visual Explorer.** Transformez recherches, documents, notes et plans en un résultat visuel adaptatif qui relie vue d'ensemble, détails et preuves.
-- **Moins de changements de contexte et de reprises.** Recherchez, analysez, structurez, visualisez, vérifiez et révisez dans le même espace ; le résultat reste modifiable sur le canevas.
-- **Livraison visuelle progressive.** Obtenez plus tôt des versions complètes de Visual Explorer et affinez-les sur place au lieu de tout régénérer.
-- **Un contexte de travail plus riche.** Ajoutez PDF, Word, PowerPoint, Excel, images, code ou dossiers en lecture seule ; référencez widgets et écriture existants et utilisez la recherche Internet lorsqu'elle est disponible.
+- **Un Studio givré plus simple.** La barre d'outils, le Navigator, l'Agent, les réglages et les dialogues partagent désormais une transparence maîtrisée, des filets fins et des commandes plus légères. Le canevas reste visible et l'espace de travail paraît plus calme.
+- **Une hiérarchie plus claire, avec moins de bruit visuel.** Les outils essentiels restent accessibles, les actions secondaires s'effacent jusqu'au besoin, et l'historique, les favoris, l'état Cloud et l'Agent suivent le même langage visuel.
+- **Un espace de travail adaptatif.** Les commandes restent compactes sur les écrans larges ou étroits, l'Agent passe d'une barre latérale droite à un panneau inférieur, et les actions importantes restent visibles lorsque la barre d'outils revient à la ligne.
+- **Interactions plus rapides sur le canevas.** L'encre en direct à faible latence et les mises à jour coordonnées rendent le dessin, l'effacement, le déplacement et le zoom plus immédiats, tout en gardant les Widgets actifs et le texte net une fois le mouvement terminé.
+- **Autres améliorations.** Les suggestions et pièces jointes de l'Agent, les commandes d'objets, l'échelle et les palettes, les appareils liés et la fiabilité du bureau ont été affinés ; une pointe de 3 px est également disponible.
 
 ## Points forts précédents
 

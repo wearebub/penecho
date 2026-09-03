@@ -20,6 +20,7 @@
 .cloud-account-button:focus-visible { outline: 2px solid var(--studio-accent, #4f46e5); outline-offset: 2px; }
 .cloud-account-button[aria-busy="true"] { cursor: wait; opacity: .68; }
 .cloud-account-button svg { fill: none; height: 1.15rem; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.7; width: 1.15rem; }
+.cloud-account-label { line-height: 1.8; transform: translateY(-1px); }
 .cloud-account-dot { background: #8b94a1; border: 2px solid var(--panel, #fff); border-radius: 50%; height: .55rem; width: .55rem; }
 .cloud-account-button[data-state="connected"] .cloud-account-dot { background: #10b981; }
 .cloud-share-canvas { color: var(--studio-accent-strong, #4338ca); }
@@ -190,7 +191,7 @@
 .cloud-storage-row { align-items: center; }
 .cloud-storage-row .cloud-storage-track { flex: 0 1 13rem; }
 .cloud-page-actions { justify-content: flex-end; margin-top: 1rem; }
-.cloud-sign-in-group { border: 0; margin-top: 1rem; overflow: visible; }
+.cloud-sign-in-group { background: transparent; border: 0; margin-top: 1rem; overflow: visible; }
 .cloud-sign-in-group .cloud-button-row { margin-top: 0; }
 .cloud-device-summary { align-items: center; }
 .cloud-device-name { overflow-wrap: anywhere; white-space: normal; }
