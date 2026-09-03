@@ -111,7 +111,7 @@ test("hand panning previews Canvas content on the compositor before the exact re
   assert.match(css, /#viewport\.canvas-navigation-previewing :is\(#screen,[^}]*\.placed-content-layer[^}]*\.ink-layer[^}]*\)[^{]*\{[^}]*translate3d\(var\(--canvas-navigation-preview-x[^}]*will-change:\s*transform/);
   assert.doesNotMatch(css, /#viewport\.canvas-navigation-previewing :is\([^}]*\.widget-layer/);
   assert.match(css, /#coords\s*\{[^}]*contain:\s*layout paint/);
-  assert.match(css, /body\[data-theme="studio"\]:has\(#viewport:is\(\.is-navigating, \.is-drawing\)\) \.toolbar\s*\{[^}]*backdrop-filter:\s*none/);
+  assert.match(css, /body\[data-theme="studio"\]:has\(#viewport:is\(\.canvas-chrome-lightweight, \.is-drawing\)\) \.toolbar\s*\{[^}]*background:\s*color-mix\(in srgb, var\(--studio-toolbar\) 88%, transparent\)[^}]*backdrop-filter:\s*none/);
   const state = { panX:10, panY:20, navigationLocked:false, renderQueued:false, paint:{ paper:"#fafafa" } }, classes = new Set(), properties = new Map(), frames = [], timers = new Map(), counts = { coordinates:0, animation:0, exact:0 },
     harness = vm.runInNewContext(`(() => {
       const CANVAS_NAVIGATION_SETTLE_MS = 80, CANVAS_NAVIGATION_REBASE_VIEWPORT_RATIO = 0.60, CANVAS_NAVIGATION_REBASE_MIN_PX = 192;
@@ -398,7 +398,7 @@ test("canvas photos and function plots use editable image records, unified top t
   assert.match(imageChrome, /record\.kind === "image"[\s\S]*?addObjectToolbarSpecs\(specs, \{[\s\S]*?cancelLabel:t\("imageDelete"\)[\s\S]*?acceptLabel:t\("imagePlace"\)[\s\S]*?acceptTooltip:t\("imagePlaceHint"\)[\s\S]*?deleteImage\(handTarget\)[\s\S]*?acceptImageEdit\(\{ showHint:true \}\)/);
   assert.match(imageChrome, /kind:"merge"[\s\S]*?label:t\("imageMerge"\)[\s\S]*?tooltip:t\("imageMergeHint"\)[\s\S]*?objectToolbarItem:true[\s\S]*?mergeImage\(handTarget, \{ showHint:true \}\)/);
   assert.match(imageChrome, /plotExpression[\s\S]*?kind:"copy"[\s\S]*?copyPlotExpression\(handTarget\)[\s\S]*?else \{[\s\S]*?kind:"merge"/);
-  assert.match(functionSource(app, "syncObjectChrome"), /button\.setAttribute\("aria-label", label\)[\s\S]*?spec\.kind === "refine" \|\| spec\.objectToolbar\) button\.removeAttribute\("title"\)[\s\S]*?button\.title = spec\.tooltip \|\| label/);
+  assert.match(functionSource(app, "syncObjectChrome"), /button\.setAttribute\("aria-label", copyConfirmed \? t\("widgetSourceCopied"\) : label\)[\s\S]*?spec\.kind === "refine" \|\| spec\.objectToolbar\) button\.removeAttribute\("title"\)[\s\S]*?button\.title = spec\.tooltip \|\| label/);
   assert.match(app, /images = storedImages\(\)/);
   assert.match(loadSnapshot, /decodeSnapshotImagesInBatches\(item\.images, loadIsCurrent/);
   assert.match(loadSnapshot, /restoreImages\(images\)/);
@@ -792,6 +792,7 @@ test("stylus eraser ends and Apple Pencil bridge actions preserve Canvas tool se
     clearTimeout() {},
     hideWidgetRefineHint() {},
     clearWidgetRefineCandidate:() => pointerCalls.push("clear-refine"),
+    noteCanvasChromeInteraction() {},
     logicalWidth:(value) => value,
     captureDrawingTransform:() => ({ scale:1 }),
     updateCanvasPointerPreview:() => pointerCalls.push("preview"),
@@ -904,6 +905,97 @@ test("canvas navigation guidance emphasizes middle-mouse panning for at least te
   assert.match(css, /#tip\s*\{[^}]*max-width:\s*min\(440px, 100%\)[^}]*visibility:\s*hidden[^}]*opacity:\s*0/);
   assert.match(css, /main:has\(#viewport\.is-navigating\) #tip\s*\{[^}]*visibility:\s*visible[^}]*opacity:\s*1/);
   assert.match(css, /\.ink-layer\s*\{[^}]*z-index:\s*2/);
+});
+
+test("Canvas chrome uses one lightweight material cooldown before restoring static glass", () => {
+  const app = read("public/app.js"), css = read("public/style.css"),
+    material = functionSource(app, "noteCanvasChromeInteraction"),
+    navigating = functionSource(app, "setNavigating"),
+    beginDrawing = functionSource(app, "beginCanvasPointerAction"),
+    finishDrawing = functionSource(app, "finishDrawing");
+
+  assert.match(app, /CANVAS_CHROME_MATERIAL_RESTORE_MS\s*=\s*3000/);
+  assert.match(material, /canvasChromeMaterialDeadline = now \+ CANVAS_CHROME_MATERIAL_RESTORE_MS/);
+  assert.match(material, /if \(!state\.canvasChromeMaterialActive\)[\s\S]*?classList\.add\("canvas-chrome-lightweight"\)/);
+  assert.match(material, /if \(state\.canvasChromeMaterialTimer\) return/);
+  assert.match(material, /remaining > 16[\s\S]*?setTimeout\(restore, remaining\)/);
+  assert.match(material, /canvasChromeMaterialActive = false[\s\S]*?classList\.remove\("canvas-chrome-lightweight"\)/);
+  assert.match(material, /classList\.remove\("canvas-chrome-lightweight"\)/);
+  assert.match(navigating, /noteCanvasChromeInteraction\(now\)/);
+  assert.match(navigating, /navigationDeadline = now \+ NAVIGATION_HINT_VISIBLE_MS/);
+  assert.match(navigating, /if \(state\.navigationTimer\) return/);
+  assert.match(navigating, /remaining > 16[\s\S]*?setTimeout\(hide, remaining\)/);
+  assert.doesNotMatch(navigating, /clearTimeout/);
+  assert.match(beginDrawing, /noteCanvasChromeInteraction\(\)[\s\S]*?classList\.add\("is-drawing"\)/);
+  assert.match(finishDrawing, /state\.drawing = null[\s\S]*?noteCanvasChromeInteraction\(\)[\s\S]*?classList\.remove\("is-drawing"\)/);
+  assert.match(css, /body\[data-theme="studio"\]:has\(#viewport:is\(\.canvas-chrome-lightweight, \.is-drawing\)\) \.toolbar\s*\{[^}]*background:\s*color-mix\(in srgb, var\(--studio-toolbar\) 88%, transparent\)[^}]*backdrop-filter:\s*none/);
+  assert.match(css, /studio-agent-docked:has\(#viewport:is\(\.canvas-chrome-lightweight, \.is-drawing\)\) \.canvas-agent-panel\s*\{[^}]*background:\s*color-mix\(in srgb, var\(--studio-panel\) 88%, transparent\)[^}]*backdrop-filter:\s*none/);
+  assert.match(css, /@media \(prefers-reduced-transparency: reduce\), \(prefers-contrast: more\)\s*\{[\s\S]*?body\[data-theme="studio"\] \.toolbar\s*\{[^}]*background:\s*var\(--studio-toolbar\) !important[^}]*backdrop-filter:\s*none !important[\s\S]*?studio-agent-docked \.canvas-agent-panel\s*\{[^}]*background:\s*var\(--studio-panel\) !important[^}]*backdrop-filter:\s*none !important/);
+
+  let now = 100, timerId = 0;
+  const timers = [], classes = new Set(), state = { canvasChromeMaterialTimer:0, canvasChromeMaterialDeadline:0, canvasChromeMaterialActive:false },
+    note = vm.runInNewContext(`(${material})`, {
+      CANVAS_CHROME_MATERIAL_RESTORE_MS:3000,
+      performance:{ now:() => now }, state,
+      view:{ classList:{
+        add(value) { classes.add(value); },
+        remove(value) { classes.delete(value); },
+      } },
+      setTimeout(callback, delay) { timers.push({ callback, delay }); return ++timerId; },
+    });
+  note();
+  assert.equal(timers.length, 1, "the first interaction owns one restore timer");
+  assert.equal(state.canvasChromeMaterialDeadline, 3100);
+  assert.equal(state.canvasChromeMaterialActive, true);
+  assert.ok(classes.has("canvas-chrome-lightweight"));
+  now = 900;
+  note();
+  assert.equal(timers.length, 1, "repeated hot-path events only extend the deadline");
+  assert.equal(state.canvasChromeMaterialDeadline, 3900);
+  now = 3100;
+  timers[0].callback();
+  assert.equal(timers.length, 2);
+  assert.equal(timers[1].delay, 800);
+  assert.ok(classes.has("canvas-chrome-lightweight"));
+  now = 3901;
+  timers[1].callback();
+  assert.equal(state.canvasChromeMaterialTimer, 0);
+  assert.equal(state.canvasChromeMaterialActive, false);
+  assert.ok(!classes.has("canvas-chrome-lightweight"));
+
+  let navigationNow = 100, navigationTimerId = 0;
+  const navigationTimers = [], navigationClasses = new Set(),
+    navigationState = { navigationTimer:0, navigationDeadline:0 },
+    runNavigation = vm.runInNewContext(`(${navigating})`, {
+      NAVIGATION_HINT_VISIBLE_MS:10000,
+      performance:{ now:() => navigationNow }, navigationState,
+      state:navigationState,
+      noteCanvasChromeInteraction() {},
+      view:{ classList:{
+        add(value) { navigationClasses.add(value); },
+        remove(value) { navigationClasses.delete(value); },
+        contains(value) { return navigationClasses.has(value); },
+      } },
+      setTimeout(callback, delay) { navigationTimers.push({ callback, delay }); return ++navigationTimerId; },
+    });
+  runNavigation(true);
+  assert.equal(navigationTimers.length, 1, "navigation starts one hint timer");
+  assert.equal(navigationState.navigationDeadline, 10100);
+  assert.ok(navigationClasses.has("is-navigating"));
+  navigationNow = 900;
+  runNavigation(true);
+  assert.equal(navigationTimers.length, 1, "wheel events only extend the navigation deadline");
+  assert.equal(navigationState.navigationDeadline, 10900);
+  navigationNow = 10100;
+  navigationTimers[0].callback();
+  assert.equal(navigationTimers.length, 2);
+  assert.equal(navigationTimers[1].delay, 800);
+  assert.ok(navigationClasses.has("is-navigating"));
+  navigationNow = 10901;
+  navigationTimers[1].callback();
+  assert.equal(navigationState.navigationTimer, 0);
+  assert.equal(navigationState.navigationDeadline, 0);
+  assert.ok(!navigationClasses.has("is-navigating"));
 });
 
 test("canvas navigation lock freezes only the outer view and leaves locked widgets interactive", () => {
@@ -2083,6 +2175,7 @@ test("widget AI refinement is discoverable near ink and replaces only its locked
     snapshot = functionSource(app, "requestWidgetSnapshot"),
     chrome = functionSource(app, "objectChromeSpecs"),
     selectedRefine = functionSource(app, "selectedWidgetRefineCandidate"),
+    confirmation = functionSource(app, "syncWidgetRefineConfirmation"),
     record = functionSource(app, "widgetRecord"),
     serialize = functionSource(app, "serializedWidgets");
 
@@ -2126,7 +2219,11 @@ test("widget AI refinement is discoverable near ink and replaces only its locked
   assert.doesNotMatch(functionSource(app, "drawWidgetRefineConfirmation"), /box\.x \+ box\.w \/ 2[\s\S]*?widgetBounds\.x \+ widgetBounds\.w \/ 2/);
   assert.match(css, /\.widget-refine-confirmation-copy\s*\{[^}]*overflow:\s*visible[^}]*overflow-wrap:\s*anywhere[^}]*white-space:\s*normal/);
   assert.doesNotMatch(css, /\.widget-refine-confirmation-copy\s*\{[^}]*text-overflow:\s*ellipsis/);
-  assert.match(functionSource(app, "syncWidgetRefineConfirmation"), /Math\.min\(560, view\.clientWidth - 24\)[\s\S]*?element\.offsetHeight/);
+  assert.match(confirmation, /Math\.min\(560, view\.clientWidth - 24\)[\s\S]*?element\.offsetHeight/);
+  assert.match(confirmation, /peButton\(yes, "secondary", "compact"\)[\s\S]*?peButton\(no, "secondary", "compact"\)/);
+  assert.doesNotMatch(confirmation, /peButton\(yes, "primary"/);
+  assert.match(css, /:is\(#pe-button-contract, \.widget-refine-confirmation-button\.confirm\)\[data-pe-button="secondary"\]\s*\{[^}]*color:\s*var\(--pe-success[^}]*border-color:\s*color-mix[^}]*background:\s*transparent/);
+  assert.match(css, /\.widget-refine-confirmation-button\.confirm\)\[data-pe-button="secondary"\][^{]*:is\(:hover, :focus-visible, :active\)\s*\{[^}]*background:\s*transparent/);
   const confirmationPosition = vm.runInNewContext(`(${functionSource(app, "widgetRefineConfirmationPosition")})`);
   assert.deepEqual({ ...confirmationPosition({ x:300, y:220, width:112, height:34 }, 360, 50, 1000, 700) }, { x:176, y:212 });
   assert.deepEqual({ ...confirmationPosition({ x:930, y:220, width:64, height:34 }, 360, 50, 1000, 700) }, { x:632, y:212 });
@@ -2323,6 +2420,47 @@ test("widget Refine discovery stays in the parent canvas and leaves iframe event
   assert.match(frameRule, /touch-action:\s*none/);
   assert.match(handFrameRule, /pointer-events:\s*auto/);
   assert.match(handFrameRule, /cursor:\s*default/);
+});
+
+test("Widget copy swaps its own icon to a matching frameless check for two seconds", () => {
+  const app = read("public/app.js"),
+    css = read("public/style.css"),
+    copy = functionSource(app, "copyWidgetSource"),
+    setStateSource = functionSource(app, "setWidgetCopyButtonState"),
+    syncChrome = functionSource(app, "syncObjectChrome"),
+    acceptIcon = app.match(/accept:'(<svg[^']+)'/)?.[1] || "",
+    copyIcon = app.match(/copy:'(<svg[^']+)'/)?.[1] || "";
+
+  assert.match(copy, /button\._copyGeneration === generation[\s\S]*setWidgetCopyButtonState\(button, copied\)/);
+  assert.match(app, /kind:"copy"[\s\S]*?activate:\(button\) => void copyWidgetSource\(widget, button\)/);
+  assert.match(setStateSource, /OBJECT_CHROME_ICONS\[copied \? "accept" : "copy"\]/);
+  assert.match(setStateSource, /WIDGET_COPY_ICON_FEEDBACK_MS/);
+  assert.match(syncChrome, /copyConfirmed = spec\.kind === "copy" && button\.dataset\.copyState === "copied"[\s\S]*?copyConfirmed \? t\("widgetSourceCopied"\) : label/);
+  assert.match(app, /WIDGET_COPY_ICON_FEEDBACK_MS = 2000/);
+  assert.match(acceptIcon, /^<svg viewBox="0 0 24 24"[^>]*><path\b[^>]*\/><\/svg>$/);
+  assert.doesNotMatch(acceptIcon, /<(?:rect|circle)\b/);
+  assert.match(copyIcon, /^<svg viewBox="0 0 24 24"/);
+  assert.match(css, /object-chrome-button\.object-toolbar-item\)\[data-pe-button\] > svg \{\s*width: 16px;\s*height: 16px;/);
+
+  const timers = [], attributes = new Map(), button = {
+      dataset:{}, isConnected:true, innerHTML:"", penechoSpec:{label:"Copy HTML"},
+      setAttribute(name, value) { attributes.set(name, value); },
+    },
+    setState = vm.runInNewContext(`(${setStateSource})`, {
+      WIDGET_COPY_ICON_FEEDBACK_MS:2000,
+      OBJECT_CHROME_ICONS:{accept:"<svg><path></path></svg>",copy:"<svg><rect></rect></svg>"},
+      clearTimeout() {},
+      objectChromeLabel:() => "Copy HTML",
+      setTimeout(callback, delay) { timers.push({callback,delay}); return timers.length; },
+      t:() => "Widget source copied",
+    });
+  setState(button, true);
+  assert.equal(button.innerHTML, "<svg><path></path></svg>");
+  assert.equal(attributes.get("aria-label"), "Widget source copied");
+  assert.equal(timers[0].delay, 2000);
+  timers[0].callback();
+  assert.equal(button.innerHTML, "<svg><rect></rect></svg>");
+  assert.equal(attributes.get("aria-label"), "Copy HTML");
 });
 
 test("selected Widget chrome uses one top toolbar and follows Studio glass tokens", () => {
@@ -3176,20 +3314,28 @@ test("PenEcho Agent launcher uses ordered toolbar compaction before the toolbar 
   assert.match(positionPopover, /studio-toolbar-two-row[\s\S]*?Math\.max\(controlRect\.bottom, toolbarRect\.bottom\)[\s\S]*?anchorBottom/);
 });
 
+test("Studio title bar removes only the PenEcho icon and keeps the wordmark", () => {
+  const html = read("public/index.html"), css = read("public/style.css");
+  const brand = html.indexOf('class="brand"'), documentMeta = html.indexOf('id="canvasDocumentMeta"'), status = html.indexOf('id="aiStatusArea"'),
+    toolbar = html.indexOf('class="toolbar"'), navigatorToggle = html.indexOf('id="studioNavigatorToggle"'), divider = html.indexOf('class="toolbar-leading-divider"'), primaryTools = html.indexOf('class="tool-group primary-tools"');
+  assert.ok(brand < documentMeta && documentMeta < status && status < toolbar,"wordmark, document, and global status follow the title-row reading order");
+  assert.match(html, /class="brand"[\s\S]*?class="brand-copy"[\s\S]*?<h1><span>Pen<\/span><strong>Echo<\/strong><\/h1>/);
+  assert.doesNotMatch(html, /class="sigil"|<img src="penecho-mark\.png"/);
+  assert.match(css, /body\[data-theme="studio"\] \.brand\s*\{[^}]*flex:\s*0 0 auto[^}]*margin-right:\s*0/);
+});
+
 test("Studio title bar exposes document identity, explicit save state, and a blank-canvas next step", () => {
   const html = read("public/index.html"), css = read("public/style.css"), navigator = read("src/client/app/studio-navigator.js"),
     persistence = read("src/client/app/persistence.js"), core = read("src/client/app/core.js"), zh = read("public/locales/zh.js");
   const brand = html.indexOf('class="brand"'), documentMeta = html.indexOf('id="canvasDocumentMeta"'), status = html.indexOf('id="aiStatusArea"'),
     toolbar = html.indexOf('class="toolbar"'), navigatorToggle = html.indexOf('id="studioNavigatorToggle"'), divider = html.indexOf('class="toolbar-leading-divider"'), primaryTools = html.indexOf('class="tool-group primary-tools"');
-  assert.ok(brand < documentMeta && documentMeta < status && status < toolbar,"brand, document, and global status follow the title-row reading order");
+  assert.ok(brand < documentMeta && documentMeta < status && status < toolbar,"wordmark, document, and global status follow the title-row reading order");
   assert.ok(toolbar < navigatorToggle && navigatorToggle < divider && divider < primaryTools,"navigator and its divider lead the contextual toolbar");
   assert.match(html, /id="canvasDocumentMeta"[\s\S]*?id="canvasDocumentName"[\s\S]*?id="canvasDocumentSaveState"[^>]*data-state="unsaved"[\s\S]*?id="saveCanvasBtn"/);
   assert.match(html, /id="canvasDocumentName"[^>]*type="button"[^>]*data-i18n-aria="canvasRenameCurrent"/);
   assert.match(html, /id="canvasDocumentNameEditor"[^>]*hidden[\s\S]*?id="canvasDocumentNameInput"[^>]*maxlength="48"[^>]*hidden[\s\S]*?id="canvasDocumentNameConfirm"[^>]*type="button"[^>]*data-i18n-aria="canvasRenameConfirm"[^>]*data-pe-button="toolbar"/);
   assert.doesNotMatch(html, /id="canvasFileActions"[\s\S]*?id="saveCanvasBtn"[\s\S]*?<\/span>/);
   assert.match(html, /id="canvasWelcome"[^>]*hidden[\s\S]*?canvasWelcomeKicker[\s\S]*?canvasWelcomeTitle[\s\S]*?canvasWelcomeBody/);
-  assert.match(css, /body\[data-theme="studio"\] \.sigil\s*\{[^}]*background:\s*var\(--studio-accent-strong\)[^}]*-webkit-mask:\s*url\("penecho-mark\.png"\)[^}]*mask:\s*url\("penecho-mark\.png"\)/);
-  assert.match(css, /body\[data-theme="studio"\] \.sigil img\s*\{[^}]*opacity:\s*0[^}]*filter:\s*none/);
   assert.match(css, /body\[data-theme="studio"\] \.toolbar\s*\{[^}]*column-gap:\s*6px/);
   assert.match(css, /body\[data-theme="studio"\] \.toolbar > \.studio-navigator-toggle::before\s*\{[^}]*inset:\s*-2px/);
   assert.match(css, /body\[data-theme="studio"\] \.toolbar > \.studio-navigator-toggle\.active\s*\{[^}]*background:\s*var\(--studio-accent-soft\)[^}]*box-shadow:\s*none/);
@@ -3495,7 +3641,7 @@ test("Auto AI waits for unsettled toolboxes while manual actions remain availabl
   assert.match(zh, /autoToolboxPending:/);
 });
 
-test("toolbar exposes a fixed clickable reasoning menu before the drawing tools", () => {
+test("toolbar exposes reasoning presets and an editable provider-native value before the drawing tools", () => {
   const html = read("public/index.html"), app = read("public/app.js"), css = read("public/style.css"), zh = read("public/locales/zh.js");
   const section = html.indexOf('id="aiToolsSection"'), auto = html.indexOf('id="autoControl"'), effort = html.indexOf('id="effortControl"'), font = html.indexOf('id="aiFont"'), pen = html.indexOf('data-mode="pen"'), fullscreen = html.indexOf('id="fullscreenBtn"'), grid = html.indexOf('id="gridToggle"');
   assert.ok(section < auto && auto < effort && effort < pen && pen < font);
@@ -3511,6 +3657,9 @@ test("toolbar exposes a fixed clickable reasoning menu before the drawing tools"
   assert.match(html, /id="effortPopover"[^>]*hidden/);
   assert.equal((html.match(/class="effort-option"/g) || []).length, 6);
   assert.match(html, /data-effort="config"/);
+  assert.match(html, /id="effortCustomForm"/);
+  assert.match(html, /id="aiEffortCustomInput"[^>]*role="combobox"[^>]*aria-controls="effortOptions"[^>]*maxlength="128"[^>]*autocomplete="off"[^>]*autocapitalize="none"/);
+  assert.match(html, /id="aiEffortCustomApply"[^>]*type="submit"/);
   for (const mode of ["pen", "eraser", "select"]) {
     const button = html.match(new RegExp(`<button[^>]*data-mode="${mode}"[\\s\\S]*?<\\/button>`))?.[0] || "";
     assert.match(button, /class="[^"]*icon-button[^"]*"/);
@@ -3520,17 +3669,22 @@ test("toolbar exposes a fixed clickable reasoning menu before the drawing tools"
   }
   assert.match(app, /penecho-ai-effort/);
   assert.match(app, /reasoningEffort === "config" \? \{\} : \{ reasoningEffort: state\.reasoningEffort \}/);
-  assert.match(app, /const EFFORT_LEVELS = \["none", "low", "medium", "high", "max"\]/);
-  assert.match(app, /EFFORT_OPTIONS = \["config", \.\.\.EFFORT_LEVELS\]/);
+  assert.match(functionSource(app, "normalizeToolbarReasoningEffort"), /trim\(\)\.toLowerCase\(\)[\s\S]*?effort\.length <= 128[\s\S]*?\!\/\[\\r\\n\\0\]\//);
+  assert.match(functionSource(app, "updateEffortControl"), /customInput\.value = levelKey \? "" : state\.reasoningEffort/);
+  assert.match(app, /#effortCustomForm"\)\.onsubmit[\s\S]*?setEffort\(input\.value\)/);
+  assert.match(app, /#aiEffortCustomInput"\)\.addEventListener\("input"[\s\S]*?input\.value\.toLowerCase\(\)/);
   assert.match(css, /\.effort-control\s*\{[^}]*width:\s*auto;[^}]*height:\s*var\(--pe-button-compact-h, 28px\);[^}]*flex:\s*0 0 auto/);
   assert.match(css, /\.toolbar \.effort-trigger\s*\{[^}]*width:\s*auto;[^}]*gap:\s*4px/);
-  assert.match(css, /\.effort-trigger #aiEffortLabel\s*\{[^}]*flex:\s*0 0 auto;[^}]*white-space:\s*nowrap/);
+  assert.match(css, /\.effort-trigger #aiEffortLabel\s*\{[^}]*min-width:\s*0;[^}]*flex:\s*0 1 auto;[^}]*white-space:\s*nowrap/);
+  assert.match(css, /\.effort-label-full, \.effort-label-short\s*\{[^}]*display:\s*block;[^}]*max-width:\s*22ch;[^}]*text-overflow:\s*ellipsis/);
   assert.doesNotMatch(css, /\.effort-trigger > svg:first-child|\.effort-control\[data-effort="config"\] \.effort-trigger > svg:first-child/);
   assert.match(app, /function positionToolbarPopover\(controlSelector, popoverSelector, options\)[\s\S]*?host\.append\(popover\)[\s\S]*?getBoundingClientRect\(\)[\s\S]*?toolbar-anchored-popover/);
   assert.match(app, /showEffortControl\(\)[\s\S]*?positionToolbarPopover\("#effortControl", "#effortPopover"\)/);
   assert.match(app, /!document\.querySelector\("#effortControl"\)\.contains\(event\.target\) && !document\.querySelector\("#effortPopover"\)\.contains\(event\.target\)/);
   assert.match(css, /\.topbar > \.toolbar-anchored-popover\s*\{[^}]*z-index:\s*52/);
-  assert.match(css, /\.effort-popover\s*\{[^}]*width:\s*168px[^}]*background:\s*color-mix\(in srgb, var\(--panel-raised\) 72%, transparent\)[^}]*blur\(28px\)/);
+  assert.match(css, /\.effort-popover\s*\{[^}]*width:\s*190px[^}]*background:\s*color-mix\(in srgb, var\(--panel-raised\) 72%, transparent\)[^}]*blur\(28px\)/);
+  assert.match(css, /\.effort-custom-form\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) 30px[^}]*border-bottom:/);
+  assert.match(css, /\.effort-custom-form input\s*\{[^}]*height:\s*30px[^}]*font:\s*500 \.72rem\/30px ui-monospace/);
   assert.match(css, /\.effort-option\s*\{[^}]*min-height:\s*28px[^}]*font:\s*550 12\.5px\/1\.2 system-ui[^}]*transition:/);
   assert.match(css, /body\[data-theme="studio"\] \.effort-popover,[^}]*background:\s*color-mix\(in srgb, var\(--studio-panel\) 62%, transparent\)[^}]*blur\(28px\)/);
   assert.match(css, /body\[data-theme="studio"\] \.effort-option\.active\s*\{[^}]*background:\s*color-mix\(in srgb, var\(--studio-accent\) 10%, var\(--studio-panel\)\)/);
@@ -3544,7 +3698,7 @@ test("toolbar exposes a fixed clickable reasoning menu before the drawing tools"
   assert.match(css, /\.color-orbit\s*\{[^}]*display:\s*grid[^}]*grid-template-columns:\s*repeat\(4, 28px\)[^}]*background:\s*color-mix\(in srgb, var\(--panel-raised\) 72%, transparent\)[^}]*blur\(28px\)/);
   assert.match(css, /\.color-orbit\[hidden\]\s*\{\s*display:\s*none/);
   assert.doesNotMatch(css, /\.color-orb-control\.open \.orbit-[1-8]/);
-  for (const key of ["reasoningEffort", "reasoningEffortDisplay", "effortConfigured", "effortConfiguredShort", "effortNone", "effortLow", "effortMedium", "effortMediumShort", "effortHigh", "effortMaximum"]) {
+  for (const key of ["reasoningEffort", "reasoningEffortDisplay", "effortCustom", "effortCustomPlaceholder", "effortApplyCustom", "effortConfigured", "effortConfiguredShort", "effortNone", "effortLow", "effortMedium", "effortMediumShort", "effortHigh", "effortMaximum"]) {
     assert.match(app, new RegExp(`${key}:`));
     assert.match(zh, new RegExp(`${key}:`));
   }

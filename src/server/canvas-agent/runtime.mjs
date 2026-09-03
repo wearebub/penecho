@@ -2010,17 +2010,20 @@ function canvasAgentConnectionPolicy(connection) {
 
 const CANVAS_HARNESS_REASONING_LEVELS = Object.freeze([
   ['off', 'none'],
+  ['minimal', 'minimal'],
   ['low', 'low'],
   ['medium', 'medium'],
   ['high', 'high'],
   ['xhigh', 'xhigh'],
   ['max', 'max'],
 ])
-const CANVAS_AGENT_REQUEST_REASONING_EFFORTS = new Set(['config', 'none', 'low', 'medium', 'high', 'max'])
+const CANVAS_AGENT_HARNESS_REASONING_EFFORTS = new Set(CANVAS_HARNESS_REASONING_LEVELS.map(([, effort]) => effort))
+const CANVAS_AGENT_REQUEST_REASONING_EFFORT_MAX_LENGTH = 128
 
 export function resolveCanvasAgentRequestEffort(connection, value = 'config') {
-  const selected = String(value ?? 'config').trim().toLowerCase()
-  if (!CANVAS_AGENT_REQUEST_REASONING_EFFORTS.has(selected)) throw new Error('PenEcho Agent reasoning effort is invalid.')
+  if (typeof value !== 'string') throw new Error('PenEcho Agent reasoning effort is invalid.')
+  const selected = value.trim().toLowerCase()
+  if (!selected || selected.length > CANVAS_AGENT_REQUEST_REASONING_EFFORT_MAX_LENGTH || /[\r\n\0]/.test(selected)) throw new Error('PenEcho Agent reasoning effort is invalid.')
   const configuredEffort = String(connection?.effort || '').trim()
   return {
     selected,
@@ -2028,6 +2031,18 @@ export function resolveCanvasAgentRequestEffort(connection, value = 'config') {
       ? (configuredEffort && configuredEffort !== 'config' && configuredEffort !== 'default' ? configuredEffort : null)
       : selected,
   }
+}
+
+function requestEffortConnection(session, requestEffort) {
+  if (requestEffort.selected === 'config' || CANVAS_AGENT_HARNESS_REASONING_EFFORTS.has(requestEffort.effective)) return null
+  // Harness validates opaque effort ids against the selected provider profile.
+  // Give an arbitrary per-turn value a session-isolated route so concurrent
+  // conversations cannot overwrite one another's provider-native mapping.
+  return Object.freeze({
+    ...session.connection,
+    id:`${session.connection.id}:request-effort:${session.id}:${hash(requestEffort.effective).slice(0, 12)}`,
+    effort:requestEffort.effective,
+  })
 }
 
 function isKimiCodingPlanOpenAiApi(connection) {
@@ -2955,6 +2970,13 @@ function canvasAgentDrawingCoordinateIndexes(type, item) {
   return []
 }
 
+function canonicalizeCanvasAgentDrawingInteger(value) {
+  if (Number.isInteger(value)) return value
+  if (typeof value!=='string' || !/^(?:0|-?[1-9]\d*)$/.test(value)) return value
+  const integer=Number(value)
+  return Number.isSafeInteger(integer)?integer:value
+}
+
 function canonicalizeCanvasAgentDrawing(value) {
   const drawing=value&&typeof value==='object'&&!Array.isArray(value)?value:null,
     origin=Array.isArray(drawing?.origin)?drawing.origin:null,
@@ -2989,15 +3011,19 @@ function canonicalizeCanvasAgentDrawing(value) {
           {path:`drawing.items[${itemIndex}]`,type},
         )
       }
-      if (submittedItem.length<2 || submittedItem.some(pair=>pair.length!==2 || !pair.every(Number.isInteger))) {
+      const pairs=submittedItem.map(pair=>pair.map(canonicalizeCanvasAgentDrawingInteger))
+      if (pairs.length<2 || pairs.some(pair=>pair.length!==2 || !pair.every(Number.isInteger))) {
         throw canvasAgentDrawingError(
           'CANVAS_DRAWING_POINT_PAIRS_INVALID',
           `Drawing item ${itemIndex} coordinate-pair input must contain at least two entries, each with exactly two integers.`,
           {path:`drawing.items[${itemIndex}]`,type},
         )
       }
-      item=submittedItem.flat()
+      item=pairs.flat()
       changed=true
+    } else if (Array.isArray(submittedItem)) {
+      item=submittedItem.map(canonicalizeCanvasAgentDrawingInteger)
+      if (submittedItem.some((entry,index)=>entry!==item[index])) changed=true
     }
     if (!Array.isArray(item) || !item.every(Number.isInteger)) {
       throw canvasAgentDrawingError(
@@ -3171,6 +3197,14 @@ function captureCacheKey(session, args) {
     quality:args?.quality === 'detail' ? 'detail' : 'basic',
     coordinates:['metadata', 'none'].includes(args?.coordinates) ? args.coordinates : 'grid',
   }))
+}
+
+function normalizeCanvasCaptureArgs(args) {
+  if (args?.target !== 'canvas' || args?.quality !== 'detail') return { args, notice:'' }
+  return {
+    args:{ ...args, quality:'basic' },
+    notice:'quality was automatically corrected to "basic". "detail" is only for one Widget or a tight region.',
+  }
 }
 
 function rememberCapture(session, key, value) {
@@ -3961,7 +3995,7 @@ function createCanvasTools(session, attachments) {
   })
   const capture = defineCanvasTool(session, {
     name:'canvas_capture',
-    description:'Capture latest authoritative evidence, private by default. Use basic for layout and detail only for one Widget or tight region. Deliver only an explicitly requested Widget or Canvas/page screenshot with coordinates="none"; returned mapping facts are authoritative.',
+    description:'Capture latest Canvas evidence, private by default. target="canvas" always uses quality="basic"; quality="detail" is only for one Widget or tight region. Deliver only requested Widget or Canvas/page screenshots with coordinates="none"; mapping is authoritative.',
     parameters:{
       target:{ type:'string', required:true, enum:['viewport', 'canvas', 'object', 'region'] },
       objectId:{ type:'string' },
@@ -3982,48 +4016,50 @@ function createCanvasTools(session, attachments) {
     },
     timeoutMs:TOOL_TIMEOUT_MS,
     async execute(args, exec) {
-      assertCanvasCaptureDeliveryAllowed(session, args)
-      const canvasOverview=args.target==='canvas'&&args.quality!=='detail', visualExplorerBudget=session.visualExplorerBudget
-      if (canvasOverview && visualExplorerBudget?.planningRequested && args.coordinates!=='none') {
+      const normalized=normalizeCanvasCaptureArgs(args),captureArgs=normalized.args,qualityNotice=normalized.notice
+      assertCanvasCaptureDeliveryAllowed(session, captureArgs)
+      const canvasOverview=captureArgs.target==='canvas'&&captureArgs.quality!=='detail', visualExplorerBudget=session.visualExplorerBudget
+      if (canvasOverview && visualExplorerBudget?.planningRequested && captureArgs.coordinates!=='none') {
         throw visualExplorerPolicyError('VISUAL_EXPLORER_CLEAN_CAPTURE_REQUIRED','Capture the complete Canvas with coordinates="none" during Visual Explorer planning and review.')
       }
       if (session.canvasLayoutReviewRequired===true && !canvasOverview) assertCanvasLayoutReviewed(session)
       const visualBudget=session.visualExplainerBudget
-      if (args.quality === 'detail' && args.target === 'object' && visualBudget?.visualObjectIds.has(String(args.objectId || ''))) {
-        const objectId=String(args.objectId), used=visualBudget.detailCaptures.get(objectId) || 0
+      if (captureArgs.quality === 'detail' && captureArgs.target === 'object' && visualBudget?.visualObjectIds.has(String(captureArgs.objectId || ''))) {
+        const objectId=String(captureArgs.objectId), used=visualBudget.detailCaptures.get(objectId) || 0
         if (used >= VISUAL_EXPLAINER_MAX_DETAIL_CAPTURES_PER_USER_TURN) throw visualExplainerPolicyError('VISUAL_EXPLAINER_CAPTURE_STOPPED','The bounded Visual Explainer review already used its detail-capture budget. Stop automatic refinement.',{objectId,maxDetailCaptures:VISUAL_EXPLAINER_MAX_DETAIL_CAPTURES_PER_USER_TURN})
         visualBudget.detailCaptures.set(objectId,used+1)
       }
-      const visualExplorerObjectId=args.quality==='detail'&&args.target==='object'&&visualExplorerBudget?.objectIds.has(String(args.objectId||''))?String(args.objectId):''
+      const visualExplorerObjectId=captureArgs.quality==='detail'&&captureArgs.target==='object'&&visualExplorerBudget?.objectIds.has(String(captureArgs.objectId||''))?String(captureArgs.objectId):''
       if (visualExplorerObjectId) {
-        if (args.coordinates!=='none') throw visualExplorerPolicyError('VISUAL_EXPLORER_CLEAN_CAPTURE_REQUIRED','Capture a Visual Explorer detail with coordinates="none" so the grid does not contaminate visual review.',{objectId:visualExplorerObjectId})
+        if (captureArgs.coordinates!=='none') throw visualExplorerPolicyError('VISUAL_EXPLORER_CLEAN_CAPTURE_REQUIRED','Capture a Visual Explorer detail with coordinates="none" so the grid does not contaminate visual review.',{objectId:visualExplorerObjectId})
         assertVisualExplorerDetailCaptureAllowed(visualExplorerBudget,visualExplorerObjectId)
       }
-      const cacheKey = captureCacheKey(session, args), cached = session.captureCache.get(cacheKey)
+      const cacheKey = captureCacheKey(session, captureArgs), cached = session.captureCache.get(cacheKey)
       if (cached) {
         rememberCapture(session, cacheKey, cached)
         const reusedActiveImage = session.activeCaptureAttachmentId === String(cached.attachment.attachmentId)
         if (!reusedActiveImage) session.activeCaptureAttachmentId = String(cached.attachment.attachmentId)
         const stored = await attachments.readImage(cached.attachment, exec.signal)
-        emitCanvasCaptureMessage(session, args, cached.attachment, stored.data, exec.callId)
+        emitCanvasCaptureMessage(session, captureArgs, cached.attachment, stored.data, exec.callId)
         if (session.traceAsset) {
           await session.traceAsset({
             source:'capture', callId:String(exec.callId), attachmentId:String(cached.attachment.attachmentId), data:stored.data,
             mediaType:cached.attachment.mediaType, width:cached.attachment.width, height:cached.attachment.height,
-            cacheHit:true, reusedActiveImage, capture:{ ...args, ...cached, attachment:undefined },
+            cacheHit:true, reusedActiveImage, capture:{ ...captureArgs, ...cached, attachment:undefined },
           })
         }
         const value={
           ...cached,
           cacheHit:true,
           reusedActiveImage,
+          ...(qualityNotice?{notice:qualityNotice}:{}),
           ...(visualExplorerObjectId?{reviewPolicy:recordVisualExplorerDetailCapture(visualExplorerBudget,visualExplorerObjectId)}:{}),
         }
         if(canvasOverview)markCanvasLayoutOverview(session,value)
         return value
       }
-      const result = await session.rpc('canvas_capture', args, exec.callId, exec.signal)
-      const limits=canvasCaptureLimits(args), reported=assertCanvasCaptureRaster(result,limits,'reported')
+      const result = await session.rpc('canvas_capture', captureArgs, exec.callId, exec.signal)
+      const limits=canvasCaptureLimits(captureArgs), reported=assertCanvasCaptureRaster(result,limits,'reported')
       if (result?.quality !== limits.quality) throw new Error('Canvas capture returned a mismatched quality policy.')
       const match = /^data:(image\/(?:png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(String(result?.dataUrl || ''))
       if (!match) throw new Error('Canvas capture returned an invalid image.')
@@ -4038,26 +4074,27 @@ function createCanvasTools(session, attachments) {
         throw new Error('Canvas capture metadata does not match the bounded decoded image.')
       }
       const { dataUrl:_dataUrl, ...metadata } = result
-      let value = {
+      const cachedValue = {
         ...metadata,
         encodedBytes:data.length,
         attachment,
         cacheHit:false,
         reusedActiveImage:false,
       }
-      rememberCapture(session, cacheKey, value)
+      rememberCapture(session, cacheKey, cachedValue)
+      let value=qualityNotice?{...cachedValue,notice:qualityNotice}:cachedValue
       session.activeCaptureAttachmentId = String(attachment.attachmentId)
       if (session.traceAsset) {
         const stored=await attachments.readImage(attachment)
         await session.traceAsset({
           source:'capture', callId:String(exec.callId), attachmentId:String(attachment.attachmentId), data:stored.data,
           mediaType:attachment.mediaType, width:attachment.width, height:attachment.height,
-          cacheHit:false, reusedActiveImage:false, capture:{ ...args, ...metadata },
+          cacheHit:false, reusedActiveImage:false, capture:{ ...captureArgs, ...metadata },
         })
       }
       if (visualExplorerObjectId) value={...value,reviewPolicy:recordVisualExplorerDetailCapture(visualExplorerBudget,visualExplorerObjectId)}
       if(canvasOverview)markCanvasLayoutOverview(session,value)
-      emitCanvasCaptureMessage(session, args, attachment, canonicalData, exec.callId)
+      emitCanvasCaptureMessage(session, captureArgs, attachment, canonicalData, exec.callId)
       return value
     },
   })
@@ -4467,7 +4504,8 @@ export class CanvasHarnessHost {
 
   refreshCliProviders(ctx = this.context) {
     if (!ctx || !this.cliAdapter) return []
-    const routes = this.cliAdapter.replaceConnections(this.listConnections())
+    const requestConnections = [...this.sessions.values()].map(session => session.requestEffortConnection).filter(Boolean)
+    const routes = this.cliAdapter.replaceConnections([...this.listConnections(), ...requestConnections])
     if (this.cliRegistration) this.cliRegistration.replace(routes)
     else if (routes.length) this.cliRegistration = ctx.llm.registerAdapter(routes, this.cliAdapter)
     return routes
@@ -4483,6 +4521,15 @@ export class CanvasHarnessHost {
       providers[profile.provider] = profile.config
       this.credentialRefs.set(profile.apiKeyEnv, connection.id)
       providers[profile.provider].apiKeyEnv = profile.apiKeyEnv
+    }
+    for (const session of this.sessions.values()) {
+      const connection = session.requestEffortConnection
+      if (connection?.provider !== 'api' || !connection.apiModel || !connection.apiUrl) continue
+      const source = this.resolveConnection(session.connectionId)
+      if (!source?.apiKey) continue
+      const profile = connectionProfile(connection, this.modelTimeoutMs(session.connectionId))
+      providers[profile.provider] = { ...profile.config, apiKeyEnv:profile.apiKeyEnv }
+      this.credentialRefs.set(profile.apiKeyEnv, session.connectionId)
     }
     await ctx.settings.replace(SETTINGS_NS, { providers })
     this.refreshCliProviders(ctx)
@@ -4519,6 +4566,8 @@ export class CanvasHarnessHost {
       this.send(session, 'ready', {
         resumeToken,
         connectionId:session.connectionId,
+        model:session.modelSelection.current.model || 'default',
+        channel:session.connection.provider || 'unknown',
         conversationId:session.logicalConversationId,
         harnessSessionId:String(session.handle.agent.id),
         webSearchConfigured:true,
@@ -4595,6 +4644,7 @@ export class CanvasHarnessHost {
       logicalConversationId:logicalConversationId||randomUUID(),
       conversationLogId:randomUUID(),
       requestTraceConnection:requestTraceConnection(connection,selectedModel),
+      requestEffortConnection:null,
       modelSelection,
       continuity:boundedText(continuity,80_500),
       traceAsset:null,
@@ -4671,6 +4721,8 @@ export class CanvasHarnessHost {
     this.send(session, 'ready', {
       resumeToken:nextResumeToken,
       connectionId:session.connectionId,
+      model:session.modelSelection.current.model || 'default',
+      channel:session.connection.provider || 'unknown',
       conversationId:session.logicalConversationId,
       harnessSessionId:String(handle.agent.id),
       webSearchConfigured:true,
@@ -4854,9 +4906,15 @@ export class CanvasHarnessHost {
     if (session.handle?.agent?.status !== 'idle') throw new Error('Wait for the current PenEcho Agent turn to finish before changing models.')
     const connection = this.resolveConnection(String(connectionId || ''))
     if (!connection || connection.provider === 'codex-cli') throw new Error('The selected AI connection cannot use this PenEcho Agent engine.')
-    await this.refreshProviders()
     const profile = connection.provider === 'api' ? connectionProfile(connection, this.modelTimeoutMs(connection.id)) : cliConnectionProfile(connection)
     const selectedModel = connection.provider === 'api' ? connection.apiModel : profile.model
+    const previousRequestEffortConnection = session.requestEffortConnection
+    session.requestEffortConnection = null
+    try { await this.refreshProviders() }
+    catch (error) {
+      session.requestEffortConnection = previousRequestEffortConnection
+      throw error
+    }
     session.connectionId = connection.id
     session.connection = canvasAgentConnectionPolicy(connection)
     session.requestTraceConnection = requestTraceConnection(connection,selectedModel)
@@ -4871,6 +4929,8 @@ export class CanvasHarnessHost {
     this.traceConversation(session, 'connection-change')
     this.send(session, 'ready', {
       connectionId:session.connectionId,
+      model:session.modelSelection.current.model || 'default',
+      channel:session.connection.provider || 'unknown',
       conversationId:session.logicalConversationId,
       harnessSessionId:String(session.handle.agent.id),
       webSearchConfigured:true,
@@ -4885,6 +4945,29 @@ export class CanvasHarnessHost {
     })
     this.send(session, 'agent_status', { status:session.handle.agent.status })
     return session
+  }
+
+  async requestModelSelection(session, requestEffort) {
+    const selectedModel = session.modelSelection.current.model
+    const previousRequestEffortConnection = session.requestEffortConnection
+    const nextRequestEffortConnection = requestEffortConnection(session, requestEffort)
+    session.requestEffortConnection = nextRequestEffortConnection
+    if ((previousRequestEffortConnection?.id || '') !== (nextRequestEffortConnection?.id || '')) await this.refreshProviders()
+    const routeConnection = nextRequestEffortConnection || session.connection
+    const profile = routeConnection.provider === 'api'
+      ? connectionProfile(routeConnection, this.modelTimeoutMs(session.connectionId))
+      : cliConnectionProfile(routeConnection)
+    const harnessEffort = nextRequestEffortConnection
+      ? (routeConnection.provider === 'api' ? profile.reasoningEffort : undefined)
+      : harnessRequestReasoningEffort(session.connection,requestEffort)
+    return {
+      current:{
+        provider:profile.provider,
+        model:selectedModel,
+        ...(harnessEffort===undefined?{}:{reasoningEffort:harnessEffort}),
+      },
+      trace:requestTraceForEffort(session.connection,selectedModel,requestEffort),
+    }
   }
 
   setWebSearchEnabled(session, enabled) {
@@ -4976,17 +5059,14 @@ export class CanvasHarnessHost {
       session.canvasTitleCandidate=''
       session.canvasTitleStreams=new Map()
     }
-    const previousModelSelection=session.modelSelection.current,previousRequestTraceConnection=session.requestTraceConnection
-    if(!steer){
-      const selectedModel=previousModelSelection.model,harnessEffort=harnessRequestReasoningEffort(session.connection,requestEffort)
-      session.modelSelection.current={
-        provider:previousModelSelection.provider,
-        model:selectedModel,
-        ...(harnessEffort===undefined?{}:{reasoningEffort:harnessEffort}),
-      }
-      session.requestTraceConnection=requestTraceForEffort(session.connection,selectedModel,requestEffort)
-    }
+    const previousModelSelection=session.modelSelection.current,previousRequestTraceConnection=session.requestTraceConnection,
+      previousRequestEffortConnection=session.requestEffortConnection
     try {
+      if(!steer){
+        const requestSelection=await this.requestModelSelection(session,requestEffort)
+        session.modelSelection.current=requestSelection.current
+        session.requestTraceConnection=requestSelection.trace
+      }
       if (steer) session.handle.agent.steer(message)
       else session.handle.agent.followup(message)
       session.continuity=''
@@ -5004,6 +5084,9 @@ export class CanvasHarnessHost {
       if(!steer){
         session.modelSelection.current=previousModelSelection
         session.requestTraceConnection=previousRequestTraceConnection
+        const changedRoute=(session.requestEffortConnection?.id||'')!==(previousRequestEffortConnection?.id||'')
+        session.requestEffortConnection=previousRequestEffortConnection
+        if(changedRoute)await this.refreshProviders().catch(refreshError=>this.logger({ type:'canvas-agent-provider-rollback-error', error:String(refreshError?.message || refreshError) }))
       }
       throw error
     }

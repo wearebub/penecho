@@ -542,7 +542,7 @@ test("PenEcho Agent request recording groups Harness steps by turn and preserves
 });
 
 test("PenEcho Agent maps full API endpoints back to pi-ai provider base URLs",async()=>{
-  const { CANVAS_AGENT_COMPACTION_THRESHOLD_RATIO, CANVAS_AGENT_CONTEXT_WINDOW, CANVAS_AGENT_REQUEST_IMAGE_MAX_PIXELS, connectionProfile } = await import("../src/server/canvas-agent/runtime.mjs");
+  const { CANVAS_AGENT_COMPACTION_THRESHOLD_RATIO, CANVAS_AGENT_CONTEXT_WINDOW, CANVAS_AGENT_REQUEST_IMAGE_MAX_PIXELS, connectionProfile, resolveCanvasAgentRequestEffort } = await import("../src/server/canvas-agent/runtime.mjs");
   const openai=connectionProfile({id:"openai",apiFormat:"openai",apiUrl:"https://gateway.test/openai/v1/chat/completions",apiModel:"model",effort:"max"},180_000),
     kimi=connectionProfile({id:"kimi",apiFormat:"openai",apiPreset:"kimi-global-api",apiUrl:"https://api.moonshot.ai/v1",apiModel:"kimi-k3",effort:"medium"}),
     kimiCoding=connectionProfile({id:"kimi-coding",apiFormat:"openai",apiPreset:"kimi-global-coding",apiUrl:"https://api.kimi.com/coding/v1",apiModel:"k3-256k",effort:"medium"}),
@@ -580,6 +580,8 @@ test("PenEcho Agent maps full API endpoints back to pi-ai provider base URLs",as
   assert.deepEqual(claude.config.models[0].compat,{forceAdaptiveThinking:true});
   assert.equal(disabled.reasoningEffort,"off");
   assert.equal(disabled.config.models[0].reasoningEfforts.off,"none");
+  assert.deepEqual(resolveCanvasAgentRequestEffort({effort:"high"},"  Provider_Native  "),{selected:"provider_native",effective:"provider_native"});
+  assert.throws(()=>resolveCanvasAgentRequestEffort({effort:"high"},"provider\nnative"),/reasoning effort is invalid/);
 });
 
 test("PenEcho Agent sends Canvas-selected reasoning effort through Harness API routes",async t=>{
@@ -608,17 +610,25 @@ test("PenEcho Agent sends Canvas-selected reasoning effort through Harness API r
     return new Response(`${chunks.map(value=>`data: ${JSON.stringify(value)}\n\n`).join("")}data: [DONE]\n\n`,{status:200,headers:{"content-type":"text/event-stream"}});
   };
   t.after(()=>{globalThis.fetch=originalFetch});
+  let qwenSession,qwenMessages;
   for(const connection of connections){
     const messages=[],session=await host.connect({clientId:`client-${connection.id}`,connectionId:connection.id,binding:{},send:(type,payload)=>messages.push({type,payload})});
+    if(connection.id==="qwen"){qwenSession=session;qwenMessages=messages;}
     host.updateState(session,{revision:1,canvas:{width:2048,height:2048},objects:[]});
     await host.submit(session,"Reply OK.",false,[],{},null,[],false,connection.id==="qwen"?"max":"config");
     await waitFor(()=>messages.some(message=>message.type==="session_event"&&message.payload.kind==="turn_end"),5000);
   }
-  assert.equal(requests.length,5);
-  const qwenRequest=requests.find(request=>request.body.model==="qwen3.8"),
+  await host.submit(qwenSession,"Reply OK again.",false,[],{},null,[],false," Provider_Native ");
+  await waitFor(()=>qwenMessages.filter(message=>message.type==="session_event"&&message.payload.kind==="turn_end").length===2,5000);
+  await host.submit(qwenSession,"Reply OK once more.",false,[],{},null,[],false,"low");
+  await waitFor(()=>qwenMessages.filter(message=>message.type==="session_event"&&message.payload.kind==="turn_end").length===3,5000);
+  assert.equal(requests.length,7);
+  const qwenRequests=requests.filter(request=>request.body.model==="qwen3.8"),qwenRequest=qwenRequests[0],
     kimiRequest=requests.find(request=>request.body.model==="kimi-k3"),
     kimiCodingRequest=requests.find(request=>request.body.model==="k3-256k");
   assert.equal(qwenRequest.body.reasoning_effort,"max");
+  assert.equal(qwenRequests[1].body.reasoning_effort,"provider_native");
+  assert.equal(qwenRequests[2].body.reasoning_effort,"low");
   assert.equal(qwenRequest.body.messages[0].role,"developer");
   assert.equal(kimiRequest.body.reasoning_effort,"high");
   assert.equal(kimiRequest.body.messages[0].role,"system");
@@ -628,6 +638,26 @@ test("PenEcho Agent sends Canvas-selected reasoning effort through Harness API r
   assert.equal(kimiCodingRequest.body.messages.some(message=>message.role==="developer"),false);
   assert.equal(requests.find(request=>request.body.model==="gpt-5.6-sol").body.reasoning_effort,"none");
   assert.equal(requests.find(request=>request.body.model==="custom-model").body.reasoning_effort,"Provider_Native");
+});
+
+test("PenEcho Agent sends a custom Canvas reasoning value through Harness CLI routes",async t=>{
+  const stateDirectory=fs.mkdtempSync(path.join(os.tmpdir(),"penecho-canvas-agent-cli-reasoning-test-"));
+  t.after(()=>fs.rmSync(stateDirectory,{recursive:true,force:true}));
+  const {CanvasHarnessHost}=await import("../src/server/canvas-agent/runtime.mjs"),calls=[],messages=[],
+    connection={id:"custom-cli",provider:"kimi-cli",name:"Custom CLI",cliPath:"kimi-test",cliModel:"k3",effort:"medium"},
+    host=new CanvasHarnessHost({
+      stateDirectory,rootDirectory:ROOT,
+      resolveConnection:id=>id===connection.id?connection:null,
+      listConnections:()=>[connection],
+      callCli:async request=>{calls.push(request);return JSON.stringify({type:"final",text:"OK"});},
+    });
+  t.after(()=>host.dispose());
+  const session=await host.connect({clientId:"custom-cli-client",connectionId:connection.id,binding:{},send:(type,payload)=>messages.push({type,payload})});
+  host.updateState(session,{revision:1,canvas:{width:2048,height:2048},objects:[]});
+  await host.submit(session,"Reply OK.",false,[],{},null,[],false," Provider_Native ");
+  await waitFor(()=>messages.some(message=>message.type==="session_event"&&message.payload.kind==="turn_end"),5000);
+  assert.equal(calls.length,1);
+  assert.equal(calls[0].connection.effort,"provider_native");
 });
 
 test("PenEcho Agent exposes Tavily only when configured and executes it server-side when enabled",async t=>{
@@ -1943,6 +1973,44 @@ test("PenEcho Agent sends an authoritative empty digest without an image and cre
   assert.equal(session.visualExplorerBudget.authoritativeEmptyRevision,0);
   assert.equal(traceEvents.some(entry=>entry.phase==="asset"&&entry.asset?.callId==="initial-state"),false);
   assert.equal(messages.some(message=>message.type==="session_event"&&message.payload.kind==="assistant_message"&&message.payload.text==="Created and reviewed the Visual Explorer."),true);
+});
+
+test("PenEcho Agent auto-corrects whole-Canvas detail captures and tells the model",async t=>{
+  const stateDirectory=fs.mkdtempSync(path.join(os.tmpdir(),"penecho-canvas-agent-capture-quality-test-"));
+  t.after(()=>fs.rmSync(stateDirectory,{recursive:true,force:true}));
+  const {CanvasHarnessHost}=await import("../src/server/canvas-agent/runtime.mjs"),calls=[],messages=[],browserCalls=[],
+    connection={id:"capture-quality-cli",provider:"codex-cli",name:"Capture Quality CLI",cliPath:"codex-test",cliModel:"gpt-test",effort:"medium"},
+    pixel="iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=",
+    script=[
+      {type:"tool_call",name:"canvas_capture",arguments:{target:"canvas",quality:"detail",coordinates:"none",deliverToUser:false}},
+      {type:"final",text:"Capture quality corrected."},
+    ],host=new CanvasHarnessHost({
+      stateDirectory,rootDirectory:ROOT,resolveConnection:id=>id===connection.id?connection:null,listConnections:()=>[connection],
+      callCli:async request=>{calls.push(request);return JSON.stringify(script.shift());},
+    });
+  t.after(()=>host.dispose());
+  let session;
+  const send=(type,payload)=>{
+    messages.push({type,payload});
+    if(type!=="tool_request")return;
+    browserCalls.push(payload.arguments);
+    queueMicrotask(()=>host.resolveToolResult(session,{requestId:payload.requestId,ok:true,result:{
+      dataUrl:`data:image/png;base64,${pixel}`,mediaType:"image/png",width:1,height:1,quality:payload.arguments.quality,coordinates:payload.arguments.coordinates,
+      revision:1,viewRevision:1,logicalRegion:{x:0,y:0,width:100,height:100},mapping:{},sampling:{},coordinateGrid:{rendered:false},
+    }}));
+  };
+  session=await host.connect({clientId:"capture-quality-client",connectionId:connection.id,binding:{},send});
+  host.updateState(session,{revision:1,viewRevision:1,canvas:{width:20000,height:20000},objects:[]});
+  await host.submit(session,"Capture the Canvas in detail.");
+  await waitFor(()=>messages.some(message=>message.type==="session_event"&&message.payload.kind==="turn_end"),4000);
+  assert.deepEqual(browserCalls,[{target:"canvas",quality:"basic",coordinates:"none",deliverToUser:false}]);
+  assert.equal(messages.some(message=>message.type==="session_event"&&message.payload.kind==="tool_result"&&message.payload.error),false);
+  const conversation=JSON.parse(calls[1].prompt).conversation,toolMessage=conversation.find(message=>message.source==="tool"),
+    toolResult=toolMessage.content.find(block=>block.type==="tool_result"),result=JSON.parse(toolResult.content.find(block=>block.type==="text").text);
+  assert.equal(result.quality,"basic");
+  assert.equal(result.notice,'quality was automatically corrected to "basic". "detail" is only for one Widget or a tight region.');
+  const runtime=read("src/server/canvas-agent/runtime.mjs");
+  assert.match(runtime,/target="canvas" always uses quality="basic"; quality="detail" is only for one Widget or tight region/);
 });
 
 test("PenEcho Agent caches five captures without rewriting Harness image history",async t=>{

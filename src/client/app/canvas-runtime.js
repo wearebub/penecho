@@ -3679,11 +3679,14 @@
     triggerWidgetRefineClickPulse(confirmation.widgetId);
     return requestWidgetRefinement(confirmation.widget, confirmation.instructionMode);
   }
-  async function copyWidgetSource(widget) {
+  async function copyWidgetSource(widget, button = null) {
     const source = widgetCopySource(widget);
     if (!source) return false;
+    const generation = button ? (button._copyGeneration || 0) + 1 : 0;
+    if (button) button._copyGeneration = generation;
     const copied = await writeClipboardText(source);
     setStatusKey(copied ? "widgetSourceCopied" : "widgetSourceCopyFailed");
+    if (button && button._copyGeneration === generation) setWidgetCopyButtonState(button, copied);
     return copied;
   }
   async function copyPlotExpression(item) {
@@ -3761,6 +3764,7 @@
     });
     return true;
   }
+  const WIDGET_COPY_ICON_FEEDBACK_MS = 2000;
   const OBJECT_CHROME_ICONS = Object.freeze({
     move:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 9V3M9 6l3-3 3 3M12 15v6M9 18l3 3 3-3M9 12H3M6 9l-3 3 3 3M15 12h6M18 9l3 3-3 3"/></svg>',
     accept:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12.5 4.2 4.2L19 7"/></svg>',
@@ -3772,6 +3776,21 @@
     share:'<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="18" cy="5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="19" r="2.5"/><path d="m8.2 10.8 7.6-4.5M8.2 13.2l7.6 4.5"/></svg>',
     download:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M5 15v5h14v-5"/></svg>',
   });
+  function setWidgetCopyButtonState(button, copied = false) {
+    if (!button) return;
+    clearTimeout(button._copyIconResetTimer);
+    button._copyIconResetTimer = 0;
+    if (copied) button.dataset.copyState = "copied";
+    else delete button.dataset.copyState;
+    button.innerHTML = OBJECT_CHROME_ICONS[copied ? "accept" : "copy"];
+    button.setAttribute("aria-label", copied ? t("widgetSourceCopied") : objectChromeLabel("copy", button.penechoSpec));
+    if (!copied) return;
+    button._copyIconResetTimer = setTimeout(() => {
+      button._copyIconResetTimer = 0;
+      if (!button.isConnected || button.dataset.copyState !== "copied") return;
+      setWidgetCopyButtonState(button, false);
+    }, WIDGET_COPY_ICON_FEEDBACK_MS);
+  }
   function screenObjectBox(box) {
     return {
       left:state.panX + box.x * state.scale,
@@ -3791,7 +3810,7 @@
       label:copyLabel,
       baseWidth:28,
       iconOnly:true,
-      activate:() => void copyWidgetSource(widget),
+      activate:(button) => void copyWidgetSource(widget, button),
     });
     if (options.refine && state.widgetRefineConfirmation?.widgetId !== widget.id) items.push({
       key:`widget:${widget.id}:tool-refine`,
@@ -4063,7 +4082,7 @@
       yes.className = "widget-refine-confirmation-button confirm";
       no.className = "widget-refine-confirmation-button cancel";
       yes.type = no.type = "button";
-      peButton(yes, "primary", "compact");
+      peButton(yes, "secondary", "compact");
       peButton(no, "secondary", "compact");
       yes.innerHTML = OBJECT_CHROME_ICONS.accept;
       no.innerHTML = OBJECT_CHROME_ICONS.cancel;
@@ -4426,6 +4445,7 @@
       }
       active.add(spec.key);
       const label = objectChromeLabel(spec.kind, spec),
+        copyConfirmed = spec.kind === "copy" && button.dataset.copyState === "copied",
         declaration = (button.penechoStyleRule || ensureObjectChromeStyleRule(button))?.["style"];
       button.penechoSpec = spec;
       if (spec.objectToolbar || spec.standaloneDraftControl) {
@@ -4449,7 +4469,7 @@
       button.classList.toggle("refine-hovered", Boolean(spec.refineCandidate && widgetRefineHintHovered(spec.refineCandidate)));
       if (spec.widgetToolGroup) button.dataset.widgetToolGroup = spec.widgetToolGroup;
       else delete button.dataset.widgetToolGroup;
-      button.setAttribute("aria-label", label);
+      button.setAttribute("aria-label", copyConfirmed ? t("widgetSourceCopied") : label);
       button.disabled = Boolean(spec.busy);
       if (spec.kind === "favorite") button.setAttribute("aria-pressed", String(Boolean(spec.pressed)));
       else button.removeAttribute("aria-pressed");
@@ -4487,6 +4507,8 @@
         removedHoveredRefineButton = true;
       }
       removeObjectChromeStyleRule(button);
+      button._copyGeneration = (button._copyGeneration || 0) + 1;
+      clearTimeout(button._copyIconResetTimer);
       button.remove();
       objectChromeButtons.delete(key);
     }

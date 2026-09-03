@@ -1035,6 +1035,10 @@ test("page reasoning effort maps to OpenAI and Anthropic request fields", { time
     const maxRequest=JSON.parse(openai.requests[1]);
     assert.equal(maxRequest.reasoning_effort,"max");
     assert.equal(Object.hasOwn(maxRequest,"temperature"),false);
+    const customPayload=validPayload();customPayload.reasoningEffort="Provider_Native";
+    const customResponse=await fetch(`${openaiServer.origin}/api/ai/command`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(customPayload)});
+    assert.equal(customResponse.status,200);
+    assert.equal(JSON.parse(openai.requests[2]).reasoning_effort,"provider_native");
   } finally { await stopServer(openaiServer.child); await new Promise(resolve=>openai.server.close(resolve)); }
 
   const kimi=await startApiServer(),kimiServer=await startServer(apiServerEnv(kimi.origin,{AI_API_MODEL:"k3"}));
@@ -3059,7 +3063,7 @@ test("debug persistence redacts recognized and generated text", { timeout: 20000
     const malformedResponse = await fetch(`${origin}/api/ai/command`, { method: "POST", headers: { "Content-Type": "application/json", Origin: origin, Cookie: cookie }, body: JSON.stringify(malformed) });
     assert.equal(malformedResponse.status, 400);
     const invalidEffort = validPayload();
-    invalidEffort.reasoningEffort = marker;
+    invalidEffort.reasoningEffort = `${marker}\ninvalid`;
     const invalidEffortResponse = await fetch(`${origin}/api/ai/command`, { method: "POST", headers: { "Content-Type": "application/json", Origin: origin, Cookie: cookie }, body: JSON.stringify(invalidEffort) });
     assert.equal(invalidEffortResponse.status, 400);
     const extra = validPayload(), nested = { value: marker };

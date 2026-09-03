@@ -232,9 +232,7 @@
     kimi:Object.freeze(["k3", "kimi-k3"]),
     minimax:Object.freeze(["MiniMax-M3", "MiniMax-M2.7"]),
   });
-  const EFFORT_LEVELS = ["none", "low", "medium", "high", "max"],
-    EFFORT_OPTIONS = ["config", ...EFFORT_LEVELS],
-    AI_FONT_STORAGE_KEY = "penecho-ai-font",
+  const AI_FONT_STORAGE_KEY = "penecho-ai-font",
     AI_FONT_HANDWRITTEN = "Bradley Hand, Segoe Print, Comic Sans MS, cursive",
     AI_FONT_HANDWRITTEN_LEGACY = "Segoe Print, Comic Sans MS, cursive",
     AI_FONT_OPTIONS = new Set([
@@ -257,7 +255,13 @@
     AI_TEXT_MAX_LENGTH = 1000,
     COPY_STATUS_MS = 1600,
     NAVIGATION_HINT_VISIBLE_MS = 10000,
+    CANVAS_CHROME_MATERIAL_RESTORE_MS = 3000,
     ANIMATION_CONTROLS_VISIBLE_MS = 10000;
+  function normalizeToolbarReasoningEffort(value) {
+    if (typeof value !== "string") return "";
+    const effort = value.trim().toLowerCase();
+    return effort && effort.length <= 128 && !/[\r\n\0]/.test(effort) ? effort : "";
+  }
   const MAX_SHARP_OVERLAY_PIXELS = 8000000,
     MAX_SHARP_OVERLAY_ITEM_PIXELS = 2500000,
     MAX_VISIBLE_ANIMATIONS = 100,
@@ -389,6 +393,9 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       aiFont: "AI font",
       reasoningEffort: "Reasoning effort",
       reasoningEffortDisplay: "Reasoning ({level})",
+      effortCustom: "Custom reasoning effort",
+      effortCustomPlaceholder: "Custom value",
+      effortApplyCustom: "Use custom reasoning effort",
       effortConfigured: "Configured",
       effortConfiguredShort: "Conf",
       effortNone: "None",
@@ -1308,6 +1315,11 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       canvasAgentCopyResponse: "Copy response",
       canvasAgentResponseCopied: "Copied",
       canvasAgentResponseCopyFailed: "Copy failed",
+      canvasAgentRateResponse: "Rate response",
+      canvasAgentLikeResponse: "Helpful",
+      canvasAgentCriticizeResponse: "Needs improvement",
+      canvasAgentRetryResponse: "Retry response",
+      canvasAgentRetryMessage: "Retry response",
       canvasAgentCodeBlock: "Code",
       canvasAgentTextBlock: "Text",
       pluginManagerTitle: "Plugin manager",
@@ -1512,8 +1524,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     storedAiFont = localStorage.getItem(AI_FONT_STORAGE_KEY),
     storedSnapshotLocation = localStorage.getItem("penecho-snapshot-location"),
     storedEraserMode = localStorage.getItem(ERASER_MODE_STORAGE_KEY),
-    storedAiEffortText = String(localStorage.getItem("penecho-ai-effort") || "").trim().toLowerCase(),
-    storedAiEffort = storedAiEffortText === "xhigh" ? "max" : storedAiEffortText,
+    storedAiEffort = normalizeToolbarReasoningEffort(localStorage.getItem("penecho-ai-effort")),
     storedAutoDelay = storedAutoDelayText === null ? NaN : Number(storedAutoDelayText),
     initialLanguage = TOUR.resolveInitialLanguage(storedPrimaryLanguage, storedLegacyLanguage),
     initialTheme = normalizeTheme(storedTheme),
@@ -1522,7 +1533,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     initialGrid = storedGrid === null ? true : storedGrid === "true",
     configuredAutoDelay = Number(window.PENECHO_CONFIG?.autoAiDelayMs),
     configuredAiTimeout = Number(window.PENECHO_CONFIG?.aiRequestTimeoutMs),
-    configuredAiEffort = String(window.PENECHO_CONFIG?.aiEffort || "").trim().toLowerCase(),
+    configuredAiEffort = normalizeToolbarReasoningEffort(window.PENECHO_CONFIG?.aiEffort),
     configuredCanvasAgentAutoOpen = typeof window.PENECHO_CONFIG?.canvasAgentAutoOpen === "boolean" ? window.PENECHO_CONFIG.canvasAgentAutoOpen : null,
     configuredAccessSession = String(window.PENECHO_CONFIG?.accessSessionToken || sessionStorage.getItem("penecho-access-session") || ""),
     serverAutoDelay = Number.isFinite(configuredAutoDelay) && configuredAutoDelay >= 0 ? configuredAutoDelay : DEFAULT_AUTO_DELAY,
@@ -1541,7 +1552,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     initialSnapshotLocation = window.PENECHO_CONFIG?.runtime === "viewer"
       ? "device"
       : ["device", "server", "cloud"].includes(storedSnapshotLocation) ? storedSnapshotLocation : "device",
-    initialAiEffort = EFFORT_OPTIONS.includes(storedAiEffort) ? storedAiEffort : EFFORT_OPTIONS.includes(configuredAiEffort) ? configuredAiEffort : "config",
+    initialAiEffort = storedAiEffort || configuredAiEffort || "config",
     initialAiTimeout = Number.isFinite(configuredAiTimeout) && configuredAiTimeout >= 10000 ? configuredAiTimeout : DEFAULT_AI_TIMEOUT;
   function canvasClientId() {
     const bytes = crypto.getRandomValues(new Uint8Array(16));
@@ -1733,6 +1744,10 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       gridVisible: initialGrid,
       paint: { paper: "#ead9ad", paperGrid: "#c8ae7155", outside: "#090814", border: "#7f693b" },
       navigationTimer: 0,
+      navigationDeadline: 0,
+      canvasChromeMaterialTimer: 0,
+      canvasChromeMaterialDeadline: 0,
+      canvasChromeMaterialActive: false,
       aiOrbIdleTimer: 0,
       statusKey: "ready",
       aiProgressEvent: null,
@@ -3247,15 +3262,16 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     positionToolbarPopover('[data-color-control="ai"]', "#aiColorPopover", { align:"center", gap:6 });
   }
   function updateEffortControl() {
-    if (!EFFORT_OPTIONS.includes(state.reasoningEffort)) state.reasoningEffort = "config";
+    state.reasoningEffort = normalizeToolbarReasoningEffort(state.reasoningEffort) || "config";
     const control = document.querySelector("#effortControl"),
       button = document.querySelector("#aiEffortButton"),
       label = document.querySelector("#aiEffortLabel"),
       fullLabel = label.querySelector(".effort-label-full"),
       shortLabel = label.querySelector(".effort-label-short"),
-      levelKey = { config:"effortConfigured", none:"effortNone", low:"effortLow", medium:"effortMedium", high:"effortHigh", max:"effortMaximum" }[state.reasoningEffort] || "effortConfigured",
-      level = t({ config:"effortConfiguredShort", medium:"effortMediumShort" }[state.reasoningEffort] || levelKey),
-      shortLevel = t({ config:"effortConfiguredShort", medium:"effortMediumShort" }[state.reasoningEffort] || levelKey),
+      customInput = document.querySelector("#aiEffortCustomInput"),
+      levelKey = { config:"effortConfigured", none:"effortNone", low:"effortLow", medium:"effortMedium", high:"effortHigh", max:"effortMaximum" }[state.reasoningEffort],
+      level = levelKey ? t({ config:"effortConfiguredShort", medium:"effortMediumShort" }[state.reasoningEffort] || levelKey) : state.reasoningEffort,
+      shortLevel = levelKey ? t({ config:"effortConfiguredShort", medium:"effortMediumShort" }[state.reasoningEffort] || levelKey) : state.reasoningEffort,
       text = t("reasoningEffortDisplay").replace("{level}", level);
     fullLabel.textContent = text;
     shortLabel.textContent = shortLevel;
@@ -3263,6 +3279,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     button.setAttribute("title", text);
     button.setAttribute("aria-expanded", String(!document.querySelector("#effortPopover").hidden));
     control.dataset.effort = state.reasoningEffort;
+    if (customInput && document.activeElement !== customInput) customInput.value = levelKey ? "" : state.reasoningEffort;
     document.querySelectorAll("#effortOptions .effort-option").forEach((option) => {
       const optionKey = { config:"effortConfigured", none:"effortNone", low:"effortLow", medium:"effortMedium", high:"effortHigh", max:"effortMaximum" }[option.dataset.effort] || "effortConfigured";
       option.querySelector("[data-effort-label]").textContent = t(optionKey);
@@ -3293,6 +3310,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     state.effortPopoverTimer = 0;
     document.querySelector("#effortPopover").hidden = true;
     document.querySelector("#aiEffortButton").setAttribute("aria-expanded", "false");
+    document.querySelector("#aiEffortCustomInput")?.setAttribute("aria-expanded", "false");
   }
   function keepEffortControlOpen() {
     clearTimeout(state.effortPopoverTimer);
@@ -3301,6 +3319,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   function showEffortControl() {
     document.querySelector("#effortPopover").hidden = false;
     document.querySelector("#aiEffortButton").setAttribute("aria-expanded", "true");
+    document.querySelector("#aiEffortCustomInput")?.setAttribute("aria-expanded", "true");
     updateEffortControl();
     positionToolbarPopover("#effortControl", "#effortPopover");
     requestAnimationFrame(positionOpenToolbarPopovers);
@@ -4110,10 +4129,13 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     return true;
   }
   function setEffort(value) {
-    state.reasoningEffort = EFFORT_OPTIONS.includes(value) ? value : "config";
+    const effort = normalizeToolbarReasoningEffort(value);
+    if (!effort) return false;
+    state.reasoningEffort = effort;
     localStorage.setItem("penecho-ai-effort", state.reasoningEffort);
     updateEffortControl();
     hideEffortControl();
+    return true;
   }
   function setAutoEnabled(enabled, showDelay = false) {
     state.auto = enabled;
@@ -4261,14 +4283,44 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     }
     updateEmbodimentLabel();
   }
+  function noteCanvasChromeInteraction(now = performance.now()) {
+    state.canvasChromeMaterialDeadline = now + CANVAS_CHROME_MATERIAL_RESTORE_MS;
+    if (!state.canvasChromeMaterialActive) {
+      state.canvasChromeMaterialActive = true;
+      view.classList.add("canvas-chrome-lightweight");
+    }
+    if (state.canvasChromeMaterialTimer) return;
+    const restore = () => {
+      const remaining = state.canvasChromeMaterialDeadline - performance.now();
+      if (remaining > 16) {
+        state.canvasChromeMaterialTimer = setTimeout(restore, remaining);
+        return;
+      }
+      state.canvasChromeMaterialTimer = 0;
+      state.canvasChromeMaterialDeadline = 0;
+      state.canvasChromeMaterialActive = false;
+      view.classList.remove("canvas-chrome-lightweight");
+    };
+    state.canvasChromeMaterialTimer = setTimeout(restore, CANVAS_CHROME_MATERIAL_RESTORE_MS);
+  }
   function setNavigating(value) {
-    clearTimeout(state.navigationTimer);
+    const now = performance.now();
+    noteCanvasChromeInteraction(now);
+    state.navigationDeadline = now + NAVIGATION_HINT_VISIBLE_MS;
     if (value) view.classList.add("is-navigating");
     if (!view.classList.contains("is-navigating")) return;
-    state.navigationTimer = setTimeout(() => {
+    if (state.navigationTimer) return;
+    const hide = () => {
+      const remaining = state.navigationDeadline - performance.now();
+      if (remaining > 16) {
+        state.navigationTimer = setTimeout(hide, remaining);
+        return;
+      }
       state.navigationTimer = 0;
+      state.navigationDeadline = 0;
       view.classList.remove("is-navigating");
-    }, NAVIGATION_HINT_VISIBLE_MS);
+    };
+    state.navigationTimer = setTimeout(hide, NAVIGATION_HINT_VISIBLE_MS);
   }
   function wheelNavigating() {
     setNavigating(true);

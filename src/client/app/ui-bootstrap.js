@@ -177,6 +177,7 @@
       erase: erasing,
       dirtyMaskTouched:erasing ? new Set() : null,
     };
+    noteCanvasChromeInteraction();
     view.classList.add("is-drawing");
     updateCanvasPointerPreview(e, p);
     appendLiveInkSample(state.drawing, p, size);
@@ -1062,6 +1063,33 @@
     if (document.querySelector("#effortPopover").hidden) showEffortControl();
     else hideEffortControl();
   };
+  document.querySelector("#effortCustomForm").onsubmit = (event) => {
+    event.preventDefault();
+    const input = document.querySelector("#aiEffortCustomInput");
+    if (setEffort(input.value)) document.querySelector("#aiEffortButton").focus({ preventScroll:true });
+  };
+  document.querySelector("#aiEffortCustomInput").addEventListener("input", (event) => {
+    const input = event.currentTarget, start = input.selectionStart, end = input.selectionEnd,
+      normalized = input.value.toLowerCase();
+    if (normalized !== input.value) {
+      input.value = normalized;
+      if (start !== null && end !== null) input.setSelectionRange(start, end);
+    }
+    keepEffortControlOpen();
+  });
+  document.querySelector("#aiEffortCustomInput").addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      hideEffortControl();
+      document.querySelector("#aiEffortButton").focus({ preventScroll:true });
+      return;
+    }
+    if (event.key !== "ArrowDown") return;
+    event.preventDefault();
+    const options = [...document.querySelectorAll("#effortOptions .effort-option")], selected = options.find(option => option.getAttribute("aria-selected") === "true");
+    (selected || options[0])?.focus({ preventScroll:true });
+  });
   pluginButton.onclick = () => {
     if (pluginPopover.hidden) {
       closeSettings(false);
@@ -1154,9 +1182,17 @@
     focusable[next].focus();
   });
   document.querySelectorAll("#effortOptions .effort-option").forEach((option) => {
-    option.onclick = () => setEffort(option.dataset.effort);
+    option.onclick = () => {
+      setEffort(option.dataset.effort);
+      document.querySelector("#aiEffortButton").focus({ preventScroll:true });
+    };
   });
   document.querySelector("#effortPopover").addEventListener("pointerdown", keepEffortControlOpen);
+  document.querySelector("#effortPopover").addEventListener("focusin", () => {
+    clearTimeout(state.effortPopoverTimer);
+    state.effortPopoverTimer = 0;
+  });
+  document.querySelector("#effortPopover").addEventListener("focusout", keepEffortControlOpen);
   document.querySelector("#autoDelayPopover").addEventListener("pointerdown", keepAutoDelayControlOpen);
   document.querySelector(".toolbar").addEventListener("scroll", positionOpenToolbarPopovers, { passive:true });
   window.addEventListener("resize", positionOpenToolbarPopovers);

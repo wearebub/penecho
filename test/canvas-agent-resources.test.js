@@ -473,7 +473,7 @@ test("single-file conversation history stays in private state storage, is bounde
   const resource = await store.add(sourceFile, { kind:"file", origin:"native" });
   const conversations=Array.from({ length:7 }, (_, index) => conversation(index + 1));
   conversations.at(-1).items.push(
-    {id:"assistant-7",type:"message",role:"assistant",text:"Done",attachmentCount:0,eventKey:"7:2:final",turn:7,step:2},
+    {id:"assistant-7",type:"message",role:"assistant",text:"Done",attachmentCount:0,eventKey:"7:2:final",turn:7,step:2,evaluation:"like",evaluationModel:"gpt-5.6-sol",evaluationChannel:"codex-cli"},
     {id:"tool-7",type:"tool",callId:"call-7",name:"canvas_read",argumentsText:"{}",resultText:"Done",state:"done",turn:7,step:1},
   );
   const written = await store.writeHistory(resource.id, { conversations });
@@ -483,6 +483,9 @@ test("single-file conversation history stays in private state storage, is bounde
   assert.deepEqual(written[0].items.slice(1).map(item=>({type:item.type,turn:item.turn,step:item.step})),[
     {type:"message",turn:7,step:2},{type:"tool",turn:7,step:1},
   ],"message ordering coordinates survive private history persistence");
+  assert.deepEqual(written[0].items[1],{
+    id:"assistant-7",type:"message",role:"assistant",text:"Done",attachmentCount:0,eventKey:"7:2:final",turn:7,step:2,evaluation:"like",evaluationModel:"gpt-5.6-sol",evaluationChannel:"codex-cli",
+  },"content-free response evaluation metadata survives private history persistence");
 
   const historyDirectory = path.join(stateDirectory, "canvas-agent-file-history", resource.id);
   const historyFile = path.join(historyDirectory, "canvas-agent-history.json");

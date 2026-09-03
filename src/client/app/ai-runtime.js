@@ -2879,6 +2879,7 @@
     const d = state.drawing;
     commitLiveInkDrawing(d);
     state.drawing = null;
+    noteCanvasChromeInteraction();
     requestAnimationFrame(() => {
       if (!state.drawing) view.classList.remove("is-drawing");
     });

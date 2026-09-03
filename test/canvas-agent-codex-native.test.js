@@ -247,6 +247,21 @@ test("Codex Native extracts an optional Canvas title from the same completed res
   assert.equal(laterEvents.some(event=>String(event.text||"").includes("penecho_canvas_title")),false);
   assert.equal(laterEvents.find(event=>event.kind==="assistant_message")?.text,"后续回答");
   assert.equal(laterEvents.find(event=>event.kind==="turn_end")?.canvasTitle,undefined);
+  const customTurnId="custom-reasoning-turn";
+  process.requestHandler=async(method)=>{
+    if(method!=="turn/start")return {};
+    setImmediate(()=>{
+      process.emitNotification("turn/started",{threadId:process.threadId,turn:{id:customTurnId}});
+      process.emitNotification("item/agentMessage/delta",{threadId:process.threadId,turnId:customTurnId,delta:"自定义完成"});
+      process.emitNotification("item/completed",{threadId:process.threadId,turnId:customTurnId,item:{type:"agentMessage",text:"自定义完成"}});
+      process.emitNotification("rawResponse/completed",{threadId:process.threadId,turnId:customTurnId,responseId:"custom-reasoning-response",usage:null});
+      process.emitNotification("turn/completed",{threadId:process.threadId,turn:{id:customTurnId,status:"completed",items:[{type:"agentMessage",text:"自定义完成"}]}});
+    });
+    return {turn:{id:customTurnId}};
+  };
+  const customResult=await harness.host.submit(session,"使用自定义推理强度",false,[],{},null,[],false," Provider_Native "),customTurnRequest=process.requests.filter(request=>request.method==="turn/start").at(-1);
+  assert.equal(customResult.output,"自定义完成");
+  assert.equal(customTurnRequest.params.effort,"provider_native");
 });
 
 test("Codex Native connects lazily, starts one strict app-server thread, and reuses it", async t => {
@@ -844,7 +859,7 @@ test("Codex Native interrupts the upstream turn after a terminal shared Canvas t
   assert.equal(harness.host.sessions.has(session.id),true);
 });
 
- test("Codex Native treats raw item.id and call_id as aliases without allowing double execution",async t=>{
+test("Codex Native treats raw item.id and call_id as aliases without allowing double execution",async t=>{
   const harness=await createNativeHarness();
   t.after(()=>harness.cleanup());
   const session=await harness.connect(),process=harness.processes[0];
@@ -878,6 +893,25 @@ test("Codex Native interrupts the upstream turn after a terminal shared Canvas t
   assert.equal(process.responses[0].result.success,true);
   assert.equal(process.responseErrors.length,1);
   assert.match(process.responseErrors[0].error.message,/already admitted raw model response item/);
+});
+
+test("Codex Native auto-corrects whole-Canvas detail capture before browser execution",async t=>{
+  const harness=await createNativeHarness();
+  t.after(()=>harness.cleanup());
+  const session=await harness.connect(),tool=session.native.tool("canvas_capture"),
+    pixel="iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=";
+  harness.host.updateState(session,{revision:1,viewRevision:1,canvas:{width:20000,height:20000},objects:[]});
+  const execution=tool.execute({target:"canvas",quality:"detail",coordinates:"none",deliverToUser:false},{callId:"native-capture-quality",signal:new AbortController().signal});
+  await waitFor(()=>harness.messages.some(message=>message.type==="tool_request"));
+  const request=harness.messages.find(message=>message.type==="tool_request");
+  assert.deepEqual(request.payload.arguments,{target:"canvas",quality:"basic",coordinates:"none",deliverToUser:false});
+  harness.host.resolveToolResult(session,{requestId:request.payload.requestId,ok:true,result:{
+    dataUrl:`data:image/png;base64,${pixel}`,mediaType:"image/png",width:1,height:1,quality:"basic",coordinates:"none",
+    revision:1,viewRevision:1,logicalRegion:{x:0,y:0,width:100,height:100},mapping:{},sampling:{},coordinateGrid:{rendered:false},
+  }});
+  const result=await execution,rendered=JSON.parse(tool.output.render({},result).find(block=>block.type==="text").text);
+  assert.equal(result.quality,"basic");
+  assert.equal(rendered.notice,'quality was automatically corrected to "basic". "detail" is only for one Widget or a tight region.');
 });
 
 test("Codex Native matches Code Mode exec wrappers to dynamic tools despite independent ids and event order",async t=>{
@@ -1129,7 +1163,39 @@ test("Codex Native rejects duplicate dynamic tool call ids before a mutation can
   assert.match(process.responseErrors[0].error.message,/already used/);
 });
 
-test("Codex Native process crashes fail closed and remove the session mapping and runtime directory", async t => {
+test("Codex Native rejects an unsupported custom effort without closing the logical session", async t => {
+  const harness=await createNativeHarness();
+  t.after(()=>harness.cleanup());
+  const session=await harness.connect(),process=harness.processes[0];
+  let requestNumber=0;
+  process.requestHandler=async(method,params)=>{
+    if(method!=="turn/start")return {};
+    requestNumber+=1;
+    if(requestNumber===1)throw new Error(JSON.stringify({
+      type:"error",
+      error:{type:"invalid_request_error",message:"Invalid reasoning effort: test"},
+      status:400,
+    }));
+    const turnId="valid-effort-turn";
+    setImmediate(()=>{
+      process.emitNotification("turn/started",{threadId:process.threadId,turn:{id:turnId}});
+      process.emitNotification("item/agentMessage/delta",{threadId:process.threadId,turnId,delta:"Recovered without a new conversation."});
+      process.emitNotification("turn/completed",{threadId:process.threadId,turn:{id:turnId,status:"completed",items:[]}});
+    });
+    return{turn:{id:turnId}};
+  };
+  await assert.rejects(harness.host.submit(session,"invalid effort",false,[],{},null,[],false,"test"),/Invalid reasoning effort: test/);
+  assert.equal(process.requests.filter(request=>request.method==="turn/start")[0].params.effort,"test");
+  assert.equal(process.closedCount,0);
+  assert.equal(harness.host.sessions.has(session.id),true);
+  const recovered=await harness.host.submit(session,"valid effort",false,[],{},null,[],false,"medium");
+  assert.equal(recovered.output,"Recovered without a new conversation.");
+  assert.equal(harness.processes.length,1);
+  assert.equal(process.requests.filter(request=>request.method==="turn/start")[1].params.effort,"medium");
+  assert.equal(harness.host.sessions.has(session.id),true);
+});
+
+test("Codex Native process crashes fail the turn and rehydrate behind the same logical session", async t => {
   const harness = await createNativeHarness();
   t.after(() => harness.cleanup());
   const session = await harness.connect();
@@ -1142,11 +1208,17 @@ test("Codex Native process crashes fail closed and remove the session mapping an
   };
   await assert.rejects(harness.host.submit(session, "turn after crash", false, [], {}, null), /fake protocol exit/);
   await waitFor(() => process.closedCount > 0);
-  await waitFor(() => !fs.existsSync(runtimeDirectory));
   assert.equal(harness.messages.filter(message=>message.type==="session_event"&&message.payload.kind==="turn_end").length,1);
-  assert.equal(harness.host.sessions.size, 0);
-  assert.equal(fs.existsSync(runtimeDirectory), false);
-  await assert.rejects(harness.host.submit(session, "submit after crash", false, [], {}, null), /closed/);
+  assert.equal(harness.host.sessions.has(session.id),true);
+  assert.equal(fs.existsSync(runtimeDirectory),true);
+  const continued=harness.host.submit(session,"submit after crash",false,[],{},null);
+  await waitFor(()=>harness.processes.length===2&&Boolean(session.active?.turnId));
+  const replacement=harness.processes[1],turnId=session.active.turnId;
+  replacement.emitNotification("item/agentMessage/delta",{threadId:replacement.threadId,turnId,delta:"Recovered after process replacement."});
+  replacement.emitNotification("turn/completed",{threadId:replacement.threadId,turn:{id:turnId,status:"completed",items:[]}});
+  assert.equal((await continued).output,"Recovered after process replacement.");
+  assert.equal(harness.host.sessions.has(session.id),true);
+  assert.equal(replacement.requests.find(request=>request.method==="turn/start").params.input.some(item=>item.text?.includes("turn after crash")),true);
 });
 
 test("Codex Native turn timeout interrupts only the request and the same session continues", async t => {
@@ -1375,7 +1447,7 @@ test("Codex Native known-turn cancel settles once and preserves the process and 
   assert.deepEqual(process.requests.filter(request=>request.method==="turn/start").map(request=>request.params.threadId),["thread-1","thread-1"]);
 });
 
-test("Codex Native cancellation without a bound turn fails closed exactly once", async t => {
+test("Codex Native cancellation without a bound turn resets only the native process", async t => {
   const harness=await createNativeHarness();
   t.after(()=>harness.cleanup());
   const session=await harness.connect(),process=harness.processes[0];
@@ -1391,7 +1463,7 @@ test("Codex Native cancellation without a bound turn fails closed exactly once",
   assert.equal(endings.length,1);
   assert.equal(endings[0].payload.reason.kind,"error");
   assert.equal(process.closedCount,1);
-  assert.equal(harness.host.sessions.size,0);
+  assert.equal(harness.host.sessions.has(session.id),true);
 });
 
 test("Codex Native cancellation during app-server startup never reaches turn/start",async t=>{
@@ -1406,10 +1478,10 @@ test("Codex Native cancellation during app-server startup never reaches turn/sta
   await rejected;
   assert.equal(process.requests.some(request=>request.method==="turn/start"),false);
   assert.equal(process.closedCount,1);
-  assert.equal(harness.host.sessions.size,0);
+  assert.equal(harness.host.sessions.has(session.id),true);
 });
 
-test("Codex Native interrupt failure disposes the uncertain thread before another submit",async t=>{
+test("Codex Native interrupt failure replaces the uncertain thread before another submit",async t=>{
   const harness=await createNativeHarness();
   t.after(()=>harness.cleanup());
   const session=await harness.connect(),process=harness.processes[0];
@@ -1425,8 +1497,13 @@ test("Codex Native interrupt failure disposes the uncertain thread before anothe
   await harness.host.cancel(session);
   assert.equal((await submitted).output,"");
   assert.equal(process.closedCount,1);
-  assert.equal(harness.host.sessions.size,0);
-  await assert.rejects(harness.host.submit(session,"must not reuse",false,[],{},null),/closed/);
+  assert.equal(harness.host.sessions.has(session.id),true);
+  const continued=harness.host.submit(session,"must not reuse the failed process",false,[],{},null);
+  await waitFor(()=>harness.processes.length===2&&Boolean(session.active?.turnId));
+  const replacement=harness.processes[1],turnId=session.active.turnId;
+  replacement.emitNotification("item/agentMessage/delta",{threadId:replacement.threadId,turnId,delta:"Fresh process."});
+  replacement.emitNotification("turn/completed",{threadId:replacement.threadId,turn:{id:turnId,status:"completed",items:[]}});
+  assert.equal((await continued).output,"Fresh process.");
 });
 
 test("Codex Native observes native compaction without recording prompt content", async t => {
@@ -1471,7 +1548,7 @@ test("Codex Native fails closed when a different started turn arrives", async t 
   await waitFor(()=>process.closedCount>0);
   const endings=harness.messages.filter(message=>message.type==="session_event"&&message.payload.kind==="turn_end");
   assert.equal(endings.length,1);
-  assert.equal(harness.host.sessions.size,0);
+  assert.equal(harness.host.sessions.has(session.id),true);
 });
 
 test("Codex Native rejects stale turn-scoped native compaction attribution", async t => {
@@ -1485,7 +1562,7 @@ test("Codex Native rejects stale turn-scoped native compaction attribution", asy
   await assert.rejects(submitted,/compaction for another turn/);
   await waitFor(()=>process.closedCount>0);
   assert.equal(harness.messages.some(message=>message.type==="session_event"&&message.payload.kind==="compaction"),false);
-  assert.equal(harness.host.sessions.size,0);
+  assert.equal(harness.host.sessions.has(session.id),true);
 });
 
 test("Codex Native rejects stale turn-scoped token usage", async t => {
@@ -1503,7 +1580,7 @@ test("Codex Native rejects stale turn-scoped token usage", async t => {
   await assert.rejects(submitted,/token usage for another turn/);
   await waitFor(()=>process.closedCount>0);
   assert.equal(harness.messages.some(message=>message.type==="session_event"&&message.payload.kind==="token_usage"),false);
-  assert.equal(harness.host.sessions.size,0);
+  assert.equal(harness.host.sessions.has(session.id),true);
 });
 
 test("Codex Native rejects stale turn-scoped item notifications", async t => {
@@ -1517,7 +1594,7 @@ test("Codex Native rejects stale turn-scoped item notifications", async t => {
   await assert.rejects(submitted,/item for another turn/);
   await waitFor(()=>process.closedCount>0);
   assert.equal(harness.messages.some(message=>message.type==="session_event"&&message.payload.kind==="assistant_delta"),false);
-  assert.equal(harness.host.sessions.size,0);
+  assert.equal(harness.host.sessions.has(session.id),true);
 });
 
 test("Codex Native rejects current-turn activity without thread attribution", async t => {
@@ -1536,7 +1613,7 @@ test("Codex Native rejects current-turn activity without thread attribution", as
     process.emitNotification(notification,{turnId,...params});
     await assert.rejects(submitted,expected);
     await waitFor(()=>process.closedCount>0);
-    assert.equal(harness.host.sessions.size,0);
+    assert.equal(harness.host.sessions.has(session.id),true);
   });
 });
 
@@ -1550,10 +1627,10 @@ test("Codex Native rejects turn completion without thread attribution", async t 
   process.emitNotification("turn/completed",{turn:{id:turnId,status:"completed",items:[]}});
   await assert.rejects(submitted,/completed another turn/);
   await waitFor(()=>process.closedCount>0);
-  assert.equal(harness.host.sessions.size,0);
+  assert.equal(harness.host.sessions.has(session.id),true);
 });
 
-test("Codex Native nonretryable protocol errors fail closed for the active turn", async t => {
+test("Codex Native nonretryable turn errors fail only the active turn", async t => {
   const harness=await createNativeHarness();
   t.after(()=>harness.cleanup());
   const session=await harness.connect(),process=harness.processes[0];
@@ -1562,12 +1639,23 @@ test("Codex Native nonretryable protocol errors fail closed for the active turn"
   await waitFor(()=>session.active?.turnId==="fatal-error-turn");
   process.emitNotification("error",{threadId:process.threadId,turnId:"fatal-error-turn",willRetry:false,error:{message:"fatal protocol failure"}});
   await assert.rejects(submitted,/fatal protocol failure/);
-  await waitFor(()=>process.closedCount>0);
   assert.equal(harness.messages.filter(message=>message.type==="session_event"&&message.payload.kind==="turn_end").length,1);
-  assert.equal(harness.host.sessions.size,0);
+  assert.equal(process.closedCount,0);
+  assert.equal(harness.host.sessions.has(session.id),true);
+  process.requestHandler=async method=>{
+    if(method!=="turn/start")return{};
+    const turnId="turn-after-error";
+    setImmediate(()=>{
+      process.emitNotification("item/agentMessage/delta",{threadId:process.threadId,turnId,delta:"Continued."});
+      process.emitNotification("turn/completed",{threadId:process.threadId,turn:{id:turnId,status:"completed",items:[]}});
+    });
+    return{turn:{id:turnId}};
+  };
+  assert.equal((await harness.host.submit(session,"continue after error",false,[],{},null)).output,"Continued.");
+  assert.equal(harness.processes.length,1);
 });
 
-test("Codex Native thread closure invalidates the session thread", async t => {
+test("Codex Native thread closure invalidates only the provider thread", async t => {
   const harness=await createNativeHarness();
   t.after(()=>harness.cleanup());
   const session=await harness.connect(),process=harness.processes[0];
@@ -1577,7 +1665,8 @@ test("Codex Native thread closure invalidates the session thread", async t => {
   process.emitNotification("thread/closed",{threadId:process.threadId});
   await assert.rejects(submitted,/closed the PenEcho Agent thread/);
   await waitFor(()=>process.closedCount>0);
-  assert.equal(harness.host.sessions.size,0);
+  assert.equal(harness.host.sessions.has(session.id),true);
+  assert.equal(session.threadId,null);
 });
 
 test("Codex Native refuses non-allowlisted app-server interactions", async t => {
@@ -1748,7 +1837,7 @@ test("Codex Native returns loaded optional contracts as tool content rather than
   assert.match(skill.document, /scientific visualization|math/i);
 });
 
-test("Codex Native canonicalizes strict drawing point pairs and rejects negative coordinates", async t => {
+test("Codex Native canonicalizes strict drawing point pairs and integer strings while rejecting negative coordinates", async t => {
   const harness=await createNativeHarness();
   t.after(()=>harness.cleanup());
   const session=await harness.connect(),rpcCalls=[];
@@ -1770,6 +1859,19 @@ test("Codex Native canonicalizes strict drawing point pairs and rejects negative
     items:[{type:"drawing",drawing:{origin:[0,0],types:["smooth"],items:[[[0,0],[120,80],[240,0]]],width:5},placement:{mode:"auto"}}],
   },{callId:"drawing-smooth-point-pairs",signal:new AbortController().signal});
   assert.deepEqual(rpcCalls[1].args.items[0].drawing.items,[[0,0,120,80,240,0]]);
+  const stringDrawing={origin:[0,0],types:["line","line","line"],items:[["0","0","300","0"],["300","0","150","260"],["150","260","0","0"]],width:4};
+  await session.native.tool("canvas_create").execute({
+    baseRevision:0,
+    items:[{type:"drawing",drawing:stringDrawing,placement:{mode:"auto"}}],
+  },{callId:"drawing-integer-strings",signal:new AbortController().signal});
+  assert.deepEqual(stringDrawing,{origin:[0,0],types:["line","line","line"],items:[["0","0","300","0"],["300","0","150","260"],["150","260","0","0"]],width:4},"integer-string canonicalization must not mutate submitted arguments");
+  assert.deepEqual(rpcCalls[2].args.items[0].drawing.origin,[0,0]);
+  assert.deepEqual(rpcCalls[2].args.items[0].drawing.items,[[0,0,300,0],[300,0,150,260],[150,260,0,0]]);
+  await session.native.tool("canvas_create").execute({
+    baseRevision:0,
+    items:[{type:"drawing",drawing:{origin:[0,0],types:["line"],items:[[["0","0"],["320","0"],["160","277"]]],width:5},placement:{mode:"auto"}}],
+  },{callId:"drawing-point-pair-integer-strings",signal:new AbortController().signal});
+  assert.deepEqual(rpcCalls[3].args.items[0].drawing.items,[[0,0,320,0,160,277]]);
   await assert.rejects(
     session.native.tool("canvas_create").execute({
       baseRevision:0,
@@ -1778,6 +1880,22 @@ test("Codex Native canonicalizes strict drawing point pairs and rejects negative
     error=>error?.code==="CANVAS_DRAWING_NEGATIVE_COORDINATE"
       && error?.details?.path==="drawing.items[0][5]"
       && /must be non-negative[\s\S]*Placement does not repair/.test(error.message),
+  );
+  await assert.rejects(
+    session.native.tool("canvas_create").execute({
+      baseRevision:0,
+      items:[{type:"drawing",drawing:{origin:[0,0],types:["line"],items:[["0","0","160","-277"]],width:5},placement:{mode:"auto"}}],
+    },{callId:"drawing-negative-integer-string",signal:new AbortController().signal}),
+    error=>error?.code==="CANVAS_DRAWING_NEGATIVE_COORDINATE"
+      && error?.details?.path==="drawing.items[0][3]"
+      && error?.details?.value===-277,
+  );
+  await assert.rejects(
+    session.native.tool("canvas_create").execute({
+      baseRevision:0,
+      items:[{type:"drawing",drawing:{origin:[0,0],types:["line"],items:[["0","0","300.0","0"]],width:5},placement:{mode:"auto"}}],
+    },{callId:"drawing-noncanonical-number-string",signal:new AbortController().signal}),
+    error=>error?.code==="CANVAS_DRAWING_ITEM_INVALID",
   );
   await assert.rejects(
     session.native.tool("canvas_create").execute({
@@ -1793,7 +1911,7 @@ test("Codex Native canonicalizes strict drawing point pairs and rejects negative
     },{callId:"drawing-rect-point-pairs",signal:new AbortController().signal}),
     error=>error?.code==="CANVAS_DRAWING_POINT_PAIRS_UNSUPPORTED"&&/only for line or smooth/.test(error.message),
   );
-  assert.equal(rpcCalls.length,2,"rejected drawings must not reach the browser runtime");
+  assert.equal(rpcCalls.length,4,"rejected drawings must not reach the browser runtime");
 });
 
 test("Codex Native rejects new Professional Diagrams while preserving in-place Professional edits", async t => {

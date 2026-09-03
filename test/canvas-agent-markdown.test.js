@@ -42,6 +42,15 @@ function messageAppender(document,clipboardWrites){
     document,URL,MIXED_TEXT,canvasAgentTranscript,CANVAS_AGENT_MARKDOWN_TEXT_LIMIT:12000,CANVAS_AGENT_MARKDOWN_LINE_LIMIT:240,CANVAS_AGENT_MARKDOWN_MARKER_LIMIT:800,CANVAS_AGENT_MARKDOWN_BACKSLASH_LIMIT:256,CANVAS_AGENT_MARKDOWN_SEGMENT_LIMIT:48,CANVAS_AGENT_MARKDOWN_MATH_COUNT_LIMIT:64,CANVAS_AGENT_MARKDOWN_MATH_SOURCE_LIMIT:4000,
     t:key=>translations[key]||key,
     writeClipboardText:async value=>{clipboardWrites.push(String(value));return true;},
+    canvasAgentActionIcon:()=>document.createElementNS("http://www.w3.org/2000/svg","svg"),
+    canvasAgentSyncAssistantActionState:target=>{
+      const ready=target.historyItem.copyable===true;
+      target.copyActions.hidden=!ready;
+      target.copyButton.disabled=!ready;
+      target.feedbackButton.hidden=true;
+      target.retryButton.hidden=true;
+    },
+    canvasAgentOpenFeedbackMenu:()=>{},canvasAgentRetryAssistantMessage:async()=>false,
     setTimeout:()=>0,clearTimeout:()=>{},
   });
 }

@@ -65,6 +65,10 @@ function boundedString(value, limit) {
   return String(value || "").slice(0, limit);
 }
 
+function historyEvaluationLabel(value, limit) {
+  return boundedString(value, limit).replace(/[\0-\x1f\x7f]/g, "").trim();
+}
+
 function safeDisplayLabel(value, fallback = "Resource") {
   const label = String(value || "")
     .replace(/[\0-\x1f\x7f\u202a-\u202e\u2066-\u2069]/g, " ")
@@ -81,14 +85,19 @@ function safeRelativeDisplay(relativePath) {
 
 function normalizedHistoryItem(item) {
   if (!item || typeof item !== "object" || Array.isArray(item)) return null;
-  if (item.type === "message" && ["user", "assistant"].includes(item.role)) return {
-    id:boundedString(item.id, 128), type:"message", role:item.role,
-    text:boundedString(item.text, PROJECT_HISTORY_TEXT_LIMIT),
-    attachmentCount:Math.max(0, Math.min(5, Number(item.attachmentCount) || 0)),
-    eventKey:boundedString(item.eventKey, 128),
-    ...(Number.isSafeInteger(item.turn) ? { turn:item.turn } : {}),
-    ...(Number.isSafeInteger(item.step) ? { step:item.step } : {}),
-  };
+  if (item.type === "message" && ["user", "assistant"].includes(item.role)) {
+    const evaluationModel=historyEvaluationLabel(item.evaluationModel,200),evaluationChannel=historyEvaluationLabel(item.evaluationChannel,80);
+    return {
+      id:boundedString(item.id, 128), type:"message", role:item.role,
+      text:boundedString(item.text, PROJECT_HISTORY_TEXT_LIMIT),
+      attachmentCount:Math.max(0, Math.min(5, Number(item.attachmentCount) || 0)),
+      eventKey:boundedString(item.eventKey, 128),
+      ...(Number.isSafeInteger(item.turn) ? { turn:item.turn } : {}),
+      ...(Number.isSafeInteger(item.step) ? { step:item.step } : {}),
+      ...(item.role==="assistant"&&["like","criticism"].includes(item.evaluation)?{evaluation:item.evaluation}:{}),
+      ...(item.role==="assistant"&&evaluationModel&&evaluationChannel?{evaluationModel,evaluationChannel}:{}),
+    };
+  }
   if (item.type === "error") return {
     id:boundedString(item.id, 128), type:"error",
     code:boundedString(item.code, 128), message:boundedString(item.message, 8_000),

@@ -18,7 +18,7 @@ const DEFAULT_CLI_TIMEOUT_MS = DEFAULT_CANVAS_AGENT_IDLE_TIMEOUT_MS
 const MAX_CLI_PROMPT_CHARS = 500_000
 const MAX_CLI_DECISION_REPAIR_CHARS = 120_000
 const CLI_RETRY_POLICY = resolveRetryPolicy({ mode:'normal', maxRetries:0 }, 'penecho-cli-llm.retryPolicy')
-const CLI_REASONING_LEVELS = Object.freeze(['off', 'low', 'medium', 'high', 'xhigh', 'max'])
+const CLI_REASONING_LEVELS = Object.freeze(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'])
 
 const CLI_PROTOCOL_SYSTEM = `You are PenEcho Canvas's model backend. Harness owns the conversation and tools. Never invoke CLI built-ins (ReadMediaFile, Read, Bash, MCP, Agent, etc.); use supplied images directly.
 Return exactly one standard JSON object, without prose or fences:

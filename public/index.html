@@ -25,9 +25,6 @@
     <section class="topbar">
       <header class="top-row">
         <div class="brand">
-          <div class="sigil" aria-hidden="true">
-            <img src="penecho-mark.png" alt="">
-          </div>
           <div class="brand-copy">
             <h1><span>Pen</span><strong>Echo</strong></h1>
           </div>
@@ -101,6 +98,10 @@
               <svg class="effort-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m7 9 5 5 5-5"/></svg>
             </button>
             <div id="effortPopover" class="effort-popover" hidden>
+              <form id="effortCustomForm" class="effort-custom-form">
+                <input id="aiEffortCustomInput" type="text" role="combobox" aria-autocomplete="list" aria-haspopup="listbox" aria-controls="effortOptions" aria-expanded="false" maxlength="128" autocomplete="off" autocapitalize="none" spellcheck="false" required data-pe-control="input" data-pe-state="default" data-i18n-placeholder="effortCustomPlaceholder" placeholder="Custom value" data-i18n-aria="effortCustom" aria-label="Custom reasoning effort">
+                <button id="aiEffortCustomApply" type="submit" data-pe-button="toolbar" data-pe-density="compact" data-i18n-aria="effortApplyCustom" aria-label="Use custom reasoning effort" data-i18n-title="effortApplyCustom" title="Use custom reasoning effort"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m4.5 10.3 3.4 3.4 7.8-8"/></svg></button>
+              </form>
               <div id="effortOptions" role="listbox" data-i18n-aria="reasoningEffort" aria-label="Reasoning effort">
                 <button type="button" class="effort-option" role="option" data-effort="config" aria-selected="false" data-pe-button="menu-item"><span data-effort-label>Configured</span></button>
                 <button type="button" class="effort-option" role="option" data-effort="none" aria-selected="false" data-pe-button="menu-item"><span data-effort-label>None</span></button>
