@@ -100,7 +100,8 @@
     "desktop:make": "npm run icons && node tools/electron/run-forge.js make",
     "desktop:make:mac": "npm run icons && node tools/electron/run-forge.js make --platform=darwin",
     "desktop:make:windows": "npm run icons && node tools/electron/run-forge.js make --platform=win32",
-    "desktop:collect": "node scripts/collect-artifacts.js"
+    "desktop:collect": "node scripts/collect-artifacts.js",
+    "start:tenet": "node scripts/start-tenet.js"
   },
   "engines": {
     "node": ">=22.19.0"

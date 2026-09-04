@@ -1583,7 +1583,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     configuredAccessSession = String(window.PENECHO_CONFIG?.accessSessionToken || sessionStorage.getItem("penecho-access-session") || ""),
     serverAutoDelay = Number.isFinite(configuredAutoDelay) && configuredAutoDelay >= 0 ? configuredAutoDelay : DEFAULT_AUTO_DELAY,
     initialAutoDelay = Number.isFinite(storedAutoDelay) && storedAutoDelay >= 0 && storedAutoDelay <= 10000 ? storedAutoDelay : Math.min(10000, serverAutoDelay),
-    initialAutoEnabled = storedAutoEnabled === null ? true : storedAutoEnabled === "true",
+    initialAutoEnabled = window.PENECHO_CONFIG?.tenetMode === true ? false : storedAutoEnabled === null ? true : storedAutoEnabled === "true",
     initialSummonEnabled = storedSummonEnabled === null ? true : storedSummonEnabled === "true",
     initialCanvasAgentAutoOpen = window.PENECHO_CONFIG?.desktopApp === true && configuredCanvasAgentAutoOpen !== null
       ? configuredCanvasAgentAutoOpen

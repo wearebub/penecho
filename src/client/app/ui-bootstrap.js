@@ -1418,6 +1418,19 @@
   );
   embodiment.addEventListener("pointerenter", revealAIOrb);
   embodiment.addEventListener("pointerleave", scheduleAIOrbIdle);
+  if (window.PENECHO_CONFIG?.tenetMode === true) {
+    // Tenet MVP fork: the orb is the only way to start a turn. Drop the i18n
+    // hooks so a later locale pass cannot restore "Run Auto AI now".
+    const labelTutor = () => {
+      aiOrb.removeAttribute("data-i18n-aria");
+      aiOrb.removeAttribute("data-i18n-title");
+      aiOrb.setAttribute("aria-label", "Ask the tutor");
+      aiOrb.title = "Ask the tutor";
+    };
+    labelTutor();
+    setTimeout(labelTutor, 0);
+    document.body.classList.add("tenet-mode");
+  }
   aiOrb.addEventListener("click", (e) => {
     e.preventDefault();
     e.stopPropagation();

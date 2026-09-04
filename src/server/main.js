@@ -61,6 +61,22 @@ const STATE_DIRECTORY = process.env.PENECHO_STATE_DIR ? path.resolve(process.env
 const CLOUD_STATE_DIRECTORY = process.env.PENECHO_CLOUD_STATE_DIR
   ? path.resolve(process.env.PENECHO_CLOUD_STATE_DIR)
   : STATE_DIRECTORY || path.join(os.homedir(), ".penecho");
+// Tenet MVP fork: PENECHO_TENET_MODE=1 runs PenEcho as a governed client of the
+// Tenet District AI Gateway. It sends non-streaming requests (the Gateway scans
+// the whole response before releasing it), bounds reasoning_effort and
+// max_tokens to what the Gateway accepts, and compiles out PenEcho Cloud,
+// community publishing, host-folder browsing, and request tracing.
+const TENET_MODE = optionalBoolean(process.env.PENECHO_TENET_MODE) === true;
+const STREAM_RESPONSES = !TENET_MODE;
+const TENET_REASONING_EFFORTS = new Set(["none", "low", "medium", "high", "xhigh", "max"]);
+function tenetReasoningParameters(reasoning) {
+  if (!TENET_MODE) return reasoning;
+  const effort = reasoning?.reasoning_effort;
+  return TENET_REASONING_EFFORTS.has(effort) ? { reasoning_effort:effort } : {};
+}
+function tenetDisabledResponse(res, feature) {
+  return send(res, 404, { error:`${feature} is disabled in Tenet mode.`, code:"tenet_mode_disabled" });
+}
 function canvasAgentAllowedRoots(value) {
   const source = String(value || "").trim();
   if (!source) return [];
@@ -103,8 +119,9 @@ function publicCanvasAgentResourceError(error) {
 const CANVAS_AGENT_CONFIGURED_ROOTS = canvasAgentAllowedRoots(process.env.PENECHO_CANVAS_AGENT_ALLOWED_ROOTS);
 const CANVAS_AGENT_MACOS_REMOTE_ROOTS = macosRemoteRoots(os.homedir());
 const CANVAS_AGENT_WINDOWS_DRIVE_ROOTS = windowsDriveRoots();
-const CANVAS_AGENT_ALLOWED_ROOTS = [...CANVAS_AGENT_CONFIGURED_ROOTS, ...CANVAS_AGENT_MACOS_REMOTE_ROOTS, ...CANVAS_AGENT_WINDOWS_DRIVE_ROOTS];
-const CANVAS_AGENT_HOST_ROOTS = [{ name:"Home", path:os.homedir(), guardPrivate:true }, ...CANVAS_AGENT_WINDOWS_DRIVE_ROOTS, ...CANVAS_AGENT_CONFIGURED_ROOTS];
+// Tenet mode: no host folder is browsable from any connected browser.
+const CANVAS_AGENT_ALLOWED_ROOTS = TENET_MODE ? [] : [...CANVAS_AGENT_CONFIGURED_ROOTS, ...CANVAS_AGENT_MACOS_REMOTE_ROOTS, ...CANVAS_AGENT_WINDOWS_DRIVE_ROOTS];
+const CANVAS_AGENT_HOST_ROOTS = TENET_MODE ? [] : [{ name:"Home", path:os.homedir(), guardPrivate:true }, ...CANVAS_AGENT_WINDOWS_DRIVE_ROOTS, ...CANVAS_AGENT_CONFIGURED_ROOTS];
 const CANVAS_AGENT_PROJECT_STORE = new CanvasAgentProjectStore({
   stateDirectory:STATE_DIRECTORY || CLOUD_STATE_DIRECTORY,
   allowedRoots:CANVAS_AGENT_ALLOWED_ROOTS,
@@ -258,7 +275,7 @@ const CANVAS_AGENT_AUTO_OPEN = canvasAgentAutoOpenValue === true;
 const debugArtifactsValue = optionalBoolean(process.env.PENECHO_DEBUG_ARTIFACTS);
 const DEBUG_ARTIFACTS = debugArtifactsValue === true;
 const requestTraceValue = optionalBoolean(process.env.PENECHO_REQUEST_TRACE),
-  REQUEST_TRACE_ENABLED = requestTraceValue === true,
+  REQUEST_TRACE_ENABLED = requestTraceValue === true && !TENET_MODE,
   requestTraceLimitText = process.env.PENECHO_REQUEST_TRACE_LIMIT?.trim(),
   requestTraceLimitValue = requestTraceLimitText ? Number(requestTraceLimitText) : 100,
   requestTraceLimitValid = Number.isInteger(requestTraceLimitValue) && requestTraceLimitValue >= 1 && requestTraceLimitValue <= 1000,
@@ -279,7 +296,13 @@ let MODEL_TIMEOUT_MS = initialModelTimeoutMs;
 const maxTokensText = process.env.MAX_TOKENS?.trim(),
   configuredMaxTokenValue = configuredMaxTokens(maxTokensText),
   maxTokensValid = configuredMaxTokenValue !== null,
-  MODEL_MAX_TOKENS = configuredMaxTokenValue || DEFAULT_MAX_TOKENS;
+  tenetMaxTokensText = process.env.PENECHO_TENET_MAX_TOKENS?.trim(),
+  tenetMaxTokensValue = tenetMaxTokensText ? Number(tenetMaxTokensText) : 8192,
+  // Tenet mode: the Gateway reserves prompt + max_tokens against the key budget
+  // on every turn, so the drawing-command reply gets a tight ceiling instead of
+  // the 20000-token default (PenEcho ignores MAX_TOKENS below 15000).
+  TENET_MAX_TOKENS = Number.isSafeInteger(tenetMaxTokensValue) && tenetMaxTokensValue >= 256 && tenetMaxTokensValue <= 32768 ? tenetMaxTokensValue : 8192,
+  MODEL_MAX_TOKENS = TENET_MODE ? TENET_MAX_TOKENS : configuredMaxTokenValue || DEFAULT_MAX_TOKENS;
 let CODEX_CLI = {
   executable: process.env.CODEX_CLI_PATH?.trim() || "codex",
   model: process.env.CODEX_CLI_MODEL?.trim() || null,
@@ -1022,7 +1045,7 @@ function requestProviderSnapshot(req) {
 }
 
 function providerRequest(key, model, text, atlasImage = null, effort = API_EFFORT, literalTypeset = false, animationEnabled = false, pluginsEnabled = false, api = API, provider = {}) {
-  const reasoning = apiReasoningParameters({ apiFormat:api.format, apiPreset:provider.apiPreset || API_PRESET, apiUrl:provider.apiUrl || API_BASE_URL, model, effort });
+  const reasoning = tenetReasoningParameters(apiReasoningParameters({ apiFormat:api.format, apiPreset:provider.apiPreset || API_PRESET, apiUrl:provider.apiUrl || API_BASE_URL, model, effort }));
   if (api.format === "anthropic") {
     const image = atlasImage ? imageDataUrlParts(atlasImage) : null;
     const content = atlasImage
@@ -1036,7 +1059,7 @@ function providerRequest(key, model, text, atlasImage = null, effort = API_EFFOR
       system = atlasImage ? anthropicSystemPrompt(effort, literalTypeset, animationEnabled, pluginsEnabled) : null;
     return {
       headers: { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({ model, max_tokens:maxTokens, stream:true, ...effortParameters, ...(system ? { system } : {}), messages: [{ role: "user", content }] }),
+      body: JSON.stringify({ model, max_tokens:maxTokens, stream:STREAM_RESPONSES, ...effortParameters, ...(system ? { system } : {}), messages: [{ role: "user", content }] }),
     };
   }
   const messages = atlasImage
@@ -1044,7 +1067,7 @@ function providerRequest(key, model, text, atlasImage = null, effort = API_EFFOR
     : [{ role: "user", content: text }];
   return {
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-    body: JSON.stringify({ model, stream:true, ...reasoning, ...(atlasImage ? { max_tokens:MODEL_MAX_TOKENS, response_format: { type: "json_object" } } : { max_tokens: 10 }), messages }),
+    body: JSON.stringify({ model, stream:STREAM_RESPONSES, ...reasoning, ...(atlasImage ? { max_tokens:MODEL_MAX_TOKENS, response_format: { type: "json_object" } } : { max_tokens: 10 }), messages }),
   };
 }
 
@@ -1592,8 +1615,45 @@ function deleteSharedCanvas(id) {
 function visibleCliDiagnostic(value) {
   return String(value || "").replace(/\x1b\[[0-?]*[ -\/]*[@-~]/g, " ").replace(/\s+/g, " ").trim().slice(0, 800);
 }
+const TENET_GATEWAY_HEADLINES = Object.freeze({
+  tenet_dlp_blocked:"Blocked by district data policy",
+  tenet_policy_blocked:"Blocked by district application policy",
+  tenet_dlp_output_blocked:"Response withheld by district policy",
+  tenet_budget_exhausted:"District budget exhausted",
+  tenet_rate_limited:"District rate limit reached",
+  tenet_unscannable_content:"The district gateway cannot scan this content",
+  tenet_stream_unsupported:"The district gateway requires non-streaming requests",
+  tenet_invalid_request:"The district gateway rejected the request",
+  tenet_auth_invalid_key:"The district gateway rejected this key",
+  tenet_auth_revoked:"This key was revoked by the district",
+  tenet_policy_unavailable:"No district policy is active on the gateway",
+});
+/**
+ * Tenet MVP fork: recognize the Gateway's closed error body
+ * `{ error: { code, category?, request_id } }` so the canvas can show which
+ * district rule decided the turn. Only bounded identifiers are surfaced.
+ */
+function tenetGatewayError(error) {
+  const body = error?.upstream?.body;
+  if (typeof body !== "string" || !body) return null;
+  let parsed;
+  try { parsed = JSON.parse(body); } catch { return null; }
+  const code = parsed?.error?.code;
+  if (typeof code !== "string" || !/^tenet_[a-z_]{1,64}$/.test(code)) return null;
+  const rawCategory = parsed.error.category, rawRequestId = parsed.error.request_id,
+    category = typeof rawCategory === "string" && /^[A-Za-z0-9][A-Za-z0-9._,-]{0,63}$/.test(rawCategory) ? rawCategory : null,
+    headerRequestId = error?.upstream?.headers?.["x-tenet-request-id"],
+    requestId = [rawRequestId, headerRequestId].find(value => typeof value === "string" && /^req_[0-9a-f-]{1,64}$/.test(value)) || null,
+    status = Number.isInteger(error?.status) ? error.status : null,
+    headline = TENET_GATEWAY_HEADLINES[code] || "The district gateway refused the request",
+    // The Gateway's messages are closed, content-free strings (field names, never prompt text).
+    detail = typeof parsed.error.message === "string" ? short(parsed.error.message, 240) : null;
+  return { code, category, requestId, status, headline, detail, message:`${headline} — ${code}${category ? ` (${category})` : ""}${requestId ? ` · ${requestId}` : ""}` };
+}
 function publicModelError(error, { clientError = false, timedOut = false, upstreamStatus = null, provider = null } = {}) {
   if (clientError) return error?.message || "Invalid request.";
+  const gateway = tenetGatewayError(error);
+  if (gateway) return gateway.message;
   const local = provider ? provider.local : LOCAL_CLI;
   if (local) {
     const message=error?.message||"Unable to process request.",diagnostic=visibleCliDiagnostic(error?.diagnostic);
@@ -2144,7 +2204,7 @@ function saveLatestAtlas(dataUrl, metadata) {
 }
 function upstreamResponseTrace(response, raw, api = API, stream = null) {
   const headers = {};
-  for (const name of ["x-request-id", "request-id", "x-trace-id", "x-correlation-id", "cf-ray"]) {
+  for (const name of ["x-request-id", "request-id", "x-trace-id", "x-correlation-id", "cf-ray", "x-tenet-request-id"]) {
     const value = response.headers.get(name);
     if (value) headers[name] = short(value, 256);
   }
@@ -2158,7 +2218,7 @@ function transportResponseTrace(response) {
   const headers = {};
   for (const name of [
     "content-type", "content-length", "content-encoding", "transfer-encoding", "connection", "keep-alive",
-    "date", "server", "via", "x-request-id", "request-id", "x-trace-id", "x-correlation-id", "cf-ray",
+    "date", "server", "via", "x-request-id", "request-id", "x-trace-id", "x-correlation-id", "cf-ray", "x-tenet-request-id",
   ]) {
     const value = response?.headers?.get?.(name);
     if (value) headers[name] = short(value, 512);
@@ -2899,11 +2959,11 @@ function pluginAuthoringProviderRequest(key, model, prompt, effort, api = API, p
   const reasoning = apiReasoningParameters({ apiFormat:api.format, apiPreset:provider.apiPreset || API_PRESET, apiUrl:provider.apiUrl || API_BASE_URL, model, effort });
   if (api.format === "anthropic") return {
     headers:{ "Content-Type":"application/json", "x-api-key":key, "anthropic-version":"2023-06-01" },
-    body:JSON.stringify({ model, max_tokens:MODEL_MAX_TOKENS, stream:true, ...reasoning, system:PLUGIN_AUTHORING_SYSTEM, messages:[{ role:"user", content:prompt }] }),
+    body:JSON.stringify({ model, max_tokens:MODEL_MAX_TOKENS, stream:STREAM_RESPONSES, ...reasoning, system:PLUGIN_AUTHORING_SYSTEM, messages:[{ role:"user", content:prompt }] }),
   };
   return {
     headers:{ "Content-Type":"application/json", Authorization:`Bearer ${key}` },
-    body:JSON.stringify({ model, max_tokens:MODEL_MAX_TOKENS, stream:true, ...reasoning, messages:[{ role:"system", content:PLUGIN_AUTHORING_SYSTEM }, { role:"user", content:prompt }] }),
+    body:JSON.stringify({ model, max_tokens:MODEL_MAX_TOKENS, stream:STREAM_RESPONSES, ...reasoning, messages:[{ role:"system", content:PLUGIN_AUTHORING_SYSTEM }, { role:"user", content:prompt }] }),
   };
 }
 function communityMetadataProviderRequest(key,model,prompt,atlasImage,effort,api=API,provider={}) {
@@ -2911,11 +2971,11 @@ function communityMetadataProviderRequest(key,model,prompt,atlasImage,effort,api
   if(!image)throw new Error("The generated community screenshot is invalid.");
   if(api.format==="anthropic")return{
     headers:{"Content-Type":"application/json","x-api-key":key,"anthropic-version":"2023-06-01"},
-    body:JSON.stringify({model,max_tokens:Math.min(MODEL_MAX_TOKENS,2048),stream:true,...reasoning,system:COMMUNITY_METADATA_SYSTEM,messages:[{role:"user",content:[{type:"text",text:prompt},{type:"image",source:{type:"base64",media_type:image.mimeType,data:image.base64}}]}]}),
+    body:JSON.stringify({model,max_tokens:Math.min(MODEL_MAX_TOKENS,2048),stream:STREAM_RESPONSES,...reasoning,system:COMMUNITY_METADATA_SYSTEM,messages:[{role:"user",content:[{type:"text",text:prompt},{type:"image",source:{type:"base64",media_type:image.mimeType,data:image.base64}}]}]}),
   };
   return{
     headers:{"Content-Type":"application/json",Authorization:`Bearer ${key}`},
-    body:JSON.stringify({model,max_tokens:Math.min(MODEL_MAX_TOKENS,2048),stream:true,...reasoning,response_format:{type:"json_object"},messages:[{role:"system",content:COMMUNITY_METADATA_SYSTEM},{role:"user",content:[{type:"text",text:prompt},{type:"image_url",image_url:{url:atlasImage,detail:"high"}}]}]}),
+    body:JSON.stringify({model,max_tokens:Math.min(MODEL_MAX_TOKENS,2048),stream:STREAM_RESPONSES,...reasoning,response_format:{type:"json_object"},messages:[{role:"system",content:COMMUNITY_METADATA_SYSTEM},{role:"user",content:[{type:"text",text:prompt},{type:"image_url",image_url:{url:atlasImage,detail:"high"}}]}]}),
   };
 }
 function communityMetadataFromModel(content) {
@@ -3258,6 +3318,7 @@ const server = http.createServer(async (req, res) => {
     return send(res,404,{error:"Not found"});
   }
   if (url.pathname.startsWith("/api/cloud/")) {
+    if (TENET_MODE) return tenetDisabledResponse(res, "PenEcho Cloud");
     const mutation=req.method!=="GET",localError=cloudBrowserRequestError(req,mutation);
     if(localError)return send(res,403,{error:localError});
     if(!cloudConnector)return send(res,503,{error:"Cloud connector is still starting."});
@@ -3390,7 +3451,7 @@ const server = http.createServer(async (req, res) => {
       return send(res,status,{error:error.message||"PenEcho Cloud request failed.",code:error.code||"cloud_request_failed"});
     }
   }
-  if (req.method === "GET" && url.pathname === "/api/config") return send(res, 200, { autoAiDelayMs: AUTO_AI_DELAY_MS, aiRequestTimeoutMs:AI_REQUEST_TIMEOUT_MS, aiProvider: AI_PROVIDER || "invalid", aiEffort:configuredUiEffort(), canvasAgentAutoOpen:CANVAS_AGENT_AUTO_OPEN, canvasAgentSearchConfigured:true });
+  if (req.method === "GET" && url.pathname === "/api/config") return send(res, 200, { autoAiDelayMs: AUTO_AI_DELAY_MS, aiRequestTimeoutMs:AI_REQUEST_TIMEOUT_MS, aiProvider: AI_PROVIDER || "invalid", aiEffort:configuredUiEffort(), canvasAgentAutoOpen:CANVAS_AGENT_AUTO_OPEN && !TENET_MODE, canvasAgentSearchConfigured:!TENET_MODE, tenetMode:TENET_MODE });
   const canvasAgentProjectMatch = /^\/api\/canvas-agent\/projects\/((?:local|file)-[0-9a-f]{24})$/.exec(url.pathname),
     canvasAgentProjectHistoryMatch = /^\/api\/canvas-agent\/projects\/((?:local|file)-[0-9a-f]{24})\/history$/.exec(url.pathname),
     canvasAgentRootEntriesMatch = /^\/api\/canvas-agent\/roots\/(root-[0-9a-f]{24})\/entries$/.exec(url.pathname),
@@ -3403,6 +3464,7 @@ const server = http.createServer(async (req, res) => {
       || url.pathname === "/api/canvas-agent/host-roots"
       || canvasAgentProjectMatch || canvasAgentProjectHistoryMatch || canvasAgentRootEntriesMatch || canvasAgentHostRootEntriesMatch;
   if (canvasAgentResourceRoute) {
+    if (TENET_MODE && /\/(?:host-)?roots(?:\/|$)|\/from-(?:host-)?root$/.test(url.pathname)) return tenetDisabledResponse(res, "Host folder browsing");
     try {
       const authorizationError = req.method === "GET" ? sharedCanvasReadError(req) : browserRequestError(req);
       if (authorizationError) return send(res, 403, { error:authorizationError });
@@ -3652,7 +3714,7 @@ const server = http.createServer(async (req, res) => {
     }
   }
   if (req.method === "GET" && url.pathname === "/api/config.js") {
-    const desktopApp=process.env.PENECHO_DESKTOP_APP==="true",config={autoAiDelayMs:AUTO_AI_DELAY_MS,aiRequestTimeoutMs:AI_REQUEST_TIMEOUT_MS,aiProvider:AI_PROVIDER||"invalid",aiEffort:configuredUiEffort(),cloudEnvironment:PENECHO_CLOUD_ENV,cloudOrigin:DEFAULT_CLOUD_ORIGIN,desktopApp,clientPlatform:process.platform,clientVersion:desktopApp?(APP_PACKAGE.config?.desktopVersion||APP_PACKAGE.version):APP_PACKAGE.version,canvasAgent:true,canvasAgentAutoOpen:CANVAS_AGENT_AUTO_OPEN,canvasAgentSearchConfigured:true};
+    const desktopApp=process.env.PENECHO_DESKTOP_APP==="true",config={autoAiDelayMs:AUTO_AI_DELAY_MS,aiRequestTimeoutMs:AI_REQUEST_TIMEOUT_MS,aiProvider:AI_PROVIDER||"invalid",aiEffort:configuredUiEffort(),cloudEnvironment:PENECHO_CLOUD_ENV,cloudOrigin:DEFAULT_CLOUD_ORIGIN,desktopApp,clientPlatform:process.platform,clientVersion:desktopApp?(APP_PACKAGE.config?.desktopVersion||APP_PACKAGE.version):APP_PACKAGE.version,canvasAgent:!TENET_MODE,canvasAgentAutoOpen:CANVAS_AGENT_AUTO_OPEN&&!TENET_MODE,canvasAgentSearchConfigured:!TENET_MODE,tenetMode:TENET_MODE};
     if(localAccessMode==="open"||hasAiSession(req))config.accessSessionToken=AI_SESSION_TOKEN;
     return send(res,200,`window.PENECHO_CONFIG=${JSON.stringify(config)};`,"application/javascript; charset=utf-8");
   }
@@ -3800,6 +3862,7 @@ const server = http.createServer(async (req, res) => {
     }
   }
   if(req.method==="POST"&&url.pathname==="/api/community/metadata"){
+    if(TENET_MODE)return tenetDisabledResponse(res,"Community publishing");
     const requestId=crypto.randomUUID(),ip=req.socket.remoteAddress,controller=new AbortController(),providerSnapshot=requestProviderSnapshot(req),abort=()=>{if(!res.writableEnded)controller.abort();};
     let localRun=null;
     req.once("aborted",abort);
@@ -4096,7 +4159,7 @@ ${WIDGET_PATCH_FORMAT_POLICY}`,
         code = clientError ? 400 : timedOut ? 504 : upstreamStatus || 502;
       log({ type:"ai", requestId, ip, status:code, elapsedMs:Date.now()-started, error:clientError?"client-error":timedOut?"timeout":upstreamStatus?"upstream-error":"model-error", ...(REQUEST_TRACE_ENABLED ? { failure:compactErrorLog(error) } : {}) });
       const userMessage=publicModelError(error,{clientError,timedOut,upstreamStatus,provider:providerSnapshot});
-      const responseBody={error:userMessage,requestId};
+      const gateway=tenetGatewayError(error),responseBody={error:userMessage,requestId,...(gateway?{gateway}:{})};
       completeRequestTrace(requestTrace,timedOut?"timeout":"failed",code,responseBody,error);
       sendAiResponse(progress,res,code,responseBody);
     } finally {
@@ -4184,9 +4247,14 @@ if (startupConfigurationError) {
   void CANVAS_AGENT_PROJECT_STORE.cleanupUploads().catch(error=>log({type:"canvas-agent-upload-cleanup-error",errorCode:typeof error?.code==="string"?error.code.slice(0,64):"cleanup_failed"}));
   server.listen(PORT, HOST, () => {
     const address = server.address(), listeningPort = typeof address === "object" && address ? address.port : PORT;
-    cloudConnector = new CloudConnector({ stateDir:CLOUD_STATE_DIRECTORY, executeRequest:executeCloudCommand, executeHttpRequest:remoteCanvasHttpExecutor(), executeCanvasAgentRequest:canvasAgent.executeRemote, logger:log, defaultOrigin:DEFAULT_CLOUD_ORIGIN, capabilities:{ modelConfigured:!providerConfigurationError() } });
-    cloudConnector.start();
+    if (TENET_MODE) {
+      log({ type:"tenet-mode", cloud:"disabled", community:"disabled", hostRoots:"disabled", requestTrace:"disabled", streaming:false, maxTokens:MODEL_MAX_TOKENS });
+    } else {
+      cloudConnector = new CloudConnector({ stateDir:CLOUD_STATE_DIRECTORY, executeRequest:executeCloudCommand, executeHttpRequest:remoteCanvasHttpExecutor(), executeCanvasAgentRequest:canvasAgent.executeRemote, logger:log, defaultOrigin:DEFAULT_CLOUD_ORIGIN, capabilities:{ modelConfigured:!providerConfigurationError() } });
+      cloudConnector.start();
+    }
     console.log(`PenEcho: http://${HOST}:${listeningPort} (${AI_PROVIDER || "invalid provider"})`);
+    if (TENET_MODE) console.log(`Tenet mode: governed by the Tenet District AI Gateway at ${API_BASE_URL || "(no AI_API_URL)"}; streaming off, max_tokens ${MODEL_MAX_TOKENS}; PenEcho Cloud, community, host folders, and request tracing are disabled.`);
     if (HOST.trim() === "0.0.0.0") {
       const lanUrls = [...LAN_IPV4_ADDRESSES].sort((a,b) => a.localeCompare(b, undefined, { numeric:true })).map(ip => `http://${ip}:${listeningPort}`);
       console.log("LAN access (open one of these addresses on another device):");

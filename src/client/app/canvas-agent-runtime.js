@@ -325,6 +325,9 @@
     return !canvasAgentPanel.hidden && canvasAgentPanel.contains(document.activeElement);
   }
   function canvasAgentSuppressesAutomaticAI() {
+    // Tenet MVP fork: in Tenet mode the presenter decides when a turn happens
+    // (the AI orb, "Ask the tutor"); automatic stroke-pause requests never fire.
+    if (window.PENECHO_CONFIG?.tenetMode === true) return true;
     return canvasAgent.requestPending || canvasAgent.running || canvasAgentHasFocus();
   }
   function canvasAgentAutomaticAIStatusKey() {

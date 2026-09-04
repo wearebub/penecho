@@ -1701,7 +1701,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     configuredAccessSession = String(window.PENECHO_CONFIG?.accessSessionToken || sessionStorage.getItem("penecho-access-session") || ""),
     serverAutoDelay = Number.isFinite(configuredAutoDelay) && configuredAutoDelay >= 0 ? configuredAutoDelay : DEFAULT_AUTO_DELAY,
     initialAutoDelay = Number.isFinite(storedAutoDelay) && storedAutoDelay >= 0 && storedAutoDelay <= 10000 ? storedAutoDelay : Math.min(10000, serverAutoDelay),
-    initialAutoEnabled = storedAutoEnabled === null ? true : storedAutoEnabled === "true",
+    initialAutoEnabled = window.PENECHO_CONFIG?.tenetMode === true ? false : storedAutoEnabled === null ? true : storedAutoEnabled === "true",
     initialSummonEnabled = storedSummonEnabled === null ? true : storedSummonEnabled === "true",
     initialCanvasAgentAutoOpen = window.PENECHO_CONFIG?.desktopApp === true && configuredCanvasAgentAutoOpen !== null
       ? configuredCanvasAgentAutoOpen
@@ -14163,6 +14163,44 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     const status=Number.isInteger(terminal.status)?terminal.status:terminal.type==="result"?200:500;
     return{ok:terminal.type==="result"&&status>=200&&status<300,status,data:terminal.data||{}};
   }
+  // Tenet MVP fork: show which district rule decided the turn. The server
+  // attaches `gateway` ({code, category, requestId, status, headline}) when the
+  // Tenet Gateway answered with its closed error body.
+  function showTenetGatewayBanner(gateway, fallbackMessage = "") {
+    let banner = document.getElementById("tenetGatewayBanner");
+    if (!gateway) {
+      if (banner) banner.hidden = true;
+      return;
+    }
+    if (!banner) {
+      banner = document.createElement("div");
+      banner.id = "tenetGatewayBanner";
+      banner.className = "tenet-gateway-banner";
+      banner.setAttribute("role", "alert");
+      document.body.appendChild(banner);
+    }
+    const title = document.createElement("strong"),
+      meta = document.createElement("span");
+    title.textContent = gateway.headline || fallbackMessage || "District gateway refused the request";
+    meta.className = "tenet-gateway-banner-meta";
+    meta.textContent = [
+      gateway.code,
+      gateway.category ? `category ${gateway.category}` : "",
+      gateway.requestId ? `audit ${gateway.requestId}` : "",
+      Number.isInteger(gateway.status) ? `HTTP ${gateway.status}` : "",
+    ].filter(Boolean).join(" · ");
+    const children = [title, meta];
+    if (typeof gateway.detail === "string" && gateway.detail) {
+      const detail = document.createElement("span");
+      detail.className = "tenet-gateway-banner-meta";
+      detail.textContent = gateway.detail;
+      children.push(detail);
+    }
+    banner.replaceChildren(...children);
+    banner.hidden = false;
+    clearTimeout(banner.hideTimer);
+    banner.hideTimer = setTimeout(() => { banner.hidden = true; }, 15000);
+  }
   function launchAutomaticAI(reason) {
     if (canvasAgentSuppressesAutomaticAI()) return;
     if (state.mode === "hand" || !state.auto || !state.dirty || !state.autoEligible || state.drawing || state.widgetRefineConfirmation) return;
@@ -14350,8 +14388,10 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       if (!streamed.ok) {
         const error = Error(data.error || `HTTP ${streamed.status}`);
         error.status = streamed.status;
+        if (data.gateway && typeof data.gateway === "object") error.gateway = data.gateway;
         throw error;
       }
+      showTenetGatewayBanner(null);
       // Draft confirmation is a separate interaction after the model request has
       // ended. Stop request-only timers now so they cannot report a slow model
       // while the user is deciding whether to keep the completed draft.
@@ -14489,10 +14529,12 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
           state.autoEligible = false;
         }
         setStatus(`${t("aiError")}${message}`);
+        showTenetGatewayBanner(e.gateway || null, message);
         debug("ai-error", {
           requestId: state.lastRequestId,
           action,
           error: timedOut ? "timeout" : Number.isInteger(e.status) ? "http-error" : "request-error",
+          ...(e.gateway ? { gateway: e.gateway.code } : {}),
         });
       }
     } finally {
@@ -17238,6 +17280,9 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     return !canvasAgentPanel.hidden && canvasAgentPanel.contains(document.activeElement);
   }
   function canvasAgentSuppressesAutomaticAI() {
+    // Tenet MVP fork: in Tenet mode the presenter decides when a turn happens
+    // (the AI orb, "Ask the tutor"); automatic stroke-pause requests never fire.
+    if (window.PENECHO_CONFIG?.tenetMode === true) return true;
     return canvasAgent.requestPending || canvasAgent.running || canvasAgentHasFocus();
   }
   function canvasAgentAutomaticAIStatusKey() {
@@ -24314,6 +24359,19 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   );
   embodiment.addEventListener("pointerenter", revealAIOrb);
   embodiment.addEventListener("pointerleave", scheduleAIOrbIdle);
+  if (window.PENECHO_CONFIG?.tenetMode === true) {
+    // Tenet MVP fork: the orb is the only way to start a turn. Drop the i18n
+    // hooks so a later locale pass cannot restore "Run Auto AI now".
+    const labelTutor = () => {
+      aiOrb.removeAttribute("data-i18n-aria");
+      aiOrb.removeAttribute("data-i18n-title");
+      aiOrb.setAttribute("aria-label", "Ask the tutor");
+      aiOrb.title = "Ask the tutor";
+    };
+    labelTutor();
+    setTimeout(labelTutor, 0);
+    document.body.classList.add("tenet-mode");
+  }
   aiOrb.addEventListener("click", (e) => {
     e.preventDefault();
     e.stopPropagation();

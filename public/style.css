@@ -7244,3 +7244,10 @@ body[data-theme="studio"] .primary-tools .view-tools { gap: 8px; }
   color: var(--studio-text, #20242c);
   font-weight: 500;
 }
+
+/* Tenet MVP fork: district gateway outcome banner and presenter-controlled turns */
+.tenet-gateway-banner { position: fixed; left: 50%; top: 14px; transform: translateX(-50%); z-index: 10000; max-width: min(92vw, 760px); padding: 12px 18px; border-radius: 12px; background: #7f1d1d; color: #fff; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35); font: 500 15px/1.35 system-ui, sans-serif; display: flex; flex-direction: column; gap: 4px; }
+.tenet-gateway-banner[hidden] { display: none; }
+.tenet-gateway-banner-meta { font-size: 12px; opacity: 0.85; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+body.tenet-mode #autoControl { display: none; }
+body.tenet-mode #cloudAccountBtn { display: none; }

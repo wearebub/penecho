@@ -250,14 +250,16 @@ async function testApiConnection(env, options = {}) {
     api = resolveApiConfig(apiUrl, format || undefined);
   if (!api) throw new Error("AI_API_URL and AI_API_FORMAT do not describe a compatible OpenAI or Anthropic endpoint.");
   const effort = normalizedApiEffort(api.format, env.AI_EFFORT), mapping = reasoningEffortMapping({ provider:"api", apiFormat:api.format, apiPreset:env.PENECHO_API_PRESET, apiUrl, model, effort }), reasoning = apiReasoningParameters({ apiFormat:api.format, apiPreset:env.PENECHO_API_PRESET, apiUrl, model, effort }), testImage = configuredTestImage(env), [imageHeader, imageData] = testImage.split(",", 2), imageType = imageHeader.slice(5).split(";", 1)[0];
+  // Tenet MVP fork: the Gateway accepts stream:false only.
+  const streaming = !["1", "true", "yes", "on"].includes(String(env.PENECHO_TENET_MODE || "").trim().toLowerCase());
   const request = api.format === "anthropic"
     ? {
         headers: { "Content-Type":"application/json", "x-api-key":key, "anthropic-version":"2023-06-01" },
-        body: JSON.stringify({ model, max_tokens:anthropicResponseMaxTokens(effort), stream:true, ...(mapping.family === "minimax" ? reasoning : anthropicEffortParameters(effort, false, { apiUrl, model })), messages:[{ role:"user", content:[{ type:"text", text:"Inspect the attached test image and reply with OK only." }, { type:"image", source:{ type:"base64", media_type:imageType, data:imageData } }] }] }),
+        body: JSON.stringify({ model, max_tokens:anthropicResponseMaxTokens(effort), stream:streaming, ...(mapping.family === "minimax" ? reasoning : anthropicEffortParameters(effort, false, { apiUrl, model })), messages:[{ role:"user", content:[{ type:"text", text:"Inspect the attached test image and reply with OK only." }, { type:"image", source:{ type:"base64", media_type:imageType, data:imageData } }] }] }),
       }
     : {
         headers: { "Content-Type":"application/json", Authorization:`Bearer ${key}` },
-        body: JSON.stringify({ model, stream:true, messages:[{ role:"user", content:[{ type:"text", text:"Inspect the attached test image and reply with OK only." }, { type:"image_url", image_url:{ url:testImage } }] }], ...reasoning }),
+        body: JSON.stringify({ model, stream:streaming, messages:[{ role:"user", content:[{ type:"text", text:"Inspect the attached test image and reply with OK only." }, { type:"image_url", image_url:{ url:testImage } }] }], ...reasoning }),
       };
   const fetchImpl = options.fetchImpl || globalThis.fetch;
   if (typeof fetchImpl !== "function") throw new Error("This Node.js version does not provide fetch().");
