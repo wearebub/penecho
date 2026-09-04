@@ -6,6 +6,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const sharp = require("sharp");
 const { kimiPresetUpdates, normalizeSettings, publicSettings } = require("../desktop/settings-contract.js");
 const { readSecret, writeSecret } = require("../desktop/secret-store.js");
 const { CODEX_CLI_PINNED_VERSION, assertCodexCliBundle, codexHostName, inspectCli, installCli, installInvocation, managedCliPath } = require("../desktop/cli-installer.js");
@@ -419,6 +420,29 @@ test("desktop shell and Forge config keep the renderer isolated and package nati
   assert.match(html, /platform\.kimi\.com\?aff=penecho/);
   assert.match(html, /platform\.kimi\.ai\?aff=penecho/);
   assert.match(html, /Content-Security-Policy/);
+});
+
+test("Windows installer splash keeps a font-independent PenEcho wordmark", async () => {
+  const generator = fs.readFileSync(path.join(ROOT, "scripts", "generate-icons.js"), "utf8"),
+    splash = path.join(ROOT, "build", "icons", "penecho-install.gif"),
+    metadata = await sharp(splash).metadata(),
+    pixels = await sharp(splash).removeAlpha().raw().toBuffer({ resolveWithObject:true });
+  assert.match(generator, /wordmarkSource = path\.join\(ROOT, "public", "penecho-readme-header\.png"\)/);
+  assert.doesNotMatch(generator, /<text\b/);
+  assert.match(generator, /insetX = 2[\s\S]*?echoMask = Buffer\.alloc\([\s\S]*?x = 41[\s\S]*?255 - Math\.min\([\s\S]*?dilateAlpha\(echoMask, width, height\)/);
+  assert.equal(metadata.width, 268);
+  assert.equal(metadata.height, 167);
+  let inkPixels = 0, rightEdgeInkPixels = 0;
+  for (let y = 100; y < 124; y += 1) {
+    for (let x = 82; x < 186; x += 1) {
+      const offset = (y * pixels.info.width + x) * pixels.info.channels,
+        darkest = Math.min(pixels.data[offset], pixels.data[offset + 1], pixels.data[offset + 2]);
+      if (darkest < 120) inkPixels += 1;
+      if (x === 179 && darkest < 120) rightEdgeInkPixels += 1;
+    }
+  }
+  assert.ok(inkPixels > 80, `expected a visible PenEcho wordmark, found ${inkPixels} dark pixels`);
+  assert.equal(rightEdgeInkPixels, 0, "expected a clear safety column after the bold Echo wordmark");
 });
 
 test("desktop Canvas file picker is sender-guarded, single-file, and type-limited", () => {

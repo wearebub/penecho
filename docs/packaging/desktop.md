@@ -67,7 +67,7 @@ Generated production assets:
 - `build/icons/penecho.icns`
 - `build/icons/penecho.ico`
 
-The website brand icon is applied to the app bundle, Dock/taskbar executable, DMG and Windows setup executable. Squirrel's generic green install animation is replaced with the generated PenEcho-branded `penecho-install.gif`, so first install and update never show an unfamiliar third-party splash.
+The website brand icon is applied to the app bundle, Dock/taskbar executable, DMG and Windows setup executable. Squirrel's generic green install animation is replaced with the generated PenEcho-branded `penecho-install.gif`, so first install and update never show an unfamiliar third-party splash. Its wordmark is derived from checked-in brand artwork instead of build-host fonts, keeping the Windows splash deterministic in isolated cross-platform builds.
 
 ## Signing and notarization
 
