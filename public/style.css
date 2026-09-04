@@ -3319,9 +3319,6 @@ body[data-theme="studio"] .canvas-frame.canvas-agent-resizing .canvas-agent-cont
 .canvas-agent-message-feedback[data-pe-state="selected"] { color: var(--pe-accent-label, #4338ca); border-color: var(--pe-line, #d9dee8); background: var(--pe-selected, #efefff); }
 .canvas-agent-message-copy.copied { color: var(--pe-success, #277a4c); border-color: color-mix(in srgb, var(--pe-success, #277a4c) 35%, var(--pe-line)); background: var(--pe-success-soft, rgba(39, 122, 76, .09)); }
 .canvas-agent-message-copy.error { color: var(--pe-danger, #b4232c); border-color: color-mix(in srgb, var(--pe-danger, #b4232c) 35%, var(--pe-line)); background: var(--pe-danger-soft, rgba(180, 35, 44, .08)); }
-.canvas-agent-feedback-menu { position: fixed; z-index: 190; display: grid; width: min(200px, calc(100vw - 16px)); min-width: 180px; gap: 6px; padding: 4px; overflow: hidden; color: var(--pe-ink, #20242c); border: 1px solid var(--pe-line, #d9dee8); border-radius: var(--pe-r-popover, 10px); background: var(--pe-frost-popover, rgba(255, 255, 255, .96)); box-shadow: var(--pe-shadow-short, 0 6px 14px rgba(17, 24, 39, .14)); -webkit-backdrop-filter: blur(var(--pe-popover-blur, 12px)) saturate(var(--pe-glass-saturate, 1.12)); backdrop-filter: blur(var(--pe-popover-blur, 12px)) saturate(var(--pe-glass-saturate, 1.12)); }
-.canvas-agent-feedback-menu[hidden] { display: none; }
-.canvas-agent-feedback-menu > button > svg { width: 15px; height: 15px; }
 .canvas-agent-message-images { display: flex; max-width: 100%; justify-content: flex-end; gap: 6px; overflow-x: auto; }
 .canvas-agent-message-images img { width: 58px; height: 58px; flex: 0 0 auto; object-fit: cover; border: 1px solid #d9dee8; border-radius: 10px; background: #f8fafc; }
 .canvas-agent-message-images.has-handwriting { flex-wrap: wrap; overflow-x: hidden; }
@@ -3485,9 +3482,17 @@ body[data-theme="studio"] .canvas-frame.canvas-agent-resizing .canvas-agent-cont
 .canvas-agent-composer .canvas-agent-input-mode,
 .canvas-agent-composer .canvas-agent-search { position: relative; display: grid; width: 30px; min-width: 30px; height: 30px; padding: 5px; color: #64748b; border-radius: 50%; background: transparent; place-items: center; }
 .canvas-agent-project-control { position: relative; display: inline-flex; width: 100%; min-width: 0; max-width: 100%; padding: 0 5px; }
-.canvas-agent-project-button > span { display: flex; min-width: 0; max-width: 100%; flex: 0 1 auto; overflow: hidden; font-size: 12.5px; font-weight: 500; text-overflow: clip; white-space: nowrap; }
-.canvas-agent-project-control.has-resource > .canvas-agent-project-button > span { -webkit-mask-image: linear-gradient(to left, transparent 0, #000 8px); mask-image: linear-gradient(to left, transparent 0, #000 8px); }
-.canvas-agent-project-button > span > span { flex: 0 0 auto; margin-inline: 0; }
+.canvas-agent-project-button > .canvas-agent-project-label-clip { display: flex; box-sizing: border-box; width: 100%; min-width: 0; max-width: 100%; flex: 1 1 auto; overflow: hidden; font-size: 12.5px; font-weight: 500; text-overflow: clip; white-space: nowrap; }
+/* Keep the mask on the full trailing-action rail, never on a shrink-to-text box:
+   the right 8px is clear beneath the X, the next 8px fades, and every pixel
+   before that 16px clear-action footprint remains fully opaque. */
+.canvas-agent-project-control.has-resource > .canvas-agent-project-button > .canvas-agent-project-label-clip { -webkit-mask-image: linear-gradient(to left, transparent 0 8px, #000 16px); mask-image: linear-gradient(to left, transparent 0 8px, #000 16px); }
+.canvas-agent-project-content { display: flex; box-sizing: border-box; width: 100%; min-width: 0; max-width: 100%; flex: 0 0 100%; align-items: center; justify-content: safe center; gap: 5px; margin: 0; }
+/* Center short selected names in the rail before the X, but let long names
+   paint through that rail into the outer clip's 8px fade instead of hard-clipping. */
+.canvas-agent-project-control.has-resource > .canvas-agent-project-button .canvas-agent-project-content { width: calc(100% - 16px); max-width: calc(100% - 16px); flex-basis: calc(100% - 16px); }
+.canvas-agent-project-content > #canvasAgentProjectLabel { flex: 0 0 auto; margin: 0; }
+.canvas-agent-project-content > :is(.canvas-agent-project-folder-icon, .canvas-agent-project-file-icon) { display: block; width: 14px; height: 14px; min-width: 0; flex: 0 0 14px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .canvas-agent-project-button .canvas-agent-project-folder-icon,
 .canvas-agent-project-button .canvas-agent-project-file-icon { transition: opacity .14s ease; }
 .canvas-agent-project-button .canvas-agent-project-file-icon { display: none; }
@@ -3505,7 +3510,8 @@ body[data-theme="studio"] .canvas-frame.canvas-agent-resizing .canvas-agent-cont
 .canvas-agent-project-control.has-resource:focus-within .canvas-agent-project-file-icon { opacity: 0; }
 .canvas-agent-composer .canvas-agent-project-clear:hover,
 .canvas-agent-composer .canvas-agent-project-clear:focus-visible { background: #4b5563; box-shadow: 0 0 0 2px #fff, 0 0 0 4px rgba(79,70,229,.34); transform: translateY(-50%) scale(1); }
-.canvas-agent-connection-button > span { min-width: 0; overflow: hidden; color: inherit; font-size: 12.5px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.canvas-agent-connection-button > .canvas-agent-connection-label-clip { display: flex; box-sizing: border-box; min-width: 0; max-width: 100%; flex: 0 1 auto; overflow: hidden; padding-inline-end: 19px; color: inherit; font-size: 12.5px; font-weight: 500; text-overflow: clip; white-space: nowrap; -webkit-mask-image: linear-gradient(to left, transparent 0 7px, #000 14px); mask-image: linear-gradient(to left, transparent 0 7px, #000 14px); }
+.canvas-agent-connection-label-clip > #canvasAgentConnectionLabel { flex: 0 0 auto; margin: 0; }
 .canvas-agent-composer .canvas-agent-attach:hover,
 .canvas-agent-composer .canvas-agent-reference:hover,
 .canvas-agent-composer .canvas-agent-input-mode:hover,
@@ -3613,7 +3619,9 @@ body[data-theme="studio"] .canvas-frame.canvas-agent-resizing .canvas-agent-cont
 }
 
 @media (forced-colors: active) {
-  .canvas-agent-project-button > span { -webkit-mask-image: none; mask-image: none; }
+  .canvas-agent-project-button > .canvas-agent-project-label-clip,
+  .canvas-agent-connection-button > .canvas-agent-connection-label-clip { -webkit-mask-image: none; mask-image: none; }
+  .canvas-agent-connection-label-clip > #canvasAgentConnectionLabel { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 }
 
 @media (pointer: coarse) {
@@ -6976,14 +6984,21 @@ body[data-theme="studio"].studio-toolbar-controls-compact :is(#pe-button-contrac
   flex: 1 1 auto;
 }
 
+:is(#pe-button-contract, .canvas-agent-composer-toolbar) .canvas-agent-project-control.has-resource > .canvas-agent-project-button[data-pe-button] {
+  padding-inline: 8px 5px;
+}
+
 /* When the clear action is exposed, center the project name in the remaining
    rail instead of letting the hidden resource icon keep shifting it right. */
 :is(#pe-button-contract, .canvas-agent-composer-toolbar) .canvas-agent-project-control.has-resource:is(:hover, :focus-within) > .canvas-agent-project-button[data-pe-button] {
   gap: 0;
-  padding-inline: 8px 24px;
 }
 
-:is(#pe-button-contract, .canvas-agent-composer-toolbar) .canvas-agent-project-control.has-resource:is(:hover, :focus-within) > .canvas-agent-project-button[data-pe-button] > :is(.canvas-agent-project-folder-icon, .canvas-agent-project-file-icon) {
+:is(#pe-button-contract, .canvas-agent-composer-toolbar) .canvas-agent-project-control.has-resource:is(:hover, :focus-within) .canvas-agent-project-content {
+  gap: 0;
+}
+
+:is(#pe-button-contract, .canvas-agent-composer-toolbar) .canvas-agent-project-control.has-resource:is(:hover, :focus-within) .canvas-agent-project-content > :is(.canvas-agent-project-folder-icon, .canvas-agent-project-file-icon) {
   width: 0;
   flex-basis: 0;
 }
@@ -6991,10 +7006,13 @@ body[data-theme="studio"].studio-toolbar-controls-compact :is(#pe-button-contrac
 @media (hover: none) {
   :is(#pe-button-contract, .canvas-agent-composer-toolbar) .canvas-agent-project-control.has-resource > .canvas-agent-project-button[data-pe-button] {
     gap: 0;
-    padding-inline: 8px 24px;
   }
 
-  :is(#pe-button-contract, .canvas-agent-composer-toolbar) .canvas-agent-project-control.has-resource > .canvas-agent-project-button[data-pe-button] > :is(.canvas-agent-project-folder-icon, .canvas-agent-project-file-icon) {
+  :is(#pe-button-contract, .canvas-agent-composer-toolbar) .canvas-agent-project-control.has-resource .canvas-agent-project-content {
+    gap: 0;
+  }
+
+  :is(#pe-button-contract, .canvas-agent-composer-toolbar) .canvas-agent-project-control.has-resource .canvas-agent-project-content > :is(.canvas-agent-project-folder-icon, .canvas-agent-project-file-icon) {
     width: 0;
     flex-basis: 0;
     opacity: 0;
@@ -7069,10 +7087,18 @@ body[data-theme="studio"].studio-toolbar-controls-compact :is(#pe-button-contrac
   max-width: calc(100% - 10px);
   align-items: center;
   justify-content: center;
-  gap: 5px;
+  gap: 0;
   margin: 0 5px;
   padding: 0 7px;
   border-color: transparent;
+}
+
+/* The label's 19px tail reserves the 5px gap plus the 14px chevron. The icon
+   overlaps only its own rail, whose left half fades and right half stays clear;
+   short label-and-icon groups keep their original centered geometry. */
+:is(#pe-button-contract, .canvas-agent-composer-toolbar) .canvas-agent-connection-button[data-pe-button] > svg {
+  z-index: 1;
+  margin-inline-start: -14px;
 }
 
 :is(#pe-button-contract, .canvas-agent-composer-toolbar) .canvas-agent-prompt-control > #canvasAgentPromptToggle[data-pe-button] {

@@ -11,8 +11,11 @@
   const nativeFetch = window.fetch.bind(window);
   const nativeWebSocket = window.WebSocket;
   const cloudRuntime = window.PENECHO_CONFIG?.runtime === "cloud";
+  const nativeCloudCanvasReadsEnabled = window.PENECHO_CONFIG?.remoteCanvasNativeReads === true;
   const deviceIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   const cloudCanvasReadPath = /^\/api\/cloud\/canvases\/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  const widgetPaintReadyFrames = new WeakSet();
+  const widgetPaintReadyWaiters = new Set();
   let bridgeDeviceId = "";
   let resolveBridgeGate = null;
   let bridgeGateSettled = !cloudRuntime;
@@ -46,6 +49,58 @@
     /^\/canvas\/plugins\/private\/[a-z0-9][a-z0-9-]{0,63}(?:\/(?:plugin\.md|styles\.css)|\.md)$/,
   ];
   const nativeCloudPaths = new Set(["/api/ai/command", "/api/plugins/improve"]);
+
+  function notifyWidgetPaintReadyWaiters() {
+    for (const resolve of widgetPaintReadyWaiters) resolve();
+    widgetPaintReadyWaiters.clear();
+  }
+
+  window.addEventListener("message", (event) => {
+    if (event.origin !== location.origin || !event.source || !event.data || typeof event.data !== "object") return;
+    if (event.data.type === "penecho-widget-host-ready") {
+      widgetPaintReadyFrames.delete(event.source);
+      notifyWidgetPaintReadyWaiters();
+    } else if (event.data.type === "penecho-widget-capture-ready") {
+      widgetPaintReadyFrames.add(event.source);
+      notifyWidgetPaintReadyWaiters();
+    }
+  });
+
+  function nextCanvasPaint() {
+    return new Promise((resolve) => {
+      if (typeof window.requestAnimationFrame === "function") window.requestAnimationFrame(() => window.requestAnimationFrame(resolve));
+      else setTimeout(resolve, 0);
+    });
+  }
+
+  function visibleWidgetFrames() {
+    return [...document.querySelectorAll(".canvas-widget:not(.widget-offscreen) .canvas-widget-frame")]
+      .filter((frame) => frame?.contentWindow);
+  }
+
+  async function waitForVisibleWidgets(timeoutMs = 15_000) {
+    const deadline = Date.now() + timeoutMs;
+    await nextCanvasPaint();
+    while (true) {
+      const frames = visibleWidgetFrames();
+      if (frames.every((frame) => widgetPaintReadyFrames.has(frame.contentWindow))) {
+        await nextCanvasPaint();
+        const settledFrames = visibleWidgetFrames();
+        if (settledFrames.every((frame) => widgetPaintReadyFrames.has(frame.contentWindow))) return;
+      }
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) return;
+      await new Promise((resolve) => {
+        const finish = () => {
+          clearTimeout(timer);
+          widgetPaintReadyWaiters.delete(finish);
+          resolve();
+        };
+        const timer = setTimeout(finish, remaining);
+        widgetPaintReadyWaiters.add(finish);
+      });
+    }
+  }
 
   function canvasAgentWebSocketTarget(value) {
     if (!bridgeDeviceId) return value;
@@ -89,8 +144,8 @@
     const method = String(options.method || (input instanceof Request ? input.method : "GET")).toUpperCase();
     const inputHeaders = input instanceof Request ? input.headers : undefined;
     const headers = csrfHeaders(options.headers || inputHeaders);
-    const cloudBuiltInPluginCatalog = method === "GET" && sourceUrl.pathname === "/api/plugins" && !sourceUrl.search;
-    const cloudStoredCanvasRead = method === "GET" && !sourceUrl.search && cloudCanvasReadPath.test(sourceUrl.pathname);
+    const cloudBuiltInPluginCatalog = nativeCloudCanvasReadsEnabled && method === "GET" && sourceUrl.pathname === "/api/plugins" && !sourceUrl.search;
+    const cloudStoredCanvasRead = nativeCloudCanvasReadsEnabled && method === "GET" && !sourceUrl.search && cloudCanvasReadPath.test(sourceUrl.pathname);
     const shouldBridge = !cloudBuiltInPluginCatalog && !cloudStoredCanvasRead && !nativeCloudPaths.has(sourceUrl.pathname) && bridgedPaths.some((pattern) => pattern.test(sourceUrl.pathname));
     const bridgePath = sourceUrl.pathname === "/canvas/api/widget-fetch"
       ? "/api/widget-fetch"
@@ -244,6 +299,7 @@
       detail.textContent = `${result.device.name} · ${result.device.platform} · ${copy.onlineStatus}`;
       settleBridgeGate({ online:true });
       await openRequestedCanvas();
+      if (nativeCloudCanvasReadsEnabled && !isCommunityCraft) await waitForVisibleWidgets();
       gate.hidden = true;
     } catch (error) {
       settleBridgeGate({ online:false, message:String(error?.message || error || copy.unavailable).slice(0, 500) });

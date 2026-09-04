@@ -23,6 +23,7 @@
     if (state.viewMode === enabled) return;
     state.viewMode = enabled;
     state.pointers.clear();
+    state.canvasAgentNavigationPointerIds.clear();
     state.touches.clear();
     state.touchGesture = null;
     state.panGesture = null;
@@ -215,6 +216,7 @@
     e.preventDefault();
     if (state.viewMode) {
       if (e.pointerType === "mouse" && ![0, 1].includes(e.button)) return;
+      state.canvasAgentNavigationPointerIds.add(e.pointerId);
       try { screen.setPointerCapture(e.pointerId); } catch {}
       calibrateScreenClientRatio(e, false);
       state.pointers.set(e.pointerId, { x:e.clientX, y:e.clientY });
@@ -232,6 +234,7 @@
     }
     finishStaleWidgetHostGesture(e);
     if (Date.now() < state.textInputBlockedUntil) return;
+    state.canvasAgentNavigationPointerIds.add(e.pointerId);
     try {
       screen.setPointerCapture(e.pointerId);
     } catch {}
@@ -442,7 +445,7 @@
     if (coordinatesUpdatePending) flushCoordinatesUpdate();
     if (state.viewMode) {
       state.pointers.delete(e.pointerId);
-      canvasAgentNavigationPointerDidEnd();
+      canvasAgentNavigationPointerDidEnd(e.pointerId);
       if (e.pointerType === "touch") state.touches.delete(e.pointerId);
       state.touchGesture = null;
       if (e.pointerType === "touch" && state.touches.size === 1) {
@@ -456,7 +459,7 @@
       return;
     }
     state.pointers.delete(e.pointerId);
-    canvasAgentNavigationPointerDidEnd();
+    canvasAgentNavigationPointerDidEnd(e.pointerId);
     finishHandObjectFocus(e);
     if (e.pointerType === "touch") {
       state.touches.delete(e.pointerId);
@@ -545,6 +548,10 @@
   }
   screen.addEventListener("pointerup", end);
   screen.addEventListener("pointercancel", end);
+  const finishCanvasAgentNavigationPointer = (event) => canvasAgentNavigationPointerDidEnd(event.pointerId);
+  window.addEventListener("pointerup", finishCanvasAgentNavigationPointer, true);
+  window.addEventListener("pointercancel", finishCanvasAgentNavigationPointer, true);
+  screen.addEventListener("lostpointercapture", finishCanvasAgentNavigationPointer);
   screen.addEventListener("pointerleave", () => {
     cancelCanvasWidgetGestureResetTap();
     updateHandObjectHover(null);

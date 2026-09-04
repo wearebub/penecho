@@ -957,8 +957,13 @@ test("Canvas navigation temporarily hides Agent and restores its original state 
   assert.match(noteSource, /canvasAgentNavigationWasOpen = !canvasAgentPanel\.hidden && document\.body\.classList\.contains\("canvas-agent-open"\)/);
   assert.match(noteSource, /canvasAgentPanel\.contains\(document\.activeElement\)[\s\S]*?document\.activeElement\.blur\(\)/);
   assert.doesNotMatch(noteSource, /canvasAgentPanel\.hidden\s*=/);
-  assert.match(pointerEndSource, /state\.pointers\.size[\s\S]*?now \+ CANVAS_AGENT_NAVIGATION_RESTORE_MS/);
-  assert.equal((endSource.match(/state\.pointers\.delete\(e\.pointerId\);\s*canvasAgentNavigationPointerDidEnd\(\);/g) || []).length, 2);
+  assert.match(restoreSource, /restoreMaterial = state\.canvasAgentNavigationActive && state\.canvasAgentNavigationWasOpen[\s\S]*?if \(restoreMaterial\) restoreCanvasChromeMaterial\(\)[\s\S]*?classList\.remove\("canvas-agent-navigation-hidden"\)/);
+  assert.match(pointerEndSource, /canvasAgentNavigationPointerIds\.delete\(pointerId\)[\s\S]*?canvasAgentNavigationPointerIds\.size[\s\S]*?now \+ CANVAS_AGENT_NAVIGATION_RESTORE_MS/);
+  assert.doesNotMatch(pointerEndSource, /state\.pointers\.size/);
+  assert.equal((endSource.match(/state\.pointers\.delete\(e\.pointerId\);\s*canvasAgentNavigationPointerDidEnd\(e\.pointerId\);/g) || []).length, 2);
+  assert.equal((app.match(/state\.canvasAgentNavigationPointerIds\.add\(e\.pointerId\)/g) || []).length, 2);
+  assert.match(app, /window\.addEventListener\("pointerup", finishCanvasAgentNavigationPointer, true\)/);
+  assert.match(app, /screen\.addEventListener\("lostpointercapture", finishCanvasAgentNavigationPointer\)/);
   assert.match(openAgent, /restoreCanvasAgentAfterNavigation\(\)[\s\S]*?restoreCanvasChromeMaterial\(\)/);
   assert.match(closeAgent, /restoreCanvasAgentAfterNavigation\(\)[\s\S]*?classList\.remove\("canvas-agent-open"\)/);
   assert.match(css, /canvas-agent-open\.canvas-agent-navigation-hidden \.canvas-frame\s*\{[^}]*--studio-agent-edge-shift:\s*0px/);
@@ -966,15 +971,16 @@ test("Canvas navigation temporarily hides Agent and restores its original state 
   assert.match(css, /studio-agent-docked\.canvas-agent-navigation-hidden \.canvas-agent-panel\.canvas-agent-positioned\s*\{[^}]*pointer-events:\s*none[^}]*opacity:\s*0[^}]*translate3d\(100%, 0, 0\)[^}]*visibility:\s*hidden/);
   assert.match(css, /@media \(max-width: 700px\)\s*\{[\s\S]*?canvas-agent-open\.canvas-agent-navigation-hidden \.canvas-agent-panel\s*\{[^}]*pointer-events:\s*none[^}]*opacity:\s*0[^}]*visibility:\s*hidden/);
 
-  let now = 100, timerId = 0, blurred = 0;
-  const timers = new Map(), classes = new Set(["canvas-agent-open"]), activeElement = { blur:() => blurred++ },
+  let now = 100, timerId = 0, blurred = 0, materialRestores = 0;
+  const timers = new Map(), classes = new Set(["canvas-agent-open", "canvas-chrome-lightweight"]), activeElement = { blur:() => blurred++ },
     panel = { hidden:false, contains:(value) => value === activeElement },
     state = {
       canvasAgentNavigationActive:false,
       canvasAgentNavigationWasOpen:false,
       canvasAgentNavigationRestoreTimer:0,
       canvasAgentNavigationRestoreDeadline:0,
-      pointers:new Map([[1, true]]),
+      canvasAgentNavigationPointerIds:new Set([1]),
+      pointers:new Map(),
     },
     harness = vm.runInNewContext(`(() => {
       ${restoreSource}
@@ -991,6 +997,10 @@ test("Canvas navigation temporarily hides Agent and restores its original state 
         contains:(value) => classes.has(value),
       } } },
       performance:{ now:() => now },
+      restoreCanvasChromeMaterial:() => {
+        materialRestores++;
+        classes.delete("canvas-chrome-lightweight");
+      },
       setTimeout:(callback, delay) => { const id = ++timerId; timers.set(id, { callback, delay }); return id; },
       clearTimeout:(id) => timers.delete(id),
     });
@@ -1023,16 +1033,19 @@ test("Canvas navigation temporarily hides Agent and restores its original state 
   assert.equal(timers.size, 0);
   assert.ok(classes.has("canvas-agent-navigation-hidden"), "a held mouse, pen, or finger keeps Agent hidden even when motion pauses");
 
-  state.pointers.clear();
   now = 900;
-  assert.equal(harness.canvasAgentNavigationPointerDidEnd(), true);
+  assert.equal(harness.canvasAgentNavigationPointerDidEnd(1), true);
   assert.equal(timers.values().next().value.delay, 500);
+  state.pointers.set(99, true);
   now = 1401;
   runNextTimer();
   assert.equal(state.canvasAgentNavigationActive, false);
   assert.ok(!classes.has("canvas-agent-navigation-hidden"));
   assert.ok(classes.has("canvas-agent-open"));
   assert.equal(panel.hidden, false);
+  assert.equal(materialRestores, 1);
+  assert.ok(!classes.has("canvas-chrome-lightweight"), "Agent must return with its full frosted material immediately");
+  assert.equal(state.pointers.size, 1, "hover pointer bookkeeping must not block Agent restoration");
 
   panel.hidden = true;
   classes.delete("canvas-agent-open");
@@ -1044,6 +1057,7 @@ test("Canvas navigation temporarily hides Agent and restores its original state 
   runNextTimer();
   assert.equal(panel.hidden, true, "an originally hidden Agent must remain hidden");
   assert.ok(!classes.has("canvas-agent-open"));
+  assert.equal(materialRestores, 1, "a hidden Agent does not need a material restoration");
 });
 
 test("Canvas chrome uses one drawing and navigation cooldown before restoring static glass", () => {
@@ -1329,7 +1343,7 @@ test("plugin manager is a centered dynamic catalog with General HTML and bundled
   assert.match(app, /BUILTIN_PLUGIN_DEFINITIONS\s*=\s*Object\.freeze\(\[\]\)/);
   assert.doesNotMatch(app, /documentPath:\s*"plugins\/weather\.md"/);
   const loadPluginDocuments = functionSource(app, "loadPluginDocuments");
-  assert.match(loadPluginDocuments, /path:"\/api\/plugins", cache:"default"[\s\S]*?path:"\/api\/plugins\?scope=private", cache:"no-store"[\s\S]*?fetch\(request\.path[\s\S]*?defaultEnabled:\["general", "flowchart"\]\.includes\(item\.manifest\.id\)[\s\S]*?professionalDefinitions = definitions\.filter\(\(definition\) => definition\.id === "flowchart"\)[\s\S]*?promotedDefinitions = \["image-search", "weather"\][\s\S]*?PLUGIN_DEFINITIONS\.splice\(0, PLUGIN_DEFINITIONS\.length, \.\.\.generalDefinitions, \.\.\.professionalDefinitions, \.\.\.BUILTIN_PLUGIN_DEFINITIONS, \.\.\.promotedDefinitions, \.\.\.remainingDefinitions\)/);
+  assert.match(loadPluginDocuments, /nativeCloudCanvasReadsEnabled = window\.PENECHO_CONFIG\?\.runtime === "cloud" && window\.PENECHO_CONFIG\?\.remoteCanvasNativeReads === true[\s\S]*?catalogRequests = nativeCloudCanvasReadsEnabled[\s\S]*?path:"\/api\/plugins", cache:"default"[\s\S]*?path:"\/api\/plugins\?scope=private", cache:"no-store"[\s\S]*?optional:true[\s\S]*?: \[\{ path:"\/api\/plugins", cache:"no-store", accept:\(\) => true \}\][\s\S]*?if \(!request\.optional\) throw error[\s\S]*?catalog:\{ plugins:\[\] \}[\s\S]*?defaultEnabled:\["general", "flowchart"\]\.includes\(item\.manifest\.id\)[\s\S]*?professionalDefinitions = definitions\.filter\(\(definition\) => definition\.id === "flowchart"\)[\s\S]*?promotedDefinitions = \["image-search", "weather"\][\s\S]*?PLUGIN_DEFINITIONS\.splice\(0, PLUGIN_DEFINITIONS\.length, \.\.\.generalDefinitions, \.\.\.professionalDefinitions, \.\.\.BUILTIN_PLUGIN_DEFINITIONS, \.\.\.promotedDefinitions, \.\.\.remainingDefinitions\)/);
   const enabledPluginDescriptors = functionSource(app, "enabledPluginDescriptors");
   assert.match(enabledPluginDescriptors, /id === "general" \? 0 : id === "flowchart" \? 1 : 2/);
   assert.doesNotMatch(enabledPluginDescriptors, /styles/);
@@ -1810,7 +1824,7 @@ test("strict CSP dynamic layout uses stylesheet rules instead of element style a
   for (const key of ["tour-layer", "tour-highlight", "tour-card", "tour-progress", "animation-controls", "canvas-image-selection", "selection-toolbar", "summon-copy"])
     assert.match(app, new RegExp(`runtimeElementStyle\\([^)]*["']${key}["']`));
   assert.match(functionSource(app,"positionToolbarPopover"),/runtimeElementStyle\(popover, `toolbar-popover-\$\{popover\.id\}`\)[\s\S]*?setProperty\("left"[\s\S]*?setProperty\("top"/);
-  assert.match(functionSource(app,"canvasAgentOpenFeedbackMenu"),/runtimeElementStyle\(menu,"canvas-agent-feedback-menu"\)[\s\S]*?setProperty\("left"[\s\S]*?setProperty\("top"/);
+  assert.doesNotMatch(app,/canvasAgentOpenFeedbackMenu|canvas-agent-feedback-menu/);
   assert.doesNotMatch(app,/\b(?:popover|menu)\.style\./);
   assert.doesNotMatch(app, /Reflect\.get\((?:tourLayer|tourHighlight|tourCard|tourProgressBar|animationControls|selectionToolbar), "style"\)/);
   assert.match(functionSource(app, "ensureObjectChromeStyleRule"), /sheet\.insertRule\(`\.\$\{className\} \{ --object-control-x: 0px; --object-control-y: 0px; z-index: 1; \}`/);

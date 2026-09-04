@@ -36,7 +36,7 @@ function renderer(document,MathJax){
 
 function messageAppender(document,clipboardWrites){
   const names=["canvasAgentFencedSegments","canvasAgentBlockLabel","canvasAgentMarkdownHref","canvasAgentDisplayMathSegments","canvasAgentSafeMathJaxNode","canvasAgentMarkdownMathNode","canvasAgentAppendMarkdownStyled","canvasAgentAppendMarkdownLinks","canvasAgentAppendMarkdownInline","canvasAgentMarkdownSafe","canvasAgentAppendMarkdown","canvasAgentRenderMessageBody","canvasAgentSetAssistantCopyState","canvasAgentCopyAssistantMessage","canvasAgentSetAssistantCopyReady","canvasAgentAssistantPosition","canvasAgentAppendMessageElement"];
-  const translations={canvasAgentCodeBlock:"Code",canvasAgentTextBlock:"Text",canvasAgentCopyBlock:"Copy",canvasAgentBlockCopied:"Copied",canvasAgentBlockCopyFailed:"Copy failed",canvasAgentCopyResponse:"Copy response",canvasAgentResponseCopied:"Copied",canvasAgentResponseCopyFailed:"Copy failed",canvasAgentHistoryAttachments:"{count} attachments"};
+  const translations={canvasAgentCodeBlock:"Code",canvasAgentTextBlock:"Text",canvasAgentCopyBlock:"Copy",canvasAgentBlockCopied:"Copied",canvasAgentBlockCopyFailed:"Copy failed",canvasAgentCopyResponse:"Copy response",canvasAgentResponseCopied:"Copied",canvasAgentResponseCopyFailed:"Copy failed",canvasAgentLikeResponse:"Helpful",canvasAgentCriticizeResponse:"Needs improvement",canvasAgentHistoryAttachments:"{count} attachments"};
   const canvasAgentTranscript=document.querySelector("#transcript");
   return vm.runInNewContext(`(()=>{${names.map(functionSource).join("\n")}return {append:canvasAgentAppendMessageElement,copy:canvasAgentCopyAssistantMessage};})()`,{
     document,URL,MIXED_TEXT,canvasAgentTranscript,CANVAS_AGENT_MARKDOWN_TEXT_LIMIT:12000,CANVAS_AGENT_MARKDOWN_LINE_LIMIT:240,CANVAS_AGENT_MARKDOWN_MARKER_LIMIT:800,CANVAS_AGENT_MARKDOWN_BACKSLASH_LIMIT:256,CANVAS_AGENT_MARKDOWN_SEGMENT_LIMIT:48,CANVAS_AGENT_MARKDOWN_MATH_COUNT_LIMIT:64,CANVAS_AGENT_MARKDOWN_MATH_SOURCE_LIMIT:4000,
@@ -47,10 +47,10 @@ function messageAppender(document,clipboardWrites){
       const ready=target.historyItem.copyable===true;
       target.copyActions.hidden=!ready;
       target.copyButton.disabled=!ready;
-      target.feedbackButton.hidden=true;
+      for(const feedbackButton of target.feedbackButtons)feedbackButton.hidden=true;
       target.retryButton.hidden=true;
     },
-    canvasAgentOpenFeedbackMenu:()=>{},canvasAgentRetryAssistantMessage:async()=>false,
+    canvasAgentEvaluateAssistantMessage:()=>false,canvasAgentRetryAssistantMessage:async()=>false,
     setTimeout:()=>0,clearTimeout:()=>{},
   });
 }
@@ -310,6 +310,9 @@ test("PenEcho Agent copies only the authoritative final assistant response",asyn
   assert.equal(final.copyButton.dataset.peButton,"icon");
   assert.equal(final.copyButton.textContent,"");
   assert.equal(final.copyButton.querySelector("svg")?.getAttribute("viewBox"),"0 0 24 24");
+  assert.equal(final.feedbackButtons.map(button=>button.dataset.action).join(","),"like,criticism");
+  assert.equal(final.feedbackButtons.map(button=>button.getAttribute("aria-label")).join(","),"Helpful,Needs improvement");
+  assert.equal(final.copyActions.querySelectorAll("button").length,4,"copy, helpful, needs-improvement, and retry remain separate actions");
   assert.equal(final.copyButton.getAttribute("aria-label"),"Copy response");
   assert.equal(final.copyButton.dataset.peState,"default");
   await renderer.copy(final);

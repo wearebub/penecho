@@ -798,7 +798,6 @@ window.PENECHO_LOCALES.zh = {
   canvasAgentCopyResponse: "复制回复",
   canvasAgentResponseCopied: "已复制",
   canvasAgentResponseCopyFailed: "复制失败",
-  canvasAgentRateResponse: "评价回复",
   canvasAgentLikeResponse: "有帮助",
   canvasAgentCriticizeResponse: "需要改进",
   canvasAgentRetryResponse: "重试回复",

@@ -642,9 +642,11 @@
               <div class="canvas-agent-composer-toolbar" data-pe-region="toolbar">
                 <div id="canvasAgentProjectControl" class="canvas-agent-project-control">
                   <button id="canvasAgentProject" class="canvas-agent-project-button" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="canvasAgentProjectPopover" data-i18n-title="canvasAgentProject" title="Manage projects and files" data-i18n-aria="canvasAgentProject" aria-label="Manage projects and files" data-pe-button="toolbar" data-pe-density="compact">
-                    <svg class="canvas-agent-project-folder-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 7.5h6l2-2h9v13h-17z"/><path d="M3.5 9.5h17"/></svg>
-                    <svg class="canvas-agent-project-file-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v5h5"/></svg>
-                    <span class="canvas-agent-project-label-clip"><span id="canvasAgentProjectLabel" data-i18n="canvasAgentNoProject">No project</span></span>
+                    <span class="canvas-agent-project-label-clip"><span class="canvas-agent-project-content">
+                      <svg class="canvas-agent-project-folder-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 7.5h6l2-2h9v13h-17z"/><path d="M3.5 9.5h17"/></svg>
+                      <svg class="canvas-agent-project-file-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v5h5"/></svg>
+                      <span id="canvasAgentProjectLabel" data-i18n="canvasAgentNoProject">No project</span>
+                    </span></span>
                   </button>
                   <button id="canvasAgentProjectClear" class="canvas-agent-project-clear" type="button" aria-label="Clear selected resource" title="Clear selected resource" hidden data-pe-button="icon" data-pe-density="compact"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17"/></svg></button>
                 </div>
@@ -653,7 +655,7 @@
                   </button>
                 </div>
                 <button id="canvasAgentConnection" class="canvas-agent-connection-button" type="button" aria-haspopup="dialog" aria-controls="settingsPanel" data-i18n-title="canvasAgentChooseConnection" title="Choose AI connection" data-i18n-aria="canvasAgentChooseConnection" aria-label="Choose AI connection" data-pe-button="ghost" data-pe-density="compact">
-                  <span id="canvasAgentConnectionLabel" data-i18n="canvasAgentModel">AI model</span>
+                  <span class="canvas-agent-connection-label-clip"><span id="canvasAgentConnectionLabel" data-i18n="canvasAgentModel">AI model</span></span>
                   <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 10 4 4 4-4"/></svg>
                 </button>
               </div>

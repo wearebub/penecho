@@ -1361,7 +1361,6 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       canvasAgentCopyResponse: "Copy response",
       canvasAgentResponseCopied: "Copied",
       canvasAgentResponseCopyFailed: "Copy failed",
-      canvasAgentRateResponse: "Rate response",
       canvasAgentLikeResponse: "Helpful",
       canvasAgentCriticizeResponse: "Needs improvement",
       canvasAgentRetryResponse: "Retry response",
@@ -1798,6 +1797,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       canvasAgentNavigationWasOpen: false,
       canvasAgentNavigationRestoreTimer: 0,
       canvasAgentNavigationRestoreDeadline: 0,
+      canvasAgentNavigationPointerIds: new Set(),
       aiOrbIdleTimer: 0,
       statusKey: "ready",
       aiProgressEvent: null,
@@ -3511,17 +3511,22 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     updatePluginControl();
     updatePluginAuthoringUi();
     try {
-      const cloudRuntime = window.PENECHO_CONFIG?.runtime === "cloud",
-        catalogRequests = cloudRuntime
+      const nativeCloudCanvasReadsEnabled = window.PENECHO_CONFIG?.runtime === "cloud" && window.PENECHO_CONFIG?.remoteCanvasNativeReads === true,
+        catalogRequests = nativeCloudCanvasReadsEnabled
           ? [
               { path:"/api/plugins", cache:"default", accept:(entry) => entry?.builtIn !== false },
-              { path:"/api/plugins?scope=private", cache:"no-store", accept:(entry) => entry?.builtIn === false },
+              { path:"/api/plugins?scope=private", cache:"no-store", accept:(entry) => entry?.builtIn === false, optional:true },
             ]
           : [{ path:"/api/plugins", cache:"no-store", accept:() => true }],
         catalogs = await Promise.all(catalogRequests.map(async (request) => {
-          const response = await fetch(request.path, { credentials:"same-origin", cache:request.cache });
-          if (!response.ok) throw Error(`HTTP ${response.status}`);
-          return { catalog:await response.json(), accept:request.accept };
+          try {
+            const response = await fetch(request.path, { credentials:"same-origin", cache:request.cache });
+            if (!response.ok) throw Error(`HTTP ${response.status}`);
+            return { catalog:await response.json(), accept:request.accept };
+          } catch (error) {
+            if (!request.optional) throw error;
+            return { catalog:{ plugins:[] }, accept:request.accept };
+          }
         })),
         entries = catalogs.flatMap(({ catalog, accept }) => (Array.isArray(catalog?.plugins) ? catalog.plugins : []).filter(accept))
         .map((entry) => ({
@@ -4400,11 +4405,13 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     view.classList.remove("canvas-chrome-lightweight");
   }
   function restoreCanvasAgentAfterNavigation() {
+    const restoreMaterial = state.canvasAgentNavigationActive && state.canvasAgentNavigationWasOpen;
     if (state.canvasAgentNavigationRestoreTimer) clearTimeout(state.canvasAgentNavigationRestoreTimer);
     state.canvasAgentNavigationRestoreTimer = 0;
     state.canvasAgentNavigationRestoreDeadline = 0;
     state.canvasAgentNavigationActive = false;
     state.canvasAgentNavigationWasOpen = false;
+    if (restoreMaterial) restoreCanvasChromeMaterial();
     document.body.classList.remove("canvas-agent-navigation-hidden");
   }
   function scheduleCanvasAgentNavigationRestore() {
@@ -4416,7 +4423,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
         return;
       }
       state.canvasAgentNavigationRestoreTimer = 0;
-      if (state.pointers.size) return;
+      if (state.canvasAgentNavigationPointerIds.size) return;
       restoreCanvasAgentAfterNavigation();
     };
     state.canvasAgentNavigationRestoreTimer = setTimeout(restore, CANVAS_AGENT_NAVIGATION_RESTORE_MS);
@@ -4433,8 +4440,9 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     state.canvasAgentNavigationRestoreDeadline = now + CANVAS_AGENT_NAVIGATION_RESTORE_MS;
     scheduleCanvasAgentNavigationRestore();
   }
-  function canvasAgentNavigationPointerDidEnd(now = performance.now()) {
-    if (!state.canvasAgentNavigationActive || state.pointers.size) return false;
+  function canvasAgentNavigationPointerDidEnd(pointerId, now = performance.now()) {
+    const released = state.canvasAgentNavigationPointerIds.delete(pointerId);
+    if (!released || !state.canvasAgentNavigationActive || state.canvasAgentNavigationPointerIds.size) return false;
     state.canvasAgentNavigationRestoreDeadline = now + CANVAS_AGENT_NAVIGATION_RESTORE_MS;
     scheduleCanvasAgentNavigationRestore();
     return true;

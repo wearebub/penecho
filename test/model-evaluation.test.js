@@ -45,13 +45,15 @@ test("model evaluation forwarding uses the Cloud API and a bounded request", asy
 
 test("Canvas Agent keeps ratings interactive and exposes retry only for the latest response", () => {
   const source = fs.readFileSync(path.join(__dirname, "../src/client/app/canvas-agent-runtime.js"), "utf8");
-  assert.match(source, /feedbackButton\.setAttribute\("aria-haspopup","menu"\)/);
-  assert.match(source, /action:"like"[\s\S]*action:"criticism"/);
-  assert.match(source, /actions\.append\(button,feedbackButton,retryButton\)/);
+  assert.match(source, /actions\.append\(button,likeButton,criticismButton,retryButton\)/);
+  assert.match(source, /likeButton,"like","canvasAgentLikeResponse"[\s\S]*criticismButton,"criticism","canvasAgentCriticizeResponse"/);
+  assert.match(source, /likeButton\.addEventListener\("click",\(\)=>canvasAgentEvaluateAssistantMessage\(target,"like"\)\)/);
+  assert.match(source, /criticismButton\.addEventListener\("click",\(\)=>canvasAgentEvaluateAssistantMessage\(target,"criticism"\)\)/);
+  assert.doesNotMatch(source, /canvasAgentFeedbackMenu|aria-haspopup","menu"/);
   assert.match(source, /canvasAgentSubmitMessage\(\{[\s\S]*displayTextOverride:t\("canvasAgentRetryMessage"\)[\s\S]*includeDraftMedia:false/);
   assert.match(source, /canvasAgentEvaluationContext\(\{preferSelected:true\}\)/);
   assert.match(source, /function canvasAgentCanShowRetryTarget\(target\)[\s\S]*target\?\.historyItem===canvasAgentLatestRetryItem\(\)/);
-  assert.match(source, /target\.feedbackButton\.disabled=!evaluationReady/);
+  assert.match(source, /for\(const feedbackButton of target\.feedbackButtons\)[\s\S]*feedbackButton\.disabled=!evaluationReady[\s\S]*feedbackButton\.setAttribute\("aria-pressed",String\(selected\)\)/);
   assert.match(source, /target\.retryButton\.hidden=!canvasAgentCanShowRetryTarget\(target\)/);
   assert.doesNotMatch(source, /evaluationAction|canvasAgentClaimConversationEvaluation/);
   assert.match(source, /const payload=\{eventId:canvasClientId\(\),conversationId,action/);
