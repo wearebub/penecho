@@ -4486,6 +4486,8 @@
   function openCanvasAgent({focus=false}={}) {
     const options=arguments[0]||{},connect=options.connect!==false,animate=options.animate!==false;
     if (!canvasAgentAvailable()) return;
+    restoreCanvasAgentAfterNavigation();
+    restoreCanvasChromeMaterial();
     canvasAgentCancelInitialAutoHide();
     canvasAgentCancelPanelMotion();
     canvasAgentCancelDockedOpenWork();
@@ -4544,6 +4546,7 @@
   }
   function closeCanvasAgent(options) {
     const focus=options?.focus!==false,animate=options?.animate!==false;
+    restoreCanvasAgentAfterNavigation();
     canvasAgentCancelInitialAutoHide();
     canvasAgentCancelPanelMotion();
     canvasAgentCancelDockedOpenWork();

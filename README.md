@@ -134,9 +134,10 @@ In the app, signing in adds:
 ## 🔔 What's new in 1.2.0
 
 - **A simpler frosted Studio.** The toolbar, Navigator, Agent, settings, dialogs, and compact controls now share a restrained translucent material with fine hairlines. The workspace feels lighter and more coherent while keeping the Canvas clearly visible.
+- **Faster Canvas interaction.** A low-latency live ink layer and coordinated frame work make drawing, erasing, panning, and zooming feel more immediate, while Widgets remain live and text returns sharper after movement.
+- **Customizable keyboard shortcuts.** A dedicated Settings page lets you review, change, clear, and reset shortcuts for focusing the Agent, saving, undo and redo, opening the Canvas Library, fullscreen, and Settings.
 - **Clearer hierarchy, less interface noise.** Primary tools stay within reach, secondary controls recede until needed, and Cloud status, history, favorites, and Agent surfaces follow the same visual and interaction language.
 - **A responsive workbench.** Controls remain compact across wide and narrow screens, the Agent adapts between a right sidebar and bottom panel, and important actions remain visible when the toolbar wraps. Interface scale and Studio palette choices make the workspace comfortable in more environments.
-- **Faster Canvas interaction.** A low-latency live ink layer and coordinated frame work make drawing, erasing, panning, and zooming feel more immediate, while Widgets remain live and text returns sharper after movement.
 - **Smaller improvements together.** Agent suggestions and attachments, Widget and object controls, linked-device viewing, request feedback, long-running tasks, and desktop reliability have been refined; the pen also adds a finer 3 px option.
 
 1.1.7 stabilized the PenEcho Agent runtime and managed Codex CLI integration. 1.0.0 introduced [PenEcho Cloud](https://penecho.ai), private versioned projects, linked-device remote access, Echoes, public Crafts, and synced favorites. 0.9.0 added multiple AI connections with one-click switching, project-based shared canvases, guided in-place Refine, unified-diff incremental edits, SSE streaming, and request progress with cancellation. See [Releases](https://github.com/penecho/penecho/releases) for the full history.

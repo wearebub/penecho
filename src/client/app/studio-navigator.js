@@ -221,6 +221,7 @@
     }
     function setStudioNavigatorOpen(open, { restoreAgent = true } = {}) {
       studioNavigatorOpenPreference = Boolean(open);
+      if (open) restoreCanvasChromeMaterial();
       document.body.classList.toggle("studio-navigator-open", studioNavigatorIsStudio() && studioNavigatorOpenPreference);
       updateStudioNavigatorA11y({ deferSurface:studioNavigatorIsStudio() });
       if (!open && studioNavigator.contains(document.activeElement)) studioNavigatorToggle.focus({ preventScroll:true });

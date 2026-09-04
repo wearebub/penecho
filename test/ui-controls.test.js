@@ -105,6 +105,7 @@ test("hand panning and Canvas zoom preview content on the compositor before the 
   assert.doesNotMatch(zoomCanvasSource, /requestRender\(|\brender\(/);
   assert.doesNotMatch(pinchCanvasSource, /requestRender\(|\brender\(/);
   assert.doesNotMatch(requestPreview, /applyCanvasNavigationPreview\(\)/);
+  assert.match(requestPreview, /noteCanvasChromeInteraction\(\);[\s\S]*?noteCanvasAgentNavigation\(\);/);
   assert.match(requestPreview, /view\.classList\.add\("canvas-navigation-previewing"\)[\s\S]*?setTimeout\(finishCanvasNavigationPreview, CANVAS_NAVIGATION_SETTLE_MS\)[\s\S]*?requestAnimationFrame\(canvasNavigationPreviewStep\)/);
   assert.match(previewTransform, /scale = state\.scale \/ canvasNavigationPreviewScale[\s\S]*?x:state\.panX - canvasNavigationPreviewPanX \* scale[\s\S]*?y:state\.panY - canvasNavigationPreviewPanY \* scale/);
   assert.match(previewDisplacement, /canvasNavigationPreviewViewportWidth \* scaleDelta[\s\S]*?canvasNavigationPreviewViewportHeight \* scaleDelta/);
@@ -155,6 +156,8 @@ test("hand panning and Canvas zoom preview content on the compositor before the 
       canvasClientDelta:(x,y)=>({ x,y }),
       canvasClientPosition:(x,y)=>({ x,y }),
       canvasViewportMetrics:()=>({ width:1000, height:800 }),
+      noteCanvasChromeInteraction:()=>{},
+      noteCanvasAgentNavigation:()=>{},
       requestCoordinatesUpdate:()=>counts.coordinates++,
       flushCoordinatesUpdate:()=>counts.coordinates++,
       requestAnimationLayerRender:()=>counts.animation++,
@@ -938,35 +941,149 @@ test("canvas navigation guidance emphasizes middle-mouse panning for at least te
   assert.match(css, /\.ink-layer\s*\{[^}]*z-index:\s*2/);
 });
 
-test("Canvas chrome uses one lightweight material cooldown before restoring static glass", () => {
+test("Canvas navigation temporarily hides Agent and restores its original state 500ms after every pointer is released", () => {
+  const app = read("public/app.js"), css = read("public/style.css"),
+    restoreSource = functionSource(app, "restoreCanvasAgentAfterNavigation"),
+    scheduleSource = functionSource(app, "scheduleCanvasAgentNavigationRestore"),
+    noteSource = functionSource(app, "noteCanvasAgentNavigation"),
+    pointerEndSource = functionSource(app, "canvasAgentNavigationPointerDidEnd"),
+    previewSource = functionSource(app, "requestCanvasNavigationPreview"),
+    endSource = functionSource(app, "end"),
+    openAgent = app.slice(app.indexOf("function openCanvasAgent"), app.indexOf("function closeCanvasAgent")),
+    closeAgent = app.slice(app.indexOf("function closeCanvasAgent"), app.indexOf("canvasAgentToggle.hidden", app.indexOf("function closeCanvasAgent")));
+
+  assert.match(app, /CANVAS_AGENT_NAVIGATION_RESTORE_MS\s*=\s*500/);
+  assert.match(previewSource, /noteCanvasAgentNavigation\(\)/);
+  assert.match(noteSource, /canvasAgentNavigationWasOpen = !canvasAgentPanel\.hidden && document\.body\.classList\.contains\("canvas-agent-open"\)/);
+  assert.match(noteSource, /canvasAgentPanel\.contains\(document\.activeElement\)[\s\S]*?document\.activeElement\.blur\(\)/);
+  assert.doesNotMatch(noteSource, /canvasAgentPanel\.hidden\s*=/);
+  assert.match(pointerEndSource, /state\.pointers\.size[\s\S]*?now \+ CANVAS_AGENT_NAVIGATION_RESTORE_MS/);
+  assert.equal((endSource.match(/state\.pointers\.delete\(e\.pointerId\);\s*canvasAgentNavigationPointerDidEnd\(\);/g) || []).length, 2);
+  assert.match(openAgent, /restoreCanvasAgentAfterNavigation\(\)[\s\S]*?restoreCanvasChromeMaterial\(\)/);
+  assert.match(closeAgent, /restoreCanvasAgentAfterNavigation\(\)[\s\S]*?classList\.remove\("canvas-agent-open"\)/);
+  assert.match(css, /canvas-agent-open\.canvas-agent-navigation-hidden \.canvas-frame\s*\{[^}]*--studio-agent-edge-shift:\s*0px/);
+  assert.match(css, /canvas-agent-open\.canvas-agent-navigation-hidden \.canvas-frame::after\s*\{[^}]*right:\s*0/);
+  assert.match(css, /studio-agent-docked\.canvas-agent-navigation-hidden \.canvas-agent-panel\.canvas-agent-positioned\s*\{[^}]*pointer-events:\s*none[^}]*opacity:\s*0[^}]*translate3d\(100%, 0, 0\)[^}]*visibility:\s*hidden/);
+  assert.match(css, /@media \(max-width: 700px\)\s*\{[\s\S]*?canvas-agent-open\.canvas-agent-navigation-hidden \.canvas-agent-panel\s*\{[^}]*pointer-events:\s*none[^}]*opacity:\s*0[^}]*visibility:\s*hidden/);
+
+  let now = 100, timerId = 0, blurred = 0;
+  const timers = new Map(), classes = new Set(["canvas-agent-open"]), activeElement = { blur:() => blurred++ },
+    panel = { hidden:false, contains:(value) => value === activeElement },
+    state = {
+      canvasAgentNavigationActive:false,
+      canvasAgentNavigationWasOpen:false,
+      canvasAgentNavigationRestoreTimer:0,
+      canvasAgentNavigationRestoreDeadline:0,
+      pointers:new Map([[1, true]]),
+    },
+    harness = vm.runInNewContext(`(() => {
+      ${restoreSource}
+      ${scheduleSource}
+      ${noteSource}
+      ${pointerEndSource}
+      return { noteCanvasAgentNavigation, canvasAgentNavigationPointerDidEnd };
+    })()`, {
+      CANVAS_AGENT_NAVIGATION_RESTORE_MS:500,
+      state, canvasAgentPanel:panel,
+      document:{ activeElement, body:{ classList:{
+        add:(value) => classes.add(value),
+        remove:(value) => classes.delete(value),
+        contains:(value) => classes.has(value),
+      } } },
+      performance:{ now:() => now },
+      setTimeout:(callback, delay) => { const id = ++timerId; timers.set(id, { callback, delay }); return id; },
+      clearTimeout:(id) => timers.delete(id),
+    });
+  const runNextTimer = () => {
+    const entry = timers.entries().next().value;
+    assert.ok(entry, "an Agent visibility restore timer should be pending");
+    const [id, timer] = entry;
+    timers.delete(id);
+    timer.callback();
+    return timer.delay;
+  };
+
+  harness.noteCanvasAgentNavigation();
+  assert.equal(state.canvasAgentNavigationWasOpen, true);
+  assert.ok(classes.has("canvas-agent-navigation-hidden"));
+  assert.ok(classes.has("canvas-agent-open"), "temporary hiding must preserve the authoritative open state");
+  assert.equal(panel.hidden, false, "temporary hiding must not close the panel");
+  assert.equal(blurred, 1);
+  assert.equal(timers.size, 1);
+  assert.equal(timers.values().next().value.delay, 500);
+
+  now = 320;
+  harness.noteCanvasAgentNavigation();
+  assert.equal(timers.size, 1, "continued navigation should coalesce restore timers");
+  now = 600;
+  assert.equal(runNextTimer(), 500);
+  assert.equal(timers.values().next().value.delay, 220);
+  now = 821;
+  runNextTimer();
+  assert.equal(timers.size, 0);
+  assert.ok(classes.has("canvas-agent-navigation-hidden"), "a held mouse, pen, or finger keeps Agent hidden even when motion pauses");
+
+  state.pointers.clear();
+  now = 900;
+  assert.equal(harness.canvasAgentNavigationPointerDidEnd(), true);
+  assert.equal(timers.values().next().value.delay, 500);
+  now = 1401;
+  runNextTimer();
+  assert.equal(state.canvasAgentNavigationActive, false);
+  assert.ok(!classes.has("canvas-agent-navigation-hidden"));
+  assert.ok(classes.has("canvas-agent-open"));
+  assert.equal(panel.hidden, false);
+
+  panel.hidden = true;
+  classes.delete("canvas-agent-open");
+  now = 2000;
+  harness.noteCanvasAgentNavigation();
+  assert.equal(state.canvasAgentNavigationWasOpen, false);
+  assert.ok(!classes.has("canvas-agent-navigation-hidden"));
+  now = 2501;
+  runNextTimer();
+  assert.equal(panel.hidden, true, "an originally hidden Agent must remain hidden");
+  assert.ok(!classes.has("canvas-agent-open"));
+});
+
+test("Canvas chrome uses one drawing and navigation cooldown before restoring static glass", () => {
   const app = read("public/app.js"), css = read("public/style.css"),
     material = functionSource(app, "noteCanvasChromeInteraction"),
+    restoreMaterial = functionSource(app, "restoreCanvasChromeMaterial"),
     navigating = functionSource(app, "setNavigating"),
+    navigationPreview = functionSource(app, "requestCanvasNavigationPreview"),
     beginDrawing = functionSource(app, "beginCanvasPointerAction"),
-    finishDrawing = functionSource(app, "finishDrawing");
+    finishDrawing = functionSource(app, "finishDrawing"),
+    openAgent = app.slice(app.indexOf("function openCanvasAgent"), app.indexOf("function closeCanvasAgent")),
+    openNavigator = app.slice(app.indexOf("function setStudioNavigatorOpen"), app.indexOf("function syncStudioNavigatorTheme"));
 
-  assert.match(app, /CANVAS_CHROME_MATERIAL_RESTORE_MS\s*=\s*3000/);
+  assert.match(app, /CANVAS_CHROME_MATERIAL_RESTORE_MS\s*=\s*1000/);
   assert.match(material, /canvasChromeMaterialDeadline = now \+ CANVAS_CHROME_MATERIAL_RESTORE_MS/);
   assert.match(material, /if \(!state\.canvasChromeMaterialActive\)[\s\S]*?classList\.add\("canvas-chrome-lightweight"\)/);
   assert.match(material, /if \(state\.canvasChromeMaterialTimer\) return/);
   assert.match(material, /remaining > 16[\s\S]*?setTimeout\(restore, remaining\)/);
   assert.match(material, /canvasChromeMaterialActive = false[\s\S]*?classList\.remove\("canvas-chrome-lightweight"\)/);
   assert.match(material, /classList\.remove\("canvas-chrome-lightweight"\)/);
-  assert.match(navigating, /noteCanvasChromeInteraction\(now\)/);
+  assert.match(restoreMaterial, /clearTimeout\(state\.canvasChromeMaterialTimer\)[\s\S]*?canvasChromeMaterialActive = false[\s\S]*?classList\.remove\("canvas-chrome-lightweight"\)/);
+  assert.match(navigationPreview, /noteCanvasChromeInteraction\(\)[\s\S]*?classList\.add\("canvas-navigation-previewing"\)/);
+  assert.doesNotMatch(navigating, /noteCanvasChromeInteraction/);
   assert.match(navigating, /navigationDeadline = now \+ NAVIGATION_HINT_VISIBLE_MS/);
   assert.match(navigating, /if \(state\.navigationTimer\) return/);
   assert.match(navigating, /remaining > 16[\s\S]*?setTimeout\(hide, remaining\)/);
   assert.doesNotMatch(navigating, /clearTimeout/);
   assert.match(beginDrawing, /noteCanvasChromeInteraction\(\)[\s\S]*?classList\.add\("is-drawing"\)/);
   assert.match(finishDrawing, /state\.drawing = null[\s\S]*?noteCanvasChromeInteraction\(\)[\s\S]*?classList\.remove\("is-drawing"\)/);
+  assert.match(openAgent, /restoreCanvasChromeMaterial\(\)[\s\S]*?classList\.add\("canvas-agent-open"\)/);
+  assert.match(openNavigator, /if \(open\) restoreCanvasChromeMaterial\(\)[\s\S]*?classList\.toggle\("studio-navigator-open"/);
   assert.match(css, /body\[data-theme="studio"\]:has\(#viewport:is\(\.canvas-chrome-lightweight, \.is-drawing\)\) \.toolbar\s*\{[^}]*background:\s*color-mix\(in srgb, var\(--studio-toolbar\) 88%, transparent\)[^}]*backdrop-filter:\s*none/);
+  assert.match(css, /body\[data-theme="studio"\]:has\(#viewport:is\(\.canvas-chrome-lightweight, \.is-drawing\)\) \.studio-navigator\s*\{[^}]*background:\s*var\(--studio-panel\)[^}]*backdrop-filter:\s*none/);
   assert.match(css, /studio-agent-docked:has\(#viewport:is\(\.canvas-chrome-lightweight, \.is-drawing\)\) \.canvas-agent-panel\s*\{[^}]*background:\s*color-mix\(in srgb, var\(--studio-panel\) 88%, transparent\)[^}]*backdrop-filter:\s*none/);
   assert.match(css, /@media \(prefers-reduced-transparency: reduce\), \(prefers-contrast: more\)\s*\{[\s\S]*?body\[data-theme="studio"\] \.toolbar\s*\{[^}]*background:\s*var\(--studio-toolbar\) !important[^}]*backdrop-filter:\s*none !important[\s\S]*?studio-agent-docked \.canvas-agent-panel\s*\{[^}]*background:\s*var\(--studio-panel\) !important[^}]*backdrop-filter:\s*none !important/);
 
   let now = 100, timerId = 0;
   const timers = [], classes = new Set(), state = { canvasChromeMaterialTimer:0, canvasChromeMaterialDeadline:0, canvasChromeMaterialActive:false },
     note = vm.runInNewContext(`(${material})`, {
-      CANVAS_CHROME_MATERIAL_RESTORE_MS:3000,
+      CANVAS_CHROME_MATERIAL_RESTORE_MS:1000,
       performance:{ now:() => now }, state,
       view:{ classList:{
         add(value) { classes.add(value); },
@@ -976,23 +1093,38 @@ test("Canvas chrome uses one lightweight material cooldown before restoring stat
     });
   note();
   assert.equal(timers.length, 1, "the first interaction owns one restore timer");
-  assert.equal(state.canvasChromeMaterialDeadline, 3100);
+  assert.equal(state.canvasChromeMaterialDeadline, 1100);
   assert.equal(state.canvasChromeMaterialActive, true);
   assert.ok(classes.has("canvas-chrome-lightweight"));
   now = 900;
   note();
   assert.equal(timers.length, 1, "repeated hot-path events only extend the deadline");
-  assert.equal(state.canvasChromeMaterialDeadline, 3900);
-  now = 3100;
+  assert.equal(state.canvasChromeMaterialDeadline, 1900);
+  now = 1100;
   timers[0].callback();
   assert.equal(timers.length, 2);
   assert.equal(timers[1].delay, 800);
   assert.ok(classes.has("canvas-chrome-lightweight"));
-  now = 3901;
+  now = 1901;
   timers[1].callback();
   assert.equal(state.canvasChromeMaterialTimer, 0);
   assert.equal(state.canvasChromeMaterialActive, false);
   assert.ok(!classes.has("canvas-chrome-lightweight"));
+
+  now = 2000;
+  note();
+  const activeTimer = state.canvasChromeMaterialTimer,
+    clearedTimers = [], restore = vm.runInNewContext(`(${restoreMaterial})`, {
+    state,
+    view:{ classList:{ remove(value) { classes.delete(value); } } },
+    clearTimeout(id) { clearedTimers.push(id); },
+  });
+  restore();
+  assert.deepEqual(clearedTimers, [activeTimer]);
+  assert.equal(state.canvasChromeMaterialTimer, 0);
+  assert.equal(state.canvasChromeMaterialDeadline, 0);
+  assert.equal(state.canvasChromeMaterialActive, false);
+  assert.ok(!classes.has("canvas-chrome-lightweight"), "opening a sidebar restores true frost immediately");
 
   let navigationNow = 100, navigationTimerId = 0;
   const navigationTimers = [], navigationClasses = new Set(),
@@ -1197,7 +1329,7 @@ test("plugin manager is a centered dynamic catalog with General HTML and bundled
   assert.match(app, /BUILTIN_PLUGIN_DEFINITIONS\s*=\s*Object\.freeze\(\[\]\)/);
   assert.doesNotMatch(app, /documentPath:\s*"plugins\/weather\.md"/);
   const loadPluginDocuments = functionSource(app, "loadPluginDocuments");
-  assert.match(loadPluginDocuments, /fetch\("\/api\/plugins"[\s\S]*?defaultEnabled:\["general", "flowchart"\]\.includes\(item\.manifest\.id\)[\s\S]*?professionalDefinitions = definitions\.filter\(\(definition\) => definition\.id === "flowchart"\)[\s\S]*?promotedDefinitions = \["image-search", "weather"\][\s\S]*?PLUGIN_DEFINITIONS\.splice\(0, PLUGIN_DEFINITIONS\.length, \.\.\.generalDefinitions, \.\.\.professionalDefinitions, \.\.\.BUILTIN_PLUGIN_DEFINITIONS, \.\.\.promotedDefinitions, \.\.\.remainingDefinitions\)/);
+  assert.match(loadPluginDocuments, /path:"\/api\/plugins", cache:"default"[\s\S]*?path:"\/api\/plugins\?scope=private", cache:"no-store"[\s\S]*?fetch\(request\.path[\s\S]*?defaultEnabled:\["general", "flowchart"\]\.includes\(item\.manifest\.id\)[\s\S]*?professionalDefinitions = definitions\.filter\(\(definition\) => definition\.id === "flowchart"\)[\s\S]*?promotedDefinitions = \["image-search", "weather"\][\s\S]*?PLUGIN_DEFINITIONS\.splice\(0, PLUGIN_DEFINITIONS\.length, \.\.\.generalDefinitions, \.\.\.professionalDefinitions, \.\.\.BUILTIN_PLUGIN_DEFINITIONS, \.\.\.promotedDefinitions, \.\.\.remainingDefinitions\)/);
   const enabledPluginDescriptors = functionSource(app, "enabledPluginDescriptors");
   assert.match(enabledPluginDescriptors, /id === "general" \? 0 : id === "flowchart" \? 1 : 2/);
   assert.doesNotMatch(enabledPluginDescriptors, /styles/);
@@ -1221,10 +1353,29 @@ test("plugin manager is a centered dynamic catalog with General HTML and bundled
   assert.match(functionSource(app, "requestAI"), /requestTimeoutMs=activeAiRequestTimeoutMs\(\)[\s\S]*?slowNoticeDelay[\s\S]*?requestTimeoutMs\/3[\s\S]*?phase:"slow"[\s\S]*?timeoutSeconds:Math\.ceil\(requestTimeoutMs\/1000\)[\s\S]*?timeout\.clear\(\)/);
   assert.match(functionSource(app, "supersedeActiveAI"), /aiCancelledForInput[\s\S]*?aiCancelled/);
   assert.doesNotMatch(functionSource(app, "readAiCommandResponse"), /setTimeout|setInterval|\/api\/ai\/progress|fetch\(/);
-  assert.match(css, /#status\[data-ai-progress="true"\][^{]*\{[^}]*min-width:\s*180px/);
+  assert.match(app, /MULTILINE_STATUS_KEYS = new Set\(\["widgetRefinePending"\]\)/);
+  assert.match(app, /multiline=MULTILINE_STATUS_KEYS\.has\(key\)[\s\S]*?status\.dataset\.multiline=String\(multiline\)[\s\S]*?status\.title=progress\|\|multiline\?text:""/);
+  const statusNode = { dataset:{}, textContent:"", title:"" }, statusState = { aiProgressEvent:{ phase:"running" }, statusKey:"ready" },
+    statusSourceStart = app.indexOf("const AI_NON_PROGRESS_STATUS_KEYS"),
+    statusSourceEnd = app.indexOf("const setStatusKey", statusSourceStart),
+    setStatusForTest = Function("status", "state", `${app.slice(statusSourceStart, statusSourceEnd)}; return setStatus;`)(statusNode, statusState);
+  setStatusForTest("Widget guidance", "widgetRefinePending");
+  assert.deepEqual(statusNode.dataset, { aiProgress:"false", multiline:"true" });
+  setStatusForTest("Ready", "ready");
+  assert.deepEqual(statusNode.dataset, { aiProgress:"false", multiline:"false" });
+  setStatusForTest("Reading response", "aiReadingResponse");
+  assert.deepEqual(statusNode.dataset, { aiProgress:"true", multiline:"false" });
+  assert.match(css, /#status\[data-ai-progress="true"\],\s*body\[data-theme="studio"\] #status\[data-multiline="true"\]\s*\{[^}]*width:\s*min\(310px, 32vw\)[^}]*min-width:\s*0[^}]*max-height:\s*36px[^}]*display:\s*-webkit-box/);
   assert.match(css, /#status\s*\{[^}]*height:\s*38px[^}]*display:\s*grid[^}]*align-items:\s*center/);
-  assert.match(css, /#status\[data-ai-progress="true"\][^{]*\{[^}]*overflow-wrap:\s*anywhere[^}]*white-space:\s*normal/);
+  assert.match(css, /#status\[data-ai-progress="true"\],\s*body\[data-theme="studio"\] #status\[data-multiline="true"\]\s*\{[^}]*font-size:\s*var\(--pe-type-supporting, 12px\)[^}]*overflow-wrap:\s*anywhere[^}]*white-space:\s*normal[^}]*-webkit-line-clamp:\s*2[^}]*line-clamp:\s*2/);
+  assert.match(css, /body\[data-theme="studio"\] #aiStatusArea\s*\{[^}]*min-width:\s*0[^}]*margin-left:\s*auto/);
+  assert.match(css, /@media \(min-width:\s*901px\)\s*\{\s*body\[data-theme="studio"\] #aiStatusArea\s*\{[^}]*min-width:\s*0[^}]*flex:\s*1 1 auto[^}]*margin-left:\s*0[^}]*\}\s*body\[data-theme="studio"\] #status:is\(\[data-ai-progress="true"\], \[data-multiline="true"\]\)\s*\{[^}]*width:\s*auto[^}]*min-width:\s*0[^}]*max-width:\s*100%[^}]*flex:\s*1 1 auto/);
+  assert.match(css, /\.top-row\s*\{[^}]*display:\s*flex[^}]*gap:\s*7px/);
+  assert.match(css, /body\[data-theme="studio"\] \.canvas-document-meta\s*\{[^}]*flex:\s*0 0 auto/);
+  assert.match(css, /body\[data-theme="studio"\] \.canvas-document-save\s*\{[^}]*flex:\s*0 0 auto/);
+  assert.match(css, /@media \(max-width:\s*900px\)[\s\S]*?body\[data-theme="studio"\] #status:is\(\[data-ai-progress="true"\], \[data-multiline="true"\]\)\s*\{[^}]*width:\s*20px[^}]*min-width:\s*20px[^}]*max-width:\s*20px[^}]*height:\s*30px[^}]*overflow:\s*hidden[^}]*font-size:\s*0[^}]*line-height:\s*0[^}]*white-space:\s*nowrap/);
   assert.match(css, /@media \(max-width:\s*620px\)[\s\S]*?#status\s*\{[^}]*width:\s*min\(210px, calc\(100vw - 20px\)\)[^}]*min-width:\s*min\(210px, calc\(100vw - 20px\)\)[^}]*max-width:\s*min\(210px, calc\(100vw - 20px\)\)/);
+  assert.match(css, /@media \(max-width:\s*620px\)[\s\S]*?#status\[data-ai-progress="true"\]\s*\{[^}]*min-width:\s*min\(210px, calc\(100vw - 20px\)\)/);
   const handleConnectionAction = functionSource(app, "handleConnectionAction");
   assert.match(handleConnectionAction, /localStorage\.setItem\(AI_CONNECTION_STORAGE_KEY, id\)/);
   assert.match(handleConnectionAction, /closeAfterActivation = settingsConnectionQuickList\?\.contains\(button\) === true[\s\S]*?if \(closeAfterActivation\) closeSettings\(\)/);
@@ -1949,7 +2100,8 @@ test("live widgets use native canvas chrome, state-aware iframe gestures, and th
   assert.deepEqual(stackStyles.map(style => style.zIndex), ["1", "2", "3"]);
   assert.doesNotMatch(functionSource(app, "syncWidgetLayerOrder"), /append|appendChild|insertBefore/, "changing Widget order must not reparent live iframes");
   assert.match(functionSource(app, "mountWidget"), /addWidgetStyleRule\(widget\);[\s\S]*?syncWidgetLayerOrder\(\);[\s\S]*?positionWidget\(widget\)/);
-  assert.match(functionSource(app, "mountWidget"), /frame\.addEventListener\("load"[\s\S]*?widget\.initialized = false[\s\S]*?widget\.hostReady = false[\s\S]*?widget\.hostReadyPromise = new Promise[\s\S]*?probeWidgetHost\(widget\)/);
+  assert.match(functionSource(app, "mountWidget"), /frame\.addEventListener\("load"[\s\S]*?updateWidgetHostForFrameLoad\(widget, hostLoadState\)[\s\S]*?probeWidgetHost\(widget\)/);
+  assert.match(functionSource(app, "updateWidgetHostForFrameLoad"), /loadState\.observed[\s\S]*?if \(!reload\) return false[\s\S]*?widget\.initialized = false[\s\S]*?widget\.hostReady = false[\s\S]*?widget\.hostReadyPromise = new Promise/);
   assert.match(functionSource(app, "beginWidgetGesture"), /beginWidgetEdit\(result\.widget\)[\s\S]*?bringHtmlWidgetToFront\(result\.widget\)/);
   assert.match(functionSource(app, "beginWidgetHostDrag"), /beginWidgetEdit\(widget\)[\s\S]*?bringHtmlWidgetToFront\(widget\)/);
   assert.match(functionSource(app, "beginWidgetEdit"), /beforeIndex:state\.widgets\.indexOf\(widget\)[\s\S]*?beforeFrontCanvasObjectKind:state\.frontCanvasObjectKind/);
@@ -2440,7 +2592,7 @@ test("widget AI refinement is discoverable near ink and replaces only its locked
   assert.match(canvasHtml, /id="objectChromeLayer" class="object-chrome-layer"><\/div>/);
   assert.doesNotMatch(canvasHtml, /imagePlaceBtn|imageDeleteBtn|image-place-control/);
   assert.match(read("public/style.css"), /\.image-material-layer \{[^}]*z-index: 1;[^}]*overflow: hidden;[^}]*pointer-events: none;/);
-  assert.match(read("public/style.css"), /body\[data-theme="studio"\] \.selected-widget-material \{[^}]*outline: 0;[^}]*background: color-mix\(in srgb, var\(--studio-panel\) 14%, transparent\);[^}]*drop-shadow\(0 4px 8px color-mix\(in srgb, var\(--studio-chrome-shadow-color\) 72%, transparent\)\)/);
+  assert.match(read("public/style.css"), /body\[data-theme="studio"\] \.selected-widget-material \{[^}]*outline: 0;[^}]*background: color-mix\(in srgb, var\(--studio-panel\) 80%, transparent\);[^}]*drop-shadow\(0 4px 8px color-mix\(in srgb, var\(--studio-chrome-shadow-color\) 72%, transparent\)\)/);
   assert.match(read("public/style.css"), /object-toolbar-surface\.widget-object-toolbar\)[^{]*\{[^}]*border-color: var\(--line\);[^}]*border-bottom-color: transparent;[^}]*background: transparent;[^}]*box-shadow: none;[^}]*backdrop-filter: none/);
 });
 
@@ -2523,12 +2675,34 @@ test("selected Widget chrome uses one top toolbar and follows Studio glass token
     accept = chromePosition(box,"accept","",{objectToolbarItem:true,objectToolbarKey:"widget:1:toolbar",toolbarSlot:"trailing",baseWidth:28,baseHeight:28},toolbarPositions),
     firstTool = chromePosition(box,"copy","",{objectToolbarItem:true,objectToolbarKey:"widget:1:toolbar",toolbarSlot:"tool",toolbarOrder:0,toolbarItemCount:4,baseWidth:28,baseHeight:28},toolbarPositions),
     selectedClasses = [],
+    materialProperties = new Map(),
+    materialClasses = new Set(),
+    selectedWidgetMaterial = {
+      hidden:true,
+      classList:{
+        toggle(name, enabled) { if (enabled) materialClasses.add(name); else materialClasses.delete(name); },
+        remove(name) { materialClasses.delete(name); },
+      },
+    },
+    materialWidgetStyle = {},
+    syncSelectedWidgetMaterial = vm.runInNewContext(`(${functionSource(app, "syncSelectedWidgetMaterial")})`, {
+      selectedWidgetMaterial,
+      state:{panX:-6400,panY:-4200,scale:1,widgets:[{}],pendingWidget:null},
+      screenObjectBox:() => ({left:100,top:350,width:300,height:200}),
+      runtimeElementStyle:() => ({setProperty(name,value){materialProperties.set(name,value);}}),
+      syncWidgetLayerOrder() {},
+      syncCanvasObjectLayerOrder() {},
+    }),
     sendWidgetHostState = vm.runInNewContext(`(${functionSource(app, "sendWidgetHostState")})`, {
       state:{scale:1,widgetEdit:{id:"widget-1"},selectedWidgetId:"widget-1",navigationLocked:false},
     });
   sendWidgetHostState({
     id:"widget-1", pending:false, w:300, h:200, contentW:300, contentH:200, hostReady:false,
     shell:{classList:{toggle(name,value){selectedClasses.push([name,value]);}}},
+  });
+  syncSelectedWidgetMaterial({
+    spec:{box,object:{styleRule:{style:materialWidgetStyle}},handToolbar:true,handToolbarHiding:false},
+    position:{x:100,y:316,baseWidth:300,baseHeight:34},
   });
 
   assert.deepEqual({x:toolbar.x,y:toolbar.y,baseWidth:toolbar.baseWidth},{x:400,y:66,baseWidth:300});
@@ -2539,10 +2713,17 @@ test("selected Widget chrome uses one top toolbar and follows Studio glass token
   assert.deepEqual({ ...chromePosition({x:1130,y:100,w:300,h:200},"toolbar","",{objectToolbar:true,minimumWidth:196,baseHeight:34}) },{x:1130,y:66,scale:1,baseWidth:300,baseHeight:34});
   assert.deepEqual({ ...chromePosition({x:400,y:100,w:180,h:200},"toolbar","",{objectToolbar:true,minimumWidth:196,baseHeight:34}) },{x:400,y:66,scale:1,baseWidth:196,baseHeight:34});
   assert.deepEqual(selectedClasses,[["is-selected",true]]);
+  assert.equal(selectedWidgetMaterial.hidden,false);
+  assert.equal(materialProperties.get("--selected-widget-material-x"),"6500.0px");
+  assert.equal(materialProperties.get("--selected-widget-material-y"),"4516.0px");
+  assert.equal(materialProperties.get("--selected-widget-material-width"),"300.0px");
+  assert.equal(materialProperties.get("--selected-widget-material-height"),"234.0px");
+  assert.equal(materialProperties.get("z-index"),"2");
+  assert.equal(materialWidgetStyle.zIndex,"2");
   assert.doesNotMatch(functionSource(app, "objectChromePosition"), /querySelectorAll|positions\.find|fallbackPosition/);
   assert.match(functionSource(app, "drawWidgetChrome"), /state\.paint\.accent \|\| "#4f46e5"/);
   assert.match(css, /\.widget-layer \{[^}]*overflow: visible;[^}]*--canvas-widget-pan-x/);
-  assert.match(css, /\.selected-widget-material \{[^}]*outline: 0;[^}]*background: color-mix\(in srgb, var\(--panel-raised, #ffffff\) 14%, transparent\);[^}]*backdrop-filter: saturate\(1\.08\) blur\(8px\)[^}]*clip-path: polygon[^}]*drop-shadow\(0 4px 8px color-mix\(in srgb, var\(--studio-chrome-shadow-color/);
+  assert.match(css, /\.selected-widget-material \{[^}]*outline: 0;[^}]*background: color-mix\(in srgb, var\(--panel-raised, #ffffff\) 80%, transparent\);[^}]*backdrop-filter: saturate\(1\.08\) blur\(30px\)[^}]*clip-path: polygon[^}]*drop-shadow\(0 4px 8px color-mix\(in srgb, var\(--studio-chrome-shadow-color/);
   assert.match(css, /\.object-toolbar-shell\) \{[^}]*border: 1px solid var\(--line\);[^}]*border-bottom: 0;/);
   assert.match(css, /body\[data-theme="studio"\] :is\(#pe-button-contract, \.object-toolbar-shell\) \{[^}]*border-color: var\(--studio-line\);/);
   assert.match(css, /object-toolbar-surface\.widget-object-toolbar\)[^{]*\{[^}]*border-color: var\(--line\);[^}]*border-bottom-color: transparent;[^}]*background: transparent;[^}]*box-shadow: none;[^}]*backdrop-filter: none/);

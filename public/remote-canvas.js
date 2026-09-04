@@ -12,6 +12,7 @@
   const nativeWebSocket = window.WebSocket;
   const cloudRuntime = window.PENECHO_CONFIG?.runtime === "cloud";
   const deviceIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  const cloudCanvasReadPath = /^\/api\/cloud\/canvases\/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   let bridgeDeviceId = "";
   let resolveBridgeGate = null;
   let bridgeGateSettled = !cloudRuntime;
@@ -88,7 +89,9 @@
     const method = String(options.method || (input instanceof Request ? input.method : "GET")).toUpperCase();
     const inputHeaders = input instanceof Request ? input.headers : undefined;
     const headers = csrfHeaders(options.headers || inputHeaders);
-    const shouldBridge = !nativeCloudPaths.has(sourceUrl.pathname) && bridgedPaths.some((pattern) => pattern.test(sourceUrl.pathname));
+    const cloudBuiltInPluginCatalog = method === "GET" && sourceUrl.pathname === "/api/plugins" && !sourceUrl.search;
+    const cloudStoredCanvasRead = method === "GET" && !sourceUrl.search && cloudCanvasReadPath.test(sourceUrl.pathname);
+    const shouldBridge = !cloudBuiltInPluginCatalog && !cloudStoredCanvasRead && !nativeCloudPaths.has(sourceUrl.pathname) && bridgedPaths.some((pattern) => pattern.test(sourceUrl.pathname));
     const bridgePath = sourceUrl.pathname === "/canvas/api/widget-fetch"
       ? "/api/widget-fetch"
       : sourceUrl.pathname.startsWith("/canvas/plugins/private/")

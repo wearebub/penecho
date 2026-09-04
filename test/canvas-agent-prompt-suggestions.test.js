@@ -146,11 +146,30 @@ test("PenEcho Agent adds three distinct Files requests and three distinct Create
   for(const [id,category,enTitle,zhTitle] of expected){
     const item=constants.library[id];
     assert.equal(item.category,category);assert.equal(translation(english,item.title),enTitle);assert.equal(translation(chinese,item.title),zhTitle);
-    assert.notEqual(translation(english,item.prompt),enTitle,"the selected value must use the full request, not its visible title");
-    assert.notEqual(translation(chinese,item.prompt),zhTitle,"the selected value must use the localized full request, not its visible title");
+    const enPrompt=translation(english,item.prompt),zhPrompt=translation(chinese,item.prompt);
+    assert.notEqual(enPrompt,enTitle,"the selected value must use the full request, not its visible title");
+    assert.notEqual(zhPrompt,zhTitle,"the selected value must use the localized full request, not its visible title");
+    assert.match(enPrompt,/Canvas/);assert.match(enPrompt,/visual|display/i,"English requests must require a visual result, not a text-only reply");
+    assert.match(zhPrompt,/Canvas/);assert.match(zhPrompt,/不要只/);assert.match(zhPrompt,/图文结合/,"Chinese requests must require a visual result, not a text-only reply");
   }
   const additions=expected.map(([id])=>constants.library[id]);
   assert.equal(new Set(additions.map(item=>item.prompt)).size,6);assert.equal(new Set(additions.map(item=>item.title)).size,6);
+});
+
+test("visual prompt presets require a Canvas artifact without changing free-form chat",()=>{
+  const constants=promptConstants(),visualPresetIds=[
+    "file","architecture","simpleDiagram","sequenceDiagramSource","excel","transformer","ukTrip","organize","imageVisual","spreadsheetVisual","presentationVisual","documentVisual","documentStudy","codeVisual","codeLayer","projectPlan","projectPublish","selectionVisual","notesVisual","notesPublish","canvasVisual","canvasPublish",
+  ];
+  for(const id of visualPresetIds){
+    const item=constants.library[id],enPrompt=translation(english,item.prompt),zhPrompt=translation(chinese,item.prompt);
+    assert.match(enPrompt,/Do not (?:return|only)/,`${id} must reject a text-only result in English`);
+    assert.match(enPrompt,/Canvas/,`${id} must name the visual destination in English`);
+    assert.match(enPrompt,/visual|display/i,`${id} must require a displayed visual result in English`);
+    assert.match(zhPrompt,/不要只/,`${id} must reject a text-only result in Chinese`);
+    assert.match(zhPrompt,/Canvas/,`${id} must name the visual destination in Chinese`);
+    assert.match(zhPrompt,/图文结合/,`${id} must require a visual result in Chinese`);
+  }
+  assert.doesNotMatch(runtime,/canvasAgentSubmitMessage[\s\S]*?Do not (?:return|only)[\s\S]*?canvasAgentSendRequest/,"free-form submissions must not gain a global visual-output suffix");
 });
 
 function interactiveScene(){

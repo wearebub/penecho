@@ -2274,13 +2274,13 @@ test("local plugin discovery is constrained and widget prompting is conditional"
   assert.match(source, /current or changing public information such as news[\s\S]*?network-backed html_widget[\s\S]*?refreshSeconds interval[\s\S]*?update frequency and rate limits/);
   assert.match(source, /if \(pluginsEnabled\) sections\.push\(PLUGIN_ROUTING_PROMPT, PLUGIN_SYSTEM_PROMPT\)/);
   assert.match(source, /pluginsEnabled = Array\.isArray\(modelInput\?\.enabledPlugins\) && modelInput\.enabledPlugins\.length > 0/);
-  assert.match(source, /function localPluginCatalog\(\)[\s\S]*?entry\.isFile\(\)[\s\S]*?entry\.isDirectory\(\)[\s\S]*?MAX_LOCAL_PLUGINS/);
+  assert.match(source, /function localPluginCatalog\(scope = "all"\)[\s\S]*?entry\.isFile\(\)[\s\S]*?entry\.isDirectory\(\)[\s\S]*?MAX_LOCAL_PLUGINS/);
   assert.match(source, /process\.env\.PENECHO_PRIVATE_PLUGIN_DIR[\s\S]*?path\.resolve\(process\.env\.PENECHO_PRIVATE_PLUGIN_DIR\)/);
   assert.match(source, /STATE_DIRECTORY[\s\S]*?path\.join\(STATE_DIRECTORY, "plugins", "private"\)/);
-  assert.match(source, /function localPluginCatalog\(\)[\s\S]*?PRIVATE_PLUGIN_DIRECTORY[\s\S]*?plugins\/private/);
+  assert.match(source, /function localPluginCatalog\(scope = "all"\)[\s\S]*?PRIVATE_PLUGIN_DIRECTORY[\s\S]*?plugins\/private[\s\S]*?scope !== "private" \|\| !builtIn/);
   assert.match(source, /function saveLocalPluginDocument\([\s\S]*?BUILTIN_PLUGIN_IDS\.has\(manifest\.id\)[\s\S]*?mkdirSync\(PRIVATE_PLUGIN_DIRECTORY/);
   assert.match(source, /function deleteLocalPlugin\([\s\S]*?path\.join\(PRIVATE_PLUGIN_DIRECTORY/);
-  assert.match(source, /url\.pathname === "\/api\/plugins"[\s\S]*?localPluginCatalog\(\)/);
+  assert.match(source, /url\.pathname === "\/api\/plugins"[\s\S]*?url\.searchParams\.get\("scope"\) === "private"[\s\S]*?localPluginCatalog\(scope\)/);
   assert.match(source, /url\.pathname === "\/api\/plugins"[\s\S]*?saveLocalPluginDocument\(body\.document, body\.styles \|\| ""\)/);
   assert.match(source, /const PLUGIN_AUTHORING_SYSTEM = `[\s\S]*?under 12000 UTF-8 bytes[\s\S]*?under 32000 UTF-8 bytes/);
   assert.match(source, /url\.pathname === "\/api\/plugins\/improve"[\s\S]*?improvePluginDocument/);
@@ -2314,6 +2314,10 @@ test("personal plugins use the writable desktop directory and remain fetchable",
       entry=catalog.plugins.find(plugin=>plugin.path==="plugins/private/desktop-private-test/plugin.md");
     assert.equal(entry?.builtIn,false);
     assert.equal(entry?.stylePath,"plugins/private/desktop-private-test/styles.css");
+    const privateCatalog=await fetch(`${running.origin}/api/plugins?scope=private`).then(value=>value.json());
+    assert.ok(privateCatalog.plugins.length >= 1);
+    assert.ok(privateCatalog.plugins.every(plugin=>plugin.builtIn===false));
+    assert.ok(privateCatalog.plugins.some(plugin=>plugin.path==="plugins/private/desktop-private-test/plugin.md"));
     const served=await fetch(`${running.origin}/${entry.path}`);
     assert.equal(served.status,200);
     assert.equal((await served.text()).trim(),document.trim());

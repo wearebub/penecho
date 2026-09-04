@@ -290,6 +290,30 @@ test("Remote Canvas gate keeps the cloud fetch bridge and community take-further
   const direct = await run.window.fetch("/api/ai/command", { method:"POST" });
   assert.equal(direct.ok, true);
   assert.equal(run.fetchCalls.at(-1).url, "/api/ai/command");
+  await run.window.fetch("/api/plugins");
+  assert.equal(run.fetchCalls.at(-1).url, "/api/plugins");
+  await run.window.fetch("/api/plugins?scope=private");
+  assert.equal(run.fetchCalls.at(-1).url, "/api/v1/remote-canvas/http?path=%2Fapi%2Fplugins%3Fscope%3Dprivate");
+
+  await run.window.fetch(`/api/cloud/canvases/${CANVAS_ID}`);
+  assert.equal(run.fetchCalls.at(-1).url, `/api/cloud/canvases/${CANVAS_ID}`, "Cloud reading a Cloud Canvas stays on Cloud");
+  await run.window.fetch(`/api/canvases/${CANVAS_ID}`);
+  assert.match(run.fetchCalls.at(-1).url, /path=%2Fapi%2Fcanvases%2F/, "Cloud reading a host Canvas remains bridged");
+  await run.window.fetch(`/api/cloud/canvases/${CANVAS_ID}/save`, { method:"POST", body:"{}" });
+  assert.match(run.fetchCalls.at(-1).url, /path=%2Fapi%2Fcloud%2Fcanvases%2F.*%2Fsave/, "Cloud saves remain host-owned and bridged");
+});
+
+test("desktop runtime keeps its existing direct Cloud sync path", async () => {
+  const calls = [], windowObject = {
+    PENECHO_CONFIG:{ runtime:"local" },
+    fetch:async (url) => { calls.push(String(url)); return { ok:true, status:200 }; },
+  };
+  vm.runInNewContext(gateScript, {
+    window:windowObject,
+    location:{ pathname:`/canvas/${CANVAS_ID}` },
+  }, { filename:"public/remote-canvas.js" });
+  await windowObject.fetch(`/api/cloud/canvases/${CANVAS_ID}`);
+  assert.deepEqual(calls, [`/api/cloud/canvases/${CANVAS_ID}`]);
 });
 
 test("Remote Canvas fetch wrapper preserves the Canvas base URL on nested community routes", async () => {

@@ -190,11 +190,12 @@ test("feature tour persists seen ids, supports replay, and repositions accessibl
   assert.doesNotMatch(app, /resolveInitialLanguage\([^)]*navigator/);
 });
 
-test("1.2.0 changelog leads with the frosted Studio interface and keeps other improvements concise", () => {
+test("1.2.0 release notes put performance second and keyboard shortcuts third", () => {
   const html = read("public/index.html"),
     app = read("public/app.js"),
     css = read("public/style.css"),
     zh = read("public/locales/zh.js"),
+    readme = read("README.md"),
     layer = html.match(/<div id="changelogLayer"[\s\S]*?<script src="remote-canvas\.js">/)?.[0] || "";
   assert.match(layer, /class="changelog-layer"[^>]*hidden[^>]*aria-hidden="true"/);
   assert.match(layer, /id="changelogDialog"[^>]*role="dialog"[^>]*aria-modal="true"[^>]*aria-labelledby="changelogTitle"/);
@@ -212,7 +213,7 @@ test("1.2.0 changelog leads with the frosted Studio interface and keeps other im
   assert.match(app, /changelogLayer\.addEventListener\("keydown", handleChangelogKeydown\)/);
   assert.match(css, /\.changelog-layer\s*\{[^}]*position:\s*fixed;[^}]*inset:\s*0;[^}]*place-items:\s*center/);
   assert.match(css, /\.changelog-dialog\s*\{[^}]*width:\s*min\(620px,[^}]*max-height:/);
-  for (const key of ["changelogDialog", "changelogBadge", "changelogTitle", "changelogFrostedStudio", "changelogResponsiveWorkspace", "changelogPerformanceAndDetails"]) {
+  for (const key of ["changelogDialog", "changelogBadge", "changelogTitle", "changelogFrostedStudio", "changelogPerformance", "changelogKeyboardShortcuts"]) {
     assert.match(app, new RegExp(`${key}:`), `missing English ${key}`);
     assert.match(zh, new RegExp(`${key}:`), `missing Chinese ${key}`);
   }
@@ -221,12 +222,14 @@ test("1.2.0 changelog leads with the frosted Studio interface and keeps other im
     assert.doesNotMatch(zh, new RegExp(`${key}:`));
   }
   assert.equal((layer.match(/<li data-i18n="changelog/g) || []).length, 3);
+  assert.match(layer, /changelogFrostedStudio[\s\S]*changelogPerformance[\s\S]*changelogKeyboardShortcuts/);
   assert.match(app, /changelogFrostedStudio:[^\n]*frosted Studio[^\n]*Translucent materials[^\n]*Canvas visible/);
-  assert.match(app, /changelogResponsiveWorkspace:[^\n]*wide and narrow screens[^\n]*right sidebar and[^\n]*bottom panel/);
-  assert.match(app, /changelogPerformanceAndDetails:[^\n]*Drawing, erasing, panning, and zooming[^\n]*3 px pen/);
+  assert.match(app, /changelogPerformance:[^\n]*Drawing, erasing, panning, and zooming[^\n]*Low-latency live ink/);
+  assert.match(app, /changelogKeyboardShortcuts:[^\n]*Customizable keyboard shortcuts[^\n]*undo and redo/);
   assert.match(zh, /changelogFrostedStudio:[^\n]*磨砂 Studio[^\n]*半透明材质[^\n]*画布始终清晰可见/);
-  assert.match(zh, /changelogResponsiveWorkspace:[^\n]*宽屏和窄屏[^\n]*右侧栏[^\n]*底部面板/);
-  assert.match(zh, /changelogPerformanceAndDetails:[^\n]*书写、擦除、平移和缩放[^\n]*3 px 细笔尖/);
+  assert.match(zh, /changelogPerformance:[^\n]*书写、擦除、平移和缩放[^\n]*低延迟实时笔迹/);
+  assert.match(zh, /changelogKeyboardShortcuts:[^\n]*自定义键盘快捷键[^\n]*撤销与重做/);
+  assert.match(readme, /What's new in 1\.2\.0[\s\S]*A simpler frosted Studio[\s\S]*Faster Canvas interaction[\s\S]*Customizable keyboard shortcuts/);
 });
 
 test("feature tour copy is complete in English and Chinese", () => {

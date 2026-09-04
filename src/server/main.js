@@ -3070,12 +3070,12 @@ function deleteLocalPlugin(id) {
   }
   return { id };
 }
-function localPluginCatalog() {
+function localPluginCatalog(scope = "all") {
   try {
     const directories = [
       { directory:PRIVATE_PLUGIN_DIRECTORY, prefix:"plugins/private", builtIn:false },
       { directory:PLUGIN_DIRECTORY, prefix:"plugins", builtIn:true },
-    ];
+    ].filter(({ builtIn }) => scope !== "private" || !builtIn);
     return directories.flatMap(({ directory, prefix, builtIn }) => {
       let entries;
       try { entries = fs.readdirSync(directory, { withFileTypes:true }); } catch { return []; }
@@ -3757,7 +3757,10 @@ const server = http.createServer(async (req, res) => {
       return send(res,status,{error:error?.message||"Unable to access the PenEcho server canvas."});
     }
   }
-  if (req.method === "GET" && url.pathname === "/api/plugins") return send(res, 200, { plugins:localPluginCatalog() });
+  if (req.method === "GET" && url.pathname === "/api/plugins") {
+    const scope = url.searchParams.get("scope") === "private" ? "private" : "all";
+    return send(res, 200, { plugins:localPluginCatalog(scope) });
+  }
   const privatePluginMatch=/^\/plugins\/private\/([a-z0-9][a-z0-9-]{0,63})(?:\/(plugin\.md|styles\.css)|(\.md))$/.exec(url.pathname);
   if ((req.method === "GET" || req.method === "HEAD") && privatePluginMatch) {
     const file=privatePluginMatch[3]

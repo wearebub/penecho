@@ -255,7 +255,8 @@
     AI_TEXT_MAX_LENGTH = 1000,
     COPY_STATUS_MS = 1600,
     NAVIGATION_HINT_VISIBLE_MS = 10000,
-    CANVAS_CHROME_MATERIAL_RESTORE_MS = 3000,
+    CANVAS_CHROME_MATERIAL_RESTORE_MS = 1000,
+    CANVAS_AGENT_NAVIGATION_RESTORE_MS = 500,
     ANIMATION_CONTROLS_VISIBLE_MS = 10000;
   function normalizeToolbarReasoningEffort(value) {
     if (typeof value !== "string") return "";
@@ -477,8 +478,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       changelogBadge: "What's new",
       changelogTitle: "A simpler, more focused Studio",
       changelogFrostedStudio: "A simpler frosted Studio brings the toolbar, Navigator, Agent, settings, and dialogs into one restrained visual system. Translucent materials, fine hairlines, and lighter controls keep the Canvas visible and the workspace easy to scan.",
-      changelogResponsiveWorkspace: "The workspace now adapts more naturally to wide and narrow screens. Controls remain compact, the Agent moves between a right sidebar and bottom panel, and important actions stay within reach as the toolbar wraps.",
-      changelogPerformanceAndDetails: "Drawing, erasing, panning, and zooming feel faster, while sharper text, steadier Widgets and object controls, improved Agent suggestions and attachments, interface scale and palette choices, a 3 px pen, and desktop reliability refinements round out the release.",
+      changelogPerformance: "Drawing, erasing, panning, and zooming feel more immediate. Low-latency live ink and coordinated frame work keep Widgets live and restore sharper text after movement.",
+      changelogKeyboardShortcuts: "Customizable keyboard shortcuts are now available in Settings for focusing the Agent, saving, undo and redo, opening the Canvas Library, fullscreen, and Settings.",
       settingsTitle: "Settings",
       settingsClose: "Close settings",
       settingsSubtitle: "Choose a category, then adjust its settings without leaving this window.",
@@ -1181,51 +1182,51 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       canvasAgentPromptCanvasVisualTitle: "Explain the Current Canvas",
       canvasAgentPromptCanvasLayerTitle: "Add a Canvas Overview",
       canvasAgentPromptCanvasPublishTitle: "Publish the Canvas Summary",
-      canvasAgentPromptFile: "Explain the current file's purpose, structure, key relationships, and details with visuals. If there is no file, explain the canvas instead.",
-      canvasAgentPromptArchitecture: "Map the current project's core modules, dependencies, data flow, and key directories.",
-      canvasAgentPromptSimpleDiagram: "Make a separate, simple diagram of the core concepts, relationships, and essential labels.",
-      canvasAgentPromptSequenceDiagramSource: "Convert the current diagram into a sequence diagram and return editable diagram source code, such as Mermaid or PlantUML—not HTML.",
+      canvasAgentPromptFile: "Do not return only a written explanation. Create and display a visual file overview on Canvas showing its purpose, structure, key relationships, and important details. If there is no file, create a visual overview of the current Canvas instead.",
+      canvasAgentPromptArchitecture: "Do not return only text. Create and display a visual architecture map on Canvas showing the current project's core modules, dependencies, data flow, and key directories.",
+      canvasAgentPromptSimpleDiagram: "Do not only describe the content. Create and display a separate, simple visual diagram on Canvas showing the core concepts, relationships, and essential labels.",
+      canvasAgentPromptSequenceDiagramSource: "Do not return only source code. Create and display the rendered sequence diagram on Canvas, then provide its editable Mermaid or PlantUML source in chat—not HTML.",
       canvasAgentPromptPpt: "Turn the current view into a presentation-ready layout and send the final image in chat.",
       canvasAgentPromptHandwriting: "Keep the current handwriting completely unchanged—do not edit, erase, or move it. Add a transparent explanatory layer over it; overlap is acceptable only if the original strokes remain clearly visible, and use annotations, connectors, links, graphics, or motion where appropriate to make the notes more vivid and intuitive.",
-      canvasAgentPromptExcel: "Chart the attached spreadsheet's key metrics, trends, anomalies, and conclusions.",
-      canvasAgentPromptCompareFiles: "Compare the selected or related files. Show meaningful differences, conflicting facts, and missing information in one compact view, then recommend what to keep or reconcile.",
-      canvasAgentPromptProjectEvidence: "Search the current project for evidence related to my question. Cite exact files and sections, connect findings across sources, and clearly separate confirmed facts from assumptions.",
-      canvasAgentPromptReleaseReadiness: "Review the current project's changed code, configuration, tests, and documentation. Prioritize release blockers, explain impact, and propose the smallest verification checklist.",
-      canvasAgentPromptTransformer: "Explain Transformer with a layered diagram and pseudocode, including data flow and tensor shapes.",
-      canvasAgentPromptUkTrip: "Create a 15-day UK travel map with daily routes, transport, stays, and highlights.",
-      canvasAgentPromptInteractivePrototype: "Turn the current sketch or requirements into a working interface prototype on Canvas. Include the main states, navigation, realistic sample content, and essential interactions.",
-      canvasAgentPromptInteractiveCalculator: "Turn the formulas or rules I provide into an interactive calculator on Canvas, with labeled inputs, live results, validation, explanations, and reset.",
-      canvasAgentPromptSelfCheckQuiz: "Turn the current notes or attached material into an interactive self-check quiz with varied questions, immediate explanations, progress, and retry.",
-      canvasAgentPromptOrganize: "Turn the current canvas into clear visual notes, with themes, hierarchy, and information gaps.",
+      canvasAgentPromptExcel: "Do not return only a written analysis. Create and display visual charts on Canvas for the attached spreadsheet's key metrics, trends, anomalies, and conclusions, then summarize the findings in chat.",
+      canvasAgentPromptCompareFiles: "Compare the selected or related files. Do not stop at a written explanation: create a visual comparison on Canvas using a table, relationship map, or annotated highlights. Show meaningful differences, conflicting facts, and missing information, then add a concise chat summary of what to keep or reconcile.",
+      canvasAgentPromptProjectEvidence: "Search the current project for evidence related to my question. Do not return only text: create a visual evidence map on Canvas that connects exact files and relevant sections to the findings. Clearly separate confirmed facts from assumptions, then summarize the key conclusions in chat.",
+      canvasAgentPromptReleaseReadiness: "Review the current project's changed code, configuration, tests, and documentation. Do not return only a written checklist: create a visual release-readiness board on Canvas that links each prioritized blocker to the affected area. Explain the impact and provide the smallest verification checklist in chat.",
+      canvasAgentPromptTransformer: "Do not only explain Transformer in chat. Create and display a layered visual diagram on Canvas with pseudocode, key data flow, and tensor shapes.",
+      canvasAgentPromptUkTrip: "Do not return only itinerary text. Create and display a visual 15-day UK travel map on Canvas with daily routes, transport, stays, and highlights.",
+      canvasAgentPromptInteractivePrototype: "Do not only describe the design: build and display a working interface prototype on Canvas from the current sketch or requirements. Show the main states visually and include navigation, realistic sample content, essential interactions, and concise supporting annotations.",
+      canvasAgentPromptInteractiveCalculator: "Do not only explain how it works: build and display a working interactive calculator on Canvas from the formulas or rules I provide. Use a clear visual layout with labeled inputs, live results, validation, concise explanations, and reset.",
+      canvasAgentPromptSelfCheckQuiz: "Do not only outline the questions: build and display an interactive self-check quiz on Canvas from the current notes or attached material. Use a clear visual layout with varied questions, immediate explanations, progress feedback, and retry.",
+      canvasAgentPromptOrganize: "Do not only describe how to organize it. Reorganize and display the current Canvas as clear visual notes with themes, hierarchy, and information gaps.",
       canvasAgentPromptApplyAnnotations: "Apply my new Canvas annotations and sketches: add, remove, move, resize, or reconnect only clearly marked content, and ask about ambiguity first.",
       canvasAgentPromptFollowCanvasCues: "Follow my latest Canvas drawings, images, text boxes, and annotations. Continue and refine the work without changing unmarked content; ask if unclear.",
-      canvasAgentPromptImageVisual: "Explain the current image's subjects, structure, relationships, and important details visually.",
+      canvasAgentPromptImageVisual: "Do not return only text. Create and display a visual analysis on Canvas of the current image's subjects, structure, relationships, important details, and uncertainties.",
       canvasAgentPromptImageLayer: "Keep the image unchanged and add a transparent explanation layer with labels, links, graphics, or motion.",
       canvasAgentPromptImagePublish: "Extract the image's key information; publish visuals to Canvas and send the summary in chat.",
-      canvasAgentPromptSpreadsheetVisual: "Chart the spreadsheet's metrics, trends, anomalies, field relationships, and data quality.",
+      canvasAgentPromptSpreadsheetVisual: "Do not return only a written analysis. Create and display visual charts on Canvas showing the spreadsheet's metrics, trends, anomalies, field relationships, and data quality.",
       canvasAgentPromptSpreadsheetLayer: "Keep the source data and add a Canvas dashboard with metric cards, charts, and explanations.",
       canvasAgentPromptSpreadsheetPublish: "Organize conclusions, risks, and next steps; put charts on Canvas and the summary in chat.",
-      canvasAgentPromptPresentationVisual: "Explain the presentation and connect its structure and conclusions in one overview diagram.",
+      canvasAgentPromptPresentationVisual: "Do not only summarize the presentation in chat. Create and display a visual overview diagram on Canvas connecting its structure and key conclusions.",
       canvasAgentPromptPresentationLayer: "Preserve the meaning, unify the deck, and add essential diagrams and explanation layers.",
       canvasAgentPromptPresentationPublish: "Create a speaking outline, slide revision list, and summary; put visuals on Canvas.",
-      canvasAgentPromptDocumentVisual: "Explain the document or paper's topic, structure, arguments, concepts, and conclusions visually.",
-      canvasAgentPromptDocumentStudy: "Turn the document into study notes with terminology, examples, diagrams, and review points.",
+      canvasAgentPromptDocumentVisual: "Do not only summarize the document or paper in chat. Create and display a visual explanation on Canvas of its topic, structure, arguments, key concepts, and conclusions.",
+      canvasAgentPromptDocumentStudy: "Do not return only written notes. Create and display visual study notes on Canvas with terminology, difficult ideas, examples, diagrams, and review points.",
       canvasAgentPromptDocumentPublish: "Create a summary, action items, and open questions; publish useful diagrams to Canvas.",
-      canvasAgentPromptCodeVisual: "Explain the code's entry points, core logic, dependencies, data flow, and boundaries visually.",
-      canvasAgentPromptCodeLayer: "Keep behavior unchanged and add a module map, key flows, comment ideas, risks, and links.",
+      canvasAgentPromptCodeVisual: "Do not only explain the code in chat. Create and display a visual code map on Canvas showing entry points, core logic, dependencies, data flow, and key boundaries.",
+      canvasAgentPromptCodeLayer: "Do not return only written suggestions. Keep code behavior unchanged, and create and display a visual module map on Canvas with key flows, comment ideas, risks, and relevant links.",
       canvasAgentPromptCodePlan: "Create an implementation summary, risk list, and phased plan, with architecture on Canvas.",
       canvasAgentPromptFileLayer: "Keep the file unchanged and add a transparent visual explanation in open Canvas space.",
       canvasAgentPromptFilePublish: "Organize the file's structure, summary, conclusions, and actions; put diagrams on Canvas.",
-      canvasAgentPromptProjectPlan: "Plan the project by goals, milestones, dependencies, risks, and acceptance criteria.",
-      canvasAgentPromptProjectPublish: "Map project entry points, directories, dependencies, risks, and run steps, with a handoff summary.",
-      canvasAgentPromptSelectionVisual: "Visually explain only the selected content's purpose, structure, relationships, and details.",
+      canvasAgentPromptProjectPlan: "Do not return only a written plan. Create and display a visual project plan on Canvas showing goals, milestones, dependencies, risks, and acceptance criteria, then add a concise chat summary.",
+      canvasAgentPromptProjectPublish: "Do not return only handoff text. Create and display a visual project map on Canvas showing entry points, directory responsibilities, dependencies, risks, and run steps, then provide the handoff summary in chat.",
+      canvasAgentPromptSelectionVisual: "Do not only explain the selection in chat. Create and display a visual explanation on Canvas of only the selected or referenced content's purpose, structure, relationships, and key details.",
       canvasAgentPromptSelectionLayer: "Keep the selection unchanged and add a transparent explanation layer with labels and links nearby.",
       canvasAgentPromptSelectionPublish: "Organize conclusions and next steps; put visuals on Canvas and the summary in chat.",
-      canvasAgentPromptNotesVisual: "Explain the handwritten notes' themes, hierarchy, relationships, and questions without changing them.",
-      canvasAgentPromptNotesPublish: "Turn the handwriting into a transcription, knowledge map, tasks, and review points.",
-      canvasAgentPromptCanvasVisual: "Explain the current canvas with one overview of its content, structure, relationships, and gaps.",
+      canvasAgentPromptNotesVisual: "Do not only explain the handwritten notes in chat. Keep the original handwriting unchanged, and create and display a visual knowledge map on Canvas showing its themes, hierarchy, relationships, and questions.",
+      canvasAgentPromptNotesPublish: "Do not return only a written summary. Create and display visual notes on Canvas with a transcription, knowledge map, tasks, and review points, then send a concise summary in chat.",
+      canvasAgentPromptCanvasVisual: "Do not only describe the current Canvas in chat. Create and display a visual overview on Canvas showing its content, structure, relationships, and information gaps.",
       canvasAgentPromptCanvasLayer: "Keep the canvas meaning and objects, improve layout, and add transparent explanations in open space.",
-      canvasAgentPromptCanvasPublish: "Organize the canvas summary, conclusions, and actions, then send a copy-ready recap in chat.",
+      canvasAgentPromptCanvasPublish: "Do not return only a copy-ready recap. Create and display a visual summary board on Canvas showing the key conclusions and actions, then send the concise copy-ready recap in chat.",
       canvasAgentPromptSimpleDiagramSummary: "Draw a simple diagram of the core concepts and relationships.",
       canvasAgentPromptSequenceDiagramSourceSummary: "Convert this diagram to editable Mermaid or PlantUML sequence source.",
       canvasAgentPromptOrganizeSummary: "Organize the canvas into clear visual notes and surface gaps.",
@@ -1233,14 +1234,14 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       canvasAgentPromptFollowCanvasCuesSummary: "Continue from the latest cues without changing unmarked content.",
       canvasAgentPromptPptSummary: "Turn this view into a presentation layout and return the final image.",
       canvasAgentPromptExcelSummary: "Chart the spreadsheet's key metrics, trends, anomalies, and conclusions.",
-      canvasAgentPromptCompareFilesSummary: "Compare related files for differences, conflicts, gaps, and recommended resolutions.",
-      canvasAgentPromptProjectEvidenceSummary: "Find project evidence, cite exact sources, and separate facts from assumptions.",
-      canvasAgentPromptReleaseReadinessSummary: "Identify release blockers and produce a prioritized verification checklist.",
+      canvasAgentPromptCompareFilesSummary: "Create a visual Canvas comparison, then summarize differences, conflicts, gaps, and resolutions.",
+      canvasAgentPromptProjectEvidenceSummary: "Map project evidence visually on Canvas, cite exact sources, and separate facts from assumptions.",
+      canvasAgentPromptReleaseReadinessSummary: "Build a visual Canvas release-readiness board with prioritized blockers and verification steps.",
       canvasAgentPromptTransformerSummary: "Explain Transformer with layers, data flow, shapes, and pseudocode.",
       canvasAgentPromptUkTripSummary: "Map a 15-day UK trip with routes, transport, stays, and highlights.",
-      canvasAgentPromptInteractivePrototypeSummary: "Turn a sketch or requirements into a working interactive Canvas prototype.",
-      canvasAgentPromptInteractiveCalculatorSummary: "Turn formulas or rules into a validated interactive Canvas calculator.",
-      canvasAgentPromptSelfCheckQuizSummary: "Turn notes or files into an interactive quiz with explanations and progress.",
+      canvasAgentPromptInteractivePrototypeSummary: "Build and display a working visual Canvas prototype with states and interactions.",
+      canvasAgentPromptInteractiveCalculatorSummary: "Build and display a visual Canvas calculator with live results and validation.",
+      canvasAgentPromptSelfCheckQuizSummary: "Build and display a visual Canvas quiz with explanations, progress, and retry.",
       canvasAgentPromptFileSummary: "Explain this file's purpose, structure, relationships, and details visually.",
       canvasAgentPromptArchitectureSummary: "Map project modules, dependencies, data flow, and key directories.",
       canvasAgentPromptHandwritingSummary: "Preserve the handwriting and add a transparent visual explanation layer.",
@@ -1793,6 +1794,10 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       canvasChromeMaterialTimer: 0,
       canvasChromeMaterialDeadline: 0,
       canvasChromeMaterialActive: false,
+      canvasAgentNavigationActive: false,
+      canvasAgentNavigationWasOpen: false,
+      canvasAgentNavigationRestoreTimer: 0,
+      canvasAgentNavigationRestoreDeadline: 0,
       aiOrbIdleTimer: 0,
       statusKey: "ready",
       aiProgressEvent: null,
@@ -1923,13 +1928,16 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     return { left, top, right:left + width, bottom:top + height, width, height };
   }
   const AI_NON_PROGRESS_STATUS_KEYS = new Set(["aiBusy", "aiDone", "aiNoVisibleResponse", "aiError", "aiCancelled", "aiCancelledForInput"]);
+  const MULTILINE_STATUS_KEYS = new Set(["widgetRefinePending"]);
   const setStatus = (text, key = null) => {
     status.textContent = text;
     state.statusKey = key;
     const progress=typeof key==="string"&&key.startsWith("ai")&&!AI_NON_PROGRESS_STATUS_KEYS.has(key);
+    const multiline=MULTILINE_STATUS_KEYS.has(key);
     if(!progress)state.aiProgressEvent=null;
     status.dataset.aiProgress=String(progress);
-    status.title=progress?text:"";
+    status.dataset.multiline=String(multiline);
+    status.title=progress||multiline?text:"";
   };
   const setStatusKey = (key) => setStatus(t(key), key);
   const t = (key) => I18N[state.language]?.[key] || I18N.en[key] || key;
@@ -3490,6 +3498,9 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     // busting; accept it alongside the plain paths the local server returns.
     return new RegExp(`^plugins/(?:private/)?(?:[a-z0-9][a-z0-9-]{0,63}/${suffix}${legacy})(?:\\?v=[a-f0-9]{6,16})?$`).test(value) ? value : null;
   }
+  function pluginDocumentCacheMode(path, builtIn) {
+    return builtIn && /\?v=[a-f0-9]{6,16}$/.test(path) ? "force-cache" : "no-store";
+  }
   async function loadPluginDocuments() {
     if (pluginCatalogLoadPromise) return pluginCatalogLoadPromise;
     let resolveSharedLoad,loadSucceeded=false;
@@ -3500,22 +3511,41 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     updatePluginControl();
     updatePluginAuthoringUi();
     try {
-      const response = await fetch("/api/plugins", { credentials:"same-origin", cache:"no-store" });
-      if (!response.ok) throw Error(`HTTP ${response.status}`);
-      const catalog = await response.json(), entries = (Array.isArray(catalog?.plugins) ? catalog.plugins : [])
+      const cloudRuntime = window.PENECHO_CONFIG?.runtime === "cloud",
+        catalogRequests = cloudRuntime
+          ? [
+              { path:"/api/plugins", cache:"default", accept:(entry) => entry?.builtIn !== false },
+              { path:"/api/plugins?scope=private", cache:"no-store", accept:(entry) => entry?.builtIn === false },
+            ]
+          : [{ path:"/api/plugins", cache:"no-store", accept:() => true }],
+        catalogs = await Promise.all(catalogRequests.map(async (request) => {
+          const response = await fetch(request.path, { credentials:"same-origin", cache:request.cache });
+          if (!response.ok) throw Error(`HTTP ${response.status}`);
+          return { catalog:await response.json(), accept:request.accept };
+        })),
+        entries = catalogs.flatMap(({ catalog, accept }) => (Array.isArray(catalog?.plugins) ? catalog.plugins : []).filter(accept))
         .map((entry) => ({
           path:validPluginCatalogPath(entry?.path, "md"),
           stylePath:entry?.stylePath ? validPluginCatalogPath(entry.stylePath, "css") : null,
           builtIn:entry?.builtIn !== false,
+          inlineDocument:entry?.builtIn !== false && typeof entry?.document === "string" ? entry.document : null,
+          inlineStyles:entry?.builtIn !== false && typeof entry?.styles === "string" ? entry.styles : "",
           error:typeof entry?.error === "string" ? entry.error : "",
         }))
         .filter((entry) => entry.path), uniqueEntries = [...new Map(entries.map((entry) => [entry.path, entry])).values()];
-      const loaded = await Promise.all(uniqueEntries.map(async ({ path:documentPath, stylePath, builtIn, error:catalogError }) => {
+      const loaded = await Promise.all(uniqueEntries.map(async ({ path:documentPath, stylePath, builtIn, inlineDocument, inlineStyles, error:catalogError }) => {
         if (catalogError) return { documentPath, error:catalogError };
         try {
+          if (inlineDocument !== null) {
+            const manifest = PLUGINS?.parse(inlineDocument, inlineStyles);
+            if (!manifest) throw Error("Plugin parser is unavailable");
+            return { documentPath, stylePath, manifest, builtIn };
+          }
+          const documentCache = pluginDocumentCacheMode(documentPath, builtIn),
+            styleCache = stylePath ? pluginDocumentCacheMode(stylePath, builtIn) : "no-store";
           const [documentResponse, styleResponse] = await Promise.all([
-            fetch(canvasAssetUrl(documentPath), { credentials:"same-origin", cache:"no-store" }),
-            stylePath ? fetch(canvasAssetUrl(stylePath), { credentials:"same-origin", cache:"no-store" }) : null,
+            fetch(canvasAssetUrl(documentPath), { credentials:"same-origin", cache:documentCache }),
+            stylePath ? fetch(canvasAssetUrl(stylePath), { credentials:"same-origin", cache:styleCache }) : null,
           ]);
           if (!documentResponse.ok) throw Error(`HTTP ${documentResponse.status}`);
           if (styleResponse && !styleResponse.ok) throw Error(`CSS HTTP ${styleResponse.status}`);
@@ -4362,9 +4392,55 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     };
     state.canvasChromeMaterialTimer = setTimeout(restore, CANVAS_CHROME_MATERIAL_RESTORE_MS);
   }
+  function restoreCanvasChromeMaterial() {
+    if (state.canvasChromeMaterialTimer) clearTimeout(state.canvasChromeMaterialTimer);
+    state.canvasChromeMaterialTimer = 0;
+    state.canvasChromeMaterialDeadline = 0;
+    state.canvasChromeMaterialActive = false;
+    view.classList.remove("canvas-chrome-lightweight");
+  }
+  function restoreCanvasAgentAfterNavigation() {
+    if (state.canvasAgentNavigationRestoreTimer) clearTimeout(state.canvasAgentNavigationRestoreTimer);
+    state.canvasAgentNavigationRestoreTimer = 0;
+    state.canvasAgentNavigationRestoreDeadline = 0;
+    state.canvasAgentNavigationActive = false;
+    state.canvasAgentNavigationWasOpen = false;
+    document.body.classList.remove("canvas-agent-navigation-hidden");
+  }
+  function scheduleCanvasAgentNavigationRestore() {
+    if (!state.canvasAgentNavigationActive || state.canvasAgentNavigationRestoreTimer) return;
+    const restore = () => {
+      const remaining = state.canvasAgentNavigationRestoreDeadline - performance.now();
+      if (remaining > 16) {
+        state.canvasAgentNavigationRestoreTimer = setTimeout(restore, remaining);
+        return;
+      }
+      state.canvasAgentNavigationRestoreTimer = 0;
+      if (state.pointers.size) return;
+      restoreCanvasAgentAfterNavigation();
+    };
+    state.canvasAgentNavigationRestoreTimer = setTimeout(restore, CANVAS_AGENT_NAVIGATION_RESTORE_MS);
+  }
+  function noteCanvasAgentNavigation(now = performance.now()) {
+    if (!state.canvasAgentNavigationActive) {
+      state.canvasAgentNavigationActive = true;
+      state.canvasAgentNavigationWasOpen = !canvasAgentPanel.hidden && document.body.classList.contains("canvas-agent-open");
+      if (state.canvasAgentNavigationWasOpen) {
+        if (canvasAgentPanel.contains(document.activeElement)) document.activeElement.blur();
+        document.body.classList.add("canvas-agent-navigation-hidden");
+      }
+    }
+    state.canvasAgentNavigationRestoreDeadline = now + CANVAS_AGENT_NAVIGATION_RESTORE_MS;
+    scheduleCanvasAgentNavigationRestore();
+  }
+  function canvasAgentNavigationPointerDidEnd(now = performance.now()) {
+    if (!state.canvasAgentNavigationActive || state.pointers.size) return false;
+    state.canvasAgentNavigationRestoreDeadline = now + CANVAS_AGENT_NAVIGATION_RESTORE_MS;
+    scheduleCanvasAgentNavigationRestore();
+    return true;
+  }
   function setNavigating(value) {
     const now = performance.now();
-    noteCanvasChromeInteraction(now);
     state.navigationDeadline = now + NAVIGATION_HINT_VISIBLE_MS;
     if (value) view.classList.add("is-navigating");
     if (!view.classList.contains("is-navigating")) return;

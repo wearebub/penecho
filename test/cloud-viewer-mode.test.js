@@ -238,7 +238,7 @@ test("Viewer Widget initialization recovers when the host's first ready message 
       ${functionSource(host, "announceWidgetHostReady")}
       ${functionSource(host, "respondToWidgetHostProbe")}
       return respondToWidgetHostProbe;
-    })()`, { parent:parentWindow, parentOrigin:origin });
+    })()`, { parent:parentWindow, parentOrigin:origin, snapshotDebugLog() {} });
   assert.equal(hostHandshake({ source:parentWindow, origin:"http://localhost:18082", data:{ type:"penecho-widget-host-probe" } }), false);
   assert.equal(sentToParent.length, 0);
   assert.equal(hostHandshake({ source:parentWindow, origin, data:{ type:"penecho-widget-host-probe" } }), true);

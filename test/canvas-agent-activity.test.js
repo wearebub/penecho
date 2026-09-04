@@ -237,9 +237,13 @@ test("PenEcho Agent activity is a removable user-only sibling outside capture an
   assert.match(read("public/style.css"),/\.canvas-agent-tool\.running \.canvas-agent-tool-head\s*\{\s*color:\s*var\(--studio-text, #1f2937\);\s*\}[\s\S]*?\.canvas-agent-tool\.error \.canvas-agent-tool-head\s*\{\s*color:\s*#b91c1c;/,"running actions stay neutral while failed actions remain red");
   assert.match(read("public/style.css"),/\.canvas-agent-tool-intent\s*\{[^}]*text-overflow:\s*ellipsis;[^}]*white-space:\s*nowrap/ ,"tool-call cards keep their existing compact presentation");
   assert.match(read("public/style.css"),/Activity and tool-call copy is ordinary transcript chrome[\s\S]*?\.canvas-agent-tool-intent, \.canvas-agent-tool-status, \.canvas-agent-tool-detail-label[\s\S]*?font-weight:\s*var\(--pe-type-regular\)/,"tool-call labels and states do not add automatic emphasis");
-  assert.match(css,/visibility 0s linear \.72s/);
+  assert.match(css,/visibility 0s linear \.18s/);
   assert.match(css,/\.canvas-agent-activity:not\(\.is-visible\) \.canvas-agent-activity-kicker > i \{ animation-play-state:\s*paused/);
-  assert.match(css,/\.canvas-agent-activity\.is-visible\s*\{[\s\S]*?opacity:\s*1;[\s\S]*?visibility:\s*visible/);
+  const visibleRule=css.match(/\.canvas-agent-activity\.is-visible\s*\{[\s\S]*?\n\}/)?.[0]||"";
+  assert.match(visibleRule,/opacity:\s*1;[\s\S]*?visibility:\s*visible/);
+  assert.match(visibleRule,/transition:\s*transform \.18s/);
+  assert.doesNotMatch(visibleRule,/transition:[^}]*opacity/,"the bounded frosted surface is fully composited on the first visible frame");
+  assert.match(css,/@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.canvas-agent-activity\.is-visible \{ transition:\s*none;/);
   assert.equal(pkg.files.includes("public/canvas-agent-activity.js"),true);
   assert.equal(pkg.files.includes("public/canvas-agent-activity.css"),true);
   assert.doesNotMatch(source,/extractActivityTerms|phaseTerms|promptTerms/,"the activity layer does not guess or decorate prompt keywords");

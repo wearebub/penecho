@@ -442,6 +442,7 @@
     if (coordinatesUpdatePending) flushCoordinatesUpdate();
     if (state.viewMode) {
       state.pointers.delete(e.pointerId);
+      canvasAgentNavigationPointerDidEnd();
       if (e.pointerType === "touch") state.touches.delete(e.pointerId);
       state.touchGesture = null;
       if (e.pointerType === "touch" && state.touches.size === 1) {
@@ -455,6 +456,7 @@
       return;
     }
     state.pointers.delete(e.pointerId);
+    canvasAgentNavigationPointerDidEnd();
     finishHandObjectFocus(e);
     if (e.pointerType === "touch") {
       state.touches.delete(e.pointerId);

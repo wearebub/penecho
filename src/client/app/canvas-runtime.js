@@ -1481,6 +1481,16 @@
     handle.addEventListener("lostpointercapture", finish);
     return handle;
   }
+  function updateWidgetHostForFrameLoad(widget, loadState) {
+    const reload = loadState.observed;
+    loadState.observed = true;
+    if (!reload) return false;
+    widget.initialized = false;
+    widget.hostReady = false;
+    widget.hostStateKey = null;
+    widget.hostReadyPromise = new Promise((resolve) => (widget.resolveHostReady = resolve));
+    return true;
+  }
   function mountWidget(widget) {
     if (widget.shell || !pluginEnabled(widget.pluginId)) return;
     const manifest = pluginManifests.get(widget.pluginId);
@@ -1495,7 +1505,8 @@
       widget.copyLabel = runtime.copyLabel(widget.sourceFormat);
     }
     const shell = document.createElement("section"),
-      frame = document.createElement("iframe");
+      frame = document.createElement("iframe"),
+      hostLoadState = { observed:false };
     shell.className = `canvas-widget${widget.pending ? " pending" : ""}`;
     shell.dataset.widgetId = widget.id;
     shell.tabIndex = widget.pending ? -1 : 0;
@@ -1507,10 +1518,7 @@
     frame.src = widgetHostUrl(manifest);
     frame.addEventListener("load", () => {
       if (widget.frame !== frame) return;
-      widget.initialized = false;
-      widget.hostReady = false;
-      widget.hostStateKey = null;
-      widget.hostReadyPromise = new Promise((resolve) => (widget.resolveHostReady = resolve));
+      updateWidgetHostForFrameLoad(widget, hostLoadState);
       probeWidgetHost(widget);
     });
     frame.addEventListener("focus", () => focusHandObject("widget", widget, "widget-focus"));
@@ -2893,6 +2901,8 @@
   }
   function requestCanvasNavigationPreview(previousPanX, previousPanY, previousScale = state.scale) {
     canvasTextQualityGeneration++;
+    noteCanvasChromeInteraction();
+    noteCanvasAgentNavigation();
     if (!view.classList.contains("canvas-navigation-previewing")) {
       canvasNavigationPreviewPanX = previousPanX;
       canvasNavigationPreviewPanY = previousPanY;
@@ -4671,6 +4681,8 @@
       screenBox = screenObjectBox(spec.box),
       toolbarWidth = Math.max(screenBox.width, position.baseWidth || 0),
       toolbarHeight = position.baseHeight || 34,
+      materialX = position.x - state.panX,
+      materialY = position.y - state.panY,
       widgetStackIndex = state.widgets.length + (state.pendingWidget ? 2 : 1),
       declaration = runtimeElementStyle(selectedWidgetMaterial, "selected-widget-material");
     selectedWidgetMaterial.hidden = false;
@@ -4678,8 +4690,8 @@
     syncWidgetLayerOrder();
     if (spec.object?.styleRule?.style) spec.object.styleRule.style.zIndex = String(widgetStackIndex);
     syncCanvasObjectLayerOrder();
-    declaration?.setProperty("--selected-widget-material-x", `${position.x.toFixed(1)}px`);
-    declaration?.setProperty("--selected-widget-material-y", `${position.y.toFixed(1)}px`);
+    declaration?.setProperty("--selected-widget-material-x", `${materialX.toFixed(1)}px`);
+    declaration?.setProperty("--selected-widget-material-y", `${materialY.toFixed(1)}px`);
     declaration?.setProperty("--selected-widget-material-width", `${toolbarWidth.toFixed(1)}px`);
     declaration?.setProperty("--selected-widget-material-height", `${(toolbarHeight + screenBox.height).toFixed(1)}px`);
     declaration?.setProperty("--selected-widget-body-width", `${screenBox.width.toFixed(1)}px`);
