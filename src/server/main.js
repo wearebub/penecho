@@ -337,7 +337,9 @@ const LOCAL_ACCESS_CLIENT_FAILURE_LIMIT = 5;
 const LOCAL_ACCESS_GLOBAL_FAILURE_LIMIT = 30;
 const LOCAL_ACCESS_CLIENT_COOLDOWN_MS = 30_000;
 const LOCAL_ACCESS_GLOBAL_COOLDOWN_MS = 60_000;
-let localAccessMode = process.env.NODE_ENV === "test" && process.env.PENECHO_TEST_OPEN_ACCESS === "1" ? "open" : "undecided";
+// Tenet MVP fork: the launcher opens local access when it binds loopback only,
+// so a demo restart does not re-show the access gate.
+let localAccessMode = (process.env.NODE_ENV === "test" && process.env.PENECHO_TEST_OPEN_ACCESS === "1") || (TENET_MODE && optionalBoolean(process.env.PENECHO_TENET_OPEN_ACCESS) === true) ? "open" : "undecided";
 let localAccessPinSalt = null;
 let localAccessPinHash = null;
 let localAccessRevision = 0;

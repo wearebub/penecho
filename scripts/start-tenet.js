@@ -43,9 +43,17 @@ try {
   process.exit(1);
 }
 
-for (const [key, value] of Object.entries(parseEnvText(text))) process.env[key] = value;
-process.env.PENECHO_TENET_MODE = "1";
+const values = parseEnvText(text);
+for (const [key, value] of Object.entries(values)) process.env[key] = value;
+// An explicit PENECHO_TENET_MODE=0 in the file runs plain upstream PenEcho
+// (the contrast instance in the demo); anything else is Tenet mode.
+const plain = String(values.PENECHO_TENET_MODE || "").trim() === "0";
+process.env.PENECHO_TENET_MODE = plain ? "0" : "1";
 if (!process.env.HOST) process.env.HOST = "127.0.0.1";
+// Loopback-only binds skip PenEcho's local-access gate; a LAN bind keeps it.
+if (!plain && ["127.0.0.1", "localhost", "::1"].includes(process.env.HOST) && process.env.PENECHO_TENET_OPEN_ACCESS === undefined) {
+  process.env.PENECHO_TENET_OPEN_ACCESS = "1";
+}
 if (!process.env.AI_PROVIDER) process.env.AI_PROVIDER = "api";
 if (!process.env.AI_API_FORMAT) process.env.AI_API_FORMAT = "openai";
 
@@ -56,5 +64,5 @@ for (const required of ["AI_API_URL", "AI_API_MODEL", "AI_API_KEY"]) {
   }
 }
 
-console.log(`Tenet launcher: ${path.relative(ROOT, file)} -> gateway ${process.env.AI_API_URL}, model ${process.env.AI_API_MODEL}, bind ${process.env.HOST}:${process.env.PORT || 3888}`);
+console.log(`Tenet launcher: ${path.relative(ROOT, file)} -> ${plain ? "PLAIN upstream mode, provider" : "Tenet mode, gateway"} ${process.env.AI_API_URL}, model ${process.env.AI_API_MODEL}, bind ${process.env.HOST}:${process.env.PORT || 3888}`);
 require(path.join(ROOT, "server.js"));

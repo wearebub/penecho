@@ -25,29 +25,33 @@ else in PenEcho is untouched when the flag is off.
 
 ## Run it
 
-1. In the monorepo, start the Gateway demo host. It builds, starts the Gateway
-   on `127.0.0.1:4141` with the canvas profile and the presenter-forced demo
-   states enabled, issues the keys, and writes this repo's `.env.tenet`:
+One command in the monorepo starts everything. The Gateway demo host builds,
+starts the Gateway on `127.0.0.1:4141` (canvas profile, presenter-forced demo
+states, image OCR gate), spawns the pinned LiteLLM when `GEMINI_API_KEY` is in
+its gitignored `.env.penecho-demo`, issues one key per canvas, writes the env
+files below into this repo, and starts every PenEcho instance itself:
 
-   ```powershell
-   cd packages\tenet-gateway
-   npm run penecho-demo:start
-   ```
+```powershell
+cd packages\tenet-gateway
+npm run penecho-demo:start      # npm run penecho-demo:stop tears it all down
+```
 
-2. In this repo:
+(First time in this repo: `npm ci` and `npm run build:client`.)
 
-   ```powershell
-   npm ci
-   npm run build:client
-   node scripts/start-tenet.js
-   ```
+| URL | Instance | Env file | Rules |
+|---|---|---|---|
+| `http://127.0.0.1:3888` | District rules | `.env.tenet` | safety baseline + Socratic minimum hint |
+| `http://127.0.0.1:3889` | Spanish immersion | `.env.tenet.spanish` | safety baseline + Spanish only + Socratic |
+| `http://127.0.0.1:3890` | Plain upstream PenEcho | `.env.plain` | none: Tenet flag off, no Gateway, talks to Google directly (contrast; only when a Gemini key is present) |
 
-   PenEcho listens on `http://127.0.0.1:3888` (set `HOST`/`PORT` in
-   `.env.tenet` to change; `0.0.0.0` exposes it to the LAN).
+Each governed instance has its own Gateway key, so the admin strip at
+`http://127.0.0.1:4141/local-admin` shows one guardrail row per key plus a
+default row, the five forced outcome buttons, and the **Image OCR before the
+provider** kill switch (untick it on a slow machine; the next turn skips OCR).
 
-3. Open the Gateway admin strip at `http://127.0.0.1:4141/local-admin` and flip
-   the demo state between turns (`allow`, `block_policy`, `budget_exhausted`,
-   `withhold_output`, `rate_limited`). Write on the canvas and click the orb.
+To run one instance by hand: `node scripts/start-tenet.js .env.tenet.spanish`.
+Loopback binds pre-open PenEcho's local-access gate; a `HOST=0.0.0.0` LAN
+bind keeps it.
 
 `.env.tenet` contents (regenerated on every Gateway start; the key is shown
 once and dies with the Gateway process):
