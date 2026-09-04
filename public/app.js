@@ -24371,6 +24371,21 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     labelTutor();
     setTimeout(labelTutor, 0);
     document.body.classList.add("tenet-mode");
+    // Demo badge: says who governs this canvas. Text only, no external assets.
+    const badge = document.createElement("div");
+    badge.id = "tenetBadge";
+    badge.className = "tenet-badge";
+    badge.setAttribute("role", "status");
+    badge.title = "Every turn passes through the Tenet District AI Gateway: identity, district policy, DLP, budgets, audit.";
+    const dot = document.createElement("span");
+    dot.className = "tenet-badge-dot";
+    const text = document.createElement("span");
+    text.textContent = "Governed by Tenet";
+    const sub = document.createElement("span");
+    sub.className = "tenet-badge-sub";
+    sub.textContent = "District AI Gateway";
+    badge.append(dot, text, sub);
+    document.body.appendChild(badge);
   }
   aiOrb.addEventListener("click", (e) => {
     e.preventDefault();
