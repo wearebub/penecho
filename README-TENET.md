@@ -17,6 +17,8 @@ else in PenEcho is untouched when the flag is off.
 | `max_tokens` | `PENECHO_TENET_MAX_TOKENS` (default 8192, 256..32768) replaces the 20000 default | The Gateway reserves prompt + `max_tokens` against the key budget on every turn |
 | Auto AI | Stroke-pause auto requests never fire; the AI orb is relabelled **Ask the tutor** and the Auto toggle is hidden | Request frequency is the cost driver; the presenter decides when a turn happens |
 | Gateway outcomes | A banner shows the district rule that decided a refused turn: headline, closed code, category, and the Gateway audit id (`req_…`) | The demo is about rules acting visibly |
+| System prompt | PenEcho's persona, plugin/HTML-widget routing, Agent fallbacks, and refine gate are not sent. The model gets the **Tenet tutor prompt** (district-dictated persona, K-12 safety baseline, never transcribe personal information into any field) plus only the canvas protocol the renderer needs | The district owns the AI; the Gateway's rules arrive first and are law, not guidance to reconcile |
+| District guardrails | Selected in the Gateway admin strip (`student_safety_baseline` on by default, `spanish_immersion`, `socratic_minimum_hint`); the Gateway prepends them as a system message and audits the ids | Rules live in the Gateway, not the app |
 | PenEcho Cloud, account linking, community publishing | `/api/cloud/*` and `/api/community/*` answer 404 `tenet_mode_disabled`; the Cloud connector is never started | Must be off for minors |
 | Host-folder browsing | No roots are exposed; `/api/canvas-agent/*roots*` answer 404 | Every LAN browser could otherwise read host folders |
 | Request tracing | Forced off | Traces store canvas images and prompts on disk |
