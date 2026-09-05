@@ -23028,11 +23028,24 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     event.stopImmediatePropagation();
   }, true);
   // Tenet MVP fork: upstream keeps finger = navigation and only a stylus inks.
-  // On a demo tablet or phone without a stylus that reads as "I cannot draw",
-  // so in Tenet mode one finger inks in pen/eraser mode; two fingers still
-  // pan and pinch (the second finger ends the stroke and starts the gesture).
-  // Opt out per deployment with PENECHO_CONFIG.tenetFingerDraws === false.
-  const fingerDraws = () => window.PENECHO_CONFIG?.tenetMode === true && window.PENECHO_CONFIG?.tenetFingerDraws !== false;
+  // On a phone without a stylus that reads as "I cannot draw", so in Tenet
+  // mode one finger inks in pen/eraser mode on phone-sized touch screens; two
+  // fingers still pan and pinch (the second finger ends the stroke and starts
+  // the gesture). Tablets keep the upstream contract: stylus inks, finger
+  // pans, so a resting palm never draws. PENECHO_CONFIG.tenetFingerDraws:
+  // undefined/"phone" (default) | "always" | false.
+  const PHONE_MAX_SHORT_SIDE_PX = 700; // iPad mini is 744 CSS px on its short side; phones are under 500.
+  const phoneLikeScreen = () => {
+    const shortSide = Math.min(Number(window.screen?.width) || 0, Number(window.screen?.height) || 0);
+    return typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches && shortSide > 0 && shortSide < PHONE_MAX_SHORT_SIDE_PX;
+  };
+  const fingerDraws = () => {
+    if (window.PENECHO_CONFIG?.tenetMode !== true) return false;
+    const setting = window.PENECHO_CONFIG?.tenetFingerDraws;
+    if (setting === false) return false;
+    if (setting === true || setting === "always") return true;
+    return phoneLikeScreen();
+  };
   const touchInks = (e) => e.pointerType === "touch" && fingerDraws() && ["pen", "eraser"].includes(state.mode) && state.touches.size < 2;
   function beginCanvasPointerAction(e, point) {
     const options = arguments[2] || {};

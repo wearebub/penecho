@@ -7250,6 +7250,10 @@ body[data-theme="studio"] .primary-tools .view-tools { gap: 8px; }
 .tenet-gateway-banner[hidden] { display: none; }
 .tenet-gateway-banner-meta { font-size: 12px; opacity: 0.85; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 body.tenet-mode #autoControl { display: none; }
+/* Tenet MVP fork: fast stylus strokes on iPadOS Safari could start a page text-selection sweep
+   (the whole page flashes highlighted) because nothing declared the canvas non-selectable. */
+body.tenet-mode #viewport, body.tenet-mode #screen { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+body.tenet-mode { overscroll-behavior: none; }
 body.tenet-mode #cloudAccountBtn { display: none; }
 .tenet-badge { position: fixed; right: 16px; bottom: 16px; z-index: 9000; display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 999px; background: #0f172a; color: #f8fafc; font: 600 13px/1 system-ui, sans-serif; letter-spacing: 0.01em; box-shadow: 0 8px 24px rgba(15, 23, 42, 0.28); pointer-events: none; }
 .tenet-badge-dot { width: 8px; height: 8px; border-radius: 50%; background: #34d399; box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.25); }
