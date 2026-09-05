@@ -67,6 +67,14 @@ const CLOUD_STATE_DIRECTORY = process.env.PENECHO_CLOUD_STATE_DIR
 // max_tokens to what the Gateway accepts, and compiles out PenEcho Cloud,
 // community publishing, host-folder browsing, and request tracing.
 const TENET_MODE = optionalBoolean(process.env.PENECHO_TENET_MODE) === true;
+// Reverse-proxy deployment (the hosted Tenet demo): PENECHO_PUBLIC_HOSTS is a
+// comma-separated list of public hostnames that a trusted proxy on loopback
+// forwards to this process. Those hostnames count as allowed hosts,
+// X-Forwarded-Proto from a loopback peer decides the page origin scheme, and
+// local access starts open because the authenticating proxy in front is the
+// gate. Independent of PENECHO_TENET_MODE: it is a deployment concern, not a
+// governance one, so the plain upstream canvas can be hosted the same way.
+const PUBLIC_HOSTS = new Set(String(process.env.PENECHO_PUBLIC_HOSTS || "").split(",").map(value => value.trim().toLowerCase().replace(/\.$/, "")).filter(Boolean));
 const STREAM_RESPONSES = !TENET_MODE;
 const TENET_REASONING_EFFORTS = new Set(["none", "low", "medium", "high", "xhigh", "max"]);
 function tenetReasoningParameters(reasoning) {
@@ -339,7 +347,7 @@ const LOCAL_ACCESS_CLIENT_COOLDOWN_MS = 30_000;
 const LOCAL_ACCESS_GLOBAL_COOLDOWN_MS = 60_000;
 // Tenet MVP fork: the launcher opens local access when it binds loopback only,
 // so a demo restart does not re-show the access gate.
-let localAccessMode = (process.env.NODE_ENV === "test" && process.env.PENECHO_TEST_OPEN_ACCESS === "1") || (TENET_MODE && optionalBoolean(process.env.PENECHO_TENET_OPEN_ACCESS) === true) ? "open" : "undecided";
+let localAccessMode = (process.env.NODE_ENV === "test" && process.env.PENECHO_TEST_OPEN_ACCESS === "1") || (TENET_MODE && optionalBoolean(process.env.PENECHO_TENET_OPEN_ACCESS) === true) || PUBLIC_HOSTS.size > 0 ? "open" : "undecided";
 let localAccessPinSalt = null;
 let localAccessPinHash = null;
 let localAccessRevision = 0;
@@ -1977,7 +1985,7 @@ function latestInputMetadata(changedBox,sourceRect,imageScale,imageSize){
 }
 function isLoopback(address) { return address === "::1" || address === "127.0.0.1" || address === "::ffff:127.0.0.1"; }
 function isLoopbackHostname(hostname) { return ["localhost", "127.0.0.1", "::1", "[::1]", "::ffff:127.0.0.1", "[::ffff:127.0.0.1]"].includes(String(hostname || "").toLowerCase().replace(/\.$/, "")); }
-const LOCAL_HOSTNAMES = new Set([os.hostname(), `${os.hostname()}.local`].map(value => value.toLowerCase().replace(/\.$/, "")));
+const LOCAL_HOSTNAMES = new Set([os.hostname(), `${os.hostname()}.local`, ...PUBLIC_HOSTS].map(value => value.toLowerCase().replace(/\.$/, "")));
 const LOCAL_INTERFACE_ADDRESSES = new Set();
 const LAN_IPV4_ADDRESSES = new Set();
 const LOCAL_NETWORKS = new net.BlockList();
@@ -2024,11 +2032,21 @@ function hostMatchesOrigin(host, origin) {
   const defaultPort = origin.protocol === "https:" ? "443" : "80";
   return !host.port || host.port === defaultPort;
 }
+function requestScheme(req) {
+  // Only a loopback peer (the reverse proxy) may assert https, and only for a
+  // configured public host; everything else keeps the plain-http origin.
+  if (PUBLIC_HOSTS.size && isLoopback(req.socket.remoteAddress) && PUBLIC_HOSTS.has(String(requestHost(req)?.hostname || "").toLowerCase())) {
+    const forwarded = String(req.headers["x-forwarded-proto"] || "").split(",", 1)[0].trim().toLowerCase();
+    if (forwarded === "https") return "https";
+  }
+  return "http";
+}
 function canonicalRequestOrigin(req) {
   const host = requestHost(req);
   if (!host) return null;
-  if (!LOCAL_CLI) return new URL(`http://${host.host}`);
-  return isAllowedCliHost(host.hostname) ? new URL(`http://${host.host}`) : null;
+  const origin = `${requestScheme(req)}://${host.host}`;
+  if (!LOCAL_CLI) return new URL(origin);
+  return isAllowedCliHost(host.hostname) ? new URL(origin) : null;
 }
 function aiSessionCookieName(req) {
   const host = canonicalRequestOrigin(req)?.host.toLowerCase();
