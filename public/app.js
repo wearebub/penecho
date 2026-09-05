@@ -23182,6 +23182,13 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   }
   screen.addEventListener("pointerdown", (e) => {
     e.preventDefault();
+    // Tenet MVP fork: a stylus touching the canvas must never be writing into
+    // a focused text field. On iPadOS, Scribble takes over Pencil strokes
+    // when an editable element has focus (choppy ink, selection gestures).
+    if (e.pointerType === "pen" && window.PENECHO_CONFIG?.tenetMode === true) {
+      const active = document.activeElement;
+      if (active && active !== document.body && typeof active.matches === "function" && active.matches("input, textarea, select, [contenteditable=''], [contenteditable='true']")) active.blur();
+    }
     if (state.viewMode) {
       if (e.pointerType === "mouse" && ![0, 1].includes(e.button)) return;
       state.canvasAgentNavigationPointerIds.add(e.pointerId);
@@ -23297,27 +23304,40 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   function updateActiveCanvasDrawing(e) {
     const d = state.drawing;
     if (!d || d.id !== e.pointerId) return false;
-    const old = state.pointers.get(e.pointerId),
-      p = drawingClientPoint(d, e),
-      cssSize = d.erase ? state.eraser : pressureWidth(e),
-      size = logicalWidth(cssSize);
-    state.pointers.set(e.pointerId, { x:e.clientX, y:e.clientY });
-    state.userRevision++;
-    appendLiveInkSample(d, p, size);
+    // Tenet MVP fork: consume every coalesced sample, not just the one per
+    // pointermove. A stylus reports up to 240 Hz while the browser fires
+    // pointermove at the display rate, so a fast stroke otherwise keeps only
+    // a quarter of its points and looks choppy. Same pattern as the lasso.
+    const coalesced = typeof e.getCoalescedEvents === "function" ? e.getCoalescedEvents() : [],
+      samples = coalesced.length > 1 ? coalesced : [e];
+    let p = null;
+    for (const s of samples) {
+      const sample = s === e ? e : {
+        clientX: s.clientX, clientY: s.clientY, pointerType: e.pointerType,
+        pressure: Number.isFinite(s.pressure) && s.pressure > 0 ? s.pressure : e.pressure,
+      };
+      const old = state.pointers.get(e.pointerId),
+        cssSize = d.erase ? state.eraser : pressureWidth(sample),
+        size = logicalWidth(cssSize);
+      p = drawingClientPoint(d, sample);
+      state.pointers.set(e.pointerId, { x:sample.clientX, y:sample.clientY });
+      state.userRevision++;
+      appendLiveInkSample(d, p, size);
+      d.last = p;
+      d.size = size;
+      d.points++;
+      d.screenDistance += old ? Math.hypot(sample.clientX - old.x, sample.clientY - old.y) : 0;
+      if (d.points % 8 === 0) d.trail.push(p);
+      d.widthMin = Math.min(d.widthMin, cssSize);
+      d.widthMax = Math.max(d.widthMax, cssSize);
+      const x1 = Math.min(d.bbox.x, p.x),
+        y1 = Math.min(d.bbox.y, p.y),
+        x2 = Math.max(d.bbox.x + d.bbox.w, p.x),
+        y2 = Math.max(d.bbox.y + d.bbox.h, p.y);
+      d.bbox = { x:x1, y:y1, w:x2 - x1, h:y2 - y1 };
+    }
     commitLiveInkDrawingProgress(d);
     if (d.erase) updateCanvasPointerPreview(e, p);
-    d.last = p;
-    d.size = size;
-    d.points++;
-    d.screenDistance += old ? Math.hypot(e.clientX - old.x, e.clientY - old.y) : 0;
-    if (d.points % 8 === 0) d.trail.push(p);
-    d.widthMin = Math.min(d.widthMin, cssSize);
-    d.widthMax = Math.max(d.widthMax, cssSize);
-    const x1 = Math.min(d.bbox.x, p.x),
-      y1 = Math.min(d.bbox.y, p.y),
-      x2 = Math.max(d.bbox.x + d.bbox.w, p.x),
-      y2 = Math.max(d.bbox.y + d.bbox.h, p.y);
-    d.bbox = { x:x1, y:y1, w:x2 - x1, h:y2 - y1 };
     return true;
   }
   screen.addEventListener("pointermove", (e) => {
