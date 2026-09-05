@@ -23027,6 +23027,13 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     event.preventDefault();
     event.stopImmediatePropagation();
   }, true);
+  // Tenet MVP fork: upstream keeps finger = navigation and only a stylus inks.
+  // On a demo tablet or phone without a stylus that reads as "I cannot draw",
+  // so in Tenet mode one finger inks in pen/eraser mode; two fingers still
+  // pan and pinch (the second finger ends the stroke and starts the gesture).
+  // Opt out per deployment with PENECHO_CONFIG.tenetFingerDraws === false.
+  const fingerDraws = () => window.PENECHO_CONFIG?.tenetMode === true && window.PENECHO_CONFIG?.tenetFingerDraws !== false;
+  const touchInks = (e) => e.pointerType === "touch" && fingerDraws() && ["pen", "eraser"].includes(state.mode) && state.touches.size < 2;
   function beginCanvasPointerAction(e, point) {
     const options = arguments[2] || {};
     const forceEraser = options.forceEraser === true;
@@ -23078,7 +23085,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       handleSelectionPointerDown(e, point);
       return;
     }
-    if (e.pointerType === "touch") {
+    if (e.pointerType === "touch" && !touchInks(e)) {
       state.panGesture = {
         id: e.pointerId,
         last: { x: e.clientX, y: e.clientY },
@@ -23458,6 +23465,20 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       const tap = state.textTap;
       state.textTap = null;
       if (e.type !== "pointercancel" && state.mode === "text") createTextEditor(tap.point);
+      state.touchGesture = null;
+      state.panGesture = null;
+      if (!state.touches.size) setNavigating(false);
+      return;
+    }
+    if (e.pointerType === "touch" && state.drawing?.id === e.pointerId) {
+      // A finger stroke (Tenet mode) ends like a pen stroke, then clears the
+      // touch bookkeeping the navigation branch below would otherwise own.
+      const wasErasing = state.drawing.erase;
+      finishDrawing(e.pointerType);
+      if (wasErasing && state.pointerPreview) {
+        state.pointerPreview = null;
+        requestInteractionLayerRender();
+      }
       state.touchGesture = null;
       state.panGesture = null;
       if (!state.touches.size) setNavigating(false);
