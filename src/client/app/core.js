@@ -2305,6 +2305,11 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     return true;
   }
   function maybeStartFeatureTour(retry = false) {
+    // Tenet MVP fork: no automatic product tour on a governed demo canvas. Its
+    // scrollIntoView positioning scrolled the document on first visit on
+    // iPadOS Safari, leaving the header and toolbar above the fold. Manual
+    // replay from the menu still works.
+    if (window.PENECHO_CONFIG?.tenetMode === true) return false;
     if (featureTour.active || changelog.active || (featureTour.autoChecked && !retry)) return false;
     featureTour.autoChecked = true;
     const progress = readFeatureTourProgress(),
@@ -2359,6 +2364,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     } catch {}
   }
   function maybeShowChangelog(force = false) {
+    // Tenet MVP fork: the upstream release notes dialog is not for demo users.
+    if (!force && window.PENECHO_CONFIG?.tenetMode === true) return false;
     if (!changelogLayer || !changelogDialog || changelog.active || featureTour.active || !pluginPopover.hidden || (!force && changelogSeen())) return false;
     hideAutoDelayControl();
     hideEffortControl();

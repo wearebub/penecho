@@ -1464,6 +1464,16 @@
     labelTutor();
     setTimeout(labelTutor, 0);
     document.body.classList.add("tenet-mode");
+    // Keep the document pinned to the top. iPadOS Safari can scroll the page
+    // during first-load focus/positioning (tour, focus calls, address bar
+    // collapse), which hides the header and toolbar until a refresh.
+    const pinTop = () => { if (window.scrollX || window.scrollY) window.scrollTo(0, 0); };
+    pinTop();
+    window.addEventListener("load", () => { pinTop(); setTimeout(pinTop, 250); setTimeout(pinTop, 1000); });
+    window.addEventListener("pageshow", pinTop);
+    window.addEventListener("orientationchange", () => setTimeout(pinTop, 100));
+    window.visualViewport?.addEventListener("resize", pinTop);
+    window.addEventListener("scroll", pinTop, { passive: true });
     // Demo badge: says who governs this canvas. Text only, no external assets.
     const badge = document.createElement("div");
     badge.id = "tenetBadge";
