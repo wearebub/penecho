@@ -7,7 +7,7 @@
   "files": [
     "ios/",
     "Package.swift",
-    "TenetIpadNative.podspec"
+    "TruemadeTenetIpadNative.podspec"
   ],
   "peerDependencies": {
     "@capacitor/core": ">=7.0.0 <8.0.0"

@@ -1,5 +1,5 @@
 Pod::Spec.new do |s|
-  s.name = 'TenetIpadNative'
+  s.name = 'TruemadeTenetIpadNative'
   s.version = '0.1.0'
   s.summary = 'First-party native iPad bridge for Tenet Whiteboard.'
   s.license = { :type => 'Proprietary', :text => 'Copyright TrueMadeAI' }
@@ -8,7 +8,7 @@ Pod::Spec.new do |s|
   s.source = { :git => 'https://github.com/wearebub/tenet.git', :tag => s.version.to_s }
   s.source_files = 'ios/Plugin/**/*.{swift}'
   s.resource_bundles = {
-    'TenetIpadNativePrivacy' => ['ios/Plugin/PrivacyInfo.xcprivacy']
+    'TruemadeTenetIpadNativePrivacy' => ['ios/Plugin/PrivacyInfo.xcprivacy']
   }
   s.ios.deployment_target = '15.0'
   s.swift_version = '5.9'

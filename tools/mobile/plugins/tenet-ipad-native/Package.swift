@@ -2,17 +2,17 @@
 import PackageDescription
 
 let package = Package(
-    name: "TenetIpadNative",
+    name: "TruemadeTenetIpadNative",
     platforms: [.iOS(.v15)],
     products: [
-        .library(name: "TenetIpadNative", targets: ["TenetIpadNative"])
+        .library(name: "TruemadeTenetIpadNative", targets: ["TruemadeTenetIpadNative"])
     ],
     dependencies: [
         .package(url: "https://github.com/ionic-team/capacitor-swift-pm.git", from: "7.0.0")
     ],
     targets: [
         .target(
-            name: "TenetIpadNative",
+            name: "TruemadeTenetIpadNative",
             dependencies: [
                 .product(name: "Capacitor", package: "capacitor-swift-pm"),
                 .product(name: "Cordova", package: "capacitor-swift-pm")
