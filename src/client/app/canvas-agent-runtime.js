@@ -3721,6 +3721,7 @@
     throw canvasAgentToolError("CAPTURE_TOO_LARGE","Canvas capture could not be compressed below the hard encoded-byte limit.",{maxBytes:policy.maxBytes});
   }
   async function canvasAgentCapture(args,options) {
+    await tenetInkFlush();
     const {signal=null,assertCurrent=null}=options||{};
     assertCurrent?.();
     const quality=args.quality === "detail" ? "detail" : "basic";

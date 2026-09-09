@@ -4759,6 +4759,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       if (region && !intersection(overlay.box, region)) continue;
       context.drawImage(overlay.image, overlay.box.x, overlay.box.y, overlay.box.w, overlay.box.h);
     }
+    tenetInkController?.draw(context, region);
   }
 
   function textBoxBox(item) {
@@ -7988,6 +7989,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     canvasRenderTimedStage(record, "selectionToolbarMs", updateSelectionToolbar);
   }
   function render() {
+    tenetInkController?.sync();
     if (!canvasRenderTiming.enabled) {
       renderCanvasBackground();
       renderCanvasContent();
@@ -11286,7 +11288,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     return preview;
   }
   function exportInkBounds() {
-    let bounds = null;
+    let bounds = tenetInkBounds();
     for (const [tileKey, tileCanvas] of tiles) {
       const [tx, ty] = tileKey.split(",").map(Number),
         ink = inkBox(tileCanvas, Math.min(TILE, SIZE - tx * TILE), Math.min(TILE, SIZE - ty * TILE));
@@ -11316,6 +11318,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     return { x, y, w: right - x, h: bottom - y };
   }
   async function renderExportCanvas() {
+    await tenetInkFlush();
     const region = exportRegion();
     if (!region) return null;
     await prepareVisibleWidgetSnapshots(null, false, null, true);
@@ -11464,6 +11467,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     return decoded;
   }
   async function finalizeCanvasForSnapshot() {
+    await tenetInkFlush();
     canvasSnapshotFinalizationDepth++;
     try {
       if (state.pendingWidget) acceptPendingWidget({ restoreMode:false });
@@ -11551,7 +11555,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   async function communityCanvasArtifact(name = "") {
     if (selectionAIBusy()) throw Error(t(selectionAIStatusKey()));
     await finalizeCanvasForSnapshot();
-    if (!tiles.size && !state.images.length && !state.textBoxes.length && !state.preservedSnapshotAnimations.length && (!pluginEnabled("animation") || !state.animations.length) && !visibleWidgets().length) throw Error(t("emptyCanvas"));
+    if (!tenetInkBounds() && !tiles.size && !state.images.length && !state.textBoxes.length && !state.preservedSnapshotAnimations.length && (!pluginEnabled("animation") || !state.animations.length) && !visibleWidgets().length) throw Error(t("emptyCanvas"));
     await prepareVisibleWidgetSnapshots(null, false);
     const previewCanvas=snapshotPreview(2048,1365),communityImages=await communityImagesForCanvas(previewCanvas,.78);
     previewCanvas.width=previewCanvas.height=1;
@@ -11572,7 +11576,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
         images,
         preview,
         bundleExtensions:snapshotExtensionObject(state.currentSnapshotBundleExtensions),
-        manifestExtensions:snapshotExtensionObject(state.currentSnapshotManifestExtensions),
+        manifestExtensions:tenetInkManifestExtensions(),
     };
     return { ...(await serverSnapshotPayload(item, tileEntries)), ...communityImages };
   }
@@ -11806,7 +11810,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     if (!SNAPSHOT_LOCATIONS.has(location)) throw Error("Invalid snapshot location");
     if (overwriteId && state.currentSnapshotLocation !== location) throw Error(t("noCurrentSnapshot"));
     await finalizeCanvasForSnapshot();
-    if (!tiles.size && !state.images.length && !state.textBoxes.length && !state.preservedSnapshotAnimations.length && (!pluginEnabled("animation") || !state.animations.length) && !visibleWidgets().length) {
+    if (!tenetInkBounds() && !tiles.size && !state.images.length && !state.textBoxes.length && !state.preservedSnapshotAnimations.length && (!pluginEnabled("animation") || !state.animations.length) && !visibleWidgets().length) {
       setStatusKey("emptyCanvas");
       return null;
     }
@@ -11853,7 +11857,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
         images,
         preview,
         bundleExtensions:snapshotExtensionObject(state.currentSnapshotBundleExtensions),
-        manifestExtensions:snapshotExtensionObject(state.currentSnapshotManifestExtensions),
+        manifestExtensions:tenetInkManifestExtensions(),
         preservedAssets:snapshotPreservedAssets(state.currentSnapshotPreservedAssets),
       };
     if (overwriteId && !existing && overwriteId !== state.currentSnapshotId) throw Error(t("noCurrentSnapshot"));
@@ -11988,6 +11992,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   }
   async function loadSnapshot(id, location = state.snapshotLocation) {
     if (snapshotLoadInProgress) return false;
+    await tenetInkFlush();
+    await tenetInkController?.suspend("snapshot-load");
     const loadGeneration=++state.snapshotLoadGeneration,
       expectedRevision=state.userRevision,
       metadata=snapshotItems.find((item) => item.id === id),
@@ -12009,6 +12015,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       if (!stored) throw Error("Canvas snapshot was not found.");
       requireCurrent();
       const { item, tileEntries } = stored;
+      const nativeInkPrepared = await tenetInkController?.prepare(item.manifestExtensions?.tenetNativeInk);
+      requireCurrent();
       setHistoryActivity(t("snapshotLoading").replace("{name}", displayName), t("snapshotLoadPreparing"), 38);
       await enableSnapshotWidgetPlugins(item.widgets);
       requireCurrent();
@@ -12030,6 +12038,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
         requireCurrent();
       }
       setHistoryActivity(t("snapshotLoading").replace("{name}", displayName), t("snapshotLoadApplying"), 94);
+      tenetInkController?.restore(nativeInkPrepared);
       if (state.selection) cancelSelection(true);
       clearTextEditors();
       state.userRevision++;
@@ -12095,6 +12104,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
         snapshotLoadingId = null;
         updateHistoryReadControls();
       }
+      tenetInkController?.resume("snapshot-load");
     }
   }
   async function deleteDeviceSnapshot(id) {
@@ -12244,6 +12254,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     if (!busy) updateNewCanvasDialog();
   }
   function startBlankCanvas() {
+    tenetInkController?.restore(null);
     const dialog = document.querySelector("#newCanvasDialog");
     if (state.selection) cancelSelection(true);
     clearTextEditors();
@@ -12325,7 +12336,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   function canvasHasUnsavedChanges() {
     const nameChanged = Boolean(state.currentSnapshotId && state.currentCanvasSuggestedName);
     if (!nameChanged && state.userRevision === state.snapshotSavedRevision) return false;
-    const hasContent = tiles.size || state.images.length || state.textBoxes.length || state.preservedSnapshotAnimations.length || (pluginEnabled("animation") && state.animations.length) || visibleWidgets().length;
+    const hasContent = tenetInkBounds() || tiles.size || state.images.length || state.textBoxes.length || state.preservedSnapshotAnimations.length || (pluginEnabled("animation") && state.animations.length) || visibleWidgets().length;
     return Boolean(state.currentSnapshotId || hasContent);
   }
   function performCanvasTransition(transition) {
@@ -12333,7 +12344,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     startBlankCanvas();
     return true;
   }
-  function requestCanvasTransition(transition) {
+  async function requestCanvasTransition(transition) {
+    await tenetInkFlush();
     if (!canvasHasUnsavedChanges()) return performCanvasTransition(transition);
     pendingCanvasTransition = transition;
     const dialog = document.querySelector("#newCanvasDialog");
@@ -13580,7 +13592,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     }
   }
   function save() {
-    if (!state.historyBefore.size && !state.animationHistoryBefore && !state.widgetHistoryBefore && !state.imageHistoryBefore && !state.textBoxHistoryBefore) return null;
+    const nativeInkBefore = state.tenetNativeHistoryBefore;
+    if (!state.historyBefore.size && !state.animationHistoryBefore && !state.widgetHistoryBefore && !state.imageHistoryBefore && !state.textBoxHistoryBefore && nativeInkBefore === undefined) return null;
     const changes = [];
     const animationsBefore = state.animationHistoryBefore,
       animationsAfter = animationsBefore ? serializedAnimations() : null,
@@ -13606,12 +13619,18 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     }
     state.historyBefore.clear();
     const entry = { tiles: changes, animationsBefore, animationsAfter, widgetsBefore, widgetsAfter, imagesBefore, imagesAfter, textBoxesBefore, textBoxesAfter };
+    if (nativeInkBefore !== undefined) {
+      entry.nativeInkBefore = nativeInkBefore;
+      entry.nativeInkAfter = tenetInkController?.snapshot() || null;
+      state.tenetNativeHistoryBefore = undefined;
+    }
     state.history.push(entry);
     state.animationHistoryBefore = null;
     state.widgetHistoryBefore = null;
     state.imageHistoryBefore = null;
     state.textBoxHistoryBefore = null;
     if (state.history.length > MAX_HISTORY) state.history.shift();
+    tenetInkController?.boundHistory();
     state.future = [];
     window.PenEchoStudioNavigator?.updateDocument?.();
     return entry;
@@ -13620,6 +13639,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     return canvasAgentDidCommitUserCanvasChange(save(), { allowAutoHide:canvasSnapshotFinalizationDepth === 0 });
   }
   function applyHistory(entry, side) {
+    tenetInkController?.applyHistory(entry, side);
     const changes = Array.isArray(entry) ? entry : entry?.tiles || [];
     for (const change of changes) {
       const value = change[side];
@@ -13642,6 +13662,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     window.PenEchoStudioNavigator?.updateDocument?.();
   }
   function undo() {
+    if (tenetInkController?.available) { void tenetInkController.history("before"); return; }
     save();
     const change = state.history.pop();
     if (!change) return;
@@ -13650,6 +13671,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     applyHistory(change, "before");
   }
   function redo() {
+    if (tenetInkController?.available) { void tenetInkController.history("after"); return; }
     const change = state.future.pop();
     if (!change) return;
     invalidateRecognition();
@@ -14299,6 +14321,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     banner.hideTimer = setTimeout(() => { banner.hidden = true; }, 15000);
   }
   function launchAutomaticAI(reason) {
+    if (tenetInkController?.active()) return;
     if (canvasAgentSuppressesAutomaticAI()) return;
     if (state.mode === "hand" || !state.auto || !state.dirty || !state.autoEligible || state.drawing || state.widgetRefineConfirmation) return;
     if (aiPreparation || state.activeAI) return;
@@ -14364,6 +14387,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       && inner.y + inner.h <= outer.y + outer.h);
   }
   async function requestAI(action, packedOverride = null, requestOptions = null) {
+    try { await tenetInkFlush(); }
+    catch (error) { tenetInkMessage(error?.message || "Native ink is not ready for AI capture."); return; }
     requestOptions = requestOptions || {};
     const automatic = action === "auto";
     if (!automatic) {
@@ -14653,7 +14678,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     return right > x && bottom > y ? { x, y, w: right - x, h: bottom - y } : null;
   }
   function visibleInkBounds(visible) {
-    let bounds = null;
+    let bounds = tenetInkBounds(visible);
     for (const [k] of tiles) {
       const [tx, ty] = k.split(",").map(Number),
         tileBox = { x: tx * TILE, y: ty * TILE, w: TILE, h: TILE },
@@ -17025,7 +17050,9 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   function finishDrawing(pointerType) {
     if (!state.drawing) return;
     const d = state.drawing;
+    const tenetCommitStarted = performance.now();
     commitLiveInkDrawing(d);
+    if (window.PENECHO_CONFIG?.tenetMode === true) window.dispatchEvent(new CustomEvent("tenet:ink-sample", { detail:{ engine:"web", kind:"stroke", sampleCount:d.committedSamples, commitMs:performance.now() - tenetCommitStarted } }));
     state.drawing = null;
     noteCanvasChromeInteraction();
     requestAnimationFrame(() => {
@@ -20773,6 +20800,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     throw canvasAgentToolError("CAPTURE_TOO_LARGE","Canvas capture could not be compressed below the hard encoded-byte limit.",{maxBytes:policy.maxBytes});
   }
   async function canvasAgentCapture(args,options) {
+    await tenetInkFlush();
     const {signal=null,assertCurrent=null}=options||{};
     assertCurrent?.();
     const quality=args.quality === "detail" ? "detail" : "basic";
@@ -23036,6 +23064,1430 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     reset:keyboardShortcutResetAll,
     open:() => { selectSettingsPage("shortcuts"); return openSettings(); },
   });
+// This module lives INSIDE the canvas closure. Only the bounded comparison API
+// is public; drawing archives never enter AI prompts, telemetry, or Gateway calls.
+  var tenetInkController = null;
+  let tenetInkMessageTimer = 0;
+  function tenetInkMessage(message) {
+    let toast = document.getElementById("tenetInkToast");
+    if (!toast) {
+      toast = document.createElement("div");
+      toast.id = "tenetInkToast";
+      toast.setAttribute("role", "status");
+      toast.setAttribute("aria-live", "polite");
+      toast.style.cssText = "position:fixed;z-index:2147483647;left:50%;top:calc(env(safe-area-inset-top,0px) + 110px);transform:translateX(-50%);max-width:min(560px,85vw);padding:14px 20px;border:1px solid #d6cfc1;border-radius:16px;background:#fffaf1;color:#172a3a;box-shadow:0 8px 28px #172a3a22;pointer-events:none;";
+      document.body.append(toast);
+    }
+    toast.textContent = String(message);
+    toast.hidden = false;
+    clearTimeout(tenetInkMessageTimer);
+    tenetInkMessageTimer = setTimeout(() => { toast.hidden = true; }, 7000);
+  }
+  function tenetInkBounds(region = null) {
+    const bounds = tenetInkController?.snapshot()?.bounds;
+    return bounds ? region ? intersection(bounds, region) : { ...bounds } : null;
+  }
+  function tenetInkManifestExtensions() {
+    const extensions = { ...state.currentSnapshotManifestExtensions };
+    if (!tenetInkController) return snapshotExtensionObject(extensions);
+    const drawing = tenetInkController?.snapshot();
+    if (drawing) extensions.tenetNativeInk = drawing;
+    else delete extensions.tenetNativeInk;
+    return snapshotExtensionObject(extensions);
+  }
+  async function tenetInkFlush() {
+    await tenetInkController?.flush();
+  }
+
+  (function initializeTenetMainCanvasInk() {
+    if (window.PENECHO_CONFIG?.tenetMode !== true) return;
+    const native = window.Capacitor?.Plugins?.TenetNative;
+    const available = window.Capacitor?.getPlatform?.() === "ios"
+      && typeof native?.configureInkSurface === "function";
+    const ARCHIVE_CHARS = Math.ceil(16 * 1024 * 1024 / 3) * 4;
+    const PREVIEW_CHARS = Math.ceil(12 * 1024 * 1024 / 3) * 4 + 32;
+    const HISTORY_CHARS = 64 * 1024 * 1024;
+    let engine = "web", ready = false, stopped = false, active = false;
+    let sessionId = crypto.randomUUID(), nativeSession = null, revision = -1;
+    let drawing = null, preview = null, visible = false, lock = 0;
+    let wire = Promise.resolve(), reception = Promise.resolve(), syncFrame = 0;
+    let syncPending = false, syncAgain = false, lastConfiguration = "", restoreImage = null;
+    let nativeToolKey = "", nativeToolWidth = 4, receiveError = null, toolRequestId = 0;
+    let fingerDrawing = false, lastError = "", reportTimer = 0;
+    const suspended = new Set(), listeners = [];
+    const lifetime = new AbortController();
+    const signal = lifetime.signal;
+
+    function status() {
+      return { engine, busy:active || lock > 0, nativeAvailable:ready,
+        strokeCount:engine === "pencilkit" ? drawing?.strokeCount || 0 : null };
+    }
+    function emitStatus() {
+      window.dispatchEvent(new CustomEvent("tenet:ink-status", { detail:status() }));
+    }
+    function fail(error) {
+      const message = String(error?.message || error || "Native ink could not be synchronized.");
+      if (message === lastError) return;
+      lastError = message;
+      clearTimeout(reportTimer);
+      tenetInkMessage(message);
+      reportTimer = setTimeout(() => { lastError = ""; }, 4000);
+    }
+    function serial(operation) {
+      const job = wire.then(operation);
+      wire = job.catch(() => {});
+      return job;
+    }
+    function normalize(record) {
+      if (record == null) return null;
+      if (record.version !== undefined && record.version !== 1) throw Error("This page uses a newer native ink format. Its original data has not been changed.");
+      const data = record.drawingData;
+      if (typeof data !== "string" || !data.length || data.length > ARCHIVE_CHARS
+          || !/^[A-Za-z0-9+/]+={0,2}$/.test(data)) throw Error("The page's native ink archive is invalid or too large.");
+      const count = Number(record.strokeCount);
+      if (!Number.isSafeInteger(count) || count < 0) throw Error("The page's native stroke count is invalid.");
+      let bounds = null, dataUrl = null;
+      if (count) {
+        const box = record.bounds;
+        if (!box || ![box.x, box.y, box.w, box.h].every(Number.isFinite)
+            || box.w <= 0 || box.h <= 0 || box.x < -SIZE || box.y < -SIZE
+            || box.x + box.w > SIZE * 2 || box.y + box.h > SIZE * 2) throw Error("The page's native ink bounds are invalid.");
+        dataUrl = record.previewDataUrl;
+        if (typeof dataUrl !== "string" || dataUrl.length > PREVIEW_CHARS
+            || !/^data:image\/png;base64,[A-Za-z0-9+/]+={0,2}$/.test(dataUrl)) throw Error("The page's native ink preview is invalid or too large.");
+        bounds = { x:box.x, y:box.y, w:box.w, h:box.h };
+      }
+      return { version:1, drawingData:data, previewDataUrl:dataUrl, bounds, strokeCount:count };
+    }
+    async function prepare(record) {
+      const value = normalize(record);
+      let image = null;
+      if (value?.previewDataUrl) {
+        image = new Image();
+        const loaded = new Promise((resolve, reject) => {
+          image.onload = resolve;
+          image.onerror = () => reject(Error("The native ink preview could not be decoded. The current page was kept."));
+        });
+        image.src = value.previewDataUrl;
+        await loaded;
+        image.onload = image.onerror = null;
+        if (image.naturalWidth > 4096 || image.naturalHeight > 4096
+            || image.naturalWidth * image.naturalHeight > 16 * 1024 * 1024) throw Error("The native ink preview exceeds the supported image size.");
+      }
+      return { drawing:value, preview:image };
+    }
+    function install(prepared) {
+      sessionId = crypto.randomUUID();
+      revision = -1;
+      receiveError = null;
+      drawing = prepared?.drawing || null;
+      preview = prepared?.preview || null;
+      active = false;
+      visible = false;
+      lastConfiguration = "";
+      state.tenetNativeHistoryBefore = undefined;
+      state.currentSnapshotManifestExtensions = tenetInkManifestExtensions();
+      scheduleSync();
+      requestCommittedInkRender();
+      emitStatus();
+    }
+    function draw(context, region) {
+      if (!preview || !drawing?.bounds) return;
+      if (context === inkCtx && visible) return;
+      const box = drawing.bounds;
+      if (region && !intersection(box, region)) return;
+      context.drawImage(preview, box.x, box.y, box.w, box.h);
+    }
+    function boundHistory() {
+      const size = () => {
+        const seen = new Set();
+        let chars = 0;
+        for (const item of state.history) for (const key of ["nativeInkBefore", "nativeInkAfter"]) {
+          const value = item?.[key];
+          if (!value || seen.has(value)) continue;
+          seen.add(value);
+          chars += (value.drawingData?.length || 0) + (value.previewDataUrl?.length || 0);
+        }
+        return chars;
+      };
+      while (state.history.length > MAX_HISTORY || state.history.length > 1 && size() > HISTORY_CHARS) state.history.shift();
+    }
+    function receive(packet) {
+      const apply = async () => {
+        if (stopped || packet?.sessionId !== sessionId || !Number.isSafeInteger(packet.revision) || packet.revision <= revision) return;
+        if (packet.drawingData === drawing?.drawingData) { revision = packet.revision; receiveError = null; return; }
+        const expectedSession = sessionId;
+        const prepared = await prepare(packet);
+        if (expectedSession !== sessionId || packet.revision <= revision) return;
+        const before = drawing;
+        save();
+        drawing = prepared.drawing;
+        preview = prepared.preview;
+        revision = packet.revision;
+        receiveError = null;
+        // An empty initial drawing is a baseline, not a user edit.
+        if (before || drawing.strokeCount) {
+          const entry = { tiles:[], nativeInkBefore:before, nativeInkAfter:drawing };
+          state.history.push(entry);
+          state.future = [];
+          boundHistory();
+          state.userRevision++;
+          const changed = packet.changedBounds && ["x", "y", "w", "h"].every(key => Number.isFinite(packet.changedBounds[key]))
+            ? intersection(packet.changedBounds, { x:0, y:0, w:SIZE, h:SIZE })
+            : unionLocalBounds(before?.bounds, drawing.bounds);
+          mergeDirtyBox(changed);
+          if (changed) {
+            state.lastUserBox = changed;
+            state.hotspotTrail.push({ x:changed.x + changed.w / 2, y:changed.y + changed.h / 2 });
+            if (state.hotspotTrail.length > 512) state.hotspotTrail.shift();
+          }
+          state.autoEligible ||= drawing.strokeCount > 0;
+          canvasAgentDidCommitUserCanvasChange(entry);
+          window.PenEchoStudioNavigator?.updateDocument?.();
+          if (!active && state.autoEligible) schedule();
+        }
+        state.currentSnapshotManifestExtensions = tenetInkManifestExtensions();
+        requestCommittedInkRender();
+        requestInteractionLayerRender();
+        emitStatus();
+        if (packet.metrics) window.dispatchEvent(new CustomEvent("tenet:ink-sample", { detail:{
+          engine:"pencilkit", kind:"snapshot", serializationMs:packet.metrics.serializationMs,
+        } }));
+      };
+      const job = reception.then(apply);
+      reception = job.catch(error => { if (packet?.sessionId === sessionId) { receiveError = error; fail(error); } });
+      return job;
+    }
+    function onscreen(element) {
+      if (!element || element.hidden || element.closest('[hidden], [inert], [aria-hidden="true"]')) return false;
+      const css = getComputedStyle(element);
+      return css.display !== "none" && css.visibility !== "hidden" && element.getBoundingClientRect().width > 0;
+    }
+    function modalOpen() {
+      return [...document.querySelectorAll('dialog[open], [role="dialog"][aria-modal="true"], .tenet-notebook-overlay, .penecho-cloud-overlay')].some(onscreen);
+    }
+    function configuration() {
+      const metrics = canvasViewportMetrics(), rect = view.getBoundingClientRect();
+      const factor = rect.width / Math.max(1, metrics.width);
+      const nativeTool = state.mode === "select" ? "lasso" : state.mode === "eraser" ? "eraser" : "pen";
+      const toolKey = `${sessionId}:${nativeTool}:${state.inkColor}:${state.pen}`;
+      if (toolKey !== nativeToolKey) {
+        nativeToolKey = toolKey;
+        nativeToolWidth = Math.min(1024, state.pen / Math.max(.03, state.scale));
+      }
+      const shouldShow = engine === "pencilkit" && !lock && !suspended.size && !document.hidden
+        && !state.viewMode && !snapshotLoadInProgress && ["pen", "eraser", "select"].includes(state.mode) && !modalOpen();
+      const exclusions = [...document.querySelectorAll(
+        '#tenetBadge, #tenetNotebookLauncher, .ai-embodiment, .canvas-navigation-lock, #canvasAgentPanel, #studioNavigator, .hand-object-toolbar, .selection-toolbar, #tenetNativeToast, .tenet-ink-comparison.tic-dock > *'
+      )].filter(onscreen).map(element => {
+        const box = element.getBoundingClientRect();
+        return { x:box.x, y:box.y, width:box.width, height:box.height };
+      });
+      return { sessionId, frame:{ x:rect.x, y:rect.y, width:rect.width, height:rect.height },
+        viewportWidth:window.innerWidth, panX:state.panX * factor, panY:state.panY * factor,
+        scale:state.scale * factor, canvasSize:SIZE, visible:shouldShow, inputEnabled:shouldShow,
+        tool:nativeTool, color:state.inkColor, width:nativeToolWidth, toolRequestId, fingerDrawing,
+        navigationLocked:state.navigationLocked === true, exclusions };
+    }
+    async function synchronize() {
+      if (!ready || stopped) return;
+      const options = configuration();
+      const key = JSON.stringify(options);
+      if (key === lastConfiguration && nativeSession === sessionId) return;
+      const targetSession = sessionId;
+      if (nativeSession !== targetSession && drawing?.drawingData) options.drawingData = drawing.drawingData;
+      // A modal/Hand switch must capture the last stroke before hiding it.
+      if (visible && !options.visible && nativeSession === targetSession) {
+        await receive(await native.hideInkSurface({ sessionId:targetSession }));
+      }
+      await native.configureInkSurface(options);
+      if (targetSession !== sessionId) return;
+      nativeSession = targetSession;
+      lastConfiguration = key;
+      const changed = visible !== options.visible;
+      visible = options.visible;
+      if (changed) requestCommittedInkRender();
+    }
+    function scheduleSync() {
+      if (!ready || stopped) return;
+      if (syncPending) { syncAgain = true; return; }
+      syncPending = true;
+      syncFrame = requestAnimationFrame(() => {
+        syncFrame = 0;
+        void serial(synchronize).catch(fail).finally(() => {
+          syncPending = false;
+          if (syncAgain) { syncAgain = false; scheduleSync(); }
+        });
+      });
+    }
+    async function flush() {
+      if (active) throw Error("Lift the Pencil or finger before saving, switching, or asking Tenet.");
+      const targetSession = sessionId;
+      await serial(async () => {
+        if (ready && nativeSession === targetSession && sessionId === targetSession) {
+          await receive(await native.flushInkSurface({ sessionId:targetSession }));
+        }
+      });
+      await reception;
+      if (receiveError) throw receiveError;
+      if (targetSession !== sessionId) throw Error("The page changed before native ink finished saving. Try again on the current page.");
+    }
+    async function setEngine(next) {
+      if (!["web", "pencilkit"].includes(next)) throw Error("Unknown drawing engine.");
+      if (lock || active || state.drawing) throw Error("Finish the current action before switching ink engines.");
+      if (next === "pencilkit" && !ready) throw Error("PencilKit is unavailable in this build or disabled by managed configuration.");
+      if (engine === next) return;
+      const previous = engine;
+      lock++;
+      emitStatus();
+      try {
+        await flush();
+        if (state.selection) commitSelection();
+        save();
+        document.activeElement?.blur?.();
+        engine = next;
+        lock--;
+        await serial(synchronize);
+      } catch (error) {
+        engine = previous;
+        if (lock) lock--;
+        scheduleSync();
+        throw error;
+      } finally { emitStatus(); }
+    }
+    async function history(side) {
+      if (lock || active || state.drawing) { fail(Error("Finish drawing before undo or redo.")); return; }
+      lock++;
+      emitStatus();
+      try {
+        await flush();
+        await serial(synchronize);
+        if (side === "before") save();
+        const source = side === "before" ? state.history : state.future;
+        const destination = side === "before" ? state.future : state.history;
+        const entry = source.at(-1);
+        if (!entry) return;
+        if (Object.prototype.hasOwnProperty.call(entry, "nativeInkBefore")) {
+          restoreImage = await prepare(entry[side === "before" ? "nativeInkBefore" : "nativeInkAfter"]);
+        }
+        invalidateRecognition();
+        applyHistory(entry, side);
+        source.pop();
+        destination.push(entry);
+        state.userRevision++;
+      } catch (error) { fail(error); }
+      finally { restoreImage = null; lock--; scheduleSync(); emitStatus(); }
+    }
+    function applyNativeHistory(entry, side) {
+      if (!Object.prototype.hasOwnProperty.call(entry || {}, "nativeInkBefore")) return;
+      if (!restoreImage) throw Error("Native history must be prepared before it is restored.");
+      install(restoreImage);
+    }
+    function stageClear() {
+      const before = drawing;
+      install(null);
+      if (before) state.tenetNativeHistoryBefore = before;
+    }
+    function suspend(reason) {
+      suspended.add(String(reason));
+      return serial(synchronize).catch(error => { fail(error); throw error; });
+    }
+    function resume(reason) { suspended.delete(String(reason)); scheduleSync(); }
+
+    tenetInkController = { available, snapshot:() => drawing, draw, prepare, restore:install,
+      flush, sync:scheduleSync, active:() => active || lock > 0, history, applyHistory:applyNativeHistory,
+      stageClear, boundHistory, suspend, resume };
+    window.TenetInk = { available, getStatus:status, setEngine, flush, suspend, resume };
+
+    async function mount() {
+      if (!available) return;
+      try {
+        const config = await native.getConfiguration();
+        if (config.valid === false || config.pencilKitEnabled === false) { emitStatus(); return; }
+        fingerDrawing = config.fingerDrawingEnabled === true;
+        listeners.push(await native.addListener("inkSurfaceChanged", packet => { void receive(packet).catch(fail); }));
+        listeners.push(await native.addListener("inkSurfaceActivity", event => {
+          if (event.sessionId !== sessionId) return;
+          active = event.active === true;
+          if (active) {
+            state.userRevision++;
+            supersedeActiveAI("native-user-input-started");
+            clearTimeout(state.timer);
+            state.timer = 0;
+            document.activeElement?.blur?.();
+          }
+          if (!active && event.tool === "ink" && event.completed !== false) window.dispatchEvent(new CustomEvent("tenet:ink-sample", { detail:{
+            engine:"pencilkit", kind:"stroke", durationMs:event.durationMs, sampleCount:event.sampleCount,
+          } }));
+          emitStatus();
+        }));
+        listeners.push(await native.addListener("inkSurfaceError", event => {
+          if (event.sessionId !== sessionId) return;
+          receiveError = Error(event.message || "Native ink could not be saved. Your ink is retained; undo or erase and retry.");
+          fail(receiveError);
+        }));
+        listeners.push(await native.addListener("inkSurfaceNavigation", event => {
+          if (event.sessionId !== sessionId || state.navigationLocked || lock) return;
+          const metrics = canvasViewportMetrics(), rect = view.getBoundingClientRect();
+          const ratio = metrics.width / Math.max(1, rect.width);
+          const factor = Number(event.scaleFactor);
+          if (Number.isFinite(factor) && factor > 0 && Number.isFinite(event.centerX) && Number.isFinite(event.centerY)) {
+            const next = Math.max(.03, Math.min(2, state.scale * factor));
+            const x = (event.centerX - rect.x) * ratio, y = (event.centerY - rect.y) * ratio;
+            state.panX = x - (x - state.panX) * next / state.scale;
+            state.panY = y - (y - state.panY) * next / state.scale;
+            state.scale = next;
+          }
+          if (Number.isFinite(event.dx)) state.panX += event.dx * ratio;
+          if (Number.isFinite(event.dy)) state.panY += event.dy * ratio;
+          updateCoordinates();
+          requestRender();
+          scheduleSync();
+        }));
+        ready = true;
+        // Keep Web as the safe initial mode; the tester explicitly opts in.
+        emitStatus();
+        scheduleSync();
+      } catch (error) { ready = false; fail(error); emitStatus(); }
+    }
+    const resizeObserver = new ResizeObserver(scheduleSync);
+    resizeObserver.observe(view);
+    const mutations = new MutationObserver(scheduleSync);
+    mutations.observe(document.body, { subtree:true, attributes:true, attributeFilter:["hidden", "open", "class", "aria-hidden", "aria-expanded"] });
+    window.addEventListener("resize", scheduleSync, { signal });
+    window.visualViewport?.addEventListener("resize", scheduleSync, { signal });
+    document.addEventListener("visibilitychange", () => {
+      scheduleSync();
+      if (document.hidden && !active) void flush().catch(fail);
+    }, { signal });
+    document.addEventListener("input", scheduleSync, { signal });
+    document.addEventListener("click", event => {
+      if (!event.target?.closest?.("[data-mode]")) return;
+      toolRequestId++;
+      scheduleSync();
+    }, { signal });
+    document.addEventListener("pointerdown", event => {
+      if (!lock || !view.contains(event.target)) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    }, { capture:true, signal });
+    window.addEventListener("pageshow", () => { lastConfiguration = ""; scheduleSync(); }, { signal });
+    window.addEventListener("pagehide", event => {
+      if (event.persisted) {
+        if (nativeSession) void native.hideInkSurface({ sessionId:nativeSession }).then(receive).catch(fail);
+        visible = false;
+        return;
+      }
+      // Existing notebook autosave owns durable storage. Never claim a fire-
+      // and-forget unload callback is a successful save.
+      stopped = true;
+      if (syncFrame) cancelAnimationFrame(syncFrame);
+      clearTimeout(reportTimer);
+      resizeObserver.disconnect();
+      mutations.disconnect();
+      lifetime.abort();
+      for (const listener of listeners) void listener.remove();
+      if (nativeSession) void native.hideInkSurface({ sessionId:nativeSession }).catch(() => {});
+    }, { signal });
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => { void mount(); }, { once:true });
+    else void mount();
+  })();
+;(function tenetInkComparisonModule() {
+  'use strict';
+
+  // Deliberately independent of the surrounding canvas closure.
+  const STORAGE_KEY = 'tenet.ink-comparison.v1';
+  const LIMIT = 20;
+  const PREFIX = 'tenet-ink-comparison';
+  const TASKS = {
+    routine: 'Full routine',
+    sentence: 'Write a sentence',
+    loops: 'Fast loops',
+    math: 'Small math',
+    graph: 'Pan, zoom, and graph manipulation'
+  };
+  const TASK_DETAILS = {
+    sentence: 'Write "The quick brown fox jumps over the lazy dog." twice at your normal writing size.',
+    loops: 'Draw five rows of ten connected small loops, moving as quickly as you comfortably can.',
+    math: 'Write y = 2x + 3 and x^2 + y^2 = 25 twice, including small superscripts and an equals sign.',
+    graph: 'Pan away and back, zoom in and out, then select and move an existing graph or graph control and return it to its starting position. Use the same graph and gestures for both engines.'
+  };
+  const TOOLBAR_SELECTORS = [
+    '[data-tenet-ink-toolbar]', '#top-toolbar', '#topToolbar',
+    '[data-toolbar="top"]', '.top-toolbar', 'header [role="toolbar"]', '#toolbar'
+  ];
+  const state = {
+    ui: null, status: null, phase: 'idle', trial: null, pendingId: null,
+    results: [], loaded: false, storageWarning: '', hold: null,
+    epoch: 0, disposed: false, sequence: 0, raf: null, lastFrame: null,
+    listeners: [], observer: null, observerTimer: null, downloads: new Map(),
+    returnFocus: null
+  };
+
+  function listen(target, name, handler, options) {
+    target.addEventListener(name, handler, options);
+    state.listeners.push(() => target.removeEventListener(name, handler, options));
+  }
+
+  function availableApi() {
+    const api = window.TenetInk;
+    return api && api.available === true ? api : null;
+  }
+
+  function requireApi() {
+    const api = availableApi();
+    if (!api || ['getStatus', 'setEngine', 'flush', 'suspend', 'resume']
+      .some(name => typeof api[name] !== 'function')) {
+      throw new Error('Ink API unavailable');
+    }
+    return api;
+  }
+
+  function count(value) {
+    return Number.isSafeInteger(value) && value >= 0 ? value : null;
+  }
+
+  function numeric(value) {
+    return typeof value === 'number' && Number.isFinite(value) &&
+      value >= 0 && value <= Number.MAX_SAFE_INTEGER ? value : null;
+  }
+
+  function normalizeStatus(value) {
+    if (!value || !['web', 'pencilkit'].includes(value.engine) ||
+      typeof value.busy !== 'boolean' || typeof value.nativeAvailable !== 'boolean' ||
+      (value.strokeCount !== null && count(value.strokeCount) === null)) throw new Error('Invalid ink status');
+    return {
+      engine: value.engine, busy: value.busy,
+      nativeAvailable: value.nativeAvailable, strokeCount: value.strokeCount
+    };
+  }
+
+  function readStatus() {
+    return normalizeStatus(requireApi().getStatus());
+  }
+
+  function refreshStatus() {
+    try { state.status = availableApi() ? readStatus() : null; }
+    catch (_) { state.status = null; }
+  }
+
+  function live(epoch) {
+    return !state.disposed && state.epoch === epoch;
+  }
+
+  function requireLive(epoch) {
+    if (!live(epoch)) throw new Error('Comparison disposed');
+  }
+
+  function engineName(engine) {
+    return engine === 'pencilkit' ? 'PencilKit' : 'Web';
+  }
+
+  function dialogOpen() {
+    return Boolean(state.ui && state.ui.dialog.hasAttribute('open'));
+  }
+
+  function announce(message, error) {
+    if (!state.ui || state.disposed) return;
+    const target = dialogOpen() ? state.ui.dialogStatus : state.ui.notice;
+    const other = dialogOpen() ? state.ui.notice : state.ui.dialogStatus;
+    other.textContent = '';
+    other.hidden = true;
+    target.hidden = false;
+    target.setAttribute('role', error ? 'alert' : 'status');
+    target.setAttribute('aria-live', error ? 'assertive' : 'polite');
+    target.textContent = message;
+  }
+
+  function emptyStats() {
+    return { count: 0, mean: 0, m2: 0, min: Infinity, max: 0 };
+  }
+
+  function addStat(stats, value) {
+    if (numeric(value) === null) return;
+    stats.count += 1;
+    const delta = value - stats.mean;
+    stats.mean += delta / stats.count;
+    stats.m2 += delta * (value - stats.mean);
+    stats.min = Math.min(stats.min, value);
+    stats.max = Math.max(stats.max, value);
+  }
+
+  function rounded(value) {
+    return Math.round(value * 1000) / 1000;
+  }
+
+  function summarize(stats) {
+    return {
+      count: stats.count,
+      mean: stats.count ? rounded(stats.mean) : null,
+      min: stats.count ? rounded(stats.min) : null,
+      max: stats.count ? rounded(stats.max) : null,
+      standardDeviation: stats.count ? rounded(Math.sqrt(Math.max(0, stats.m2 / stats.count))) : null
+    };
+  }
+
+  function sanitizedStats(value) {
+    if (!value || count(value.count) === null) throw new Error('Invalid statistics');
+    const result = { count: value.count };
+    for (const key of ['mean', 'min', 'max', 'standardDeviation']) {
+      if (value.count === 0) result[key] = null;
+      else {
+        if (numeric(value[key]) === null) throw new Error('Invalid statistic');
+        result[key] = value[key];
+      }
+    }
+    return result;
+  }
+
+  // Rebuild a whitelist on load: never echo arbitrary storage fields into exports.
+  function sanitizedRecord(value) {
+    try {
+      if (!value || value.schemaVersion !== 1 || !['web', 'pencilkit'].includes(value.engine) ||
+        !Object.prototype.hasOwnProperty.call(TASKS, value.task) ||
+        !['stopped', 'interrupted'].includes(value.completion) ||
+        !/^\d{13}-\d+$/.test(value.id) ||
+        ![value.startedAt, value.endedAt].every(date => typeof date === 'string' &&
+          /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(date) && Number.isFinite(Date.parse(date)))) {
+        return null;
+      }
+      const timing = {};
+      for (const key of ['elapsedMs', 'visibleMs', 'hiddenMs']) {
+        if (numeric(value.timing[key]) === null) return null;
+        timing[key] = value.timing[key];
+      }
+      if (count(value.timing.visibilityPauses) === null) return null;
+      timing.visibilityPauses = value.timing.visibilityPauses;
+      const source = value.strokeDiagnostics;
+      const strokes = {};
+      for (const key of ['events', 'ignoredHiddenEvents', 'startStrokeCount']) {
+        if (count(source[key]) === null) return null;
+        strokes[key] = source[key];
+      }
+      strokes.endStrokeCount = count(source.endStrokeCount);
+      strokes.deltaStrokeCount = count(source.deltaStrokeCount);
+      strokes.strokeDurationMs = sanitizedStats(source.strokeDurationMs);
+      strokes.samplesPerStroke = sanitizedStats(source.samplesPerStroke);
+      strokes.commitMs = sanitizedStats(source.commitMs);
+      const frames = sanitizedStats(value.frameIntervalsMs);
+      if (count(value.frameIntervalsMs.over33Ms) === null) return null;
+      frames.over33Ms = value.frameIntervalsMs.over33Ms;
+      let ratings = null;
+      if (value.ratings && ['smoothness', 'accuracy', 'toolUsability'].every(key =>
+        Number.isInteger(value.ratings[key]) && value.ratings[key] >= 1 && value.ratings[key] <= 5)) {
+        ratings = {
+          smoothness: value.ratings.smoothness, accuracy: value.ratings.accuracy,
+          toolUsability: value.ratings.toolUsability
+        };
+      }
+      return {
+        schemaVersion: 1, id: value.id, engine: value.engine, task: value.task,
+        startedAt: value.startedAt, endedAt: value.endedAt, completion: value.completion,
+        interruption: ['pagehide', 'engine-changed', 'unavailable', 'flush-failed'].includes(value.interruption)
+          ? value.interruption : null,
+        timing, strokeDiagnostics: strokes, frameIntervalsMs: frames,
+        ratings, missedStrokes: count(value.missedStrokes)
+      };
+    } catch (_) { return null; }
+  }
+
+  function loadResults() {
+    if (state.loaded) return;
+    state.loaded = true;
+    try {
+      const text = window.localStorage.getItem(STORAGE_KEY);
+      if (!text) return;
+      if (text.length > 196608) throw new Error('Oversize comparison storage');
+      const saved = JSON.parse(text);
+      if (!saved || saved.schemaVersion !== 1 || !Array.isArray(saved.results)) {
+        throw new Error('Invalid comparison storage');
+      }
+      const candidates = saved.results.slice(-LIMIT);
+      state.results = candidates.map(sanitizedRecord).filter(Boolean);
+      if (state.results.length !== candidates.length) {
+        state.storageWarning = 'Some saved results could not be read. Valid results and new trials remain available.';
+      }
+    } catch (_) {
+      state.storageWarning = 'Browser storage could not be read. Results will remain in memory; export them before leaving.';
+    }
+  }
+
+  function persistResults() {
+    state.results = state.results.slice(-LIMIT);
+    try {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ schemaVersion: 1, results: state.results }));
+      state.storageWarning = '';
+    } catch (_) {
+      state.storageWarning = 'Browser storage could not save. Your current results are still in memory. Export JSON before leaving.';
+    }
+  }
+
+  function pauseClock(now) {
+    if (state.raf !== null) window.cancelAnimationFrame(state.raf);
+    state.raf = null;
+    state.lastFrame = null;
+    if (state.trial && state.trial.visibleSince !== null) {
+      state.trial.visibleMs += Math.max(0, now - state.trial.visibleSince);
+      state.trial.visibleSince = null;
+    }
+  }
+
+  function frame(timestamp) {
+    state.raf = null;
+    const trial = state.trial;
+    if (!trial || state.phase !== 'running' || document.hidden || state.disposed) {
+      state.lastFrame = null;
+      return;
+    }
+    if (state.lastFrame !== null) {
+      const interval = timestamp - state.lastFrame;
+      if (numeric(interval) !== null) {
+        addStat(trial.frames, interval);
+        if (interval > 33) trial.over33Ms += 1;
+      }
+    }
+    state.lastFrame = timestamp;
+    state.raf = window.requestAnimationFrame(frame);
+  }
+
+  function resumeClock() {
+    if (!state.trial || document.hidden || state.phase !== 'running' || state.disposed) return;
+    state.trial.visibleSince = performance.now();
+    state.lastFrame = null;
+    if (state.raf === null) state.raf = window.requestAnimationFrame(frame);
+  }
+
+  function onVisibility() {
+    if (!state.trial || state.phase !== 'running') return;
+    if (document.hidden) {
+      state.trial.visibilityPauses += 1;
+      pauseClock(performance.now());
+    } else resumeClock();
+    render();
+  }
+
+  function onSample(event) {
+    const trial = state.trial;
+    if (!trial || !['running', 'stopping'].includes(state.phase)) return;
+    const sample = event.detail;
+    if (!sample || sample.kind !== 'stroke' || sample.engine !== trial.engine) return;
+    if (document.hidden) {
+      trial.ignoredHiddenEvents += 1;
+      return;
+    }
+    trial.events += 1;
+    addStat(trial.strokeDuration, sample.durationMs);
+    if (count(sample.sampleCount) !== null) addStat(trial.samples, sample.sampleCount);
+    addStat(trial.commits, sample.commitMs);
+  }
+
+  function finishRecord(interruption) {
+    const trial = state.trial;
+    if (!trial) return null;
+    const now = trial.endMs === null ? performance.now() : trial.endMs;
+    pauseClock(now);
+    const elapsed = Math.max(0, now - trial.startMs);
+    const visible = Math.min(elapsed, trial.visibleMs);
+    const endCount = state.status && state.status.engine === trial.engine ? state.status.strokeCount : null;
+    const record = {
+      schemaVersion: 1, id: trial.id, engine: trial.engine, task: trial.task,
+      startedAt: trial.startedAt, endedAt: trial.endedAt || new Date().toISOString(),
+      completion: interruption ? 'interrupted' : 'stopped', interruption: interruption || null,
+      timing: {
+        elapsedMs: rounded(elapsed), visibleMs: rounded(visible),
+        hiddenMs: rounded(Math.max(0, elapsed - visible)), visibilityPauses: trial.visibilityPauses
+      },
+      strokeDiagnostics: {
+        events: trial.events, ignoredHiddenEvents: trial.ignoredHiddenEvents,
+        startStrokeCount: trial.startStrokeCount, endStrokeCount: endCount,
+        deltaStrokeCount: endCount !== null && endCount >= trial.startStrokeCount
+          ? endCount - trial.startStrokeCount : null,
+        strokeDurationMs: summarize(trial.strokeDuration), samplesPerStroke: summarize(trial.samples),
+        commitMs: summarize(trial.commits)
+      },
+      frameIntervalsMs: { ...summarize(trial.frames), over33Ms: trial.over33Ms },
+      ratings: null, missedStrokes: null
+    };
+    state.trial = null;
+    state.results.push(record);
+    state.pendingId = record.id;
+    persistResults();
+    return record;
+  }
+
+  async function releaseSurface(hold) {
+    const owned = hold || state.hold;
+    if (!owned) return;
+    await owned.api.resume(owned.reason);
+    if (state.hold === owned) state.hold = null;
+  }
+
+  function hideDialog() {
+    if (!state.ui) return;
+    const dialog = state.ui.dialog;
+    if (dialog.hasAttribute('open')) {
+      if (typeof dialog.close === 'function') dialog.close();
+      else dialog.removeAttribute('open');
+    }
+    state.ui.backdrop.hidden = true;
+    // Restore focus after the owning operation reenables its toolbar controls.
+  }
+
+  async function showDialog(epoch) {
+    if (dialogOpen()) return;
+    const hold = state.hold || { api: requireApi(), reason: PREFIX + ':' + epoch };
+    const needsSuspend = !state.hold;
+    state.hold = hold;
+    try {
+      if (needsSuspend) await hold.api.suspend(hold.reason);
+      requireLive(epoch);
+      state.returnFocus = document.activeElement;
+      const dialog = state.ui.dialog;
+      if (typeof dialog.showModal === 'function') dialog.showModal();
+      else {
+        state.ui.backdrop.hidden = false;
+        dialog.setAttribute('open', '');
+      }
+      state.ui.notice.hidden = true;
+      state.ui.heading.focus();
+    } catch (error) {
+      try { await releaseSurface(hold); } catch (_) { /* Retry drawing retains the hold. */ }
+      throw error;
+    }
+  }
+
+  async function operation(phase, work, errorMessage, allowed) {
+    if (state.disposed || !(allowed || ['idle']).includes(state.phase)) return false;
+    const epoch = state.epoch;
+    state.phase = phase;
+    render();
+    try {
+      await work(epoch);
+      requireLive(epoch);
+      return true;
+    } catch (_) {
+      if (live(epoch)) {
+        refreshStatus();
+        announce(errorMessage, true);
+      }
+      return false;
+    } finally {
+      if (live(epoch)) {
+        if (state.phase === phase) state.phase = 'idle';
+        render();
+        if (!dialogOpen() && state.returnFocus) {
+          const previous = state.returnFocus;
+          state.returnFocus = null;
+          const target = state.trial ? state.ui.stop : [previous, state.ui.compare].find(element =>
+            element && element.isConnected && !element.disabled &&
+            !element.closest('[hidden]') && element.getClientRects().length);
+          if (target) target.focus();
+        }
+      }
+    }
+  }
+
+  async function openComparison() {
+    if (state.phase === 'running') return stopTrial(null);
+    if (dialogOpen() || state.phase !== 'idle') return;
+    await operation('opening', async epoch => {
+      await requireApi().flush();
+      requireLive(epoch);
+      state.status = readStatus();
+      await showDialog(epoch);
+      announce('Choose the same task and tools for each renderer. Start a trial to return to your notebook.');
+    }, 'The comparison could not open. Your work has not been cleared. Use Retry drawing if the surface is hidden.');
+  }
+
+  async function closeComparison() {
+    await operation('closing', async epoch => {
+      hideDialog();
+      await releaseSurface();
+      requireLive(epoch);
+      announce('Comparison closed. Your notebook is ready.');
+    }, 'The drawing surface could not resume. Use Retry drawing. Your saved comparisons are retained.');
+  }
+
+  async function switchEngine(engine) {
+    if (!['web', 'pencilkit'].includes(engine) || state.trial) return;
+    await operation('switching', async epoch => {
+      const api = requireApi();
+      const before = readStatus();
+      if (before.busy || (engine === 'pencilkit' && !before.nativeAvailable)) {
+        throw new Error('Engine unavailable or busy');
+      }
+      await api.flush();
+      requireLive(epoch);
+      await api.setEngine(engine);
+      requireLive(epoch);
+      state.status = readStatus();
+      if (state.status.engine !== engine || state.status.busy) throw new Error('Engine switch incomplete');
+      announce('Ink is now using ' + engineName(engine) + '. Your notebook work is retained.');
+    }, 'The renderer could not switch. Check the current engine shown here and try again. Your work was not cleared by this comparison.');
+  }
+
+  async function startTrial() {
+    if (state.pendingId) {
+      announce('Save or skip the previous ratings before starting another trial.', true);
+      return;
+    }
+    await operation('starting', async epoch => {
+      const api = requireApi();
+      const task = state.ui.task.value;
+      const engine = state.ui.engine.value;
+      if (document.hidden || !Object.prototype.hasOwnProperty.call(TASKS, task)) {
+        throw new Error('Trial cannot start');
+      }
+      const before = readStatus();
+      if (before.busy || before.engine !== engine) throw new Error('Engine not ready');
+      await api.flush();
+      requireLive(epoch);
+      hideDialog();
+      await releaseSurface();
+      requireLive(epoch);
+      const ready = readStatus();
+      if (document.hidden || ready.busy || ready.engine !== engine ||
+        (engine === 'pencilkit' && !ready.nativeAvailable)) throw new Error('Engine not ready');
+      state.status = ready;
+      const now = performance.now();
+      state.trial = {
+        id: String(Date.now()) + '-' + (++state.sequence), engine, task,
+        startedAt: new Date().toISOString(), endedAt: null, startMs: now, endMs: null,
+        visibleSince: null, visibleMs: 0, visibilityPauses: 0,
+        startStrokeCount: ready.strokeCount, events: 0, ignoredHiddenEvents: 0,
+        strokeDuration: emptyStats(), samples: emptyStats(), commits: emptyStats(),
+        frames: emptyStats(), over33Ms: 0
+      };
+      state.phase = 'running';
+      resumeClock();
+      render();
+      state.ui.stop.focus();
+      announce(engineName(engine) + ' trial started. Complete the selected task, then choose Stop and rate.');
+    }, 'The trial could not start. No trial is running. Reopen Compare ink or use Retry drawing.');
+  }
+
+  async function stopTrial(interruption) {
+    if (!state.trial || state.phase !== 'running') return;
+    await operation('stopping', async epoch => {
+      state.trial.endMs = performance.now();
+      state.trial.endedAt = new Date().toISOString();
+      pauseClock(state.trial.endMs);
+      let reason = interruption;
+      if (availableApi()) {
+        try {
+          await requireApi().flush();
+          requireLive(epoch);
+        } catch (_) {
+          requireLive(epoch);
+          reason = reason || 'flush-failed';
+        }
+      } else reason = reason || 'unavailable';
+      requireLive(epoch);
+      refreshStatus();
+      if (!state.status) reason = reason || 'unavailable';
+      else if (state.status.engine !== state.trial.engine) reason = reason || 'engine-changed';
+      finishRecord(reason);
+      resetRatings();
+      renderResults();
+      if (availableApi()) await showDialog(epoch);
+      announce(reason
+        ? 'Trial interrupted. Available diagnostics were retained; this is not a completed comparison. You can still add ratings or export.'
+        : 'Trial stopped and diagnostics retained. Add your ratings and manual missed-stroke count.', Boolean(reason));
+    }, 'The trial stopped, but the comparison dialog could not open. Retained results are available from Compare ink.', ['running']);
+  }
+
+  function onStatus(event) {
+    ensureUI();
+    if (!state.ui || state.disposed) return;
+    try { state.status = availableApi() ? normalizeStatus(event.detail) : null; }
+    catch (_) {
+      state.status = null;
+      announce('Ink status could not be read. Use Retry drawing to refresh the controls.', true);
+    }
+    if (state.trial && state.phase === 'running' &&
+      (!state.status || state.status.engine !== state.trial.engine ||
+        (state.trial.engine === 'pencilkit' && !state.status.nativeAvailable))) {
+      void stopTrial(!state.status ? 'unavailable' : 'engine-changed');
+    }
+    if (!availableApi() && dialogOpen()) {
+      hideDialog();
+      const hold = state.hold;
+      if (hold) void releaseSurface(hold).catch(() => {
+        announce('Ink became unavailable and its surface could not resume.', true);
+      });
+    }
+    render();
+  }
+
+  function resetRatings() {
+    if (!state.ui) return;
+    state.ui.ratingForm.reset();
+  }
+
+  function saveRatings(event) {
+    event.preventDefault();
+    const record = state.results.find(result => result.id === state.pendingId);
+    if (!record) return;
+    const form = state.ui.ratingForm;
+    if (!form.checkValidity()) {
+      announce('Choose all three ratings and enter a whole-number missed-stroke count from 0 to 1000000.', true);
+      form.reportValidity();
+      return;
+    }
+    record.ratings = {
+      smoothness: Number(form.elements.namedItem('smoothness').value),
+      accuracy: Number(form.elements.namedItem('accuracy').value),
+      toolUsability: Number(form.elements.namedItem('toolUsability').value)
+    };
+    record.missedStrokes = Number(form.elements.namedItem('missedStrokes').value);
+    state.pendingId = null;
+    persistResults();
+    renderResults();
+    render();
+    state.ui.start.focus();
+    announce('Ratings saved for the ' + engineName(record.engine) + ' trial. You can now switch engines and repeat the same task.');
+  }
+
+  function skipRatings() {
+    state.pendingId = null;
+    render();
+    state.ui.start.focus();
+    announce('Diagnostics retained without ratings. You can start the next trial.');
+  }
+
+  function exportResults() {
+    if (!state.results.length) return;
+    let url = null;
+    let anchor = null;
+    try {
+      const payload = {
+        schemaVersion: 1, exportedAt: new Date().toISOString(),
+        metricNote: 'Local software diagnostics and subjective ratings only. Frame intervals, stroke durations, sample counts, and commit durations do not measure hardware Pencil-to-pixel latency. Hidden time is excluded from active timing and frame statistics. Missing optional metrics are null, not zero.',
+        tasks: TASK_DETAILS, results: state.results.map(sanitizedRecord).filter(Boolean)
+      };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      url = window.URL.createObjectURL(blob);
+      anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = 'tenet-ink-comparison-' + new Date().toISOString().replace(/[:.]/g, '-') + '.json';
+      anchor.hidden = true;
+      document.body.appendChild(anchor);
+      anchor.click();
+      const retainedUrl = url;
+      const timer = window.setTimeout(() => {
+        window.URL.revokeObjectURL(retainedUrl);
+        state.downloads.delete(retainedUrl);
+      }, 60000);
+      state.downloads.set(url, timer);
+      announce('Local JSON export requested. Your browser handles the download; nothing was uploaded.');
+    } catch (_) {
+      if (url) window.URL.revokeObjectURL(url);
+      announce('The JSON download could not start. Your current results are still retained; try exporting again.', true);
+    } finally {
+      if (anchor) anchor.remove();
+    }
+  }
+
+  function renderResults() {
+    if (!state.ui) return;
+    const body = state.ui.results;
+    body.replaceChildren();
+    state.ui.resultCount.textContent = state.results.length + ' of ' + LIMIT + ' retained results';
+    for (const record of state.results.slice().reverse()) {
+      const row = document.createElement('tr');
+      const mean = stats => stats.count ? stats.mean.toFixed(2) : 'Not reported';
+      const ratings = record.ratings
+        ? [record.ratings.smoothness, record.ratings.accuracy, record.ratings.toolUsability].join(' / ')
+        : 'Not rated';
+      const cells = [
+        engineName(record.engine) + (record.completion === 'interrupted' ? ' (interrupted)' : ''),
+        TASKS[record.task], new Date(record.startedAt).toLocaleString(),
+        (record.timing.visibleMs / 1000).toFixed(1), String(record.strokeDiagnostics.events),
+        mean(record.strokeDiagnostics.samplesPerStroke), mean(record.strokeDiagnostics.commitMs),
+        mean(record.frameIntervalsMs), ratings,
+        record.missedStrokes === null ? 'Not rated' : String(record.missedStrokes)
+      ];
+      cells.forEach((text, index) => {
+        const cell = document.createElement(index === 0 ? 'th' : 'td');
+        if (index === 0) cell.scope = 'row';
+        cell.textContent = text;
+        row.appendChild(cell);
+      });
+      body.appendChild(row);
+    }
+    if (!state.results.length) {
+      const row = document.createElement('tr');
+      const cell = document.createElement('td');
+      cell.colSpan = 10;
+      cell.textContent = 'No trials yet. Complete the same task once with each available engine.';
+      row.appendChild(cell);
+      body.appendChild(row);
+    }
+  }
+
+  function render() {
+    const ui = state.ui;
+    if (!ui || state.disposed) return;
+    const available = Boolean(availableApi());
+    const status = state.status;
+    const running = Boolean(state.trial);
+    const idle = state.phase === 'idle';
+    const blocked = !available || !status || status.busy || !idle || running;
+    ui.toolbar.hidden = !available;
+    ui.engineButton.textContent = state.phase === 'switching' ? 'Ink: Switching...' :
+      'Ink: ' + (status ? engineName(status.engine) : 'Unavailable');
+    ui.engineButton.disabled = blocked || !status.nativeAvailable || Boolean(state.hold && !dialogOpen());
+    ui.engineButton.title = running ? 'Stop the trial before switching renderers.' :
+      status && !status.nativeAvailable ? 'PencilKit is not available on this device.' :
+        'Switch between Web and PencilKit without clearing your work.';
+    ui.compare.textContent = state.phase === 'running' ? 'Stop and rate' : 'Compare ink';
+    ui.compare.disabled = !available || (!idle && state.phase !== 'running');
+    ui.engine.disabled = blocked;
+    if (status) ui.engine.value = status.engine;
+    ui.nativeOption.disabled = !status || !status.nativeAvailable;
+    ui.nativeOption.textContent = status && status.nativeAvailable ? 'PencilKit' : 'PencilKit (unavailable)';
+    ui.availability.textContent = !status ? 'Ink status unavailable. Retry drawing to refresh.' :
+      status.busy ? 'The drawing engine is busy. Wait for it to finish.' :
+        status.nativeAvailable ? 'Both engines are available on this device.' :
+          'Web is available. PencilKit requires a native host that provides it.';
+    ui.task.disabled = !idle || running;
+    ui.start.disabled = blocked || Boolean(state.pendingId) || Boolean(state.hold && !dialogOpen());
+    ui.start.textContent = state.phase === 'starting' ? 'Starting...' : 'Start trial';
+    ui.close.disabled = !idle;
+    ui.dialog.setAttribute('aria-busy', String(!idle));
+    ui.trialBar.hidden = !running;
+    ui.stop.disabled = state.phase !== 'running';
+    if (running) {
+      ui.trialText.textContent = engineName(state.trial.engine) + ' trial: ' + TASKS[state.trial.task] +
+        (document.hidden ? '. Paused while this page is hidden.' : '. Draw in your notebook, then stop and rate.');
+    }
+    ui.ratings.hidden = !state.pendingId;
+    const pending = state.results.find(result => result.id === state.pendingId);
+    ui.ratingTitle.textContent = pending ? 'Rate your ' + engineName(pending.engine) + ' trial' : 'Rate your trial';
+    ui.ratingFields.disabled = !idle;
+    ui.exportButton.disabled = !state.results.length || !idle;
+    ui.persistence.textContent = state.storageWarning ||
+      'Up to 20 results are saved in this browser. No artwork, account details, or session data are stored.';
+    ui.persistence.setAttribute('role', state.storageWarning ? 'alert' : 'status');
+    ui.retry.hidden = !available || Boolean(status && (!state.hold || dialogOpen()));
+    ui.retry.disabled = !idle || running;
+    const selectedTask = ui.task.value;
+    for (const item of ui.taskList.children) item.hidden = selectedTask !== 'routine' && item.dataset.task !== selectedTask;
+  }
+
+  function mountToolbar() {
+    if (!state.ui) return false;
+    for (const selector of TOOLBAR_SELECTORS) {
+      const toolbar = document.querySelector(selector);
+      if (toolbar && !toolbar.closest('.' + PREFIX)) {
+        toolbar.appendChild(state.ui.toolbar);
+        state.ui.toolbar.classList.remove('tic-floating-toolbar');
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function onDialogKey(event) {
+    if (!dialogOpen()) return;
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      if (state.phase === 'idle') void closeComparison();
+      return;
+    }
+    if (event.key !== 'Tab') return;
+    const focusable = Array.from(state.ui.dialog.querySelectorAll(
+      'button:not([disabled]), select:not([disabled]), input:not([disabled]), [tabindex="0"]'
+    )).filter(element => !element.closest('[hidden]') && element.getClientRects().length && !element.matches(':disabled'));
+    if (!focusable.length) {
+      event.preventDefault();
+      state.ui.heading.focus();
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && (document.activeElement === first || !focusable.includes(document.activeElement))) {
+      event.preventDefault(); last.focus();
+    } else if (!event.shiftKey && (document.activeElement === last || !state.ui.dialog.contains(document.activeElement))) {
+      event.preventDefault(); first.focus();
+    }
+  }
+
+  function createUI() {
+    const style = document.createElement('style');
+    style.id = PREFIX + '-styles';
+    style.textContent = `
+      .tenet-ink-comparison { --tic-navy:#183447; --tic-paper:#fffaf1; --tic-line:#c6bcae;
+        --tic-warm:#e8ac78; --tic-muted:#4c5c63; color:var(--tic-navy); font:15px/1.5 Georgia,serif;
+        box-sizing:border-box; color-scheme:light; }
+      .tenet-ink-comparison *, .tenet-ink-comparison *::before, .tenet-ink-comparison *::after { box-sizing:border-box; }
+      .tenet-ink-comparison [hidden], .tenet-ink-comparison[hidden] { display:none !important; }
+      .tenet-ink-comparison button, .tenet-ink-comparison select, .tenet-ink-comparison input {
+        min-height:44px; min-width:44px; max-width:100%; border:1px solid var(--tic-line); border-radius:9px;
+        padding:9px 13px; color:var(--tic-navy); background:#fffdf8; font:inherit; font-size:16px; }
+      .tenet-ink-comparison button { cursor:pointer; touch-action:manipulation; font-weight:700; }
+      .tenet-ink-comparison button:disabled, .tenet-ink-comparison select:disabled,
+      .tenet-ink-comparison input:disabled { opacity:.55; cursor:default; }
+      .tenet-ink-comparison :focus-visible { outline:3px solid #99602e; outline-offset:3px; }
+      .tenet-ink-comparison .tic-primary { background:var(--tic-navy); color:#fffaf1; border-color:var(--tic-navy); }
+      .tenet-ink-comparison.tic-toolbar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; padding:4px; }
+      .tenet-ink-comparison.tic-floating-toolbar { position:fixed; top:calc(10px + env(safe-area-inset-top,0px));
+        right:calc(10px + env(safe-area-inset-right,0px)); z-index:10000; max-width:calc(100vw - 20px);
+        background:var(--tic-paper); border:1px solid var(--tic-line); border-radius:13px; box-shadow:0 6px 22px #18344720; }
+      .tenet-ink-comparison.tic-dialog { width:min(940px,calc(100vw - 24px)); max-height:calc(100vh - 32px);
+        max-height:calc(100dvh - 32px); margin:auto; padding:0; border:1px solid var(--tic-line); border-radius:18px;
+        background:linear-gradient(125deg,#fffaf1,#f4eadd); box-shadow:0 24px 90px #10283850; overflow:hidden; }
+      .tenet-ink-comparison.tic-dialog:not([open]) { display:none; }
+      .tenet-ink-comparison.tic-dialog[open] { display:flex; flex-direction:column; position:fixed; inset:0; z-index:10003; }
+      .tenet-ink-comparison.tic-dialog::backdrop { background:#112c40a6; }
+      .tenet-ink-comparison.tic-backdrop { position:fixed; inset:0; z-index:10002; background:#112c40a6; touch-action:none; }
+      .tenet-ink-comparison .tic-header { display:flex; gap:18px; align-items:center; justify-content:space-between;
+        flex-shrink:0; padding:20px 24px; border-bottom:1px solid var(--tic-line); }
+      .tenet-ink-comparison h2, .tenet-ink-comparison h3, .tenet-ink-comparison p { margin:0 0 12px; }
+      .tenet-ink-comparison h2 { font-size:clamp(24px,4vw,34px); line-height:1.15; margin:0; }
+      .tenet-ink-comparison h3 { font-size:21px; }
+      .tenet-ink-comparison .tic-eyebrow { font:700 11px/1.4 Verdana,sans-serif; letter-spacing:.13em; margin-bottom:6px; }
+      .tenet-ink-comparison .tic-body { padding:22px 24px; overflow:auto; overscroll-behavior:contain; min-height:0; }
+      .tenet-ink-comparison .tic-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; margin:16px 0; }
+      .tenet-ink-comparison label { display:flex; flex-direction:column; gap:6px; font-weight:700; }
+      .tenet-ink-comparison .tic-note { color:var(--tic-muted); font-size:14px; }
+      .tenet-ink-comparison .tic-callout { padding:14px 16px; background:#f6e3cc; border-left:4px solid #a16b3c; border-radius:6px; }
+      .tenet-ink-comparison .tic-actions { display:flex; flex-wrap:wrap; gap:10px; margin:16px 0; align-items:center; }
+      .tenet-ink-comparison ol { margin:12px 0 18px; padding-left:24px; }
+      .tenet-ink-comparison li { margin:8px 0; }
+      .tenet-ink-comparison section { margin-top:24px; padding-top:20px; border-top:1px solid var(--tic-line); }
+      .tenet-ink-comparison fieldset { padding:0; margin:0; border:0; min-width:0; }
+      .tenet-ink-comparison .tic-table-scroll { overflow:auto; border:1px solid var(--tic-line); border-radius:9px; }
+      .tenet-ink-comparison table { width:100%; border-collapse:collapse; background:#fffcf7; font-size:13px; }
+      .tenet-ink-comparison th, .tenet-ink-comparison td { padding:10px 12px; text-align:left; vertical-align:top;
+        border-bottom:1px solid #dfd7cb; min-width:92px; }
+      .tenet-ink-comparison thead { background:#e9e0d2; }
+      .tenet-ink-comparison caption { text-align:left; padding:10px 12px; font-weight:700; }
+      .tenet-ink-comparison .tic-message { padding:12px 15px; margin:10px 0; background:#fffaf1;
+        border:1px solid var(--tic-line); border-radius:9px; overflow-wrap:anywhere; }
+      .tenet-ink-comparison [role="alert"] { border-color:#944821; }
+      .tenet-ink-comparison.tic-dock { position:fixed; bottom:calc(10px + env(safe-area-inset-bottom,0px));
+        left:calc(10px + env(safe-area-inset-left,0px)); right:calc(10px + env(safe-area-inset-right,0px));
+        z-index:10001; pointer-events:none; display:grid; gap:8px; justify-items:start; }
+      .tenet-ink-comparison.tic-dock > * { pointer-events:auto; max-width:min(760px,100%); }
+      .tenet-ink-comparison .tic-trial-bar { display:flex; flex-wrap:wrap; gap:12px; align-items:center; padding:10px 14px;
+        background:var(--tic-navy); color:#fffaf1; border-radius:12px; box-shadow:0 4px 20px #18344730; }
+      .tenet-ink-comparison .tic-trial-bar span { flex:1 1 240px; }
+      .tenet-ink-comparison.tic-dock .tic-message { margin:0; box-shadow:0 4px 18px #18344720; }
+      @media(max-width:600px) {
+        .tenet-ink-comparison .tic-grid { grid-template-columns:1fr; gap:12px; }
+        .tenet-ink-comparison .tic-header, .tenet-ink-comparison .tic-body { padding:16px; }
+        .tenet-ink-comparison.tic-dialog { width:calc(100vw - 16px); max-height:calc(100dvh - 16px); }
+        .tenet-ink-comparison.tic-toolbar { gap:6px; }
+      }
+    `;
+    const toolbar = document.createElement('div');
+    toolbar.id = PREFIX + '-toolbar';
+    toolbar.className = PREFIX + ' tic-toolbar tic-floating-toolbar';
+    toolbar.setAttribute('role', 'group');
+    toolbar.setAttribute('aria-label', 'Ink renderer controls');
+    toolbar.innerHTML = '<button type="button" data-tic="engine-button">Ink: Web</button><button type="button" data-tic="compare" aria-haspopup="dialog" aria-controls="tenet-ink-comparison-dialog">Compare ink</button>';
+    const backdrop = document.createElement('div');
+    backdrop.className = PREFIX + ' tic-backdrop';
+    backdrop.hidden = true;
+    backdrop.setAttribute('aria-hidden', 'true');
+    const dialog = document.createElement('dialog');
+    dialog.id = PREFIX + '-dialog';
+    dialog.className = PREFIX + ' tic-dialog';
+    dialog.setAttribute('role', 'dialog');
+    dialog.setAttribute('aria-modal', 'true');
+    dialog.setAttribute('aria-labelledby', PREFIX + '-title');
+    dialog.setAttribute('aria-describedby', PREFIX + '-intro');
+    dialog.innerHTML = `
+      <header class="tic-header"><div><p class="tic-eyebrow">TENET / ON-DEVICE COMPARISON</p>
+        <h2 id="tenet-ink-comparison-title" tabindex="-1" data-tic="heading">Compare ink</h2></div>
+        <button type="button" data-tic="close">Close</button></header>
+      <div class="tic-body">
+        <p id="tenet-ink-comparison-intro">Try the same drawing work with Web and PencilKit on this iPad. Starting closes this dialog so you can draw in your existing notebook. Stop and rate when finished.</p>
+        <p class="tic-callout">These are software diagnostics and your impressions. Stroke timing, commit timing, and animation frame intervals are <strong>not hardware Pencil-to-pixel latency</strong>.</p>
+        <p data-tic="dialog-status" class="tic-message" role="status" aria-live="polite" aria-atomic="true" hidden></p>
+        <div class="tic-grid">
+          <label>Drawing engine<select data-tic="engine" aria-describedby="tenet-ink-comparison-availability"><option value="web">Web</option><option value="pencilkit" data-tic="native-option">PencilKit</option></select></label>
+          <label>Task to repeat<select data-tic="task"><option value="routine">Full routine</option><option value="sentence">Write a sentence</option><option value="loops">Fast loops</option><option value="math">Small math</option><option value="graph">Pan, zoom, and graph manipulation</option></select></label>
+        </div>
+        <p id="tenet-ink-comparison-availability" data-tic="availability" class="tic-note"></p>
+        <h3>Keep the work comparable</h3>
+        <p>Use the same Pencil, pen width, color, zoom, and notebook area for both trials. Start from a comparable view and repeat the same task. Try reversing the engine order on a second pair.</p>
+        <ol data-tic="task-list"></ol>
+        <p class="tic-note">If there is no graph, prepare one with your usual notebook tools before starting either graph trial. This dialog does not create graphs or clear drawings. Hidden-page time is paused and excluded. Stop before changing engines.</p>
+        <div class="tic-actions"><button type="button" class="tic-primary" data-tic="start">Start trial</button></div>
+        <section data-tic="ratings" hidden aria-labelledby="tenet-ink-comparison-rating-title">
+          <h3 id="tenet-ink-comparison-rating-title" data-tic="rating-title">Rate your trial</h3>
+          <p id="tenet-ink-comparison-scale">Rate each item from 1 (poor) to 5 (excellent). Missed strokes are your manual count, not an automatic detection.</p>
+          <form data-tic="rating-form" novalidate><fieldset data-tic="rating-fields" aria-describedby="tenet-ink-comparison-scale">
+            <div class="tic-grid" data-tic="rating-inputs"></div>
+            <div class="tic-actions"><button type="submit" class="tic-primary">Save ratings</button><button type="button" data-tic="skip">Skip ratings</button></div>
+          </fieldset></form>
+        </section>
+        <section aria-labelledby="tenet-ink-comparison-results-title">
+          <h3 id="tenet-ink-comparison-results-title">Local results</h3>
+          <p data-tic="result-count" class="tic-note"></p>
+          <div class="tic-table-scroll" tabindex="0" role="region" aria-label="Comparison results; scroll horizontally for more columns">
+            <table><caption>Diagnostic averages and subjective ratings</caption><thead><tr>
+              <th scope="col">Engine</th><th scope="col">Task</th><th scope="col">Started</th><th scope="col">Visible seconds</th>
+              <th scope="col">Stroke events</th><th scope="col">Samples / stroke</th><th scope="col">Commit ms</th><th scope="col">Frame ms</th>
+              <th scope="col">Smooth / accurate / tools</th><th scope="col">Missed strokes</th>
+            </tr></thead><tbody data-tic="results"></tbody></table>
+          </div>
+          <p class="tic-note">Ratings are subjective. Frame intervals describe this page's animation scheduling, not native display presentation. Missing metrics are shown as Not reported. Full ranges and counts are in the JSON export.</p>
+          <p data-tic="persistence" class="tic-note" role="status" aria-live="polite"></p>
+          <div class="tic-actions"><button type="button" data-tic="export">Export JSON locally</button></div>
+        </section>
+      </div>`;
+    const dock = document.createElement('div');
+    dock.className = PREFIX + ' tic-dock';
+    dock.innerHTML = '<div class="tic-trial-bar" data-tic="trial-bar" hidden><span data-tic="trial-text"></span><button type="button" data-tic="stop">Stop and rate</button></div><p class="tic-message" data-tic="notice" role="status" aria-live="polite" aria-atomic="true" hidden></p><button type="button" data-tic="retry" hidden>Retry drawing</button>';
+    const roots = [toolbar, dialog, dock];
+    const find = name => roots.map(root => root.querySelector('[data-tic="' + name + '"]')).find(Boolean);
+    const ui = { style, toolbar, backdrop, dialog, dock };
+    const names = {
+      engineButton: 'engine-button', compare: 'compare', heading: 'heading', close: 'close',
+      dialogStatus: 'dialog-status', engine: 'engine', nativeOption: 'native-option', task: 'task',
+      availability: 'availability', taskList: 'task-list', start: 'start', ratings: 'ratings',
+      ratingTitle: 'rating-title', ratingForm: 'rating-form', ratingFields: 'rating-fields',
+      ratingInputs: 'rating-inputs', skip: 'skip', resultCount: 'result-count', results: 'results',
+      persistence: 'persistence', exportButton: 'export', trialBar: 'trial-bar', trialText: 'trial-text',
+      stop: 'stop', notice: 'notice', retry: 'retry'
+    };
+    for (const [key, name] of Object.entries(names)) ui[key] = find(name);
+    for (const [task, description] of Object.entries(TASK_DETAILS)) {
+      const item = document.createElement('li');
+      item.dataset.task = task;
+      item.textContent = description;
+      ui.taskList.appendChild(item);
+    }
+    for (const [name, title] of [['smoothness', 'Smoothness'], ['accuracy', 'Accuracy'], ['toolUsability', 'Tool usability']]) {
+      const label = document.createElement('label');
+      label.textContent = title;
+      const select = document.createElement('select');
+      select.name = name;
+      select.required = true;
+      select.add(new Option('Choose a rating', ''));
+      for (let value = 1; value <= 5; value += 1) {
+        select.add(new Option(String(value) + (value === 1 ? ' - poor' : value === 5 ? ' - excellent' : ''), String(value)));
+      }
+      label.appendChild(select);
+      ui.ratingInputs.appendChild(label);
+    }
+    const missed = document.createElement('label');
+    missed.textContent = 'Missed strokes (manual count)';
+    const input = document.createElement('input');
+    input.type = 'number'; input.name = 'missedStrokes'; input.min = '0'; input.max = '1000000';
+    input.step = '1'; input.defaultValue = '0'; input.required = true; input.inputMode = 'numeric';
+    missed.appendChild(input);
+    ui.ratingInputs.appendChild(missed);
+    document.head.appendChild(style);
+    document.body.append(toolbar, backdrop, dialog, dock);
+    state.ui = ui;
+    listen(ui.engineButton, 'click', () => {
+      if (state.status) void switchEngine(state.status.engine === 'web' ? 'pencilkit' : 'web');
+    });
+    listen(ui.compare, 'click', () => { void openComparison(); });
+    listen(ui.engine, 'change', () => { void switchEngine(ui.engine.value); });
+    listen(ui.task, 'change', render);
+    listen(ui.start, 'click', () => { void startTrial(); });
+    listen(ui.stop, 'click', () => { void stopTrial(null); });
+    listen(ui.close, 'click', () => { void closeComparison(); });
+    listen(ui.dialog, 'cancel', event => {
+      event.preventDefault();
+      if (state.phase === 'idle') void closeComparison();
+    });
+    listen(document, 'keydown', onDialogKey, true);
+    listen(document, 'focusin', event => {
+      if (dialogOpen() && !ui.dialog.contains(event.target)) ui.heading.focus();
+    });
+    listen(ui.ratingForm, 'submit', saveRatings);
+    listen(ui.skip, 'click', skipRatings);
+    listen(ui.exportButton, 'click', exportResults);
+    listen(ui.retry, 'click', () => {
+      void operation('recovering', async epoch => {
+        if (!dialogOpen()) await releaseSurface();
+        requireLive(epoch);
+        state.status = readStatus();
+        announce(state.status.busy ? 'The drawing engine is still busy.' : 'Drawing controls are ready.');
+      }, 'Drawing controls could not recover. Try again when the ink engine is available.');
+    });
+  }
+
+  function ensureUI() {
+    if (state.ui || state.disposed || document.readyState === 'loading' || !availableApi()) return;
+    // A second inclusion must not install a second set of controls or storage writers.
+    if (document.getElementById(PREFIX + '-toolbar')) return;
+    createUI();
+    loadResults();
+    refreshStatus();
+    if (!mountToolbar() && typeof MutationObserver === 'function') {
+      state.observer = new MutationObserver(() => {
+        if (mountToolbar()) {
+          state.observer.disconnect(); state.observer = null;
+          window.clearTimeout(state.observerTimer); state.observerTimer = null;
+        }
+      });
+      state.observer.observe(document.body, { childList: true, subtree: true });
+      state.observerTimer = window.setTimeout(() => {
+        if (state.observer) state.observer.disconnect();
+        state.observer = null; state.observerTimer = null;
+      }, 10000);
+    }
+    renderResults();
+    render();
+    if (!state.status) announce('Ink status could not be read. Use Retry drawing.', true);
+  }
+
+  function onPageHide(event) {
+    if (state.disposed) return;
+    // pagehide cannot reliably await native work. Keep a clearly interrupted snapshot.
+    if (state.trial) finishRecord('pagehide');
+    state.disposed = true;
+    state.epoch += 1;
+    pauseClock(performance.now());
+    state.phase = 'idle';
+    state.listeners.splice(0).forEach(unregister => unregister());
+    if (state.observer) state.observer.disconnect();
+    state.observer = null;
+    window.clearTimeout(state.observerTimer);
+    state.observerTimer = null;
+    for (const [url, timer] of state.downloads) {
+      window.clearTimeout(timer);
+      window.URL.revokeObjectURL(url);
+    }
+    state.downloads.clear();
+    const hold = state.hold;
+    if (hold) {
+      try {
+        Promise.resolve(hold.api.resume(hold.reason)).then(() => {
+          if (state.hold === hold) state.hold = null;
+        }).catch(() => { /* A restored page exposes Retry drawing. */ });
+      } catch (_) { /* A restored page exposes Retry drawing. */ }
+    }
+    if (state.ui) {
+      const ui = state.ui;
+      if (dialogOpen() && typeof ui.dialog.close === 'function') ui.dialog.close();
+      [ui.toolbar, ui.dialog, ui.backdrop, ui.dock, ui.style].forEach(element => element.remove());
+      state.ui = null;
+    }
+    state.returnFocus = null;
+    if (event.persisted) window.addEventListener('pageshow', activate, { once: true });
+  }
+
+  function activate() {
+    state.disposed = false;
+    state.epoch += 1;
+    listen(window, 'tenet:ink-status', onStatus);
+    listen(window, 'tenet:ink-sample', onSample);
+    listen(document, 'visibilitychange', onVisibility);
+    listen(window, 'pagehide', onPageHide);
+    if (document.readyState === 'loading') listen(document, 'DOMContentLoaded', ensureUI, { once: true });
+    else ensureUI();
+  }
+
+  activate();
+})();
 (function initTenetNotebookModule() {
   "use strict";
 
@@ -23675,7 +25127,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     if (!currentId || !metadata.pages[currentId]) return;
     if (revision === Number(state.snapshotSavedRevision)) return;
     if (Date.now() - lastRevisionChangeAt < AUTOSAVE_IDLE_MS) return;
-    if (notebookSaveInFlight || state.drawing || state.imageImporting) return;
+    if (notebookSaveInFlight || state.drawing || state.imageImporting || tenetInkController?.active()) return;
     void saveNotebookPage({ autosave: true });
   }
 
@@ -23874,6 +25326,339 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", mount, { once: true });
   else mount();
+})();
+(() => {
+  "use strict";
+
+  const STYLE_ID = "tenet-ipad-usability-styles";
+  const MAX_DECODED_IMPORT_BYTES = 24 * 1024 * 1024;
+  let documentImportActive = false;
+  let pencilImportActive = false;
+  let pdfExportActive = false;
+
+  function onReady(callback) {
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", callback, { once: true });
+      return;
+    }
+    callback();
+  }
+
+  function isTenetWhiteboard() {
+    return document.body?.classList.contains("tenet-whiteboard")
+      || window.PENECHO_CONFIG?.tenetMode === true
+      || window.PenEchoRuntimeConfig?.tenetMode === true
+      || window.TenetBranding?.tenetMode === true;
+  }
+
+  function nativePlugin() {
+    return window.Capacitor?.Plugins?.TenetNative || null;
+  }
+
+  function isNativeIos() {
+    try {
+      return window.Capacitor?.getPlatform?.() === "ios";
+    } catch {
+      return false;
+    }
+  }
+
+  function showTenetMessage(message, kind = "info") {
+    if (typeof tenetInkMessage === "function") {
+      tenetInkMessage(message);
+      return;
+    }
+    if (kind === "error") window.alert(message);
+  }
+
+  function installStylesheet() {
+    if (document.getElementById(STYLE_ID)) return;
+    const link = document.createElement("link");
+    link.id = STYLE_ID;
+    link.rel = "stylesheet";
+    link.href = "/tenet-ipad-usability.css";
+    document.head.appendChild(link);
+  }
+
+  function dispatchTenetAction(name, detail = {}) {
+    document.dispatchEvent(new CustomEvent(name, { bubbles: true, detail }));
+  }
+
+  function configureBrand() {
+    const brand = document.querySelector(".brand");
+    if (!brand || brand.querySelector(".tenet-brand-button")) return;
+
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "tenet-brand-button";
+    button.setAttribute("aria-label", "Open Tenet pages and files");
+    button.title = "Tenet Whiteboard pages and files";
+
+    const icon = document.createElement("img");
+    icon.src = "/tenet-whiteboard-icon-180.png";
+    icon.alt = "";
+    icon.width = 36;
+    icon.height = 36;
+
+    const label = document.createElement("span");
+    label.textContent = "Tenet";
+
+    button.append(icon, label);
+    button.addEventListener("click", () => document.querySelector("#tenetNotebookLauncher")?.click());
+    brand.replaceChildren(button);
+  }
+
+  function labelHeaderButton(selector, label, title = label) {
+    const button = document.querySelector(selector);
+    if (!button) return null;
+    button.classList.add("tenet-header-action");
+    button.textContent = label;
+    button.setAttribute("aria-label", title);
+    button.title = title;
+    return button;
+  }
+
+  function hideStudentIrrelevantControls() {
+    ["#shareCanvasBtn", "#cloudAccountBtn", "#settingsBtn"].forEach((selector) => {
+      const control = document.querySelector(selector);
+      if (!control) return;
+      control.hidden = true;
+      control.setAttribute("aria-hidden", "true");
+      control.tabIndex = -1;
+    });
+
+    const coordinates = document.querySelector("#coords");
+    if (coordinates) {
+      coordinates.hidden = true;
+      coordinates.setAttribute("aria-hidden", "true");
+    }
+  }
+
+  function configureHeaderActions() {
+    const newButton = labelHeaderButton("#newCanvasBtn", "New", "Create a new page");
+    labelHeaderButton("#historyBtn", "Pages", "Open pages and files");
+    const exportButton = labelHeaderButton(
+      "#exportPngBtn",
+      isNativeIos() ? "Export PDF" : "Export",
+      isNativeIos() ? "Export this page as a PDF" : "Export this page",
+    );
+
+    let openButton = document.querySelector("#tenetOpenDocumentBtn");
+    if (!openButton) {
+      openButton = document.createElement("button");
+      openButton.type = "button";
+      openButton.id = "tenetOpenDocumentBtn";
+      openButton.className = `${newButton?.className || exportButton?.className || ""} tenet-header-action`;
+      openButton.textContent = "Open";
+      openButton.setAttribute("aria-label", "Open a PDF or image");
+      openButton.title = "Open a PDF or image";
+      openButton.addEventListener("click", () => dispatchTenetAction("tenet:open-document"));
+
+      if (newButton) newButton.insertAdjacentElement("afterend", openButton);
+      else if (exportButton?.parentElement) exportButton.parentElement.insertBefore(openButton, exportButton);
+    }
+
+    if (exportButton && nativePlugin()?.exportPdf) {
+      exportButton.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        void exportCurrentPageAsPdf(exportButton);
+      }, true);
+    }
+  }
+
+  function configureTitleDismissal() {
+    const titleInput = document.querySelector("#canvasDocumentNameInput");
+    titleInput?.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      document.querySelector("#canvasDocumentNameConfirm")?.click();
+      titleInput.blur();
+    });
+
+    document.addEventListener("pointerdown", (event) => {
+      const active = document.activeElement;
+      if (!(active instanceof HTMLElement)) return;
+      const editable = active.matches("input, textarea, [contenteditable='true']");
+      if (!editable || active.contains(event.target)) return;
+      active.blur();
+    }, true);
+  }
+
+  function hideLegacyPencilAction() {
+    document.querySelectorAll(".tenet-product-lockup button").forEach((button) => {
+      if (!/pencil studio|apple pencil sketch/i.test(button.textContent || "")) return;
+      button.hidden = true;
+      button.setAttribute("aria-hidden", "true");
+      button.classList.add("tenet-legacy-pencil-action");
+    });
+  }
+
+  function safeFileStem() {
+    const inputValue = document.querySelector("#canvasDocumentNameInput")?.value;
+    const labelValue = document.querySelector("#canvasDocumentName")?.textContent;
+    const stem = String(inputValue || labelValue || "Tenet Whiteboard")
+      .replace(/[<>:"/\\|?*\u0000-\u001f]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 100);
+    return stem || "Tenet Whiteboard";
+  }
+
+  function fileFromImageDataUrl(dataUrl, name) {
+    const match = /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=\r\n]+)$/.exec(String(dataUrl || ""));
+    if (!match) throw new Error("The selected page was not returned as a supported image.");
+
+    const payload = match[2].replace(/[\r\n]/g, "");
+    const binary = window.atob(payload);
+    if (binary.length > MAX_DECODED_IMPORT_BYTES) throw new Error("The selected page is too large to place safely.");
+
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+
+    const extension = match[1] === "image/jpeg" ? "jpg" : match[1].split("/")[1];
+    const requestedName = String(name || `Imported page.${extension}`);
+    const safeName = requestedName.replace(/[\\/:*?"<>|\u0000-\u001f]/g, "-").slice(0, 120);
+    return new File([bytes], safeName || `Imported page.${extension}`, { type: match[1] });
+  }
+
+  async function placeImagePages(pages) {
+    if (typeof addImageFile !== "function") throw new Error("The canvas image importer is unavailable.");
+
+    let offsetY = 0;
+    let imported = 0;
+    for (let index = 0; index < pages.length; index += 1) {
+      const page = pages[index] || {};
+      const file = fileFromImageDataUrl(page.dataUrl, page.name || `Page ${index + 1}.png`);
+      const item = await addImageFile(file, { offsetY });
+      if (!item) throw new Error(`Page ${index + 1} could not be placed on the canvas.`);
+      imported += 1;
+      offsetY += Math.max(160, Number(item.h) || Number(page.height) || 900) + 64;
+    }
+    return imported;
+  }
+
+  async function openDocument(control = null) {
+    if (documentImportActive) return;
+    const plugin = nativePlugin();
+    if (!plugin?.pickDocument) {
+      document.querySelector("#imagePickerBtn")?.click();
+      return;
+    }
+
+    documentImportActive = true;
+    if (control) control.disabled = true;
+    try {
+      const result = await plugin.pickDocument();
+      if (result?.cancelled) return;
+      const pages = Array.isArray(result?.pages) ? result.pages : [];
+      if (!pages.length) throw new Error("The selected document did not contain an importable page.");
+      const imported = await placeImagePages(pages);
+      showTenetMessage(`${imported} ${imported === 1 ? "page" : "pages"} placed on the canvas.`);
+    } catch (error) {
+      showTenetMessage(error?.message || "The document could not be opened.", "error");
+    } finally {
+      documentImportActive = false;
+      if (control) control.disabled = false;
+    }
+  }
+
+  async function openApplePencilSketch(control = null) {
+    if (pencilImportActive) return;
+    const plugin = nativePlugin();
+    if (!plugin?.presentPencilCanvas) {
+      showTenetMessage("Apple Pencil sketch is available in the Tenet iPad app.", "error");
+      return;
+    }
+
+    pencilImportActive = true;
+    if (control) control.disabled = true;
+    try {
+      await window.TenetInk?.suspend("sketch");
+      const result = await plugin.presentPencilCanvas();
+      if (result?.cancelled) return;
+      if (!result?.dataUrl) throw new Error("The sketch did not return any ink.");
+      const imported = await placeImagePages([{
+        dataUrl: result.dataUrl,
+        width: result.width,
+        height: result.height,
+        name: "Apple Pencil sketch.png",
+      }]);
+      if (imported !== 1) throw new Error("The sketch could not be placed on this page.");
+      showTenetMessage("Apple Pencil sketch placed on the current page.");
+    } catch (error) {
+      showTenetMessage(error?.message || "The Apple Pencil sketch could not be placed.", "error");
+    } finally {
+      pencilImportActive = false;
+      window.TenetInk?.resume("sketch");
+      if (control) control.disabled = false;
+    }
+  }
+
+  async function exportCurrentPageAsPdf(control = null) {
+    if (pdfExportActive) return;
+    const plugin = nativePlugin();
+    if (!plugin?.exportPdf) return;
+    if (typeof renderExportCanvas !== "function") {
+      showTenetMessage("PDF export is unavailable.", "error");
+      return;
+    }
+
+    pdfExportActive = true;
+    if (control) control.disabled = true;
+    let exportCanvas = null;
+    try {
+      exportCanvas = await renderExportCanvas();
+      if (!exportCanvas?.width || !exportCanvas?.height) throw new Error("Add something to the page before exporting it.");
+      const resize = Math.min(1, 8192 / exportCanvas.width, 8192 / exportCanvas.height, Math.sqrt(32 * 1024 * 1024 / (exportCanvas.width * exportCanvas.height)));
+      if (resize < 1) {
+        const bounded = document.createElement("canvas");
+        bounded.width = Math.max(1, Math.floor(exportCanvas.width * resize));
+        bounded.height = Math.max(1, Math.floor(exportCanvas.height * resize));
+        bounded.getContext("2d").drawImage(exportCanvas, 0, 0, bounded.width, bounded.height);
+        exportCanvas.width = exportCanvas.height = 0;
+        exportCanvas = bounded;
+      }
+      const result = await plugin.exportPdf({
+        dataUrl: exportCanvas.toDataURL("image/png"),
+        filename: `${safeFileStem()}.pdf`,
+      });
+      if (!result?.cancelled) showTenetMessage("PDF ready to share or save.");
+    } catch (error) {
+      showTenetMessage(error?.message || "The PDF could not be exported.", "error");
+    } finally {
+      if (exportCanvas) {
+        exportCanvas.width = 0;
+        exportCanvas.height = 0;
+      }
+      pdfExportActive = false;
+      if (control) control.disabled = false;
+    }
+  }
+
+  function installNativeActions() {
+    document.addEventListener("tenet:open-document", (event) => {
+      void openDocument(event.target instanceof HTMLButtonElement ? event.target : null);
+    });
+    document.addEventListener("tenet:open-pencil-sketch", (event) => {
+      void openApplePencilSketch(event.target instanceof HTMLButtonElement ? event.target : null);
+    });
+    document.addEventListener("tenet:export-pdf", (event) => {
+      void exportCurrentPageAsPdf(event.target instanceof HTMLButtonElement ? event.target : null);
+    });
+  }
+
+  onReady(() => {
+    if (!isTenetWhiteboard()) return;
+    installStylesheet();
+    if (isNativeIos()) document.documentElement.classList.add("tenet-native-ios");
+    configureBrand();
+    hideStudentIrrelevantControls();
+    configureHeaderActions();
+    configureTitleDismissal();
+    hideLegacyPencilAction();
+    installNativeActions();
+  });
 })();
 // Pointer and control bindings, portable snapshots, and application startup.
   const ERASER_TOOL_MENU_MS = 5000;
@@ -24788,6 +26573,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       hideAutoDelayControl();
     }
     state.mode = mode;
+    tenetInkController?.sync();
     updateAutoControl();
     if (!["pen", "hand"].includes(mode)) updateWidgetRefinePointer(null);
     else refreshWidgetRefineHoverCandidate();
@@ -25430,8 +27216,12 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   };
   document.querySelectorAll("[data-action]").forEach(
       (b) =>
-      (b.onclick = () => {
+      (b.onclick = async () => {
         const a = b.dataset.action;
+        if (a === "clear") {
+          try { await tenetInkFlush(); }
+          catch (error) { tenetInkMessage(error?.message || "Finish drawing before clearing the page."); return; }
+        }
         if (selectionAIBusy()) {
           setStatusKey(selectionAIStatusKey());
           return;
@@ -25450,6 +27240,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
           redo();
         } else if (a === "clear") {
           if (confirm(t("clearConfirm"))) {
+            tenetInkController?.stageClear();
             if (state.selection) commitSelection();
             clearTextEditors();
             state.userRevision++;
@@ -26016,41 +27807,10 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     toast.__tenetTimer = global.setTimeout(() => { toast.hidden = true; }, 3600);
   }
 
-  async function importPencilDrawing(result) {
-    if (!result || typeof result.dataUrl !== "string" || !result.dataUrl.startsWith("data:image/png;base64,")) {
-      throw new Error("PencilKit returned an invalid drawing.");
-    }
-    const input = document.querySelector("#imagePickerInput");
-    if (!input || typeof DataTransfer !== "function") {
-      throw new Error("This canvas cannot import the native drawing.");
-    }
-    const response = await fetch(result.dataUrl);
-    const blob = await response.blob();
-    const file = new File([blob], `tenet-pencil-${Date.now()}.png`, { type: "image/png" });
-    const transfer = new DataTransfer();
-    transfer.items.add(file);
-    input.files = transfer.files;
-    input.dispatchEvent(new Event("change", { bubbles: true }));
-  }
-
   async function openPencilStudio(button) {
-    button.disabled = true;
-    try {
-      const managed = await native.getConfiguration();
-      if (managed.pencilKitEnabled === false) {
-        throw new Error("Pencil studio is disabled by managed configuration.");
-      }
-      const result = await native.presentPencilCanvas({
-        fingerDrawing: managed.fingerDrawingEnabled === true,
-      });
-      if (result && result.cancelled === true) return;
-      await importPencilDrawing(result);
-      showMessage("PencilKit drawing added to the whiteboard.", false);
-    } catch (cause) {
-      showMessage(cause && cause.message ? cause.message : "Pencil studio could not open.", true);
-    } finally {
-      button.disabled = false;
-    }
+    // The importer lives inside the canvas closure. Use its one real import
+    // path, not fetch(data:) and a synthetic file-input change event.
+    button.dispatchEvent(new CustomEvent("tenet:open-pencil-sketch", { bubbles:true }));
   }
 
   function activeDrawingMode() {
@@ -26137,324 +27897,3 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     installActions();
   }
 })(window);
-(() => {
-  "use strict";
-
-  const STYLE_ID = "tenet-ipad-usability-styles";
-  const MAX_DECODED_IMPORT_BYTES = 24 * 1024 * 1024;
-  let documentImportActive = false;
-  let pencilImportActive = false;
-  let pdfExportActive = false;
-
-  function onReady(callback) {
-    if (document.readyState === "loading") {
-      document.addEventListener("DOMContentLoaded", callback, { once: true });
-      return;
-    }
-    callback();
-  }
-
-  function isTenetWhiteboard() {
-    return document.body?.classList.contains("tenet-whiteboard")
-      || window.PenEchoRuntimeConfig?.tenetMode === true
-      || window.TenetBranding?.tenetMode === true;
-  }
-
-  function nativePlugin() {
-    return window.Capacitor?.Plugins?.TenetNative || null;
-  }
-
-  function isNativeIos() {
-    try {
-      return window.Capacitor?.getPlatform?.() === "ios";
-    } catch {
-      return false;
-    }
-  }
-
-  function showTenetMessage(message, kind = "info") {
-    if (typeof showMessage === "function") {
-      showMessage(message);
-      return;
-    }
-    if (kind === "error") window.alert(message);
-  }
-
-  function installStylesheet() {
-    if (document.getElementById(STYLE_ID)) return;
-    const link = document.createElement("link");
-    link.id = STYLE_ID;
-    link.rel = "stylesheet";
-    link.href = "/tenet-ipad-usability.css";
-    document.head.appendChild(link);
-  }
-
-  function dispatchTenetAction(name, detail = {}) {
-    document.dispatchEvent(new CustomEvent(name, { bubbles: true, detail }));
-  }
-
-  function configureBrand() {
-    const brand = document.querySelector(".brand");
-    if (!brand || brand.querySelector(".tenet-brand-button")) return;
-
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "tenet-brand-button";
-    button.setAttribute("aria-label", "Open Tenet pages and files");
-    button.title = "Tenet Whiteboard pages and files";
-
-    const icon = document.createElement("img");
-    icon.src = "/tenet-whiteboard-icon-180.png";
-    icon.alt = "";
-    icon.width = 36;
-    icon.height = 36;
-
-    const label = document.createElement("span");
-    label.textContent = "Tenet";
-
-    button.append(icon, label);
-    button.addEventListener("click", () => document.querySelector("#tenetNotebookLauncher")?.click());
-    brand.replaceChildren(button);
-  }
-
-  function labelHeaderButton(selector, label, title = label) {
-    const button = document.querySelector(selector);
-    if (!button) return null;
-    button.classList.add("tenet-header-action");
-    button.textContent = label;
-    button.setAttribute("aria-label", title);
-    button.title = title;
-    return button;
-  }
-
-  function hideStudentIrrelevantControls() {
-    ["#shareCanvasBtn", "#cloudAccountBtn", "#settingsBtn"].forEach((selector) => {
-      const control = document.querySelector(selector);
-      if (!control) return;
-      control.hidden = true;
-      control.setAttribute("aria-hidden", "true");
-      control.tabIndex = -1;
-    });
-
-    const coordinates = document.querySelector("#coords");
-    if (coordinates) {
-      coordinates.hidden = true;
-      coordinates.setAttribute("aria-hidden", "true");
-    }
-  }
-
-  function configureHeaderActions() {
-    const newButton = labelHeaderButton("#newCanvasBtn", "New", "Create a new page");
-    labelHeaderButton("#historyBtn", "Pages", "Open pages and files");
-    const exportButton = labelHeaderButton(
-      "#exportPngBtn",
-      isNativeIos() ? "Export PDF" : "Export",
-      isNativeIos() ? "Export this page as a PDF" : "Export this page",
-    );
-
-    let openButton = document.querySelector("#tenetOpenDocumentBtn");
-    if (!openButton) {
-      openButton = document.createElement("button");
-      openButton.type = "button";
-      openButton.id = "tenetOpenDocumentBtn";
-      openButton.className = `${newButton?.className || exportButton?.className || ""} tenet-header-action`;
-      openButton.textContent = "Open";
-      openButton.setAttribute("aria-label", "Open a PDF or image");
-      openButton.title = "Open a PDF or image";
-      openButton.addEventListener("click", () => dispatchTenetAction("tenet:open-document"));
-
-      if (newButton) newButton.insertAdjacentElement("afterend", openButton);
-      else if (exportButton?.parentElement) exportButton.parentElement.insertBefore(openButton, exportButton);
-    }
-
-    if (exportButton && nativePlugin()?.exportPdf) {
-      exportButton.addEventListener("click", (event) => {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        void exportCurrentPageAsPdf(exportButton);
-      }, true);
-    }
-  }
-
-  function configureTitleDismissal() {
-    const titleInput = document.querySelector("#canvasDocumentNameInput");
-    titleInput?.addEventListener("keydown", (event) => {
-      if (event.key !== "Enter") return;
-      event.preventDefault();
-      document.querySelector("#canvasDocumentNameConfirm")?.click();
-      titleInput.blur();
-    });
-
-    document.addEventListener("pointerdown", (event) => {
-      const active = document.activeElement;
-      if (!(active instanceof HTMLElement)) return;
-      const editable = active.matches("input, textarea, [contenteditable='true']");
-      if (!editable || active.contains(event.target)) return;
-      active.blur();
-    }, true);
-  }
-
-  function hideLegacyPencilAction() {
-    document.querySelectorAll(".tenet-product-lockup button").forEach((button) => {
-      if (!/pencil studio|apple pencil sketch/i.test(button.textContent || "")) return;
-      button.hidden = true;
-      button.setAttribute("aria-hidden", "true");
-      button.classList.add("tenet-legacy-pencil-action");
-    });
-  }
-
-  function safeFileStem() {
-    const inputValue = document.querySelector("#canvasDocumentNameInput")?.value;
-    const labelValue = document.querySelector("#canvasDocumentName")?.textContent;
-    const stem = String(inputValue || labelValue || "Tenet Whiteboard")
-      .replace(/[<>:"/\\|?*\u0000-\u001f]/g, " ")
-      .replace(/\s+/g, " ")
-      .trim()
-      .slice(0, 100);
-    return stem || "Tenet Whiteboard";
-  }
-
-  function fileFromImageDataUrl(dataUrl, name) {
-    const match = /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=\r\n]+)$/.exec(String(dataUrl || ""));
-    if (!match) throw new Error("The selected page was not returned as a supported image.");
-
-    const payload = match[2].replace(/[\r\n]/g, "");
-    const binary = window.atob(payload);
-    if (binary.length > MAX_DECODED_IMPORT_BYTES) throw new Error("The selected page is too large to place safely.");
-
-    const bytes = new Uint8Array(binary.length);
-    for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
-
-    const extension = match[1] === "image/jpeg" ? "jpg" : match[1].split("/")[1];
-    const requestedName = String(name || `Imported page.${extension}`);
-    const safeName = requestedName.replace(/[\\/:*?"<>|\u0000-\u001f]/g, "-").slice(0, 120);
-    return new File([bytes], safeName || `Imported page.${extension}`, { type: match[1] });
-  }
-
-  async function placeImagePages(pages) {
-    if (typeof addImageFile !== "function") throw new Error("The canvas image importer is unavailable.");
-
-    let offsetY = 0;
-    let imported = 0;
-    for (let index = 0; index < pages.length; index += 1) {
-      const page = pages[index] || {};
-      const file = fileFromImageDataUrl(page.dataUrl, page.name || `Page ${index + 1}.png`);
-      const item = await addImageFile(file, { offsetY });
-      if (!item) throw new Error(`Page ${index + 1} could not be placed on the canvas.`);
-      imported += 1;
-      offsetY += Math.max(160, Number(item.h) || Number(page.height) || 900) + 64;
-    }
-    return imported;
-  }
-
-  async function openDocument(control = null) {
-    if (documentImportActive) return;
-    const plugin = nativePlugin();
-    if (!plugin?.pickDocument) {
-      document.querySelector("#imagePickerBtn")?.click();
-      return;
-    }
-
-    documentImportActive = true;
-    if (control) control.disabled = true;
-    try {
-      const result = await plugin.pickDocument();
-      if (result?.cancelled) return;
-      const pages = Array.isArray(result?.pages) ? result.pages : [];
-      if (!pages.length) throw new Error("The selected document did not contain an importable page.");
-      const imported = await placeImagePages(pages);
-      showTenetMessage(`${imported} ${imported === 1 ? "page" : "pages"} placed on the canvas.`);
-    } catch (error) {
-      showTenetMessage(error?.message || "The document could not be opened.", "error");
-    } finally {
-      documentImportActive = false;
-      if (control) control.disabled = false;
-    }
-  }
-
-  async function openApplePencilSketch(control = null) {
-    if (pencilImportActive) return;
-    const plugin = nativePlugin();
-    if (!plugin?.presentPencilCanvas) {
-      showTenetMessage("Apple Pencil sketch is available in the Tenet iPad app.", "error");
-      return;
-    }
-
-    pencilImportActive = true;
-    if (control) control.disabled = true;
-    try {
-      const result = await plugin.presentPencilCanvas();
-      if (result?.cancelled) return;
-      if (!result?.dataUrl) throw new Error("The sketch did not return any ink.");
-      const imported = await placeImagePages([{
-        dataUrl: result.dataUrl,
-        width: result.width,
-        height: result.height,
-        name: "Apple Pencil sketch.png",
-      }]);
-      if (imported !== 1) throw new Error("The sketch could not be placed on this page.");
-      showTenetMessage("Apple Pencil sketch placed on the current page.");
-    } catch (error) {
-      showTenetMessage(error?.message || "The Apple Pencil sketch could not be placed.", "error");
-    } finally {
-      pencilImportActive = false;
-      if (control) control.disabled = false;
-    }
-  }
-
-  async function exportCurrentPageAsPdf(control = null) {
-    if (pdfExportActive) return;
-    const plugin = nativePlugin();
-    if (!plugin?.exportPdf) return;
-    if (typeof renderExportCanvas !== "function") {
-      showTenetMessage("PDF export is unavailable.", "error");
-      return;
-    }
-
-    pdfExportActive = true;
-    if (control) control.disabled = true;
-    let exportCanvas = null;
-    try {
-      exportCanvas = await renderExportCanvas();
-      if (!exportCanvas?.width || !exportCanvas?.height) throw new Error("Add something to the page before exporting it.");
-      const result = await plugin.exportPdf({
-        dataUrl: exportCanvas.toDataURL("image/png"),
-        filename: `${safeFileStem()}.pdf`,
-      });
-      if (!result?.cancelled) showTenetMessage("PDF ready to share or save.");
-    } catch (error) {
-      showTenetMessage(error?.message || "The PDF could not be exported.", "error");
-    } finally {
-      if (exportCanvas) {
-        exportCanvas.width = 0;
-        exportCanvas.height = 0;
-      }
-      pdfExportActive = false;
-      if (control) control.disabled = false;
-    }
-  }
-
-  function installNativeActions() {
-    document.addEventListener("tenet:open-document", (event) => {
-      void openDocument(event.target instanceof HTMLButtonElement ? event.target : null);
-    });
-    document.addEventListener("tenet:open-pencil-sketch", (event) => {
-      void openApplePencilSketch(event.target instanceof HTMLButtonElement ? event.target : null);
-    });
-    document.addEventListener("tenet:export-pdf", (event) => {
-      void exportCurrentPageAsPdf(event.target instanceof HTMLButtonElement ? event.target : null);
-    });
-  }
-
-  onReady(() => {
-    if (!isTenetWhiteboard()) return;
-    installStylesheet();
-    if (isNativeIos()) document.documentElement.classList.add("tenet-native-ios");
-    configureBrand();
-    hideStudentIrrelevantControls();
-    configureHeaderActions();
-    configureTitleDismissal();
-    hideLegacyPencilAction();
-    installNativeActions();
-  });
-})();

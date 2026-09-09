@@ -193,6 +193,7 @@
     banner.hideTimer = setTimeout(() => { banner.hidden = true; }, 15000);
   }
   function launchAutomaticAI(reason) {
+    if (tenetInkController?.active()) return;
     if (canvasAgentSuppressesAutomaticAI()) return;
     if (state.mode === "hand" || !state.auto || !state.dirty || !state.autoEligible || state.drawing || state.widgetRefineConfirmation) return;
     if (aiPreparation || state.activeAI) return;
@@ -258,6 +259,8 @@
       && inner.y + inner.h <= outer.y + outer.h);
   }
   async function requestAI(action, packedOverride = null, requestOptions = null) {
+    try { await tenetInkFlush(); }
+    catch (error) { tenetInkMessage(error?.message || "Native ink is not ready for AI capture."); return; }
     requestOptions = requestOptions || {};
     const automatic = action === "auto";
     if (!automatic) {
@@ -547,7 +550,7 @@
     return right > x && bottom > y ? { x, y, w: right - x, h: bottom - y } : null;
   }
   function visibleInkBounds(visible) {
-    let bounds = null;
+    let bounds = tenetInkBounds(visible);
     for (const [k] of tiles) {
       const [tx, ty] = k.split(",").map(Number),
         tileBox = { x: tx * TILE, y: ty * TILE, w: TILE, h: TILE },
@@ -2919,7 +2922,9 @@
   function finishDrawing(pointerType) {
     if (!state.drawing) return;
     const d = state.drawing;
+    const tenetCommitStarted = performance.now();
     commitLiveInkDrawing(d);
+    if (window.PENECHO_CONFIG?.tenetMode === true) window.dispatchEvent(new CustomEvent("tenet:ink-sample", { detail:{ engine:"web", kind:"stroke", sampleCount:d.committedSamples, commitMs:performance.now() - tenetCommitStarted } }));
     state.drawing = null;
     noteCanvasChromeInteraction();
     requestAnimationFrame(() => {

@@ -613,7 +613,7 @@
     return preview;
   }
   function exportInkBounds() {
-    let bounds = null;
+    let bounds = tenetInkBounds();
     for (const [tileKey, tileCanvas] of tiles) {
       const [tx, ty] = tileKey.split(",").map(Number),
         ink = inkBox(tileCanvas, Math.min(TILE, SIZE - tx * TILE), Math.min(TILE, SIZE - ty * TILE));
@@ -643,6 +643,7 @@
     return { x, y, w: right - x, h: bottom - y };
   }
   async function renderExportCanvas() {
+    await tenetInkFlush();
     const region = exportRegion();
     if (!region) return null;
     await prepareVisibleWidgetSnapshots(null, false, null, true);
@@ -791,6 +792,7 @@
     return decoded;
   }
   async function finalizeCanvasForSnapshot() {
+    await tenetInkFlush();
     canvasSnapshotFinalizationDepth++;
     try {
       if (state.pendingWidget) acceptPendingWidget({ restoreMode:false });
@@ -878,7 +880,7 @@
   async function communityCanvasArtifact(name = "") {
     if (selectionAIBusy()) throw Error(t(selectionAIStatusKey()));
     await finalizeCanvasForSnapshot();
-    if (!tiles.size && !state.images.length && !state.textBoxes.length && !state.preservedSnapshotAnimations.length && (!pluginEnabled("animation") || !state.animations.length) && !visibleWidgets().length) throw Error(t("emptyCanvas"));
+    if (!tenetInkBounds() && !tiles.size && !state.images.length && !state.textBoxes.length && !state.preservedSnapshotAnimations.length && (!pluginEnabled("animation") || !state.animations.length) && !visibleWidgets().length) throw Error(t("emptyCanvas"));
     await prepareVisibleWidgetSnapshots(null, false);
     const previewCanvas=snapshotPreview(2048,1365),communityImages=await communityImagesForCanvas(previewCanvas,.78);
     previewCanvas.width=previewCanvas.height=1;
@@ -899,7 +901,7 @@
         images,
         preview,
         bundleExtensions:snapshotExtensionObject(state.currentSnapshotBundleExtensions),
-        manifestExtensions:snapshotExtensionObject(state.currentSnapshotManifestExtensions),
+        manifestExtensions:tenetInkManifestExtensions(),
     };
     return { ...(await serverSnapshotPayload(item, tileEntries)), ...communityImages };
   }
@@ -1133,7 +1135,7 @@
     if (!SNAPSHOT_LOCATIONS.has(location)) throw Error("Invalid snapshot location");
     if (overwriteId && state.currentSnapshotLocation !== location) throw Error(t("noCurrentSnapshot"));
     await finalizeCanvasForSnapshot();
-    if (!tiles.size && !state.images.length && !state.textBoxes.length && !state.preservedSnapshotAnimations.length && (!pluginEnabled("animation") || !state.animations.length) && !visibleWidgets().length) {
+    if (!tenetInkBounds() && !tiles.size && !state.images.length && !state.textBoxes.length && !state.preservedSnapshotAnimations.length && (!pluginEnabled("animation") || !state.animations.length) && !visibleWidgets().length) {
       setStatusKey("emptyCanvas");
       return null;
     }
@@ -1180,7 +1182,7 @@
         images,
         preview,
         bundleExtensions:snapshotExtensionObject(state.currentSnapshotBundleExtensions),
-        manifestExtensions:snapshotExtensionObject(state.currentSnapshotManifestExtensions),
+        manifestExtensions:tenetInkManifestExtensions(),
         preservedAssets:snapshotPreservedAssets(state.currentSnapshotPreservedAssets),
       };
     if (overwriteId && !existing && overwriteId !== state.currentSnapshotId) throw Error(t("noCurrentSnapshot"));
@@ -1315,6 +1317,8 @@
   }
   async function loadSnapshot(id, location = state.snapshotLocation) {
     if (snapshotLoadInProgress) return false;
+    await tenetInkFlush();
+    await tenetInkController?.suspend("snapshot-load");
     const loadGeneration=++state.snapshotLoadGeneration,
       expectedRevision=state.userRevision,
       metadata=snapshotItems.find((item) => item.id === id),
@@ -1336,6 +1340,8 @@
       if (!stored) throw Error("Canvas snapshot was not found.");
       requireCurrent();
       const { item, tileEntries } = stored;
+      const nativeInkPrepared = await tenetInkController?.prepare(item.manifestExtensions?.tenetNativeInk);
+      requireCurrent();
       setHistoryActivity(t("snapshotLoading").replace("{name}", displayName), t("snapshotLoadPreparing"), 38);
       await enableSnapshotWidgetPlugins(item.widgets);
       requireCurrent();
@@ -1357,6 +1363,7 @@
         requireCurrent();
       }
       setHistoryActivity(t("snapshotLoading").replace("{name}", displayName), t("snapshotLoadApplying"), 94);
+      tenetInkController?.restore(nativeInkPrepared);
       if (state.selection) cancelSelection(true);
       clearTextEditors();
       state.userRevision++;
@@ -1422,6 +1429,7 @@
         snapshotLoadingId = null;
         updateHistoryReadControls();
       }
+      tenetInkController?.resume("snapshot-load");
     }
   }
   async function deleteDeviceSnapshot(id) {
@@ -1571,6 +1579,7 @@
     if (!busy) updateNewCanvasDialog();
   }
   function startBlankCanvas() {
+    tenetInkController?.restore(null);
     const dialog = document.querySelector("#newCanvasDialog");
     if (state.selection) cancelSelection(true);
     clearTextEditors();
@@ -1652,7 +1661,7 @@
   function canvasHasUnsavedChanges() {
     const nameChanged = Boolean(state.currentSnapshotId && state.currentCanvasSuggestedName);
     if (!nameChanged && state.userRevision === state.snapshotSavedRevision) return false;
-    const hasContent = tiles.size || state.images.length || state.textBoxes.length || state.preservedSnapshotAnimations.length || (pluginEnabled("animation") && state.animations.length) || visibleWidgets().length;
+    const hasContent = tenetInkBounds() || tiles.size || state.images.length || state.textBoxes.length || state.preservedSnapshotAnimations.length || (pluginEnabled("animation") && state.animations.length) || visibleWidgets().length;
     return Boolean(state.currentSnapshotId || hasContent);
   }
   function performCanvasTransition(transition) {
@@ -1660,7 +1669,8 @@
     startBlankCanvas();
     return true;
   }
-  function requestCanvasTransition(transition) {
+  async function requestCanvasTransition(transition) {
+    await tenetInkFlush();
     if (!canvasHasUnsavedChanges()) return performCanvasTransition(transition);
     pendingCanvasTransition = transition;
     const dialog = document.querySelector("#newCanvasDialog");
@@ -2907,7 +2917,8 @@
     }
   }
   function save() {
-    if (!state.historyBefore.size && !state.animationHistoryBefore && !state.widgetHistoryBefore && !state.imageHistoryBefore && !state.textBoxHistoryBefore) return null;
+    const nativeInkBefore = state.tenetNativeHistoryBefore;
+    if (!state.historyBefore.size && !state.animationHistoryBefore && !state.widgetHistoryBefore && !state.imageHistoryBefore && !state.textBoxHistoryBefore && nativeInkBefore === undefined) return null;
     const changes = [];
     const animationsBefore = state.animationHistoryBefore,
       animationsAfter = animationsBefore ? serializedAnimations() : null,
@@ -2933,12 +2944,18 @@
     }
     state.historyBefore.clear();
     const entry = { tiles: changes, animationsBefore, animationsAfter, widgetsBefore, widgetsAfter, imagesBefore, imagesAfter, textBoxesBefore, textBoxesAfter };
+    if (nativeInkBefore !== undefined) {
+      entry.nativeInkBefore = nativeInkBefore;
+      entry.nativeInkAfter = tenetInkController?.snapshot() || null;
+      state.tenetNativeHistoryBefore = undefined;
+    }
     state.history.push(entry);
     state.animationHistoryBefore = null;
     state.widgetHistoryBefore = null;
     state.imageHistoryBefore = null;
     state.textBoxHistoryBefore = null;
     if (state.history.length > MAX_HISTORY) state.history.shift();
+    tenetInkController?.boundHistory();
     state.future = [];
     window.PenEchoStudioNavigator?.updateDocument?.();
     return entry;
@@ -2947,6 +2964,7 @@
     return canvasAgentDidCommitUserCanvasChange(save(), { allowAutoHide:canvasSnapshotFinalizationDepth === 0 });
   }
   function applyHistory(entry, side) {
+    tenetInkController?.applyHistory(entry, side);
     const changes = Array.isArray(entry) ? entry : entry?.tiles || [];
     for (const change of changes) {
       const value = change[side];
@@ -2969,6 +2987,7 @@
     window.PenEchoStudioNavigator?.updateDocument?.();
   }
   function undo() {
+    if (tenetInkController?.available) { void tenetInkController.history("before"); return; }
     save();
     const change = state.history.pop();
     if (!change) return;
@@ -2977,6 +2996,7 @@
     applyHistory(change, "before");
   }
   function redo() {
+    if (tenetInkController?.available) { void tenetInkController.history("after"); return; }
     const change = state.future.pop();
     if (!change) return;
     invalidateRecognition();

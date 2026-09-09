@@ -85,6 +85,7 @@
       if (region && !intersection(overlay.box, region)) continue;
       context.drawImage(overlay.image, overlay.box.x, overlay.box.y, overlay.box.w, overlay.box.h);
     }
+    tenetInkController?.draw(context, region);
   }
 
   function textBoxBox(item) {
@@ -3314,6 +3315,7 @@
     canvasRenderTimedStage(record, "selectionToolbarMs", updateSelectionToolbar);
   }
   function render() {
+    tenetInkController?.sync();
     if (!canvasRenderTiming.enabled) {
       renderCanvasBackground();
       renderCanvasContent();

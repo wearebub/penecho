@@ -38,41 +38,10 @@
     toast.__tenetTimer = global.setTimeout(() => { toast.hidden = true; }, 3600);
   }
 
-  async function importPencilDrawing(result) {
-    if (!result || typeof result.dataUrl !== "string" || !result.dataUrl.startsWith("data:image/png;base64,")) {
-      throw new Error("PencilKit returned an invalid drawing.");
-    }
-    const input = document.querySelector("#imagePickerInput");
-    if (!input || typeof DataTransfer !== "function") {
-      throw new Error("This canvas cannot import the native drawing.");
-    }
-    const response = await fetch(result.dataUrl);
-    const blob = await response.blob();
-    const file = new File([blob], `tenet-pencil-${Date.now()}.png`, { type: "image/png" });
-    const transfer = new DataTransfer();
-    transfer.items.add(file);
-    input.files = transfer.files;
-    input.dispatchEvent(new Event("change", { bubbles: true }));
-  }
-
   async function openPencilStudio(button) {
-    button.disabled = true;
-    try {
-      const managed = await native.getConfiguration();
-      if (managed.pencilKitEnabled === false) {
-        throw new Error("Pencil studio is disabled by managed configuration.");
-      }
-      const result = await native.presentPencilCanvas({
-        fingerDrawing: managed.fingerDrawingEnabled === true,
-      });
-      if (result && result.cancelled === true) return;
-      await importPencilDrawing(result);
-      showMessage("PencilKit drawing added to the whiteboard.", false);
-    } catch (cause) {
-      showMessage(cause && cause.message ? cause.message : "Pencil studio could not open.", true);
-    } finally {
-      button.disabled = false;
-    }
+    // The importer lives inside the canvas closure. Use its one real import
+    // path, not fetch(data:) and a synthetic file-input change event.
+    button.dispatchEvent(new CustomEvent("tenet:open-pencil-sketch", { bubbles:true }));
   }
 
   function activeDrawingMode() {

@@ -637,7 +637,7 @@
     if (!currentId || !metadata.pages[currentId]) return;
     if (revision === Number(state.snapshotSavedRevision)) return;
     if (Date.now() - lastRevisionChangeAt < AUTOSAVE_IDLE_MS) return;
-    if (notebookSaveInFlight || state.drawing || state.imageImporting) return;
+    if (notebookSaveInFlight || state.drawing || state.imageImporting || tenetInkController?.active()) return;
     void saveNotebookPage({ autosave: true });
   }
 

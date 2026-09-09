@@ -911,6 +911,7 @@
       hideAutoDelayControl();
     }
     state.mode = mode;
+    tenetInkController?.sync();
     updateAutoControl();
     if (!["pen", "hand"].includes(mode)) updateWidgetRefinePointer(null);
     else refreshWidgetRefineHoverCandidate();
@@ -1553,8 +1554,12 @@
   };
   document.querySelectorAll("[data-action]").forEach(
       (b) =>
-      (b.onclick = () => {
+      (b.onclick = async () => {
         const a = b.dataset.action;
+        if (a === "clear") {
+          try { await tenetInkFlush(); }
+          catch (error) { tenetInkMessage(error?.message || "Finish drawing before clearing the page."); return; }
+        }
         if (selectionAIBusy()) {
           setStatusKey(selectionAIStatusKey());
           return;
@@ -1573,6 +1578,7 @@
           redo();
         } else if (a === "clear") {
           if (confirm(t("clearConfirm"))) {
+            tenetInkController?.stageClear();
             if (state.selection) commitSelection();
             clearTextEditors();
             state.userRevision++;

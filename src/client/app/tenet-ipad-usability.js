@@ -17,6 +17,7 @@
 
   function isTenetWhiteboard() {
     return document.body?.classList.contains("tenet-whiteboard")
+      || window.PENECHO_CONFIG?.tenetMode === true
       || window.PenEchoRuntimeConfig?.tenetMode === true
       || window.TenetBranding?.tenetMode === true;
   }
@@ -34,8 +35,8 @@
   }
 
   function showTenetMessage(message, kind = "info") {
-    if (typeof showMessage === "function") {
-      showMessage(message);
+    if (typeof tenetInkMessage === "function") {
+      tenetInkMessage(message);
       return;
     }
     if (kind === "error") window.alert(message);
@@ -244,6 +245,7 @@
     pencilImportActive = true;
     if (control) control.disabled = true;
     try {
+      await window.TenetInk?.suspend("sketch");
       const result = await plugin.presentPencilCanvas();
       if (result?.cancelled) return;
       if (!result?.dataUrl) throw new Error("The sketch did not return any ink.");
@@ -259,6 +261,7 @@
       showTenetMessage(error?.message || "The Apple Pencil sketch could not be placed.", "error");
     } finally {
       pencilImportActive = false;
+      window.TenetInk?.resume("sketch");
       if (control) control.disabled = false;
     }
   }
@@ -278,6 +281,15 @@
     try {
       exportCanvas = await renderExportCanvas();
       if (!exportCanvas?.width || !exportCanvas?.height) throw new Error("Add something to the page before exporting it.");
+      const resize = Math.min(1, 8192 / exportCanvas.width, 8192 / exportCanvas.height, Math.sqrt(32 * 1024 * 1024 / (exportCanvas.width * exportCanvas.height)));
+      if (resize < 1) {
+        const bounded = document.createElement("canvas");
+        bounded.width = Math.max(1, Math.floor(exportCanvas.width * resize));
+        bounded.height = Math.max(1, Math.floor(exportCanvas.height * resize));
+        bounded.getContext("2d").drawImage(exportCanvas, 0, 0, bounded.width, bounded.height);
+        exportCanvas.width = exportCanvas.height = 0;
+        exportCanvas = bounded;
+      }
       const result = await plugin.exportPdf({
         dataUrl: exportCanvas.toDataURL("image/png"),
         filename: `${safeFileStem()}.pdf`,

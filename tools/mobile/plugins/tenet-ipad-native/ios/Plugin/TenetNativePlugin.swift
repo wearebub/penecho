@@ -543,6 +543,10 @@ public final class TenetNativePlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthenti
         CAPPluginMethod(name: "authenticate", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "signOut", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "presentPencilCanvas", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "configureInkSurface", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "flushInkSurface", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "hideInkSurface", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "inkSurfaceCommand", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "pickDocument", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "exportPdf", returnType: CAPPluginReturnPromise),
     ]
@@ -553,6 +557,18 @@ public final class TenetNativePlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthenti
     private var documentPickerController: UIDocumentPickerViewController?
     private var exportCall: CAPPluginCall?
     private var exportTemporaryUrl: URL?
+
+    // The web page owns persistence. This controller owns only the live native drawing.
+    private lazy var inkSurface = TenetInkSurface(
+        policy: { [weak self] in
+            guard let self else { return (enabled: false, finger: false) }
+            let config = self.configuration()
+            return (enabled: config.valid && config.pencilKitEnabled, finger: config.fingerDrawingEnabled)
+        },
+        emit: { [weak self] event, data in
+            self?.notifyListeners(event, data: data)
+        }
+    )
 
     public override func load() {
         super.load()
@@ -899,7 +915,7 @@ public final class TenetNativePlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthenti
 
         DispatchQueue.main.async {
             let controller = TenetPencilViewController(
-                fingerDrawing: call.getBool("fingerDrawing") ?? config.fingerDrawingEnabled
+                fingerDrawing: config.fingerDrawingEnabled && (call.getBool("fingerDrawing") ?? true)
             )
             let navigation = UINavigationController(rootViewController: controller)
             navigation.modalPresentationStyle = .fullScreen
@@ -919,6 +935,28 @@ public final class TenetNativePlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthenti
             }
             presenter.present(navigation, animated: true)
         }
+    }
+
+    @objc public func configureInkSurface(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            guard let webView = self.bridge?.webView else {
+                call.reject("The native web view is unavailable.", "ink_surface_unavailable")
+                return
+            }
+            self.inkSurface.configure(call, above: webView)
+        }
+    }
+
+    @objc public func flushInkSurface(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { self.inkSurface.flush(call, hide: false) }
+    }
+
+    @objc public func hideInkSurface(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { self.inkSurface.flush(call, hide: true) }
+    }
+
+    @objc public func inkSurfaceCommand(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { self.inkSurface.command(call) }
     }
 
     @objc public func pickDocument(_ call: CAPPluginCall) {
