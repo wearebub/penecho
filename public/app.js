@@ -27807,12 +27807,6 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     toast.__tenetTimer = global.setTimeout(() => { toast.hidden = true; }, 3600);
   }
 
-  async function openPencilStudio(button) {
-    // The importer lives inside the canvas closure. Use its one real import
-    // path, not fetch(data:) and a synthetic file-input change event.
-    button.dispatchEvent(new CustomEvent("tenet:open-pencil-sketch", { bubbles:true }));
-  }
-
   function activeDrawingMode() {
     const active = document.querySelector('[data-mode][aria-pressed="true"], [data-mode].active');
     return active && typeof active.dataset.mode === "string" ? active.dataset.mode : currentDrawingMode;
@@ -27874,19 +27868,15 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     actions.id = "tenetNativeActions";
     actions.className = "tenet-native-actions";
 
-    const pencil = document.createElement("button");
-    pencil.type = "button";
-    pencil.className = "tenet-native-action tenet-native-action-primary";
-    pencil.textContent = "Pencil studio";
-    pencil.addEventListener("click", () => { void openPencilStudio(pencil); });
-
     const logout = document.createElement("button");
     logout.type = "button";
     logout.className = "tenet-native-action";
     logout.textContent = "Sign out";
     logout.addEventListener("click", () => { void signOut(logout); });
 
-    actions.append(pencil, logout);
+    // Main-canvas ink has its own renderer toggle. The optional standalone
+    // Apple Pencil sketch remains in Pages, with the real image importer.
+    actions.append(logout);
     badge.appendChild(actions);
   }
 

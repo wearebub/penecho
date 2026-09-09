@@ -4,9 +4,10 @@ This standalone module supports a fair, on-device comparison of Web ink and
 PencilKit in the same notebook. The underlying need is to compare two renderers
 under comparable tasks and settings while preserving existing work.
 
-Only `src/client/app/tenet-ink-comparison.js` and this document are introduced.
-The main integration agent owns concatenation, the ink adapter, and native Swift.
-No tests, git commands, or runtime validation were run for this implementation.
+The comparison module is integrated with the canvas ink adapter and native Swift
+surface. The main integration has passed 34 focused source tests and the hosted
+macOS simulator and signed-device builds. Local browser checks use an explicit
+mock bridge; real iPad drawing quality must still be graded in TestFlight.
 
 ## Integration and public API assumptions
 
@@ -20,7 +21,7 @@ The module expects the following public contract:
 | API | Assumption |
 | --- | --- |
 | `available` | Exactly `true` enables the feature. No UI or storage access is started when it is false or absent. |
-| `getStatus()` | Synchronously returns `{ engine: 'web' \| 'pencilkit', busy: boolean, nativeAvailable: boolean, strokeCount: nonnegative integer }`. |
+| `getStatus()` | Synchronously returns `{ engine: 'web' \| 'pencilkit', busy: boolean, nativeAvailable: boolean, strokeCount: nonnegative integer or null }`. Web ink reports null because its raster layer has no authoritative stroke inventory. |
 | `setEngine(engine)` | Resolves after the requested renderer is active; rejects on failure. It preserves notebook work and respects existing suspension reasons. |
 | `flush()` | Resolves after pending ink is committed and its diagnostic events have been dispatched. It does not clear work. |
 | `suspend(reason)` | Hides the native surface before the DOM dialog opens. The module uses a dedicated reason string for each page lifecycle. |
