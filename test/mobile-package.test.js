@@ -27,19 +27,23 @@ test("Android dependencies stay isolated from the root install", () => {
   assert.equal(rootPackage.scripts["mobile:apk"], "node tools/mobile/build-mobile.js android");
 });
 
-test("mobile connection shell preserves the server-side security boundary", () => {
+test("mobile connection shell uses native auth and fixed governed hosts", () => {
   const config = json("tools/mobile/capacitor.config.json");
   const html = fs.readFileSync(path.join(ROOT, "tools/mobile/web/index.html"), "utf8");
   const app = fs.readFileSync(path.join(ROOT, "tools/mobile/web/app.js"), "utf8");
-  assert.equal(config.appId, "ai.penecho.mobile");
-  assert.deepEqual(config.server.allowNavigation, ["*"]);
-  assert.equal(config.server.cleartext, true);
-  assert.match(html, /id="serverUrl"/);
-  assert.match(html, /penecho-mark\.png/);
-  assert.match(app, /\["http:", "https:"\]/);
-  assert.match(app, /target\.username \|\| target\.password \|\| target\.search \|\| target\.hash/);
-  assert.match(app, /localStorage\.setItem/);
-  assert.match(app, /window\.location\.href = target\.href/);
+  assert.equal(config.appId, "ai.truemade.tenet.whiteboard");
+  assert.deepEqual(new Set(config.server.allowNavigation), new Set([
+    "district.connect.truemadeai.com",
+    "spanish.connect.truemadeai.com",
+  ]));
+  assert.equal(config.server.cleartext, false);
+  assert.match(html, /Tenet Whiteboard/);
+  assert.match(html, /id="primaryAction"[^>]*>Sign in with Google/);
+  assert.doesNotMatch(html, /id="serverUrl"/);
+  assert.match(app, /window\.Capacitor\.Plugins\.TenetNative/);
+  assert.match(app, /bridge\.restoreSession\(\)/);
+  assert.match(app, /bridge\.authenticate\(\{ baseUrl: configuration\.baseUrl \}\)/);
+  assert.doesNotMatch(app, /localStorage/);
   assert.doesNotMatch(`${html}\n${app}`, /API[_ -]?key/i);
 });
 
@@ -50,7 +54,8 @@ test("mobile builder creates branded, optionally signed APK targets", () => {
   assert.match(builder, /android\.injected\.version\.name/);
   assert.match(builder, /android:usesCleartextTraffic/);
   assert.match(builder, /ANDROID_SIGNING_STORE_FILE/);
-  assert.match(builder, /penecho-1024\.png/);
+  assert.match(builder, /tenet-whiteboard-icon-512\.png/);
+  assert.match(builder, /android:usesCleartextTraffic"\] = "false"/);
   assert.match(builder, /android-debug/);
   assert.match(ignore, /tools\/mobile\/android\//);
   assert.match(ignore, /tools\/mobile\/web\/penecho-mark\.png/);
@@ -66,7 +71,8 @@ test("iOS builder exports a signed IPA with an independent CI build number", () 
   assert.match(builder, /PROVISIONING_PROFILE_SPECIFIER/);
   assert.match(builder, /-exportArchive/);
   assert.match(builder, /ITSAppUsesNonExemptEncryption = false/);
-  assert.match(builder, /PenEcho-\$\{APP_PACKAGE\.version\}-\$\{suffix\}/);
+  assert.match(builder, /ARTIFACT_NAME = "Tenet-Whiteboard"/);
+  assert.match(builder, /\$\{ARTIFACT_NAME\}-\$\{APP_PACKAGE\.version\}-\$\{suffix\}/);
   assert.doesNotMatch(builder, /penecho_cloud|public\/canvas/);
 });
 
@@ -79,20 +85,22 @@ test("iOS release workflow signs tag artifacts and keeps TestFlight upload expli
   assert.match(workflow, /\/usr\/bin\/base64 -D/);
   assert.doesNotMatch(workflow, /base64 --decode/);
   assert.match(workflow, /npm run mobile:ipa/);
-  assert.match(workflow, /release\/mobile\/PenEcho-\*-ios\.ipa/);
+  assert.match(workflow, /release\/mobile\/\*\.ipa/);
   assert.match(workflow, /UPLOAD_TESTFLIGHT: \$\{\{ inputs\.upload_testflight == true \}\}/);
   assert.match(workflow, /xcrun altool --upload-app/);
+  assert.match(workflow, /CODE_SIGNING_ALLOWED=NO[\s\S]*?build/);
+  assert.match(workflow, /tenet-whiteboard-ios-simulator/);
 });
 
-test("the shared Canvas already exposes the Apple Pencil input contract without a mobile fork", () => {
+test("the shared Canvas preserves coalesced Apple Pencil samples before committing ink", () => {
   const persistence = fs.readFileSync(path.join(ROOT, "src/client/app/persistence.js"), "utf8");
   const bindings = fs.readFileSync(path.join(ROOT, "src/client/app/ui-bootstrap.js"), "utf8");
   assert.match(persistence, /e\.pointerType !== "pen"[\s\S]*?e\.pressure/);
   assert.match(persistence, /state\.pen \* \(0\.72 \+ e\.pressure \* 0\.7\)/);
   assert.match(bindings, /if \(e\.pointerType === "touch"\)[\s\S]*?state\.panGesture/);
   assert.match(bindings, /const cssSize = erasing \? state\.eraser : pressureWidth\(e\)/);
-  assert.doesNotMatch(bindings, /drawingPointerSamples|getCoalescedEvents/);
-  assert.match(bindings, /drawingClientPoint\(d, e\)[\s\S]*?appendLiveInkSample\(d, p, size\)[\s\S]*?commitLiveInkDrawingProgress\(d\)/);
+  assert.match(bindings, /getCoalescedEvents[\s\S]*?coalesced\.length > 1 \? coalesced : \[e\]/);
+  assert.match(bindings, /for \(const s of samples\)[\s\S]*?drawingClientPoint\(d, sample\)[\s\S]*?appendLiveInkSample\(d, p, size\)[\s\S]*?commitLiveInkDrawingProgress\(d\)/);
 });
 
 test("release workflow builds and publishes the Android APK", () => {

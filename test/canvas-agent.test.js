@@ -3127,7 +3127,8 @@ test("PenEcho Agent UI and browser Facade support local and Cloud runtimes and a
   assert.doesNotMatch(runtime,/name:'canvas_mutate'/);
   assert.doesNotMatch(runtime,/animate_scene/);
   assert.match(server,/authorize:browserRequestError/);
-  assert.match(server,/canvasAgent:true/);
+  assert.match(server,/canvasAgent:!TENET_MODE/);
+  assert.match(server,/canvasAgentAutoOpen:CANVAS_AGENT_AUTO_OPEN&&!TENET_MODE/);
   assert.match(core,/canvasAgentConnectionDidChange\(/);
   assert.match(functionSource(source,"canvasAgentConnect"),/const connectionId = selectedAiConnectionId\(\)/);
   assert.match(source,/"new_conversation",\{handshakeId,connectionId,conversationId:canvasAgent\.currentConversation\?\.id\|\|"",webSearchEnabled:canvasAgent\.searchEnabled,widgetCapabilities,projectId:canvasAgent\.projectId,accessMode:canvasAgentEffectiveAccessMode\(\),\.\.\.\(conversationHistory\.length\?/);

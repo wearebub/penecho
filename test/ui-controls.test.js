@@ -62,7 +62,7 @@ test("active pen drawing paints a live layer before committing authoritative ink
   assert.doesNotMatch(pointerMove, /getCoalescedEvents/);
   assert.match(pointerMove, /if \(updateActiveCanvasDrawing\(e\)\) return;[\s\S]*?updateCanvasWidgetGestureResetTap\(e\)/);
   assert.doesNotMatch(activeDrawing, /clientPoint\(|canvasViewportMetrics\(|calibrateScreenClientRatio\(/);
-  assert.match(activeDrawing, /drawingClientPoint\(d, e\)[\s\S]*?appendLiveInkSample\(d, p, size\)[\s\S]*?commitLiveInkDrawingProgress\(d\)/);
+  assert.match(activeDrawing, /getCoalescedEvents[\s\S]*?for \(const s of samples\)[\s\S]*?drawingClientPoint\(d, sample\)[\s\S]*?appendLiveInkSample\(d, p, size\)[\s\S]*?commitLiveInkDrawingProgress\(d\)/);
   assert.match(appendLive, /drawing\.samples\.push\(sample\)[\s\S]*?paintInkDisplaySegment\([\s\S]*?drawing\.erase \? inkCtx : liveInkCtx/);
   assert.match(commitProgress, /LIVE_INK_COMMIT_SAMPLE_BATCH[\s\S]*?dot\(first\.point, drawing\.erase[\s\S]*?stroke\(previous\.point, current\.point, drawing\.erase[\s\S]*?drawing\.committedSamples = drawing\.samples\.length/);
   assert.match(commitLive, /commitLiveInkDrawingProgress\(drawing, true\)[\s\S]*?requestCommittedInkRender\(\)/);

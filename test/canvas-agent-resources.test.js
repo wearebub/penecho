@@ -562,7 +562,7 @@ test("main resource routes separate native paths from roots and uploads and reco
   assert.match(routes, /"\/api\/canvas-agent\/host-roots"[\s\S]*CANVAS_AGENT_PROJECT_STORE\.listHostRoots\(\)/);
   assert.match(routes, /canvasAgentRootEntriesMatch[\s\S]*getAll\("approved"\)[\s\S]*browseRoot\(canvasAgentRootEntriesMatch\[1\], url\.searchParams\.get\("path"\) \|\| "", \{ approved:url\.searchParams\.get\("approved"\) === "1" \}\)/);
   assert.match(mainSource, /PENECHO_CANVAS_AGENT_ALLOWED_ROOTS[\s\S]*path\.isAbsolute\(selectedPath\)/);
-  assert.match(mainSource, /macosRemoteRoots\(os\.homedir\(\)\)[\s\S]*windowsDriveRoots\(\)[\s\S]*CANVAS_AGENT_ALLOWED_ROOTS = \[\.\.\.CANVAS_AGENT_CONFIGURED_ROOTS, \.\.\.CANVAS_AGENT_MACOS_REMOTE_ROOTS, \.\.\.CANVAS_AGENT_WINDOWS_DRIVE_ROOTS\]/);
+  assert.match(mainSource, /macosRemoteRoots\(os\.homedir\(\)\)[\s\S]*windowsDriveRoots\(\)[\s\S]*CANVAS_AGENT_ALLOWED_ROOTS = TENET_MODE \? \[\] : \[\.\.\.CANVAS_AGENT_CONFIGURED_ROOTS, \.\.\.CANVAS_AGENT_MACOS_REMOTE_ROOTS, \.\.\.CANVAS_AGENT_WINDOWS_DRIVE_ROOTS\]/);
   assert.match(mainSource, /CANVAS_AGENT_PROJECT_STORE\.cleanupUploads\(\)[^\n]*;\s*server\.listen/, "startup cleanup must not gate server listening");
 
   const remoteLines = remoteCanvasHttpSource.split(/\r?\n/);
