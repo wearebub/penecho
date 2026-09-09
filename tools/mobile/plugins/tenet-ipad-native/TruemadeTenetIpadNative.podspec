@@ -10,7 +10,7 @@ Pod::Spec.new do |s|
   s.resource_bundles = {
     'TruemadeTenetIpadNativePrivacy' => ['ios/Plugin/PrivacyInfo.xcprivacy']
   }
-  s.ios.deployment_target = '15.0'
+  s.ios.deployment_target = '14.0'
   s.swift_version = '5.9'
   s.dependency 'Capacitor'
   s.frameworks = 'AuthenticationServices', 'CryptoKit', 'PencilKit', 'Security', 'UIKit', 'WebKit'
