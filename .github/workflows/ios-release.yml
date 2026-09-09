@@ -65,7 +65,7 @@ jobs:
           fi
           mkdir -p release/mobile
           ditto -c -k --sequesterRsrc --keepParent "$APP" release/mobile/Tenet-Whiteboard-simulator.zip
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: tenet-whiteboard-ios-simulator
           path: release/mobile/Tenet-Whiteboard-simulator.zip
@@ -159,7 +159,7 @@ jobs:
           APP="$(find "$VERIFY_ROOT/Payload" -maxdepth 1 -type d -name '*.app' -print -quit)"
           codesign --verify --deep --strict --verbose=2 "$APP"
           codesign -dv --verbose=4 "$APP"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: tenet-whiteboard-ios
           path: release/mobile/*.ipa
