@@ -3232,11 +3232,19 @@
     selectionToolbar.hidden = false;
     selectionToolbar.setAttribute("aria-busy", String(selectionBusy));
     if (selectionTypesetButton) {
-      selectionTypesetButton.disabled = false;
+      selectionTypesetButton.disabled = selectionBusy;
       selectionTypesetButton.setAttribute("aria-busy", String(isTypesetting));
       selectionTypesetButton.textContent = t(isTypesetting ? "selectionTypesetting" : "selectionTypeset");
     }
     if (selectionDeleteButton) selectionDeleteButton.disabled = selectionBusy;
+    selectionToolbar.querySelectorAll("[data-tenet-selection-ai]").forEach((button) => {
+      const activeAction = selection.aiRequest?.action === button.dataset.tenetSelectionAi;
+      button.disabled = selectionBusy;
+      button.setAttribute("aria-busy", String(activeAction));
+    });
+    selectionToolbar.querySelectorAll("[data-tenet-selection-edit]").forEach((button) => {
+      button.disabled = selectionBusy;
+    });
     const width = selectionToolbar.offsetWidth || 280,
       height = selectionToolbar.offsetHeight || 36,
       left = box.x * state.scale + state.panX,
@@ -3276,6 +3284,41 @@
     resetCanvasCursor();
     render();
     setStatusKey("selectionDeleted");
+    return true;
+  }
+  function duplicateSelection() {
+    const selection = state.selection;
+    if (!selection || selection.phase !== "active" || selectionAIBusy(selection)) return false;
+    const sourceBox = { ...selection.box },
+      gap = Math.max(24, Math.min(800, 42 / Math.max(0.03, state.scale))),
+      candidates = [
+        { x: sourceBox.x + sourceBox.w + gap, y: sourceBox.y, w: sourceBox.w, h: sourceBox.h },
+        { x: sourceBox.x, y: sourceBox.y + sourceBox.h + gap, w: sourceBox.w, h: sourceBox.h },
+        { x: sourceBox.x - sourceBox.w - gap, y: sourceBox.y, w: sourceBox.w, h: sourceBox.h },
+        { x: sourceBox.x, y: sourceBox.y - sourceBox.h - gap, w: sourceBox.w, h: sourceBox.h },
+      ],
+      inBounds = (box) => box.x >= 0 && box.y >= 0 && box.x + box.w <= SIZE && box.y + box.h <= SIZE,
+      overlaps = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y,
+      duplicateBox = candidates.find((candidate) => inBounds(candidate) && !overlaps(candidate, sourceBox)) || {
+        x: Math.max(0, Math.min(SIZE - sourceBox.w, sourceBox.x + gap)),
+        y: Math.max(0, Math.min(SIZE - sourceBox.h, sourceBox.y + gap)),
+        w: sourceBox.w,
+        h: sourceBox.h,
+      },
+      duplicatePath = SELECT.mapPath(selectionPathFor(selection), sourceBox, duplicateBox);
+    state.selection = null;
+    state.selectionGesture = null;
+    for (const fragment of selection.fragments) {
+      const image = fragment.renderImage || fragment.image,
+        sourceTarget = SELECT.mapFragment(fragment, selection.originalBox, sourceBox),
+        duplicateTarget = SELECT.mapFragment(fragment, selection.originalBox, duplicateBox);
+      blitSized(image, sourceTarget.x, sourceTarget.y, sourceTarget.w, sourceTarget.h);
+      blitSized(image, duplicateTarget.x, duplicateTarget.y, duplicateTarget.w, duplicateTarget.h);
+    }
+    state.userRevision++;
+    saveUserCanvasChange();
+    resetCanvasCursor();
+    captureSelection(duplicatePath);
     return true;
   }
   function buildSelectionTypesetRequest(selection) {

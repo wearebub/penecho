@@ -133,7 +133,7 @@ private func isOpaqueCapability(_ value: String) -> Bool {
 }
 
 @objc(TenetNativePlugin)
-public final class TenetNativePlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthenticationPresentationContextProviding {
+public final class TenetNativePlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthenticationPresentationContextProviding, UIPencilInteractionDelegate {
     public let identifier = "TenetNativePlugin"
     public let jsName = "TenetNative"
     public let pluginMethods: [CAPPluginMethod] = [
@@ -145,6 +145,30 @@ public final class TenetNativePlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthenti
     ]
 
     private var authenticationSession: ASWebAuthenticationSession?
+    private var webCanvasPencilInteraction: UIPencilInteraction?
+
+    public override func load() {
+        super.load()
+        DispatchQueue.main.async { [weak self] in
+            guard let self, UIDevice.current.userInterfaceIdiom == .pad, let webView = self.bridge?.webView else { return }
+            let interaction = UIPencilInteraction()
+            interaction.delegate = self
+            interaction.isEnabled = true
+            webView.addInteraction(interaction)
+            self.webCanvasPencilInteraction = interaction
+        }
+    }
+
+    public func pencilInteractionDidTap(_ interaction: UIPencilInteraction) {
+        switch UIPencilInteraction.preferredTapAction {
+        case .switchEraser:
+            notifyListeners("pencilToolAction", data: ["action": "switchEraser"])
+        case .switchPrevious:
+            notifyListeners("pencilToolAction", data: ["action": "switchPrevious"])
+        default:
+            break
+        }
+    }
 
     private let profiles: [String: (label: String, baseUrl: String)] = [
         "district": ("District student rules", "https://district.connect.truemadeai.com"),

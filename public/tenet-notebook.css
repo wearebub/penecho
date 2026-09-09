@@ -1,0 +1,646 @@
+:root {
+  --tenet-notebook-ink: #14243b;
+  --tenet-notebook-paper: #f7f2e7;
+  --tenet-notebook-sheet: #fffdf7;
+  --tenet-notebook-copper: #bd6d3a;
+  --tenet-notebook-green: #2d806a;
+  --tenet-notebook-line: rgba(20, 36, 59, 0.14);
+  --tenet-notebook-shadow: 0 28px 80px rgba(20, 36, 59, 0.26);
+}
+
+.tenet-notebook-launcher {
+  position: fixed;
+  left: max(14px, env(safe-area-inset-left));
+  bottom: max(18px, calc(env(safe-area-inset-bottom) + 10px));
+  z-index: 10010;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 9px 12px 9px 10px;
+  border: 1px solid rgba(20, 36, 59, 0.2);
+  border-radius: 13px 13px 13px 4px;
+  background: linear-gradient(145deg, #fffdf7 0%, #eee4d2 100%);
+  box-shadow: 0 10px 28px rgba(20, 36, 59, 0.2);
+  color: var(--tenet-notebook-ink);
+  font: 700 14px/1.1 "Avenir Next", "Century Gothic", sans-serif;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+}
+
+.tenet-notebook-launcher:hover,
+.tenet-notebook-launcher:focus-visible {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 32px rgba(20, 36, 59, 0.25);
+}
+
+.tenet-notebook-launcher:focus-visible,
+.tenet-notebook-panel button:focus-visible,
+.tenet-notebook-panel input:focus-visible,
+.tenet-notebook-panel select:focus-visible {
+  outline: 3px solid rgba(47, 111, 187, 0.35);
+  outline-offset: 2px;
+}
+
+.tenet-notebook-launcher-mark {
+  position: relative;
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  width: 24px;
+  height: 28px;
+  padding-left: 7px;
+  border-radius: 3px 7px 7px 3px;
+  background: var(--tenet-notebook-ink);
+  box-shadow: inset 3px 0 0 var(--tenet-notebook-copper);
+}
+
+.tenet-notebook-launcher-mark i {
+  display: block;
+  width: 11px;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.74);
+}
+
+.tenet-notebook-count {
+  min-width: 22px;
+  padding: 4px 6px;
+  border-radius: 999px;
+  background: var(--tenet-notebook-ink);
+  color: #fff;
+  font: 700 11px/1 "Avenir Next", "Century Gothic", sans-serif;
+  text-align: center;
+}
+
+.tenet-notebook-overlay[hidden],
+.tenet-notebook-image-menu[hidden],
+.tenet-notebook-empty[hidden],
+#tenetNotebookPencil[hidden] {
+  display: none !important;
+}
+
+.tenet-notebook-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10030;
+  display: grid;
+  grid-template-columns: minmax(0, 440px) 1fr;
+}
+
+.tenet-notebook-backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(12, 22, 36, 0.42);
+  backdrop-filter: blur(4px);
+  cursor: default;
+}
+
+.tenet-notebook-panel {
+  position: relative;
+  grid-column: 1;
+  width: min(440px, 100vw);
+  height: 100dvh;
+  overflow: hidden auto;
+  padding: max(24px, env(safe-area-inset-top)) 22px max(32px, env(safe-area-inset-bottom));
+  border-right: 1px solid rgba(20, 36, 59, 0.14);
+  background:
+    linear-gradient(90deg, transparent 0 42px, rgba(189, 109, 58, 0.12) 42px 43px, transparent 43px),
+    repeating-linear-gradient(0deg, transparent 0 31px, rgba(47, 111, 187, 0.055) 31px 32px),
+    var(--tenet-notebook-paper);
+  box-shadow: var(--tenet-notebook-shadow);
+  color: var(--tenet-notebook-ink);
+  animation: tenet-notebook-enter 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  overscroll-behavior: contain;
+}
+
+.tenet-notebook-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  margin-left: 26px;
+}
+
+.tenet-notebook-eyebrow {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--tenet-notebook-copper);
+  font: 800 10px/1.2 "Avenir Next", "Century Gothic", sans-serif;
+  letter-spacing: 0.18em;
+}
+
+.tenet-notebook-header h2 {
+  margin: 0;
+  font: 800 clamp(27px, 5vw, 36px)/1.02 Georgia, "Times New Roman", serif;
+  letter-spacing: -0.035em;
+}
+
+.tenet-notebook-icon-button {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border: 1px solid var(--tenet-notebook-line);
+  border-radius: 50%;
+  background: rgba(255, 253, 247, 0.76);
+  color: var(--tenet-notebook-ink);
+  font: 400 26px/1 Georgia, serif;
+  cursor: pointer;
+}
+
+.tenet-notebook-local-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin: 14px 0 20px 26px;
+  padding: 6px 9px;
+  border: 1px solid rgba(45, 128, 106, 0.2);
+  border-radius: 999px;
+  background: rgba(45, 128, 106, 0.08);
+  color: #245f51;
+  font: 700 11px/1.1 "Avenir Next", "Century Gothic", sans-serif;
+}
+
+.tenet-notebook-local-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--tenet-notebook-green);
+  box-shadow: 0 0 0 3px rgba(45, 128, 106, 0.13);
+}
+
+.tenet-notebook-subjects {
+  display: flex;
+  gap: 7px;
+  margin: 0 -22px 18px;
+  padding: 2px 22px 9px 48px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.tenet-notebook-subjects::-webkit-scrollbar {
+  display: none;
+}
+
+.tenet-notebook-subject-tab {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 10px 8px;
+  border: 1px solid color-mix(in srgb, var(--subject-color) 28%, transparent);
+  border-bottom: 3px solid var(--subject-color);
+  border-radius: 9px 9px 4px 4px;
+  background: color-mix(in srgb, var(--subject-color) 8%, #fffdf7);
+  color: var(--tenet-notebook-ink);
+  font: 750 12px/1 "Avenir Next", "Century Gothic", sans-serif;
+  cursor: pointer;
+}
+
+.tenet-notebook-subject-tab small {
+  min-width: 18px;
+  padding: 3px 5px;
+  border-radius: 999px;
+  background: rgba(20, 36, 59, 0.08);
+  font: inherit;
+  font-size: 9px;
+  text-align: center;
+}
+
+.tenet-notebook-subject-tab[data-active="true"] {
+  background: var(--subject-color);
+  color: #fff;
+  box-shadow: 0 6px 14px color-mix(in srgb, var(--subject-color) 25%, transparent);
+}
+
+.tenet-notebook-subject-tab[data-active="true"] small {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.tenet-notebook-compose {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 126px;
+  gap: 10px;
+  margin-left: 26px;
+  padding: 15px;
+  border: 1px solid var(--tenet-notebook-line);
+  border-radius: 15px 15px 15px 5px;
+  background: rgba(255, 253, 247, 0.88);
+  box-shadow: 0 7px 20px rgba(20, 36, 59, 0.08);
+}
+
+.tenet-notebook-field {
+  display: grid;
+  gap: 6px;
+}
+
+.tenet-notebook-field > span {
+  color: rgba(20, 36, 59, 0.66);
+  font: 800 9px/1 "Avenir Next", "Century Gothic", sans-serif;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.tenet-notebook-field input,
+.tenet-notebook-field select,
+.tenet-notebook-page-subject select {
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid rgba(20, 36, 59, 0.18);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--tenet-notebook-ink);
+  font: 650 13px/1.2 "Avenir Next", "Century Gothic", sans-serif;
+}
+
+.tenet-notebook-field input {
+  padding: 8px 10px;
+}
+
+.tenet-notebook-field select,
+.tenet-notebook-page-subject select {
+  padding: 7px 26px 7px 9px;
+}
+
+.tenet-notebook-primary {
+  grid-column: 1 / -1;
+  min-height: 42px;
+  border: 0;
+  border-radius: 9px;
+  background: var(--tenet-notebook-ink);
+  color: #fff;
+  font: 800 13px/1 "Avenir Next", "Century Gothic", sans-serif;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+}
+
+.tenet-notebook-primary:hover {
+  background: #203a5c;
+}
+
+.tenet-notebook-primary:disabled,
+.tenet-notebook-action:disabled,
+.tenet-notebook-page-open:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.tenet-notebook-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 9px;
+  margin: 10px 0 24px 26px;
+}
+
+.tenet-notebook-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid rgba(20, 36, 59, 0.18);
+  border-radius: 10px;
+  background: rgba(255, 253, 247, 0.78);
+  color: var(--tenet-notebook-ink);
+  font: 750 12px/1 "Avenir Next", "Century Gothic", sans-serif;
+  cursor: pointer;
+}
+
+.tenet-notebook-action:hover {
+  border-color: var(--tenet-notebook-copper);
+  background: #fffdf7;
+}
+
+.tenet-notebook-action-icon {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: rgba(189, 109, 58, 0.13);
+  color: var(--tenet-notebook-copper);
+  font-size: 18px;
+}
+
+.tenet-notebook-image-icon {
+  position: relative;
+  width: 20px;
+  height: 16px;
+  border: 2px solid var(--tenet-notebook-green);
+  border-radius: 3px;
+}
+
+.tenet-notebook-image-icon::before {
+  content: "";
+  position: absolute;
+  right: 2px;
+  top: 2px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--tenet-notebook-green);
+}
+
+.tenet-notebook-image-icon::after {
+  content: "";
+  position: absolute;
+  left: 2px;
+  bottom: 2px;
+  width: 11px;
+  height: 7px;
+  background: var(--tenet-notebook-green);
+  clip-path: polygon(0 100%, 38% 25%, 58% 58%, 72% 38%, 100% 100%);
+}
+
+.tenet-notebook-image-wrap {
+  position: relative;
+}
+
+.tenet-notebook-image-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 7px);
+  z-index: 3;
+  width: min(290px, calc(100vw - 48px));
+  padding: 7px;
+  border: 1px solid rgba(20, 36, 59, 0.16);
+  border-radius: 13px;
+  background: #fffdf7;
+  box-shadow: 0 18px 42px rgba(20, 36, 59, 0.23);
+}
+
+.tenet-notebook-image-menu button {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+  padding: 10px 11px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--tenet-notebook-ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.tenet-notebook-image-menu button:hover,
+.tenet-notebook-image-menu button:focus-visible {
+  background: rgba(45, 128, 106, 0.09);
+}
+
+.tenet-notebook-image-menu strong {
+  font: 750 12px/1.2 "Avenir Next", "Century Gothic", sans-serif;
+}
+
+.tenet-notebook-image-menu small {
+  color: rgba(20, 36, 59, 0.64);
+  font: 500 10px/1.35 "Avenir Next", "Century Gothic", sans-serif;
+}
+
+.tenet-notebook-list-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 10px 26px;
+}
+
+.tenet-notebook-list-heading h3 {
+  margin: 0;
+  font: 800 15px/1.2 "Avenir Next", "Century Gothic", sans-serif;
+}
+
+#tenetNotebookStatus {
+  max-width: 210px;
+  color: rgba(20, 36, 59, 0.58);
+  font: 650 10px/1.25 "Avenir Next", "Century Gothic", sans-serif;
+  text-align: right;
+}
+
+#tenetNotebookStatus[data-tone="saved"] {
+  color: var(--tenet-notebook-green);
+}
+
+#tenetNotebookStatus[data-tone="error"] {
+  color: #a23f35;
+}
+
+#tenetNotebookStatus[data-tone="working"] {
+  color: var(--tenet-notebook-copper);
+}
+
+.tenet-notebook-pages {
+  display: grid;
+  gap: 9px;
+  margin-left: 26px;
+}
+
+.tenet-notebook-page-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 112px;
+  align-items: stretch;
+  min-height: 86px;
+  overflow: hidden;
+  border: 1px solid rgba(20, 36, 59, 0.13);
+  border-left: 4px solid var(--subject-color);
+  border-radius: 11px;
+  background: rgba(255, 253, 247, 0.92);
+  box-shadow: 0 5px 15px rgba(20, 36, 59, 0.06);
+}
+
+.tenet-notebook-page-card[data-current="true"] {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--subject-color) 35%, transparent), 0 7px 18px rgba(20, 36, 59, 0.09);
+}
+
+.tenet-notebook-page-open {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr);
+  gap: 11px;
+  align-items: center;
+  min-width: 0;
+  padding: 8px;
+  border: 0;
+  background: transparent;
+  color: var(--tenet-notebook-ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.tenet-notebook-page-open:hover {
+  background: rgba(20, 36, 59, 0.035);
+}
+
+.tenet-notebook-page-preview {
+  display: grid;
+  place-items: center;
+  width: 84px;
+  height: 64px;
+  overflow: hidden;
+  border: 1px solid rgba(20, 36, 59, 0.12);
+  border-radius: 6px;
+  background:
+    repeating-linear-gradient(0deg, transparent 0 12px, rgba(47, 111, 187, 0.08) 12px 13px),
+    #fff;
+}
+
+.tenet-notebook-page-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.tenet-notebook-preview-paper {
+  width: 32px;
+  height: 39px;
+  border: 1px solid rgba(20, 36, 59, 0.2);
+  border-radius: 2px;
+  background: linear-gradient(135deg, #fff 0 78%, #e8dfcf 78%);
+  box-shadow: 3px 3px 0 rgba(20, 36, 59, 0.08);
+}
+
+.tenet-notebook-page-details {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.tenet-notebook-page-details strong,
+.tenet-notebook-page-details span,
+.tenet-notebook-page-details small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tenet-notebook-page-details strong {
+  font: 800 13px/1.2 "Avenir Next", "Century Gothic", sans-serif;
+}
+
+.tenet-notebook-page-details span {
+  color: rgba(20, 36, 59, 0.65);
+  font: 550 10px/1.2 "Avenir Next", "Century Gothic", sans-serif;
+}
+
+.tenet-notebook-page-details small {
+  color: var(--subject-color);
+  font: 750 9px/1.2 "Avenir Next", "Century Gothic", sans-serif;
+  text-transform: uppercase;
+}
+
+.tenet-notebook-page-subject {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 9px;
+  border-left: 1px solid rgba(20, 36, 59, 0.09);
+}
+
+.tenet-notebook-page-subject > span {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--subject-color);
+}
+
+.tenet-notebook-page-subject select {
+  min-width: 0;
+  min-height: 34px;
+  font-size: 10px;
+}
+
+.tenet-notebook-empty {
+  margin: 14px 0 0 26px;
+  padding: 28px 18px;
+  border: 1px dashed rgba(20, 36, 59, 0.22);
+  border-radius: 13px;
+  background: rgba(255, 253, 247, 0.58);
+  text-align: center;
+}
+
+.tenet-notebook-empty-paper {
+  display: block;
+  width: 42px;
+  height: 52px;
+  margin: 0 auto 12px;
+  border: 2px solid rgba(20, 36, 59, 0.28);
+  border-radius: 3px;
+  background: repeating-linear-gradient(0deg, transparent 0 9px, rgba(47, 111, 187, 0.12) 9px 10px);
+  transform: rotate(-3deg);
+}
+
+.tenet-notebook-empty strong {
+  display: block;
+  font: 800 13px/1.2 "Avenir Next", "Century Gothic", sans-serif;
+}
+
+.tenet-notebook-empty p {
+  margin: 6px auto 0;
+  max-width: 250px;
+  color: rgba(20, 36, 59, 0.62);
+  font: 500 11px/1.45 "Avenir Next", "Century Gothic", sans-serif;
+}
+
+@keyframes tenet-notebook-enter {
+  from {
+    opacity: 0;
+    transform: translateX(-22px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@media (max-width: 560px) {
+  .tenet-notebook-panel {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .tenet-notebook-header,
+  .tenet-notebook-local-note,
+  .tenet-notebook-compose,
+  .tenet-notebook-actions,
+  .tenet-notebook-list-heading,
+  .tenet-notebook-pages,
+  .tenet-notebook-empty {
+    margin-left: 18px;
+  }
+
+  .tenet-notebook-subjects {
+    margin-left: -16px;
+    margin-right: -16px;
+    padding-left: 34px;
+    padding-right: 16px;
+  }
+
+  .tenet-notebook-compose {
+    grid-template-columns: minmax(0, 1fr) 106px;
+  }
+
+  .tenet-notebook-page-card {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .tenet-notebook-page-subject {
+    justify-content: flex-end;
+    border-top: 1px solid rgba(20, 36, 59, 0.09);
+    border-left: 0;
+  }
+
+  .tenet-notebook-page-subject select {
+    width: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tenet-notebook-panel,
+  .tenet-notebook-launcher {
+    animation: none;
+    transition: none;
+  }
+}

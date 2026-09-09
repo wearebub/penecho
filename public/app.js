@@ -13858,11 +13858,19 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     selectionToolbar.hidden = false;
     selectionToolbar.setAttribute("aria-busy", String(selectionBusy));
     if (selectionTypesetButton) {
-      selectionTypesetButton.disabled = false;
+      selectionTypesetButton.disabled = selectionBusy;
       selectionTypesetButton.setAttribute("aria-busy", String(isTypesetting));
       selectionTypesetButton.textContent = t(isTypesetting ? "selectionTypesetting" : "selectionTypeset");
     }
     if (selectionDeleteButton) selectionDeleteButton.disabled = selectionBusy;
+    selectionToolbar.querySelectorAll("[data-tenet-selection-ai]").forEach((button) => {
+      const activeAction = selection.aiRequest?.action === button.dataset.tenetSelectionAi;
+      button.disabled = selectionBusy;
+      button.setAttribute("aria-busy", String(activeAction));
+    });
+    selectionToolbar.querySelectorAll("[data-tenet-selection-edit]").forEach((button) => {
+      button.disabled = selectionBusy;
+    });
     const width = selectionToolbar.offsetWidth || 280,
       height = selectionToolbar.offsetHeight || 36,
       left = box.x * state.scale + state.panX,
@@ -13902,6 +13910,41 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     resetCanvasCursor();
     render();
     setStatusKey("selectionDeleted");
+    return true;
+  }
+  function duplicateSelection() {
+    const selection = state.selection;
+    if (!selection || selection.phase !== "active" || selectionAIBusy(selection)) return false;
+    const sourceBox = { ...selection.box },
+      gap = Math.max(24, Math.min(800, 42 / Math.max(0.03, state.scale))),
+      candidates = [
+        { x: sourceBox.x + sourceBox.w + gap, y: sourceBox.y, w: sourceBox.w, h: sourceBox.h },
+        { x: sourceBox.x, y: sourceBox.y + sourceBox.h + gap, w: sourceBox.w, h: sourceBox.h },
+        { x: sourceBox.x - sourceBox.w - gap, y: sourceBox.y, w: sourceBox.w, h: sourceBox.h },
+        { x: sourceBox.x, y: sourceBox.y - sourceBox.h - gap, w: sourceBox.w, h: sourceBox.h },
+      ],
+      inBounds = (box) => box.x >= 0 && box.y >= 0 && box.x + box.w <= SIZE && box.y + box.h <= SIZE,
+      overlaps = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y,
+      duplicateBox = candidates.find((candidate) => inBounds(candidate) && !overlaps(candidate, sourceBox)) || {
+        x: Math.max(0, Math.min(SIZE - sourceBox.w, sourceBox.x + gap)),
+        y: Math.max(0, Math.min(SIZE - sourceBox.h, sourceBox.y + gap)),
+        w: sourceBox.w,
+        h: sourceBox.h,
+      },
+      duplicatePath = SELECT.mapPath(selectionPathFor(selection), sourceBox, duplicateBox);
+    state.selection = null;
+    state.selectionGesture = null;
+    for (const fragment of selection.fragments) {
+      const image = fragment.renderImage || fragment.image,
+        sourceTarget = SELECT.mapFragment(fragment, selection.originalBox, sourceBox),
+        duplicateTarget = SELECT.mapFragment(fragment, selection.originalBox, duplicateBox);
+      blitSized(image, sourceTarget.x, sourceTarget.y, sourceTarget.w, sourceTarget.h);
+      blitSized(image, duplicateTarget.x, duplicateTarget.y, duplicateTarget.w, duplicateTarget.h);
+    }
+    state.userRevision++;
+    saveUserCanvasChange();
+    resetCanvasCursor();
+    captureSelection(duplicatePath);
     return true;
   }
   function buildSelectionTypesetRequest(selection) {
@@ -22946,6 +22989,742 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     reset:keyboardShortcutResetAll,
     open:() => { selectSettingsPage("shortcuts"); return openSettings(); },
   });
+(function initTenetNotebookModule() {
+  "use strict";
+
+  if (!window.PENECHO_CONFIG || window.PENECHO_CONFIG.tenetMode !== true) return;
+
+  const NOTEBOOK_STORAGE_KEY = "tenet-notebook-v1";
+  const AUTOSAVE_IDLE_MS = 1800;
+  const AUTOSAVE_POLL_MS = 900;
+  const SUBJECTS = Object.freeze([
+    { id: "math", label: "Math", color: "#2f6fbb" },
+    { id: "science", label: "Science", color: "#2d806a" },
+    { id: "english", label: "English", color: "#bd6d3a" },
+    { id: "social-studies", label: "Social Studies", color: "#8a5a44" },
+    { id: "other", label: "Other", color: "#667085" },
+  ]);
+  const SUBJECT_IDS = new Set(SUBJECTS.map((subject) => subject.id));
+
+  let metadata = readMetadata();
+  let latestPages = [];
+  let previewUrls = [];
+  let refreshSequence = 0;
+  let notebookSaveInFlight = false;
+  let editorSnapshotKey = null;
+  let lastObservedRevision = Number(state.userRevision) || 0;
+  let lastRevisionChangeAt = Date.now();
+  let autosaveInterval = null;
+  let restoreFocusTarget = null;
+
+  let launcher;
+  let pageCount;
+  let overlay;
+  let panel;
+  let closeButton;
+  let subjectTabs;
+  let titleInput;
+  let subjectSelect;
+  let saveButton;
+  let newPageButton;
+  let imageButton;
+  let imageMenu;
+  let pencilButton;
+  let cameraInput;
+  let pageList;
+  let emptyState;
+  let statusLine;
+
+  function readMetadata() {
+    const fallback = { version: 1, activeSubject: "all", pages: {} };
+    try {
+      const parsed = JSON.parse(window.localStorage.getItem(NOTEBOOK_STORAGE_KEY) || "null");
+      if (!parsed || typeof parsed !== "object") return fallback;
+
+      const pages = {};
+      const entries = Object.entries(parsed.pages && typeof parsed.pages === "object" ? parsed.pages : {});
+      for (const [snapshotId, value] of entries.slice(0, 1000)) {
+        if (!snapshotId || snapshotId.length > 160 || !value || typeof value !== "object") continue;
+        const subjectId = SUBJECT_IDS.has(value.subjectId) ? value.subjectId : "other";
+        pages[snapshotId] = { subjectId };
+      }
+
+      return {
+        version: 1,
+        activeSubject:
+          parsed.activeSubject === "all" || SUBJECT_IDS.has(parsed.activeSubject)
+            ? parsed.activeSubject
+            : "all",
+        pages,
+      };
+    } catch (_error) {
+      return fallback;
+    }
+  }
+
+  function writeMetadata() {
+    try {
+      window.localStorage.setItem(NOTEBOOK_STORAGE_KEY, JSON.stringify(metadata));
+      return true;
+    } catch (_error) {
+      setNotebookStatus("Subject changes could not be stored on this device.", "error");
+      return false;
+    }
+  }
+
+  function ensureStylesheet() {
+    if (document.querySelector('link[data-tenet-notebook="true"]')) return;
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.href = "/tenet-notebook.css";
+    link.dataset.tenetNotebook = "true";
+    document.head.appendChild(link);
+  }
+
+  function subjectForPage(page) {
+    const stored = metadata.pages[page.id];
+    return stored && SUBJECT_IDS.has(stored.subjectId) ? stored.subjectId : "other";
+  }
+
+  function subjectById(subjectId) {
+    return SUBJECTS.find((subject) => subject.id === subjectId) || SUBJECTS[SUBJECTS.length - 1];
+  }
+
+  function currentDeviceSnapshotId() {
+    return state.currentSnapshotLocation === "device" && state.currentSnapshotId
+      ? state.currentSnapshotId
+      : null;
+  }
+
+  function defaultPageName() {
+    const date = new Date();
+    return `Page ${date.toLocaleDateString([], { month: "short", day: "numeric" })} ${date.toLocaleTimeString([], {
+      hour: "numeric",
+      minute: "2-digit",
+    })}`.slice(0, 48);
+  }
+
+  function setNotebookStatus(message, tone = "neutral") {
+    if (!statusLine) return;
+    statusLine.textContent = message;
+    statusLine.dataset.tone = tone;
+  }
+
+  function revokePreviewUrls() {
+    for (const url of previewUrls) URL.revokeObjectURL(url);
+    previewUrls = [];
+  }
+
+  function buildShell() {
+    launcher = document.createElement("button");
+    launcher.type = "button";
+    launcher.id = "tenetNotebookLauncher";
+    launcher.className = "tenet-notebook-launcher";
+    launcher.setAttribute("aria-controls", "tenetNotebookOverlay");
+    launcher.setAttribute("aria-expanded", "false");
+    launcher.innerHTML = `
+      <span class="tenet-notebook-launcher-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span>Notebook</span>
+      <span id="tenetNotebookPageCount" class="tenet-notebook-count">0</span>
+    `;
+
+    overlay = document.createElement("div");
+    overlay.id = "tenetNotebookOverlay";
+    overlay.className = "tenet-notebook-overlay";
+    overlay.hidden = true;
+    overlay.innerHTML = `
+      <button class="tenet-notebook-backdrop" type="button" aria-label="Close notebook"></button>
+      <aside class="tenet-notebook-panel" role="dialog" aria-modal="true" aria-labelledby="tenetNotebookTitle">
+        <header class="tenet-notebook-header">
+          <div>
+            <span class="tenet-notebook-eyebrow">TENET WHITEBOARD</span>
+            <h2 id="tenetNotebookTitle">My notebook</h2>
+          </div>
+          <button id="tenetNotebookClose" class="tenet-notebook-icon-button" type="button" aria-label="Close notebook">
+            <span aria-hidden="true">&times;</span>
+          </button>
+        </header>
+
+        <div class="tenet-notebook-local-note">
+          <span class="tenet-notebook-local-dot" aria-hidden="true"></span>
+          Saved on this device only
+        </div>
+
+        <nav id="tenetNotebookSubjects" class="tenet-notebook-subjects" role="tablist" aria-label="Notebook subjects"></nav>
+
+        <section class="tenet-notebook-compose" aria-label="Current page">
+          <label class="tenet-notebook-field tenet-notebook-title-field">
+            <span>Page title</span>
+            <input id="tenetNotebookPageTitle" type="text" maxlength="48" autocomplete="off" placeholder="Untitled page" />
+          </label>
+          <label class="tenet-notebook-field tenet-notebook-subject-field">
+            <span>Subject</span>
+            <select id="tenetNotebookPageSubject"></select>
+          </label>
+          <button id="tenetNotebookSave" class="tenet-notebook-primary" type="button">Save page</button>
+        </section>
+
+        <div class="tenet-notebook-actions">
+          <button id="tenetNotebookNewPage" class="tenet-notebook-action" type="button">
+            <span class="tenet-notebook-action-icon" aria-hidden="true">+</span>
+            New page
+          </button>
+          <div class="tenet-notebook-image-wrap">
+            <button id="tenetNotebookImage" class="tenet-notebook-action" type="button" aria-haspopup="menu" aria-expanded="false">
+              <span class="tenet-notebook-image-icon" aria-hidden="true"></span>
+              Add image
+            </button>
+            <div id="tenetNotebookImageMenu" class="tenet-notebook-image-menu" role="menu" hidden>
+              <button type="button" role="menuitem" data-image-action="library">
+                <strong>Photos &amp; Files</strong>
+                <small>Choose an image already on your iPad</small>
+              </button>
+              <button type="button" role="menuitem" data-image-action="camera">
+                <strong>Take a photo</strong>
+                <small>Capture a worksheet, diagram, or notes</small>
+              </button>
+              <button id="tenetNotebookPencil" type="button" role="menuitem" data-image-action="pencil" hidden>
+                <strong>Pencil Studio</strong>
+                <small>Draw with Apple Pencil, then place it here</small>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="tenet-notebook-list-heading">
+          <h3>Saved pages</h3>
+          <span id="tenetNotebookStatus" aria-live="polite">Ready</span>
+        </div>
+        <div id="tenetNotebookPages" class="tenet-notebook-pages"></div>
+        <div id="tenetNotebookEmpty" class="tenet-notebook-empty" hidden>
+          <span class="tenet-notebook-empty-paper" aria-hidden="true"></span>
+          <strong>No pages in this subject yet</strong>
+          <p>Draw something, give it a title, and save your first page.</p>
+        </div>
+      </aside>
+    `;
+
+    document.body.append(launcher, overlay);
+
+    pageCount = launcher.querySelector("#tenetNotebookPageCount");
+    panel = overlay.querySelector(".tenet-notebook-panel");
+    closeButton = overlay.querySelector("#tenetNotebookClose");
+    subjectTabs = overlay.querySelector("#tenetNotebookSubjects");
+    titleInput = overlay.querySelector("#tenetNotebookPageTitle");
+    subjectSelect = overlay.querySelector("#tenetNotebookPageSubject");
+    saveButton = overlay.querySelector("#tenetNotebookSave");
+    newPageButton = overlay.querySelector("#tenetNotebookNewPage");
+    imageButton = overlay.querySelector("#tenetNotebookImage");
+    imageMenu = overlay.querySelector("#tenetNotebookImageMenu");
+    pencilButton = overlay.querySelector("#tenetNotebookPencil");
+    pageList = overlay.querySelector("#tenetNotebookPages");
+    emptyState = overlay.querySelector("#tenetNotebookEmpty");
+    statusLine = overlay.querySelector("#tenetNotebookStatus");
+
+    for (const subject of SUBJECTS) {
+      const option = document.createElement("option");
+      option.value = subject.id;
+      option.textContent = subject.label;
+      subjectSelect.appendChild(option);
+    }
+    subjectSelect.value = metadata.activeSubject === "all" ? "other" : metadata.activeSubject;
+
+    cameraInput = document.createElement("input");
+    cameraInput.type = "file";
+    cameraInput.accept = "image/*";
+    cameraInput.setAttribute("capture", "environment");
+    cameraInput.hidden = true;
+    overlay.appendChild(cameraInput);
+  }
+
+  function renderSubjectTabs(pages) {
+    subjectTabs.replaceChildren();
+    const tabs = [{ id: "all", label: "All", color: "#14243b" }, ...SUBJECTS];
+
+    for (const subject of tabs) {
+      const count =
+        subject.id === "all" ? pages.length : pages.filter((page) => subjectForPage(page) === subject.id).length;
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "tenet-notebook-subject-tab";
+      button.setAttribute("role", "tab");
+      button.setAttribute("aria-selected", String(metadata.activeSubject === subject.id));
+      button.dataset.active = String(metadata.activeSubject === subject.id);
+      button.style.setProperty("--subject-color", subject.color);
+
+      const label = document.createElement("span");
+      label.textContent = subject.label;
+      const countLabel = document.createElement("small");
+      countLabel.textContent = String(count);
+      button.append(label, countLabel);
+
+      button.addEventListener("click", () => {
+        metadata.activeSubject = subject.id;
+        writeMetadata();
+        if (subject.id !== "all" && !currentDeviceSnapshotId()) subjectSelect.value = subject.id;
+        renderNotebook(latestPages);
+      });
+      subjectTabs.appendChild(button);
+    }
+  }
+
+  function createPageCard(page) {
+    const subjectId = subjectForPage(page);
+    const subject = subjectById(subjectId);
+    const current = currentDeviceSnapshotId() === page.id;
+    const card = document.createElement("article");
+    card.className = "tenet-notebook-page-card";
+    card.dataset.current = String(current);
+    card.style.setProperty("--subject-color", subject.color);
+
+    const openButton = document.createElement("button");
+    openButton.type = "button";
+    openButton.className = "tenet-notebook-page-open";
+    openButton.setAttribute("aria-label", `Open ${snapshotName(page)}`);
+
+    const preview = document.createElement("span");
+    preview.className = "tenet-notebook-page-preview";
+    if (page.preview instanceof Blob) {
+      const url = URL.createObjectURL(page.preview);
+      previewUrls.push(url);
+      const image = document.createElement("img");
+      image.src = url;
+      image.alt = "";
+      preview.appendChild(image);
+    } else {
+      const paper = document.createElement("span");
+      paper.className = "tenet-notebook-preview-paper";
+      paper.setAttribute("aria-hidden", "true");
+      preview.appendChild(paper);
+    }
+
+    const details = document.createElement("span");
+    details.className = "tenet-notebook-page-details";
+    const heading = document.createElement("strong");
+    heading.textContent = snapshotName(page);
+    const date = document.createElement("span");
+    const timestamp = Number(page.updatedAt || page.createdAt || Date.now());
+    date.textContent = new Date(timestamp).toLocaleString([], {
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+    const facts = document.createElement("small");
+    const imageCount = Array.isArray(page.images) ? page.images.length : 0;
+    facts.textContent = current ? "Open now" : imageCount ? `${imageCount} image${imageCount === 1 ? "" : "s"}` : "Canvas page";
+    details.append(heading, date, facts);
+    openButton.append(preview, details);
+
+    openButton.addEventListener("click", async () => {
+      openButton.disabled = true;
+      setNotebookStatus("Opening page...", "working");
+      try {
+        await requestLoadSnapshot(page.id, "device");
+      } finally {
+        openButton.disabled = false;
+        closeNotebook();
+      }
+    });
+
+    const move = document.createElement("label");
+    move.className = "tenet-notebook-page-subject";
+    const dot = document.createElement("span");
+    dot.setAttribute("aria-hidden", "true");
+    const moveSelect = document.createElement("select");
+    moveSelect.setAttribute("aria-label", `Move ${snapshotName(page)} to subject`);
+    for (const candidate of SUBJECTS) {
+      const option = document.createElement("option");
+      option.value = candidate.id;
+      option.textContent = candidate.label;
+      moveSelect.appendChild(option);
+    }
+    moveSelect.value = subjectId;
+    moveSelect.addEventListener("change", () => {
+      metadata.pages[page.id] = { subjectId: moveSelect.value };
+      writeMetadata();
+      if (currentDeviceSnapshotId() === page.id) subjectSelect.value = moveSelect.value;
+      renderNotebook(latestPages);
+    });
+    move.append(dot, moveSelect);
+
+    card.append(openButton, move);
+    return card;
+  }
+
+  function syncEditorForCurrentPage(pages, force = false) {
+    const currentId = currentDeviceSnapshotId();
+    const currentPage = currentId ? pages.find((page) => page.id === currentId) : null;
+    const key = currentPage ? `device:${currentPage.id}` : state.currentSnapshotId ? `remote:${state.currentSnapshotId}` : "blank";
+    if (!force && key === editorSnapshotKey) return;
+    editorSnapshotKey = key;
+
+    if (document.activeElement !== titleInput) {
+      titleInput.value = currentPage
+        ? snapshotName(currentPage)
+        : typeof state.currentSnapshotName === "string"
+          ? state.currentSnapshotName
+          : "";
+    }
+
+    if (currentPage) {
+      subjectSelect.value = subjectForPage(currentPage);
+    } else if (metadata.activeSubject !== "all") {
+      subjectSelect.value = metadata.activeSubject;
+    } else {
+      subjectSelect.value = "other";
+    }
+  }
+
+  function renderNotebook(pages) {
+    revokePreviewUrls();
+    pageCount.textContent = String(pages.length);
+    renderSubjectTabs(pages);
+    syncEditorForCurrentPage(pages);
+    pageList.replaceChildren();
+
+    const visiblePages =
+      metadata.activeSubject === "all"
+        ? pages
+        : pages.filter((page) => subjectForPage(page) === metadata.activeSubject);
+
+    for (const page of visiblePages) pageList.appendChild(createPageCard(page));
+    emptyState.hidden = visiblePages.length !== 0;
+  }
+
+  async function refreshPages(quiet = false) {
+    const sequence = ++refreshSequence;
+    if (!quiet) setNotebookStatus("Loading local pages...", "working");
+    try {
+      const pages = await allSnapshots();
+      if (sequence !== refreshSequence) return;
+      latestPages = pages;
+
+      const liveIds = new Set(pages.map((page) => page.id));
+      let pruned = false;
+      for (const snapshotId of Object.keys(metadata.pages)) {
+        if (liveIds.has(snapshotId)) continue;
+        delete metadata.pages[snapshotId];
+        pruned = true;
+      }
+      if (pruned) writeMetadata();
+
+      renderNotebook(pages);
+      if (!quiet) setNotebookStatus(`${pages.length} page${pages.length === 1 ? "" : "s"} stored locally`, "saved");
+    } catch (_error) {
+      if (sequence !== refreshSequence) return;
+      setNotebookStatus("Local pages could not be opened.", "error");
+    }
+  }
+
+  function closeImageMenu() {
+    imageMenu.hidden = true;
+    imageButton.setAttribute("aria-expanded", "false");
+  }
+
+  function toggleImageMenu() {
+    const nativePlugin = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.TenetNative;
+    pencilButton.hidden = !nativePlugin;
+    const willOpen = imageMenu.hidden;
+    imageMenu.hidden = !willOpen;
+    imageButton.setAttribute("aria-expanded", String(willOpen));
+    if (willOpen) {
+      const firstAction = imageMenu.querySelector('button:not([hidden])');
+      if (firstAction) firstAction.focus();
+    }
+  }
+
+  async function saveNotebookPage({ autosave = false } = {}) {
+    if (notebookSaveInFlight) return null;
+    const existingId = currentDeviceSnapshotId();
+    if (autosave && (!existingId || !metadata.pages[existingId])) return null;
+    if (autosave && Number(state.userRevision) === Number(state.snapshotSavedRevision)) return existingId;
+
+    notebookSaveInFlight = true;
+    saveButton.disabled = true;
+    setNotebookStatus(autosave ? "Autosaving..." : "Saving page...", "working");
+
+    const enteredName = titleInput.value.trim();
+    const storedName = typeof state.currentSnapshotName === "string" ? state.currentSnapshotName.trim() : "";
+    const name = (enteredName || storedName || defaultPageName()).slice(0, 48);
+    const subjectId = SUBJECT_IDS.has(subjectSelect.value) ? subjectSelect.value : "other";
+
+    try {
+      const snapshotId = await saveSnapshot({
+        overwriteId: existingId,
+        name,
+        location: "device",
+      });
+      if (!snapshotId) {
+        setNotebookStatus("Add something to the canvas before saving.", "error");
+        return null;
+      }
+
+      metadata.pages[snapshotId] = { subjectId };
+      writeMetadata();
+      editorSnapshotKey = null;
+      lastObservedRevision = Number(state.userRevision) || 0;
+      lastRevisionChangeAt = Date.now();
+      await refreshPages(true);
+      setNotebookStatus(autosave ? "Autosaved on this device" : "Saved on this device", "saved");
+      return snapshotId;
+    } catch (_error) {
+      setNotebookStatus("This page could not be saved locally.", "error");
+      return null;
+    } finally {
+      notebookSaveInFlight = false;
+      saveButton.disabled = false;
+    }
+  }
+
+  async function createNewPage() {
+    newPageButton.disabled = true;
+    setNotebookStatus("Starting a new page...", "working");
+    try {
+      await requestCanvasTransition({ type: "new" });
+    } finally {
+      newPageButton.disabled = false;
+      closeNotebook();
+    }
+  }
+
+  function openNotebook() {
+    restoreFocusTarget = document.activeElement instanceof HTMLElement ? document.activeElement : launcher;
+    overlay.hidden = false;
+    launcher.setAttribute("aria-expanded", "true");
+    document.body.classList.add("tenet-notebook-open");
+    closeImageMenu();
+    void refreshPages();
+    window.requestAnimationFrame(() => closeButton.focus());
+  }
+
+  function closeNotebook() {
+    if (overlay.hidden) return;
+    overlay.hidden = true;
+    launcher.setAttribute("aria-expanded", "false");
+    document.body.classList.remove("tenet-notebook-open");
+    closeImageMenu();
+    if (restoreFocusTarget && restoreFocusTarget.isConnected) restoreFocusTarget.focus();
+    restoreFocusTarget = null;
+  }
+
+  function handleDocumentPointerDown(event) {
+    if (imageMenu.hidden) return;
+    if (imageMenu.contains(event.target) || imageButton.contains(event.target)) return;
+    closeImageMenu();
+  }
+
+  function handleDocumentKeydown(event) {
+    if (event.key !== "Escape") return;
+    if (!imageMenu.hidden) {
+      closeImageMenu();
+      imageButton.focus();
+      return;
+    }
+    closeNotebook();
+  }
+
+  function monitorAutosave() {
+    const revision = Number(state.userRevision) || 0;
+    if (revision !== lastObservedRevision) {
+      lastObservedRevision = revision;
+      lastRevisionChangeAt = Date.now();
+    }
+
+    syncEditorForCurrentPage(latestPages);
+    const currentId = currentDeviceSnapshotId();
+    if (!currentId || !metadata.pages[currentId]) return;
+    if (revision === Number(state.snapshotSavedRevision)) return;
+    if (Date.now() - lastRevisionChangeAt < AUTOSAVE_IDLE_MS) return;
+    if (notebookSaveInFlight || state.drawing || state.imageImporting) return;
+    void saveNotebookPage({ autosave: true });
+  }
+
+  function bindEvents() {
+    launcher.addEventListener("click", openNotebook);
+    closeButton.addEventListener("click", closeNotebook);
+    overlay.querySelector(".tenet-notebook-backdrop").addEventListener("click", closeNotebook);
+    saveButton.addEventListener("click", () => void saveNotebookPage());
+    newPageButton.addEventListener("click", () => void createNewPage());
+    imageButton.addEventListener("click", toggleImageMenu);
+
+    imageMenu.addEventListener("click", (event) => {
+      const action = event.target.closest("[data-image-action]");
+      if (!action) return;
+      const kind = action.dataset.imageAction;
+      closeImageMenu();
+
+      if (kind === "library") {
+        const existingPicker = document.querySelector("#imagePickerBtn");
+        if (existingPicker) existingPicker.click();
+      } else if (kind === "camera") {
+        cameraInput.click();
+      } else if (kind === "pencil") {
+        const nativePencilButton = document.querySelector("#tenetNativeActions .tenet-native-action-primary");
+        if (nativePencilButton) nativePencilButton.click();
+        else setNotebookStatus("Pencil Studio is available in the installed iPad app.", "neutral");
+      }
+    });
+
+    cameraInput.addEventListener("change", async () => {
+      const file = cameraInput.files && cameraInput.files[0];
+      cameraInput.value = "";
+      if (!file) return;
+      closeNotebook();
+      await addImageFile(file);
+    });
+
+    subjectSelect.addEventListener("change", () => {
+      const currentId = currentDeviceSnapshotId();
+      if (!currentId || !metadata.pages[currentId]) return;
+      metadata.pages[currentId] = { subjectId: subjectSelect.value };
+      writeMetadata();
+      renderNotebook(latestPages);
+    });
+
+    document.addEventListener("pointerdown", handleDocumentPointerDown);
+    document.addEventListener("keydown", handleDocumentKeydown);
+    autosaveInterval = window.setInterval(monitorAutosave, AUTOSAVE_POLL_MS);
+
+    window.addEventListener(
+      "pagehide",
+      () => {
+        window.clearInterval(autosaveInterval);
+        document.removeEventListener("pointerdown", handleDocumentPointerDown);
+        document.removeEventListener("keydown", handleDocumentKeydown);
+        revokePreviewUrls();
+      },
+      { once: true },
+    );
+  }
+
+  function installNotebook() {
+    ensureStylesheet();
+    buildShell();
+    bindEvents();
+    void refreshPages(true);
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", installNotebook, { once: true });
+  } else {
+    installNotebook();
+  }
+})();
+(function initializeTenetSelectionToolsModule() {
+  if (typeof PENECHO_CONFIG === "undefined" || !PENECHO_CONFIG.tenetMode) return;
+
+  const AI_ACTIONS = [
+      { action: "explain", label: "Explain" },
+      { action: "check", label: "Check step" },
+      { action: "practice", label: "Practice" },
+      { action: "hint", label: "Hint" },
+    ],
+    INK_COLORS = ["#172a3a", "#2166d1", "#c9362b", "#1f7a4d", "#d27a00"];
+
+  function addStylesheet() {
+    if (document.querySelector('link[data-tenet-selection-styles]')) return;
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.href = "/tenet-selection-tools.css";
+    link.dataset.tenetSelectionStyles = "true";
+    document.head.append(link);
+  }
+
+  function makeButton(label, className) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = className;
+    button.textContent = label;
+    return button;
+  }
+
+  function mount() {
+    const toolbar = document.getElementById("selectionToolbar");
+    if (!toolbar || toolbar.querySelector("[data-tenet-selection-tools]")) return;
+    addStylesheet();
+    toolbar.classList.add("tenet-selection-toolbar");
+
+    const scopeNotice = document.getElementById("selectionScopeNotice");
+    if (scopeNotice) scopeNotice.textContent = "Only the pixels inside your circle are sent for this AI request.";
+
+    const tools = document.createElement("div");
+    tools.className = "tenet-selection-tools";
+    tools.dataset.tenetSelectionTools = "true";
+
+    const aiGroup = document.createElement("div");
+    aiGroup.className = "tenet-selection-group tenet-selection-ai-group";
+    aiGroup.setAttribute("aria-label", "Ask Tenet about this selection");
+    const aiLabel = document.createElement("span");
+    aiLabel.className = "tenet-selection-label";
+    aiLabel.textContent = "Ask Tenet";
+    aiGroup.append(aiLabel);
+    for (const item of AI_ACTIONS) {
+      const button = makeButton(item.label, "tenet-selection-button tenet-selection-ai-button");
+      button.dataset.tenetSelectionAi = item.action;
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        void invokeAIAction(item.action);
+      });
+      aiGroup.append(button);
+    }
+
+    const editGroup = document.createElement("div");
+    editGroup.className = "tenet-selection-group tenet-selection-edit-group";
+    editGroup.setAttribute("aria-label", "Edit selected ink");
+    const editLabel = document.createElement("span");
+    editLabel.className = "tenet-selection-label";
+    editLabel.textContent = "Edit ink";
+    editGroup.append(editLabel);
+
+    const colors = document.createElement("div");
+    colors.className = "tenet-selection-colors";
+    colors.setAttribute("aria-label", "Recolor selected ink");
+    for (const color of INK_COLORS) {
+      const swatch = makeButton("", "tenet-selection-color");
+      swatch.dataset.tenetSelectionEdit = "recolor";
+      swatch.style.setProperty("--selection-color", color);
+      swatch.setAttribute("aria-label", `Recolor selection ${color}`);
+      swatch.addEventListener("click", (event) => {
+        event.preventDefault();
+        applySelectionColor(color);
+      });
+      colors.append(swatch);
+    }
+    editGroup.append(colors);
+
+    const duplicateButton = makeButton("Duplicate", "tenet-selection-button");
+    duplicateButton.dataset.tenetSelectionEdit = "duplicate";
+    duplicateButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      duplicateSelection();
+    });
+    editGroup.append(duplicateButton);
+
+    for (const action of ["undo", "redo"]) {
+      const button = makeButton(action === "undo" ? "Undo" : "Redo", "tenet-selection-button tenet-selection-history-button");
+      button.dataset.tenetSelectionEdit = action;
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        document.querySelector(`[data-action="${action}"]`)?.click();
+      });
+      editGroup.append(button);
+    }
+
+    const hint = document.createElement("p");
+    hint.className = "tenet-selection-hint";
+    hint.textContent = "Drag the selection to move it. Drag an edge handle to resize it.";
+
+    tools.append(aiGroup, editGroup, hint);
+    toolbar.append(tools);
+
+    const deleteButton = document.getElementById("selectionDeleteBtn");
+    if (deleteButton) deleteButton.textContent = "Erase selection";
+  }
+
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", mount, { once: true });
+  else mount();
+})();
 // Pointer and control bindings, portable snapshots, and application startup.
   const ERASER_TOOL_MENU_MS = 5000;
   let eraserToolMenuTimer = 0;
@@ -23034,14 +23813,17 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     event.preventDefault();
     event.stopImmediatePropagation();
   }, true);
-  // Tenet MVP fork: upstream keeps finger = navigation and only a stylus inks.
-  // On a phone without a stylus that reads as "I cannot draw", so in Tenet
-  // mode one finger inks in pen/eraser mode on phone-sized touch screens; two
-  // fingers still pan and pinch (the second finger ends the stroke and starts
-  // the gesture). Tablets keep the upstream contract: stylus inks, finger
-  // pans, so a resting palm never draws. PENECHO_CONFIG.tenetFingerDraws:
-  // undefined/"phone" (default) | "always" | false.
+  // Tenet ink contract: one finger draws in pen/eraser mode and two fingers
+  // navigate. Pencil contact temporarily suppresses touch so a resting palm
+  // cannot replace an active Pencil stroke. District/device configuration may
+  // still force phone-only drawing or disable finger drawing entirely.
+  // PENECHO_CONFIG.tenetFingerDraws: undefined/true/"always" (default) |
+  // "phone" | false.
   const PHONE_MAX_SHORT_SIDE_PX = 700; // iPad mini is 744 CSS px on its short side; phones are under 500.
+  const TENET_PALM_CONTACT_MIN_PX = 46;
+  const TENET_PENCIL_TOUCH_GUARD_MS = 360;
+  const ignoredTouchPointerIds = new Set();
+  let lastPencilContactAt = -Infinity;
   const phoneLikeScreen = () => {
     const shortSide = Math.min(Number(window.screen?.width) || 0, Number(window.screen?.height) || 0);
     return typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches && shortSide > 0 && shortSide < PHONE_MAX_SHORT_SIDE_PX;
@@ -23050,9 +23832,32 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     if (window.PENECHO_CONFIG?.tenetMode !== true) return false;
     const setting = window.PENECHO_CONFIG?.tenetFingerDraws;
     if (setting === false) return false;
-    if (setting === true || setting === "always") return true;
-    return phoneLikeScreen();
+    if (setting === "phone") return phoneLikeScreen();
+    return true;
   };
+  const pencilTouchGuardActive = () => state.drawing?.inputType === "pen" || performance.now() - lastPencilContactAt < TENET_PENCIL_TOUCH_GUARD_MS;
+  const palmLikeTouch = (event) => {
+    if (event.pointerType !== "touch") return false;
+    const width = Number(event.width) || 0,
+      height = Number(event.height) || 0;
+    return width >= TENET_PALM_CONTACT_MIN_PX && height >= TENET_PALM_CONTACT_MIN_PX;
+  };
+  function cancelUncommittedFingerStrokeForPencil() {
+    const drawing = state.drawing;
+    if (!drawing || drawing.inputType !== "touch") return false;
+    if (drawing.committedSamples > 0) {
+      finishDrawing("touch");
+      return true;
+    }
+    state.drawing = null;
+    state.pointers.delete(drawing.id);
+    state.touches.delete(drawing.id);
+    clearLiveInkLayer();
+    requestCommittedInkRender();
+    requestInteractionLayerRender();
+    view.classList.remove("is-drawing");
+    return true;
+  }
   const touchInks = (e) => e.pointerType === "touch" && fingerDraws() && ["pen", "eraser"].includes(state.mode) && state.touches.size < 2;
   function beginCanvasPointerAction(e, point) {
     const options = arguments[2] || {};
@@ -23130,7 +23935,14 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     state.userRevision++;
     state.drawing = {
       id: e.pointerId,
+      inputType: e.pointerType,
+      startedAt: performance.now(),
       last: p,
+      rawLast: p,
+      filteredPoint: p,
+      filteredCssSize: cssSize,
+      lastSampleTimestamp: Number(e.timeStamp) || performance.now(),
+      lastClientPoint: { x:e.clientX, y:e.clientY },
       size,
       color: state.inkColor,
       inputTransform: options.inputTransform || captureDrawingTransform(),
@@ -23186,8 +23998,14 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     // a focused text field. On iPadOS, Scribble takes over Pencil strokes
     // when an editable element has focus (choppy ink, selection gestures).
     if (e.pointerType === "pen" && window.PENECHO_CONFIG?.tenetMode === true) {
+      lastPencilContactAt = performance.now();
+      cancelUncommittedFingerStrokeForPencil();
       const active = document.activeElement;
       if (active && active !== document.body && typeof active.matches === "function" && active.matches("input, textarea, select, [contenteditable=''], [contenteditable='true']")) active.blur();
+    }
+    if (e.pointerType === "touch" && window.PENECHO_CONFIG?.tenetMode === true && (pencilTouchGuardActive() || palmLikeTouch(e))) {
+      ignoredTouchPointerIds.add(e.pointerId);
+      return;
     }
     if (state.viewMode) {
       if (e.pointerType === "mouse" && ![0, 1].includes(e.button)) return;
@@ -23301,29 +24119,103 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     hideHandObjectToolbar({ all:true });
     beginCanvasPointerAction(e, point);
   });
-  function updateActiveCanvasDrawing(e) {
+  function normalizedDrawingSamples(event) {
+    const coalesced = typeof event.getCoalescedEvents === "function" ? event.getCoalescedEvents() : [],
+      source = coalesced.length ? [...coalesced] : [event],
+      last = source.at(-1);
+    if (!last || Math.abs(Number(last.clientX) - Number(event.clientX)) > 0.01 || Math.abs(Number(last.clientY) - Number(event.clientY)) > 0.01) source.push(event);
+    return source.map((sample) => ({
+      clientX:Number(sample.clientX),
+      clientY:Number(sample.clientY),
+      pointerType:event.pointerType,
+      pressure:Number.isFinite(sample.pressure) && sample.pressure > 0 ? sample.pressure : event.pressure,
+      timeStamp:Number(sample.timeStamp) || Number(event.timeStamp) || performance.now(),
+    }));
+  }
+  function stabilizedDrawingPoint(drawing, rawPoint, forceEndpoint = false) {
+    if (drawing.inputType !== "touch") return rawPoint;
+    const previous = drawing.filteredPoint || rawPoint,
+      screenDistance = Math.hypot(rawPoint.x - previous.x, rawPoint.y - previous.y) * state.scale,
+      alpha = forceEndpoint ? .9 : Math.max(.42, Math.min(.84, .42 + screenDistance / 18)),
+      filtered = {
+        x:previous.x + (rawPoint.x - previous.x) * alpha,
+        y:previous.y + (rawPoint.y - previous.y) * alpha,
+      };
+    drawing.filteredPoint = filtered;
+    return filtered;
+  }
+  function stabilizedDrawingWidth(drawing, cssSize) {
+    if (drawing.erase) return cssSize;
+    const previous = Number(drawing.filteredCssSize) || cssSize,
+      alpha = drawing.inputType === "pen" ? .46 : .7,
+      filtered = previous + (cssSize - previous) * alpha;
+    drawing.filteredCssSize = filtered;
+    return filtered;
+  }
+  function updateDrawingPrediction(drawing, event) {
+    const hadPreview = Boolean(drawing.preview);
+    drawing.preview = null;
+    if (drawing.erase || typeof event.getPredictedEvents !== "function") {
+      if (hadPreview) requestInteractionLayerRender();
+      return;
+    }
+    const predictions = event.getPredictedEvents();
+    if (!predictions?.length || !drawing.samples.length) {
+      if (hadPreview) requestInteractionLayerRender();
+      return;
+    }
+    const prediction = predictions[Math.min(predictions.length, 4) - 1],
+      anchor = drawing.samples.at(-1),
+      rawPoint = drawingClientPoint(drawing, prediction),
+      dx = rawPoint.x - anchor.point.x,
+      dy = rawPoint.y - anchor.point.y,
+      screenDistance = Math.hypot(dx, dy) * state.scale,
+      maximumDistance = 34,
+      ratio = screenDistance > maximumDistance ? maximumDistance / screenDistance : 1,
+      point = { x:anchor.point.x + dx * ratio, y:anchor.point.y + dy * ratio },
+      predictedEvent = {
+        pointerType:event.pointerType,
+        pressure:Number.isFinite(prediction.pressure) && prediction.pressure > 0 ? prediction.pressure : event.pressure,
+      };
+    if (!valid(point) || screenDistance < .25) {
+      if (hadPreview) requestInteractionLayerRender();
+      return;
+    }
+    drawing.preview = {
+      a:anchor.point,
+      b:point,
+      erase:false,
+      size:logicalWidth(stabilizedDrawingWidth(drawing, pressureWidth(predictedEvent))),
+    };
+    requestInteractionLayerRender();
+  }
+  function updateActiveCanvasDrawing(e, options = {}) {
     const d = state.drawing;
     if (!d || d.id !== e.pointerId) return false;
-    // Tenet MVP fork: consume every coalesced sample, not just the one per
-    // pointermove. A stylus reports up to 240 Hz while the browser fires
-    // pointermove at the display rate, so a fast stroke otherwise keeps only
-    // a quarter of its points and looks choppy. Same pattern as the lasso.
-    const coalesced = typeof e.getCoalescedEvents === "function" ? e.getCoalescedEvents() : [],
-      samples = coalesced.length > 1 ? coalesced : [e];
+    const samples = normalizedDrawingSamples(e);
     let p = null;
-    for (const s of samples) {
-      const sample = s === e ? e : {
-        clientX: s.clientX, clientY: s.clientY, pointerType: e.pointerType,
-        pressure: Number.isFinite(s.pressure) && s.pressure > 0 ? s.pressure : e.pressure,
-      };
+    for (let index = 0; index < samples.length; index++) {
+      const sample = samples[index],
+        forceEndpoint = options.forceEndpoint === true && index === samples.length - 1,
+        duplicate = d.lastClientPoint
+          && Math.abs(sample.clientX - d.lastClientPoint.x) < .01
+          && Math.abs(sample.clientY - d.lastClientPoint.y) < .01
+          && sample.timeStamp <= d.lastSampleTimestamp;
+      if (duplicate) continue;
       const old = state.pointers.get(e.pointerId),
-        cssSize = d.erase ? state.eraser : pressureWidth(sample),
+        rawPoint = drawingClientPoint(d, sample),
+        rawScreenDistance = d.rawLast ? Math.hypot(rawPoint.x - d.rawLast.x, rawPoint.y - d.rawLast.y) * state.scale : Infinity;
+      if (!forceEndpoint && d.inputType === "touch" && rawScreenDistance < .12) continue;
+      const cssSize = stabilizedDrawingWidth(d, d.erase ? state.eraser : pressureWidth(sample)),
         size = logicalWidth(cssSize);
-      p = drawingClientPoint(d, sample);
+      p = stabilizedDrawingPoint(d, rawPoint, forceEndpoint);
       state.pointers.set(e.pointerId, { x:sample.clientX, y:sample.clientY });
       state.userRevision++;
       appendLiveInkSample(d, p, size);
       d.last = p;
+      d.rawLast = rawPoint;
+      d.lastClientPoint = { x:sample.clientX, y:sample.clientY };
+      d.lastSampleTimestamp = sample.timeStamp;
       d.size = size;
       d.points++;
       d.screenDistance += old ? Math.hypot(sample.clientX - old.x, sample.clientY - old.y) : 0;
@@ -23337,11 +24229,19 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       d.bbox = { x:x1, y:y1, w:x2 - x1, h:y2 - y1 };
     }
     commitLiveInkDrawingProgress(d);
+    if (options.predictions === false) {
+      if (d.preview) {
+        d.preview = null;
+        requestInteractionLayerRender();
+      }
+    } else updateDrawingPrediction(d, e);
     if (d.erase) updateCanvasPointerPreview(e, p);
     return true;
   }
   screen.addEventListener("pointermove", (e) => {
     e.preventDefault();
+    if (ignoredTouchPointerIds.has(e.pointerId)) return;
+    if (e.pointerType === "pen" && state.drawing?.id === e.pointerId) lastPencilContactAt = performance.now();
     if (state.viewMode) {
       const old = state.pointers.get(e.pointerId);
       calibrateScreenClientRatio(e, true);
@@ -23428,7 +24328,18 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       return;
     }
   });
+  if ("onpointerrawupdate" in window) {
+    screen.addEventListener("pointerrawupdate", (event) => {
+      if (ignoredTouchPointerIds.has(event.pointerId) || state.drawing?.id !== event.pointerId) return;
+      if (event.cancelable) event.preventDefault();
+      if (event.pointerType === "pen") lastPencilContactAt = performance.now();
+      updateActiveCanvasDrawing(event, { predictions:false });
+    }, { passive:false });
+  }
   function end(e) {
+    if (ignoredTouchPointerIds.delete(e.pointerId)) return;
+    if (e.pointerType === "pen") lastPencilContactAt = performance.now();
+    if (e.type === "pointerup" && state.drawing?.id === e.pointerId) updateActiveCanvasDrawing(e, { predictions:false, forceEndpoint:true });
     finishCanvasNavigationPreview();
     if (coordinatesUpdatePending) flushCoordinatesUpdate();
     if (state.viewMode) {
@@ -24925,6 +25836,10 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   const native = capacitor.Plugins.TenetNative;
   if (!native) return;
 
+  let currentDrawingMode = "pen";
+  let previousDrawingMode = "eraser";
+  let pencilActionListenerInstalled = false;
+
   function upsertStylesheet() {
     if (document.head.querySelector('link[data-tenet-native="true"]')) return;
     const link = document.createElement("link");
@@ -24987,6 +25902,44 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     }
   }
 
+  function activeDrawingMode() {
+    const active = document.querySelector('[data-mode][aria-pressed="true"], [data-mode].active');
+    return active && typeof active.dataset.mode === "string" ? active.dataset.mode : currentDrawingMode;
+  }
+
+  function selectDrawingMode(mode) {
+    const button = document.querySelector(`[data-mode="${mode}"]`);
+    if (!button || button.disabled) return false;
+    button.click();
+    return true;
+  }
+
+  function handlePencilToolAction(event) {
+    const current = activeDrawingMode();
+    if (event && event.action === "switchPrevious") {
+      selectDrawingMode(previousDrawingMode === current ? (current === "pen" ? "eraser" : "pen") : previousDrawingMode);
+      return;
+    }
+    if (!event || event.action !== "switchEraser") return;
+    if (current === "eraser") selectDrawingMode(previousDrawingMode === "eraser" ? "pen" : previousDrawingMode);
+    else selectDrawingMode("eraser");
+  }
+
+  function installPencilActionListener() {
+    if (pencilActionListenerInstalled || typeof native.addListener !== "function") return;
+    pencilActionListenerInstalled = true;
+    const initialMode = activeDrawingMode();
+    if (initialMode) currentDrawingMode = initialMode;
+    document.addEventListener("click", (event) => {
+      const modeButton = event.target && typeof event.target.closest === "function" ? event.target.closest("[data-mode]") : null;
+      const nextMode = modeButton && modeButton.dataset ? modeButton.dataset.mode : null;
+      if (!nextMode || nextMode === currentDrawingMode) return;
+      previousDrawingMode = currentDrawingMode;
+      currentDrawingMode = nextMode;
+    });
+    void native.addListener("pencilToolAction", handlePencilToolAction);
+  }
+
   async function signOut(button) {
     if (!global.confirm("Sign out of Tenet Whiteboard on this iPad?")) return;
     button.disabled = true;
@@ -25001,6 +25954,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
 
   function installActions() {
     document.documentElement.classList.add("tenet-native-ios");
+    installPencilActionListener();
     document.querySelectorAll(".tenet-install-hint").forEach((element) => element.remove());
     const badge = document.querySelector("#tenetBadge");
     if (!badge || badge.querySelector("#tenetNativeActions")) return;

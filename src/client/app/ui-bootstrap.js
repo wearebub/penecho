@@ -86,14 +86,17 @@
     event.preventDefault();
     event.stopImmediatePropagation();
   }, true);
-  // Tenet MVP fork: upstream keeps finger = navigation and only a stylus inks.
-  // On a phone without a stylus that reads as "I cannot draw", so in Tenet
-  // mode one finger inks in pen/eraser mode on phone-sized touch screens; two
-  // fingers still pan and pinch (the second finger ends the stroke and starts
-  // the gesture). Tablets keep the upstream contract: stylus inks, finger
-  // pans, so a resting palm never draws. PENECHO_CONFIG.tenetFingerDraws:
-  // undefined/"phone" (default) | "always" | false.
+  // Tenet ink contract: one finger draws in pen/eraser mode and two fingers
+  // navigate. Pencil contact temporarily suppresses touch so a resting palm
+  // cannot replace an active Pencil stroke. District/device configuration may
+  // still force phone-only drawing or disable finger drawing entirely.
+  // PENECHO_CONFIG.tenetFingerDraws: undefined/true/"always" (default) |
+  // "phone" | false.
   const PHONE_MAX_SHORT_SIDE_PX = 700; // iPad mini is 744 CSS px on its short side; phones are under 500.
+  const TENET_PALM_CONTACT_MIN_PX = 46;
+  const TENET_PENCIL_TOUCH_GUARD_MS = 360;
+  const ignoredTouchPointerIds = new Set();
+  let lastPencilContactAt = -Infinity;
   const phoneLikeScreen = () => {
     const shortSide = Math.min(Number(window.screen?.width) || 0, Number(window.screen?.height) || 0);
     return typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches && shortSide > 0 && shortSide < PHONE_MAX_SHORT_SIDE_PX;
@@ -102,9 +105,32 @@
     if (window.PENECHO_CONFIG?.tenetMode !== true) return false;
     const setting = window.PENECHO_CONFIG?.tenetFingerDraws;
     if (setting === false) return false;
-    if (setting === true || setting === "always") return true;
-    return phoneLikeScreen();
+    if (setting === "phone") return phoneLikeScreen();
+    return true;
   };
+  const pencilTouchGuardActive = () => state.drawing?.inputType === "pen" || performance.now() - lastPencilContactAt < TENET_PENCIL_TOUCH_GUARD_MS;
+  const palmLikeTouch = (event) => {
+    if (event.pointerType !== "touch") return false;
+    const width = Number(event.width) || 0,
+      height = Number(event.height) || 0;
+    return width >= TENET_PALM_CONTACT_MIN_PX && height >= TENET_PALM_CONTACT_MIN_PX;
+  };
+  function cancelUncommittedFingerStrokeForPencil() {
+    const drawing = state.drawing;
+    if (!drawing || drawing.inputType !== "touch") return false;
+    if (drawing.committedSamples > 0) {
+      finishDrawing("touch");
+      return true;
+    }
+    state.drawing = null;
+    state.pointers.delete(drawing.id);
+    state.touches.delete(drawing.id);
+    clearLiveInkLayer();
+    requestCommittedInkRender();
+    requestInteractionLayerRender();
+    view.classList.remove("is-drawing");
+    return true;
+  }
   const touchInks = (e) => e.pointerType === "touch" && fingerDraws() && ["pen", "eraser"].includes(state.mode) && state.touches.size < 2;
   function beginCanvasPointerAction(e, point) {
     const options = arguments[2] || {};
@@ -182,7 +208,14 @@
     state.userRevision++;
     state.drawing = {
       id: e.pointerId,
+      inputType: e.pointerType,
+      startedAt: performance.now(),
       last: p,
+      rawLast: p,
+      filteredPoint: p,
+      filteredCssSize: cssSize,
+      lastSampleTimestamp: Number(e.timeStamp) || performance.now(),
+      lastClientPoint: { x:e.clientX, y:e.clientY },
       size,
       color: state.inkColor,
       inputTransform: options.inputTransform || captureDrawingTransform(),
@@ -238,8 +271,14 @@
     // a focused text field. On iPadOS, Scribble takes over Pencil strokes
     // when an editable element has focus (choppy ink, selection gestures).
     if (e.pointerType === "pen" && window.PENECHO_CONFIG?.tenetMode === true) {
+      lastPencilContactAt = performance.now();
+      cancelUncommittedFingerStrokeForPencil();
       const active = document.activeElement;
       if (active && active !== document.body && typeof active.matches === "function" && active.matches("input, textarea, select, [contenteditable=''], [contenteditable='true']")) active.blur();
+    }
+    if (e.pointerType === "touch" && window.PENECHO_CONFIG?.tenetMode === true && (pencilTouchGuardActive() || palmLikeTouch(e))) {
+      ignoredTouchPointerIds.add(e.pointerId);
+      return;
     }
     if (state.viewMode) {
       if (e.pointerType === "mouse" && ![0, 1].includes(e.button)) return;
@@ -353,29 +392,103 @@
     hideHandObjectToolbar({ all:true });
     beginCanvasPointerAction(e, point);
   });
-  function updateActiveCanvasDrawing(e) {
+  function normalizedDrawingSamples(event) {
+    const coalesced = typeof event.getCoalescedEvents === "function" ? event.getCoalescedEvents() : [],
+      source = coalesced.length ? [...coalesced] : [event],
+      last = source.at(-1);
+    if (!last || Math.abs(Number(last.clientX) - Number(event.clientX)) > 0.01 || Math.abs(Number(last.clientY) - Number(event.clientY)) > 0.01) source.push(event);
+    return source.map((sample) => ({
+      clientX:Number(sample.clientX),
+      clientY:Number(sample.clientY),
+      pointerType:event.pointerType,
+      pressure:Number.isFinite(sample.pressure) && sample.pressure > 0 ? sample.pressure : event.pressure,
+      timeStamp:Number(sample.timeStamp) || Number(event.timeStamp) || performance.now(),
+    }));
+  }
+  function stabilizedDrawingPoint(drawing, rawPoint, forceEndpoint = false) {
+    if (drawing.inputType !== "touch") return rawPoint;
+    const previous = drawing.filteredPoint || rawPoint,
+      screenDistance = Math.hypot(rawPoint.x - previous.x, rawPoint.y - previous.y) * state.scale,
+      alpha = forceEndpoint ? .9 : Math.max(.42, Math.min(.84, .42 + screenDistance / 18)),
+      filtered = {
+        x:previous.x + (rawPoint.x - previous.x) * alpha,
+        y:previous.y + (rawPoint.y - previous.y) * alpha,
+      };
+    drawing.filteredPoint = filtered;
+    return filtered;
+  }
+  function stabilizedDrawingWidth(drawing, cssSize) {
+    if (drawing.erase) return cssSize;
+    const previous = Number(drawing.filteredCssSize) || cssSize,
+      alpha = drawing.inputType === "pen" ? .46 : .7,
+      filtered = previous + (cssSize - previous) * alpha;
+    drawing.filteredCssSize = filtered;
+    return filtered;
+  }
+  function updateDrawingPrediction(drawing, event) {
+    const hadPreview = Boolean(drawing.preview);
+    drawing.preview = null;
+    if (drawing.erase || typeof event.getPredictedEvents !== "function") {
+      if (hadPreview) requestInteractionLayerRender();
+      return;
+    }
+    const predictions = event.getPredictedEvents();
+    if (!predictions?.length || !drawing.samples.length) {
+      if (hadPreview) requestInteractionLayerRender();
+      return;
+    }
+    const prediction = predictions[Math.min(predictions.length, 4) - 1],
+      anchor = drawing.samples.at(-1),
+      rawPoint = drawingClientPoint(drawing, prediction),
+      dx = rawPoint.x - anchor.point.x,
+      dy = rawPoint.y - anchor.point.y,
+      screenDistance = Math.hypot(dx, dy) * state.scale,
+      maximumDistance = 34,
+      ratio = screenDistance > maximumDistance ? maximumDistance / screenDistance : 1,
+      point = { x:anchor.point.x + dx * ratio, y:anchor.point.y + dy * ratio },
+      predictedEvent = {
+        pointerType:event.pointerType,
+        pressure:Number.isFinite(prediction.pressure) && prediction.pressure > 0 ? prediction.pressure : event.pressure,
+      };
+    if (!valid(point) || screenDistance < .25) {
+      if (hadPreview) requestInteractionLayerRender();
+      return;
+    }
+    drawing.preview = {
+      a:anchor.point,
+      b:point,
+      erase:false,
+      size:logicalWidth(stabilizedDrawingWidth(drawing, pressureWidth(predictedEvent))),
+    };
+    requestInteractionLayerRender();
+  }
+  function updateActiveCanvasDrawing(e, options = {}) {
     const d = state.drawing;
     if (!d || d.id !== e.pointerId) return false;
-    // Tenet MVP fork: consume every coalesced sample, not just the one per
-    // pointermove. A stylus reports up to 240 Hz while the browser fires
-    // pointermove at the display rate, so a fast stroke otherwise keeps only
-    // a quarter of its points and looks choppy. Same pattern as the lasso.
-    const coalesced = typeof e.getCoalescedEvents === "function" ? e.getCoalescedEvents() : [],
-      samples = coalesced.length > 1 ? coalesced : [e];
+    const samples = normalizedDrawingSamples(e);
     let p = null;
-    for (const s of samples) {
-      const sample = s === e ? e : {
-        clientX: s.clientX, clientY: s.clientY, pointerType: e.pointerType,
-        pressure: Number.isFinite(s.pressure) && s.pressure > 0 ? s.pressure : e.pressure,
-      };
+    for (let index = 0; index < samples.length; index++) {
+      const sample = samples[index],
+        forceEndpoint = options.forceEndpoint === true && index === samples.length - 1,
+        duplicate = d.lastClientPoint
+          && Math.abs(sample.clientX - d.lastClientPoint.x) < .01
+          && Math.abs(sample.clientY - d.lastClientPoint.y) < .01
+          && sample.timeStamp <= d.lastSampleTimestamp;
+      if (duplicate) continue;
       const old = state.pointers.get(e.pointerId),
-        cssSize = d.erase ? state.eraser : pressureWidth(sample),
+        rawPoint = drawingClientPoint(d, sample),
+        rawScreenDistance = d.rawLast ? Math.hypot(rawPoint.x - d.rawLast.x, rawPoint.y - d.rawLast.y) * state.scale : Infinity;
+      if (!forceEndpoint && d.inputType === "touch" && rawScreenDistance < .12) continue;
+      const cssSize = stabilizedDrawingWidth(d, d.erase ? state.eraser : pressureWidth(sample)),
         size = logicalWidth(cssSize);
-      p = drawingClientPoint(d, sample);
+      p = stabilizedDrawingPoint(d, rawPoint, forceEndpoint);
       state.pointers.set(e.pointerId, { x:sample.clientX, y:sample.clientY });
       state.userRevision++;
       appendLiveInkSample(d, p, size);
       d.last = p;
+      d.rawLast = rawPoint;
+      d.lastClientPoint = { x:sample.clientX, y:sample.clientY };
+      d.lastSampleTimestamp = sample.timeStamp;
       d.size = size;
       d.points++;
       d.screenDistance += old ? Math.hypot(sample.clientX - old.x, sample.clientY - old.y) : 0;
@@ -389,11 +502,19 @@
       d.bbox = { x:x1, y:y1, w:x2 - x1, h:y2 - y1 };
     }
     commitLiveInkDrawingProgress(d);
+    if (options.predictions === false) {
+      if (d.preview) {
+        d.preview = null;
+        requestInteractionLayerRender();
+      }
+    } else updateDrawingPrediction(d, e);
     if (d.erase) updateCanvasPointerPreview(e, p);
     return true;
   }
   screen.addEventListener("pointermove", (e) => {
     e.preventDefault();
+    if (ignoredTouchPointerIds.has(e.pointerId)) return;
+    if (e.pointerType === "pen" && state.drawing?.id === e.pointerId) lastPencilContactAt = performance.now();
     if (state.viewMode) {
       const old = state.pointers.get(e.pointerId);
       calibrateScreenClientRatio(e, true);
@@ -480,7 +601,18 @@
       return;
     }
   });
+  if ("onpointerrawupdate" in window) {
+    screen.addEventListener("pointerrawupdate", (event) => {
+      if (ignoredTouchPointerIds.has(event.pointerId) || state.drawing?.id !== event.pointerId) return;
+      if (event.cancelable) event.preventDefault();
+      if (event.pointerType === "pen") lastPencilContactAt = performance.now();
+      updateActiveCanvasDrawing(event, { predictions:false });
+    }, { passive:false });
+  }
   function end(e) {
+    if (ignoredTouchPointerIds.delete(e.pointerId)) return;
+    if (e.pointerType === "pen") lastPencilContactAt = performance.now();
+    if (e.type === "pointerup" && state.drawing?.id === e.pointerId) updateActiveCanvasDrawing(e, { predictions:false, forceEndpoint:true });
     finishCanvasNavigationPreview();
     if (coordinatesUpdatePending) flushCoordinatesUpdate();
     if (state.viewMode) {

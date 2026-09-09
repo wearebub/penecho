@@ -9,6 +9,10 @@
   const native = capacitor.Plugins.TenetNative;
   if (!native) return;
 
+  let currentDrawingMode = "pen";
+  let previousDrawingMode = "eraser";
+  let pencilActionListenerInstalled = false;
+
   function upsertStylesheet() {
     if (document.head.querySelector('link[data-tenet-native="true"]')) return;
     const link = document.createElement("link");
@@ -71,6 +75,44 @@
     }
   }
 
+  function activeDrawingMode() {
+    const active = document.querySelector('[data-mode][aria-pressed="true"], [data-mode].active');
+    return active && typeof active.dataset.mode === "string" ? active.dataset.mode : currentDrawingMode;
+  }
+
+  function selectDrawingMode(mode) {
+    const button = document.querySelector(`[data-mode="${mode}"]`);
+    if (!button || button.disabled) return false;
+    button.click();
+    return true;
+  }
+
+  function handlePencilToolAction(event) {
+    const current = activeDrawingMode();
+    if (event && event.action === "switchPrevious") {
+      selectDrawingMode(previousDrawingMode === current ? (current === "pen" ? "eraser" : "pen") : previousDrawingMode);
+      return;
+    }
+    if (!event || event.action !== "switchEraser") return;
+    if (current === "eraser") selectDrawingMode(previousDrawingMode === "eraser" ? "pen" : previousDrawingMode);
+    else selectDrawingMode("eraser");
+  }
+
+  function installPencilActionListener() {
+    if (pencilActionListenerInstalled || typeof native.addListener !== "function") return;
+    pencilActionListenerInstalled = true;
+    const initialMode = activeDrawingMode();
+    if (initialMode) currentDrawingMode = initialMode;
+    document.addEventListener("click", (event) => {
+      const modeButton = event.target && typeof event.target.closest === "function" ? event.target.closest("[data-mode]") : null;
+      const nextMode = modeButton && modeButton.dataset ? modeButton.dataset.mode : null;
+      if (!nextMode || nextMode === currentDrawingMode) return;
+      previousDrawingMode = currentDrawingMode;
+      currentDrawingMode = nextMode;
+    });
+    void native.addListener("pencilToolAction", handlePencilToolAction);
+  }
+
   async function signOut(button) {
     if (!global.confirm("Sign out of Tenet Whiteboard on this iPad?")) return;
     button.disabled = true;
@@ -85,6 +127,7 @@
 
   function installActions() {
     document.documentElement.classList.add("tenet-native-ios");
+    installPencilActionListener();
     document.querySelectorAll(".tenet-install-hint").forEach((element) => element.remove());
     const badge = document.querySelector("#tenetBadge");
     if (!badge || badge.querySelector("#tenetNativeActions")) return;
