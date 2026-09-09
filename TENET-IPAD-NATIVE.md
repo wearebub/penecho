@@ -217,3 +217,20 @@ Known setup pitfalls:
   PenEcho objects into strokes would regress selection, editing, and AI context.
 - Offline AI and on-device Gateway hosting are excluded because they would
   decentralize policy, secrets, and audit state.
+
+## App Store SDK acceptance gate
+
+Apple validates the SDK embedded in an uploaded archive independently of whether
+the project compiles and signs successfully. On 2026-09-09, App Store Connect
+rejected build 10 after a successful archive because the `macos-15` GitHub runner
+selected Xcode 16.4 and the iOS 18.5 SDK; Apple required the iOS 26 SDK or later.
+
+The release workflow therefore uses GitHub's `macos-26` runner for both the
+unsigned simulator build and signed distribution build. That runner currently
+selects Xcode 26 by default. Keep the two jobs on the same runner generation so
+the unsigned qualification exercises the same SDK family used for the archive.
+
+When Apple advances its minimum accepted SDK, update the runner only after
+confirming the replacement image and installed Xcode versions in the official
+`actions/runner-images` inventory. A green archive and signature check do not
+prove App Store acceptance; the `Upload to TestFlight` step must also pass.

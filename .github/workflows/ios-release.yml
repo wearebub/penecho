@@ -29,7 +29,7 @@ concurrency:
 jobs:
   compile:
     name: Compile iPad app
-    runs-on: macos-15
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
@@ -75,7 +75,7 @@ jobs:
     name: Build signed iPad application
     needs: compile
     if: startsWith(github.ref, 'refs/tags/v') || inputs.build_signed_ipa == true || inputs.upload_testflight == true
-    runs-on: macos-15
+    runs-on: macos-26
     environment: ios-signing
     env:
       IOS_DISTRIBUTION_CERTIFICATE_P12_BASE64: ${{ secrets.IOS_DISTRIBUTION_CERTIFICATE_P12_BASE64 }}
