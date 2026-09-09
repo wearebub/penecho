@@ -12,6 +12,12 @@ private let sessionCookieName = "tenet_mobile_session"
 private let keychainAccount = "native-student-session"
 private let maximumPencilPngBytes = 6 * 1024 * 1024
 
+private func parseInternetDateTime(_ value: String) -> Date? {
+    let fractional = ISO8601DateFormatter()
+    fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    return fractional.date(from: value) ?? ISO8601DateFormatter().date(from: value)
+}
+
 private struct NativeSession: Codable {
     let token: String
     let profile: String
@@ -372,7 +378,7 @@ public final class TenetNativePlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthenti
                     let decoded = try? JSONDecoder().decode(ExchangeResponse.self, from: data),
                     decoded.profile == profile,
                     isOpaqueCapability(decoded.token),
-                    let expiresAt = ISO8601DateFormatter().date(from: decoded.expiresAt),
+                    let expiresAt = parseInternetDateTime(decoded.expiresAt),
                     expiresAt > Date()
                 else {
                     throw NativeError.exchangeRefused

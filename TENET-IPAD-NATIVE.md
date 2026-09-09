@@ -265,3 +265,21 @@ blocker for this internal-test path. It applies to further beta submission work.
 
 No external testing group, Beta App Review submission, or public App Store
 release was created during this activation. Those remain separate release gates.
+
+## Native session timestamp compatibility
+
+The initial TestFlight build authenticated with Google but rejected a successful
+native session exchange because the broker returned JavaScript's fractional-second
+ISO-8601 form while Swift's default `ISO8601DateFormatter` accepts the whole-second
+form. The app surfaced this response-decoding failure as an exchange refusal even
+though the server returned HTTP 200.
+
+The demo broker now emits whole-second timestamps for compatibility with build
+`1.2.0 (12)`. The native parser also accepts both whole-second and
+fractional-second Internet date-time values so future server implementations do
+not depend on one formatter default.
+
+`caleb@truemadeai.com` is an exact entry in the private demo's
+`allowed-emails.txt`. This is access to the bounded `district` student-rule
+profile for internal testing only; it does not grant a teacher/admin role or
+enable the whole `truemadeai.com` domain.
