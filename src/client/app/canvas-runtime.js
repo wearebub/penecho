@@ -6,6 +6,11 @@
   const HAND_OBJECT_TOOLBAR_VISIBLE_MS = 10000;
   const HAND_OBJECT_TOOLBAR_FADE_MS = 220;
   const HAND_WIDGET_GESTURE_RESET_TAP_PX = 8;
+  const COARSE_IMAGE_CONTROL_RADIUS_PX = 34;
+  const COARSE_WIDGET_EDGE_HIT_PX = 30;
+  const COARSE_WIDGET_CORNER_HIT_PX = 38;
+  const COARSE_WIDGET_ACTION_RADIUS_PX = 30;
+  const COARSE_OBJECT_ACTION_PADDING_PX = 12;
   // TEMP: Keep enabled only while visually validating dirty-region shrinking.
   const SHOW_DIRTY_MASK_DEBUG_BOUNDS = false;
   const objectChromeButtons = new Map();
@@ -15,6 +20,9 @@
   let viewerAutoFitWidgetId = null;
   let viewerAutoFitCanvas = false;
   let nextObjectChromeStyleId = 1;
+  function usesTouchSizedCanvasTargets(pointerType) {
+    return pointerType === "touch" || pointerType === "pen";
+  }
   function normalizedWidgetSource(value) {
     return typeof value === "string" ? value.replace(/\r\n/g, "\n").trim() : "";
   }
@@ -911,7 +919,7 @@
   function imageControlHit(item, point, pointerType = "mouse") {
     const box = imageBox(item),
       handle = 14 / state.scale,
-      radius = (pointerType === "touch" ? 24 : 14) / state.scale,
+      radius = (usesTouchSizedCanvasTargets(pointerType) ? COARSE_IMAGE_CONTROL_RADIUS_PX : 14) / state.scale,
       controls = [
         { hit:"resize", target:{ x:box.x + box.w, y:box.y + box.h }, radius },
         { hit:"width", target:{ x:box.x + box.w + handle * 0.08, y:box.y + box.h / 2 }, radius },
@@ -1095,16 +1103,16 @@
   function canvasIdentityGeneration() {
     return state.snapshotLoadGeneration;
   }
-  async function addImageFile(file) {
-    if (state.imageImporting) return;
+  async function addImageFile(file, options = null) {
+    if (state.imageImporting) return null;
     cancelWidgetRefinement("image-import-started");
     if (state.images.length >= MAX_VISIBLE_IMAGES) {
       setStatusKey("imageLimitReached");
-      return;
+      return null;
     }
     if (selectionAIBusy()) {
       setStatusKey(selectionAIStatusKey());
-      return;
+      return null;
     }
     const expectedIdentityGeneration = canvasIdentityGeneration();
     state.imageImporting = true;
@@ -1112,7 +1120,7 @@
     setStatusKey("imageLoading");
     try {
       const prepared = await prepareImportedImage(file);
-      if (expectedIdentityGeneration !== canvasIdentityGeneration()) return;
+      if (expectedIdentityGeneration !== canvasIdentityGeneration()) return null;
       if (state.pending) acceptPending();
       if (state.pendingWidgetReplacement) rejectPendingWidget(AI_CANCELLED);
       else if (state.pendingWidget) acceptPendingWidget();
@@ -1120,15 +1128,20 @@
       if (state.selection) commitSelection();
       if (state.selection) {
         setStatusKey(selectionAIStatusKey());
-        return;
+        return null;
       }
       if (state.widgetEdit) acceptWidgetEdit();
       if (state.animationEdit) acceptAnimationEdit();
       if (state.imageEdit) acceptImageEdit();
       recordImagesBefore();
+      const placement = importedImagePlacement(prepared.naturalW, prepared.naturalH),
+        offsetX = Number(options?.offsetX),
+        offsetY = Number(options?.offsetY);
+      if (Number.isFinite(offsetX)) placement.x = Math.max(0, Math.min(Math.max(0, SIZE - placement.w), placement.x + offsetX));
+      if (Number.isFinite(offsetY)) placement.y = Math.max(0, Math.min(Math.max(0, SIZE - placement.h), placement.y + offsetY));
       const item = imageRecord({
         id:`image-${state.nextImageId++}`,
-        ...importedImagePlacement(prepared.naturalW, prepared.naturalH),
+        ...placement,
         ...prepared,
         sourceName:typeof file.name === "string" ? file.name : "",
       });
@@ -1144,8 +1157,10 @@
       beginImageEdit(item);
       showHandObjectToolbar("image", item);
       setStatusKey("imageAdded");
+      return item;
     } catch (error) {
       setStatusKey(error?.statusKey || "imageImportFailed");
+      return null;
     } finally {
       state.imageImporting = false;
       imagePickerButton.disabled = false;
@@ -1915,8 +1930,9 @@
   }
   function widgetResizeHit(box, point, pointerType = "mouse") {
     const scale = Math.max(.03, Number(state.scale) || 1),
-      edge = (pointerType === "touch" ? 22 : 7) / scale,
-      corner = (pointerType === "touch" ? 28 : 16) / scale,
+      coarsePointer = usesTouchSizedCanvasTargets(pointerType),
+      edge = (coarsePointer ? COARSE_WIDGET_EDGE_HIT_PX : 7) / scale,
+      corner = (coarsePointer ? COARSE_WIDGET_CORNER_HIT_PX : 16) / scale,
       right = box.x + box.w,
       bottom = box.y + box.h,
       nearCorner = point.x >= right - corner && point.x <= right + edge
@@ -1933,7 +1949,9 @@
   function widgetControlHit(widget, point, pointerType = "mouse") {
     const box = widgetBox(widget),
       handle = 14 / state.scale,
-      actionRadius = pointerType === "touch" ? 22 / state.scale : Math.max(handle * 0.8, 9 / state.scale),
+      actionRadius = usesTouchSizedCanvasTargets(pointerType)
+        ? COARSE_WIDGET_ACTION_RADIUS_PX / state.scale
+        : Math.max(handle * 0.8, 9 / state.scale),
       controls = [
         ...Object.entries(draftActionPoints(box, handle, false, true)).map(([hit, target]) => ({ hit, target, radius:actionRadius })),
       ],
@@ -4698,6 +4716,35 @@
     declaration?.setProperty("--selected-widget-toolbar-height", `${toolbarHeight.toFixed(1)}px`);
     declaration?.setProperty("z-index", String(widgetStackIndex));
   }
+  function nearbyCoarseObjectActionButton(event) {
+    if (!usesTouchSizedCanvasTargets(event.pointerType) || Number(event.button) !== 0
+      || event.target?.closest?.(".object-chrome-button")) return null;
+    const clientX = Number(event.clientX), clientY = Number(event.clientY);
+    if (!Number.isFinite(clientX) || !Number.isFinite(clientY)) return null;
+    const candidates = [];
+    for (const [key, button] of objectChromeButtons) {
+      const kind = button.penechoSpec?.kind,
+        pendingAction = key.startsWith("pending") && ["accept", "cancel", "copy"].includes(kind),
+        objectDelete = (key.startsWith("image:") || key.startsWith("widget:")) && kind === "cancel";
+      if ((!pendingAction && !objectDelete) || button.disabled || !button.isConnected) continue;
+      const rect = button.getBoundingClientRect();
+      if (!rect.width || !rect.height) continue;
+      const dx = Math.max(rect.left - clientX, 0, clientX - rect.right),
+        dy = Math.max(rect.top - clientY, 0, clientY - rect.bottom),
+        distance = Math.hypot(dx, dy);
+      if (distance <= COARSE_OBJECT_ACTION_PADDING_PX) candidates.push({ button, distance, priority:Number(button.penechoSpec?.priority) || 0 });
+    }
+    candidates.sort((a, b) => a.distance - b.distance || b.priority - a.priority);
+    return candidates[0]?.button || null;
+  }
+  function activateNearbyCoarseObjectAction(event) {
+    const button = nearbyCoarseObjectActionButton(event);
+    if (!button) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    button.click();
+  }
+  view?.addEventListener("pointerdown", activateNearbyCoarseObjectAction, true);
   objectChromeLayer?.addEventListener("pointermove", (event) => {
     if (finishReleasedWidgetGesture(event)) return;
     const overChromeControl = event.target?.closest?.(".object-chrome-button, .widget-refine-confirmation");

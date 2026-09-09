@@ -4680,6 +4680,11 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   const HAND_OBJECT_TOOLBAR_VISIBLE_MS = 10000;
   const HAND_OBJECT_TOOLBAR_FADE_MS = 220;
   const HAND_WIDGET_GESTURE_RESET_TAP_PX = 8;
+  const COARSE_IMAGE_CONTROL_RADIUS_PX = 34;
+  const COARSE_WIDGET_EDGE_HIT_PX = 30;
+  const COARSE_WIDGET_CORNER_HIT_PX = 38;
+  const COARSE_WIDGET_ACTION_RADIUS_PX = 30;
+  const COARSE_OBJECT_ACTION_PADDING_PX = 12;
   // TEMP: Keep enabled only while visually validating dirty-region shrinking.
   const SHOW_DIRTY_MASK_DEBUG_BOUNDS = false;
   const objectChromeButtons = new Map();
@@ -4689,6 +4694,9 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   let viewerAutoFitWidgetId = null;
   let viewerAutoFitCanvas = false;
   let nextObjectChromeStyleId = 1;
+  function usesTouchSizedCanvasTargets(pointerType) {
+    return pointerType === "touch" || pointerType === "pen";
+  }
   function normalizedWidgetSource(value) {
     return typeof value === "string" ? value.replace(/\r\n/g, "\n").trim() : "";
   }
@@ -5585,7 +5593,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   function imageControlHit(item, point, pointerType = "mouse") {
     const box = imageBox(item),
       handle = 14 / state.scale,
-      radius = (pointerType === "touch" ? 24 : 14) / state.scale,
+      radius = (usesTouchSizedCanvasTargets(pointerType) ? COARSE_IMAGE_CONTROL_RADIUS_PX : 14) / state.scale,
       controls = [
         { hit:"resize", target:{ x:box.x + box.w, y:box.y + box.h }, radius },
         { hit:"width", target:{ x:box.x + box.w + handle * 0.08, y:box.y + box.h / 2 }, radius },
@@ -5769,16 +5777,16 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   function canvasIdentityGeneration() {
     return state.snapshotLoadGeneration;
   }
-  async function addImageFile(file) {
-    if (state.imageImporting) return;
+  async function addImageFile(file, options = null) {
+    if (state.imageImporting) return null;
     cancelWidgetRefinement("image-import-started");
     if (state.images.length >= MAX_VISIBLE_IMAGES) {
       setStatusKey("imageLimitReached");
-      return;
+      return null;
     }
     if (selectionAIBusy()) {
       setStatusKey(selectionAIStatusKey());
-      return;
+      return null;
     }
     const expectedIdentityGeneration = canvasIdentityGeneration();
     state.imageImporting = true;
@@ -5786,7 +5794,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     setStatusKey("imageLoading");
     try {
       const prepared = await prepareImportedImage(file);
-      if (expectedIdentityGeneration !== canvasIdentityGeneration()) return;
+      if (expectedIdentityGeneration !== canvasIdentityGeneration()) return null;
       if (state.pending) acceptPending();
       if (state.pendingWidgetReplacement) rejectPendingWidget(AI_CANCELLED);
       else if (state.pendingWidget) acceptPendingWidget();
@@ -5794,15 +5802,20 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       if (state.selection) commitSelection();
       if (state.selection) {
         setStatusKey(selectionAIStatusKey());
-        return;
+        return null;
       }
       if (state.widgetEdit) acceptWidgetEdit();
       if (state.animationEdit) acceptAnimationEdit();
       if (state.imageEdit) acceptImageEdit();
       recordImagesBefore();
+      const placement = importedImagePlacement(prepared.naturalW, prepared.naturalH),
+        offsetX = Number(options?.offsetX),
+        offsetY = Number(options?.offsetY);
+      if (Number.isFinite(offsetX)) placement.x = Math.max(0, Math.min(Math.max(0, SIZE - placement.w), placement.x + offsetX));
+      if (Number.isFinite(offsetY)) placement.y = Math.max(0, Math.min(Math.max(0, SIZE - placement.h), placement.y + offsetY));
       const item = imageRecord({
         id:`image-${state.nextImageId++}`,
-        ...importedImagePlacement(prepared.naturalW, prepared.naturalH),
+        ...placement,
         ...prepared,
         sourceName:typeof file.name === "string" ? file.name : "",
       });
@@ -5818,8 +5831,10 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       beginImageEdit(item);
       showHandObjectToolbar("image", item);
       setStatusKey("imageAdded");
+      return item;
     } catch (error) {
       setStatusKey(error?.statusKey || "imageImportFailed");
+      return null;
     } finally {
       state.imageImporting = false;
       imagePickerButton.disabled = false;
@@ -6589,8 +6604,9 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   }
   function widgetResizeHit(box, point, pointerType = "mouse") {
     const scale = Math.max(.03, Number(state.scale) || 1),
-      edge = (pointerType === "touch" ? 22 : 7) / scale,
-      corner = (pointerType === "touch" ? 28 : 16) / scale,
+      coarsePointer = usesTouchSizedCanvasTargets(pointerType),
+      edge = (coarsePointer ? COARSE_WIDGET_EDGE_HIT_PX : 7) / scale,
+      corner = (coarsePointer ? COARSE_WIDGET_CORNER_HIT_PX : 16) / scale,
       right = box.x + box.w,
       bottom = box.y + box.h,
       nearCorner = point.x >= right - corner && point.x <= right + edge
@@ -6607,7 +6623,9 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   function widgetControlHit(widget, point, pointerType = "mouse") {
     const box = widgetBox(widget),
       handle = 14 / state.scale,
-      actionRadius = pointerType === "touch" ? 22 / state.scale : Math.max(handle * 0.8, 9 / state.scale),
+      actionRadius = usesTouchSizedCanvasTargets(pointerType)
+        ? COARSE_WIDGET_ACTION_RADIUS_PX / state.scale
+        : Math.max(handle * 0.8, 9 / state.scale),
       controls = [
         ...Object.entries(draftActionPoints(box, handle, false, true)).map(([hit, target]) => ({ hit, target, radius:actionRadius })),
       ],
@@ -9372,6 +9390,35 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     declaration?.setProperty("--selected-widget-toolbar-height", `${toolbarHeight.toFixed(1)}px`);
     declaration?.setProperty("z-index", String(widgetStackIndex));
   }
+  function nearbyCoarseObjectActionButton(event) {
+    if (!usesTouchSizedCanvasTargets(event.pointerType) || Number(event.button) !== 0
+      || event.target?.closest?.(".object-chrome-button")) return null;
+    const clientX = Number(event.clientX), clientY = Number(event.clientY);
+    if (!Number.isFinite(clientX) || !Number.isFinite(clientY)) return null;
+    const candidates = [];
+    for (const [key, button] of objectChromeButtons) {
+      const kind = button.penechoSpec?.kind,
+        pendingAction = key.startsWith("pending") && ["accept", "cancel", "copy"].includes(kind),
+        objectDelete = (key.startsWith("image:") || key.startsWith("widget:")) && kind === "cancel";
+      if ((!pendingAction && !objectDelete) || button.disabled || !button.isConnected) continue;
+      const rect = button.getBoundingClientRect();
+      if (!rect.width || !rect.height) continue;
+      const dx = Math.max(rect.left - clientX, 0, clientX - rect.right),
+        dy = Math.max(rect.top - clientY, 0, clientY - rect.bottom),
+        distance = Math.hypot(dx, dy);
+      if (distance <= COARSE_OBJECT_ACTION_PADDING_PX) candidates.push({ button, distance, priority:Number(button.penechoSpec?.priority) || 0 });
+    }
+    candidates.sort((a, b) => a.distance - b.distance || b.priority - a.priority);
+    return candidates[0]?.button || null;
+  }
+  function activateNearbyCoarseObjectAction(event) {
+    const button = nearbyCoarseObjectActionButton(event);
+    if (!button) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    button.click();
+  }
+  view?.addEventListener("pointerdown", activateNearbyCoarseObjectAction, true);
   objectChromeLayer?.addEventListener("pointermove", (event) => {
     if (finishReleasedWidgetGesture(event)) return;
     const overChromeControl = event.target?.closest?.(".object-chrome-button, .widget-refine-confirmation");
@@ -23027,9 +23074,13 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   let subjectSelect;
   let saveButton;
   let newPageButton;
+  let openDocumentButton;
+  let exportPdfButton;
   let imageButton;
   let imageMenu;
   let pencilButton;
+  let blankPaperButton;
+  let gridPaperButton;
   let cameraInput;
   let pageList;
   let emptyState;
@@ -23124,7 +23175,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     launcher.setAttribute("aria-expanded", "false");
     launcher.innerHTML = `
       <span class="tenet-notebook-launcher-mark" aria-hidden="true"><i></i><i></i><i></i></span>
-      <span>Notebook</span>
+      <span>Pages &amp; files</span>
       <span id="tenetNotebookPageCount" class="tenet-notebook-count">0</span>
     `;
 
@@ -23155,7 +23206,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
         <section class="tenet-notebook-compose" aria-label="Current page">
           <label class="tenet-notebook-field tenet-notebook-title-field">
             <span>Page title</span>
-            <input id="tenetNotebookPageTitle" type="text" maxlength="48" autocomplete="off" placeholder="Untitled page" />
+            <input id="tenetNotebookPageTitle" type="text" maxlength="48" autocomplete="off" enterkeyhint="done" placeholder="Untitled page" />
           </label>
           <label class="tenet-notebook-field tenet-notebook-subject-field">
             <span>Subject</span>
@@ -23164,32 +23215,82 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
           <button id="tenetNotebookSave" class="tenet-notebook-primary" type="button">Save page</button>
         </section>
 
-        <div class="tenet-notebook-actions">
-          <button id="tenetNotebookNewPage" class="tenet-notebook-action" type="button">
-            <span class="tenet-notebook-action-icon" aria-hidden="true">+</span>
-            New page
-          </button>
-          <div class="tenet-notebook-image-wrap">
-            <button id="tenetNotebookImage" class="tenet-notebook-action" type="button" aria-haspopup="menu" aria-expanded="false">
-              <span class="tenet-notebook-image-icon" aria-hidden="true"></span>
-              Add image
-            </button>
-            <div id="tenetNotebookImageMenu" class="tenet-notebook-image-menu" role="menu" hidden>
-              <button type="button" role="menuitem" data-image-action="library">
-                <strong>Photos &amp; Files</strong>
-                <small>Choose an image already on your iPad</small>
+        <section class="tenet-notebook-workflow" aria-labelledby="tenetNotebookWorkflowTitle">
+          <div class="tenet-notebook-workflow-heading">
+            <div>
+              <span class="tenet-notebook-eyebrow">PAGE TOOLS</span>
+              <h3 id="tenetNotebookWorkflowTitle">Create, import, or share</h3>
+            </div>
+            <p>Everything for this page, in one place.</p>
+          </div>
+
+          <div class="tenet-notebook-paper-choice">
+            <div class="tenet-notebook-paper-copy">
+              <strong>Paper</strong>
+              <small>Choose a blank page or a light drawing grid.</small>
+            </div>
+            <div class="tenet-notebook-paper-options" role="group" aria-label="Paper background">
+              <button id="tenetNotebookBlankPaper" class="tenet-notebook-paper-option" type="button" aria-pressed="false">
+                <span class="tenet-notebook-paper-swatch" data-paper="blank" aria-hidden="true"></span>
+                Blank
               </button>
-              <button type="button" role="menuitem" data-image-action="camera">
-                <strong>Take a photo</strong>
-                <small>Capture a worksheet, diagram, or notes</small>
-              </button>
-              <button id="tenetNotebookPencil" type="button" role="menuitem" data-image-action="pencil" hidden>
-                <strong>Pencil Studio</strong>
-                <small>Draw with Apple Pencil, then place it here</small>
+              <button id="tenetNotebookGridPaper" class="tenet-notebook-paper-option" type="button" aria-pressed="false">
+                <span class="tenet-notebook-paper-swatch" data-paper="grid" aria-hidden="true"></span>
+                Grid
               </button>
             </div>
           </div>
-        </div>
+
+          <div class="tenet-notebook-actions">
+            <button id="tenetNotebookNewPage" class="tenet-notebook-action tenet-notebook-action--featured" type="button">
+              <span class="tenet-notebook-action-icon" aria-hidden="true">+</span>
+              <span class="tenet-notebook-action-copy">
+                <strong>New page</strong>
+                <small>Start a fresh local canvas</small>
+              </span>
+            </button>
+            <button id="tenetNotebookOpenDocument" class="tenet-notebook-action" type="button">
+              <span class="tenet-notebook-document-icon" aria-hidden="true"></span>
+              <span class="tenet-notebook-action-copy">
+                <strong>Open document</strong>
+                <small>Bring classwork into Tenet</small>
+              </span>
+            </button>
+            <button id="tenetNotebookExportPdf" class="tenet-notebook-action" type="button">
+              <span class="tenet-notebook-action-badge" aria-hidden="true">PDF</span>
+              <span class="tenet-notebook-action-copy">
+                <strong>Export PDF</strong>
+                <small>Save or share this page</small>
+              </span>
+            </button>
+            <div class="tenet-notebook-image-wrap">
+              <button id="tenetNotebookImage" class="tenet-notebook-action" type="button" aria-haspopup="menu" aria-expanded="false">
+                <span class="tenet-notebook-image-icon" aria-hidden="true"></span>
+                <span class="tenet-notebook-action-copy">
+                  <strong>Add image</strong>
+                  <small>Photos, Files, or camera</small>
+                </span>
+              </button>
+              <div id="tenetNotebookImageMenu" class="tenet-notebook-image-menu" role="menu" hidden>
+                <button type="button" role="menuitem" data-image-action="library">
+                  <strong>Photos &amp; Files</strong>
+                  <small>Choose an image already on your iPad</small>
+                </button>
+                <button type="button" role="menuitem" data-image-action="camera">
+                  <strong>Take a photo</strong>
+                  <small>Capture a worksheet, diagram, or notes</small>
+                </button>
+              </div>
+            </div>
+            <button id="tenetNotebookPencil" class="tenet-notebook-action tenet-notebook-action--pencil" type="button">
+              <span class="tenet-notebook-pencil-icon" aria-hidden="true"></span>
+              <span class="tenet-notebook-action-copy">
+                <strong>Apple Pencil sketch</strong>
+                <small>Draw in a focused native canvas, then place the finished sketch on this page.</small>
+              </span>
+            </button>
+          </div>
+        </section>
 
         <div class="tenet-notebook-list-heading">
           <h3>Saved pages</h3>
@@ -23214,9 +23315,13 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     subjectSelect = overlay.querySelector("#tenetNotebookPageSubject");
     saveButton = overlay.querySelector("#tenetNotebookSave");
     newPageButton = overlay.querySelector("#tenetNotebookNewPage");
+    openDocumentButton = overlay.querySelector("#tenetNotebookOpenDocument");
+    exportPdfButton = overlay.querySelector("#tenetNotebookExportPdf");
     imageButton = overlay.querySelector("#tenetNotebookImage");
     imageMenu = overlay.querySelector("#tenetNotebookImageMenu");
     pencilButton = overlay.querySelector("#tenetNotebookPencil");
+    blankPaperButton = overlay.querySelector("#tenetNotebookBlankPaper");
+    gridPaperButton = overlay.querySelector("#tenetNotebookGridPaper");
     pageList = overlay.querySelector("#tenetNotebookPages");
     emptyState = overlay.querySelector("#tenetNotebookEmpty");
     statusLine = overlay.querySelector("#tenetNotebookStatus");
@@ -23423,8 +23528,6 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   }
 
   function toggleImageMenu() {
-    const nativePlugin = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.TenetNative;
-    pencilButton.hidden = !nativePlugin;
     const willOpen = imageMenu.hidden;
     imageMenu.hidden = !willOpen;
     imageButton.setAttribute("aria-expanded", String(willOpen));
@@ -23432,6 +23535,40 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       const firstAction = imageMenu.querySelector('button:not([hidden])');
       if (firstAction) firstAction.focus();
     }
+  }
+
+  function syncPaperChoice() {
+    const gridToggle = document.querySelector("#gridToggle");
+    const available = Boolean(gridToggle);
+    const gridIsActive = available && gridToggle.getAttribute("aria-pressed") === "true";
+
+    blankPaperButton.disabled = !available;
+    gridPaperButton.disabled = !available;
+    blankPaperButton.setAttribute("aria-pressed", String(available && !gridIsActive));
+    gridPaperButton.setAttribute("aria-pressed", String(gridIsActive));
+  }
+
+  function choosePaperStyle(useGrid) {
+    const gridToggle = document.querySelector("#gridToggle");
+    if (!gridToggle) {
+      setNotebookStatus("Paper controls are not available on this canvas.", "error");
+      syncPaperChoice();
+      return;
+    }
+
+    const gridIsActive = gridToggle.getAttribute("aria-pressed") === "true";
+    if (gridIsActive !== useGrid) gridToggle.click();
+    syncPaperChoice();
+    setNotebookStatus(useGrid ? "Grid paper selected" : "Blank paper selected", "saved");
+  }
+
+  function dispatchNotebookAction(button, eventName, status) {
+    button.dispatchEvent(new CustomEvent(eventName, { bubbles: true }));
+    setNotebookStatus(status, "neutral");
+  }
+
+  function openApplePencilSketch() {
+    dispatchNotebookAction(pencilButton, "tenet:open-pencil-sketch", "Apple Pencil sketch requested");
   }
 
   async function saveNotebookPage({ autosave = false } = {}) {
@@ -23494,6 +23631,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     launcher.setAttribute("aria-expanded", "true");
     document.body.classList.add("tenet-notebook-open");
     closeImageMenu();
+    syncPaperChoice();
     void refreshPages();
     window.requestAnimationFrame(() => closeButton.focus());
   }
@@ -23525,6 +23663,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   }
 
   function monitorAutosave() {
+    if (!overlay.hidden) syncPaperChoice();
     const revision = Number(state.userRevision) || 0;
     if (revision !== lastObservedRevision) {
       lastObservedRevision = revision;
@@ -23546,7 +23685,22 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     overlay.querySelector(".tenet-notebook-backdrop").addEventListener("click", closeNotebook);
     saveButton.addEventListener("click", () => void saveNotebookPage());
     newPageButton.addEventListener("click", () => void createNewPage());
+    openDocumentButton.addEventListener("click", () => {
+      dispatchNotebookAction(openDocumentButton, "tenet:open-document", "Document chooser requested");
+    });
+    exportPdfButton.addEventListener("click", () => {
+      dispatchNotebookAction(exportPdfButton, "tenet:export-pdf", "PDF export requested");
+    });
     imageButton.addEventListener("click", toggleImageMenu);
+    pencilButton.addEventListener("click", openApplePencilSketch);
+    blankPaperButton.addEventListener("click", () => choosePaperStyle(false));
+    gridPaperButton.addEventListener("click", () => choosePaperStyle(true));
+
+    titleInput.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      titleInput.blur();
+    });
 
     imageMenu.addEventListener("click", (event) => {
       const action = event.target.closest("[data-image-action]");
@@ -23559,10 +23713,6 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
         if (existingPicker) existingPicker.click();
       } else if (kind === "camera") {
         cameraInput.click();
-      } else if (kind === "pencil") {
-        const nativePencilButton = document.querySelector("#tenetNativeActions .tenet-native-action-primary");
-        if (nativePencilButton) nativePencilButton.click();
-        else setNotebookStatus("Pencil Studio is available in the installed iPad app.", "neutral");
       }
     });
 
@@ -25987,3 +26137,324 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     installActions();
   }
 })(window);
+(() => {
+  "use strict";
+
+  const STYLE_ID = "tenet-ipad-usability-styles";
+  const MAX_DECODED_IMPORT_BYTES = 24 * 1024 * 1024;
+  let documentImportActive = false;
+  let pencilImportActive = false;
+  let pdfExportActive = false;
+
+  function onReady(callback) {
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", callback, { once: true });
+      return;
+    }
+    callback();
+  }
+
+  function isTenetWhiteboard() {
+    return document.body?.classList.contains("tenet-whiteboard")
+      || window.PenEchoRuntimeConfig?.tenetMode === true
+      || window.TenetBranding?.tenetMode === true;
+  }
+
+  function nativePlugin() {
+    return window.Capacitor?.Plugins?.TenetNative || null;
+  }
+
+  function isNativeIos() {
+    try {
+      return window.Capacitor?.getPlatform?.() === "ios";
+    } catch {
+      return false;
+    }
+  }
+
+  function showTenetMessage(message, kind = "info") {
+    if (typeof showMessage === "function") {
+      showMessage(message);
+      return;
+    }
+    if (kind === "error") window.alert(message);
+  }
+
+  function installStylesheet() {
+    if (document.getElementById(STYLE_ID)) return;
+    const link = document.createElement("link");
+    link.id = STYLE_ID;
+    link.rel = "stylesheet";
+    link.href = "/tenet-ipad-usability.css";
+    document.head.appendChild(link);
+  }
+
+  function dispatchTenetAction(name, detail = {}) {
+    document.dispatchEvent(new CustomEvent(name, { bubbles: true, detail }));
+  }
+
+  function configureBrand() {
+    const brand = document.querySelector(".brand");
+    if (!brand || brand.querySelector(".tenet-brand-button")) return;
+
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "tenet-brand-button";
+    button.setAttribute("aria-label", "Open Tenet pages and files");
+    button.title = "Tenet Whiteboard pages and files";
+
+    const icon = document.createElement("img");
+    icon.src = "/tenet-whiteboard-icon-180.png";
+    icon.alt = "";
+    icon.width = 36;
+    icon.height = 36;
+
+    const label = document.createElement("span");
+    label.textContent = "Tenet";
+
+    button.append(icon, label);
+    button.addEventListener("click", () => document.querySelector("#tenetNotebookLauncher")?.click());
+    brand.replaceChildren(button);
+  }
+
+  function labelHeaderButton(selector, label, title = label) {
+    const button = document.querySelector(selector);
+    if (!button) return null;
+    button.classList.add("tenet-header-action");
+    button.textContent = label;
+    button.setAttribute("aria-label", title);
+    button.title = title;
+    return button;
+  }
+
+  function hideStudentIrrelevantControls() {
+    ["#shareCanvasBtn", "#cloudAccountBtn", "#settingsBtn"].forEach((selector) => {
+      const control = document.querySelector(selector);
+      if (!control) return;
+      control.hidden = true;
+      control.setAttribute("aria-hidden", "true");
+      control.tabIndex = -1;
+    });
+
+    const coordinates = document.querySelector("#coords");
+    if (coordinates) {
+      coordinates.hidden = true;
+      coordinates.setAttribute("aria-hidden", "true");
+    }
+  }
+
+  function configureHeaderActions() {
+    const newButton = labelHeaderButton("#newCanvasBtn", "New", "Create a new page");
+    labelHeaderButton("#historyBtn", "Pages", "Open pages and files");
+    const exportButton = labelHeaderButton(
+      "#exportPngBtn",
+      isNativeIos() ? "Export PDF" : "Export",
+      isNativeIos() ? "Export this page as a PDF" : "Export this page",
+    );
+
+    let openButton = document.querySelector("#tenetOpenDocumentBtn");
+    if (!openButton) {
+      openButton = document.createElement("button");
+      openButton.type = "button";
+      openButton.id = "tenetOpenDocumentBtn";
+      openButton.className = `${newButton?.className || exportButton?.className || ""} tenet-header-action`;
+      openButton.textContent = "Open";
+      openButton.setAttribute("aria-label", "Open a PDF or image");
+      openButton.title = "Open a PDF or image";
+      openButton.addEventListener("click", () => dispatchTenetAction("tenet:open-document"));
+
+      if (newButton) newButton.insertAdjacentElement("afterend", openButton);
+      else if (exportButton?.parentElement) exportButton.parentElement.insertBefore(openButton, exportButton);
+    }
+
+    if (exportButton && nativePlugin()?.exportPdf) {
+      exportButton.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        void exportCurrentPageAsPdf(exportButton);
+      }, true);
+    }
+  }
+
+  function configureTitleDismissal() {
+    const titleInput = document.querySelector("#canvasDocumentNameInput");
+    titleInput?.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      document.querySelector("#canvasDocumentNameConfirm")?.click();
+      titleInput.blur();
+    });
+
+    document.addEventListener("pointerdown", (event) => {
+      const active = document.activeElement;
+      if (!(active instanceof HTMLElement)) return;
+      const editable = active.matches("input, textarea, [contenteditable='true']");
+      if (!editable || active.contains(event.target)) return;
+      active.blur();
+    }, true);
+  }
+
+  function hideLegacyPencilAction() {
+    document.querySelectorAll(".tenet-product-lockup button").forEach((button) => {
+      if (!/pencil studio|apple pencil sketch/i.test(button.textContent || "")) return;
+      button.hidden = true;
+      button.setAttribute("aria-hidden", "true");
+      button.classList.add("tenet-legacy-pencil-action");
+    });
+  }
+
+  function safeFileStem() {
+    const inputValue = document.querySelector("#canvasDocumentNameInput")?.value;
+    const labelValue = document.querySelector("#canvasDocumentName")?.textContent;
+    const stem = String(inputValue || labelValue || "Tenet Whiteboard")
+      .replace(/[<>:"/\\|?*\u0000-\u001f]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 100);
+    return stem || "Tenet Whiteboard";
+  }
+
+  function fileFromImageDataUrl(dataUrl, name) {
+    const match = /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=\r\n]+)$/.exec(String(dataUrl || ""));
+    if (!match) throw new Error("The selected page was not returned as a supported image.");
+
+    const payload = match[2].replace(/[\r\n]/g, "");
+    const binary = window.atob(payload);
+    if (binary.length > MAX_DECODED_IMPORT_BYTES) throw new Error("The selected page is too large to place safely.");
+
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+
+    const extension = match[1] === "image/jpeg" ? "jpg" : match[1].split("/")[1];
+    const requestedName = String(name || `Imported page.${extension}`);
+    const safeName = requestedName.replace(/[\\/:*?"<>|\u0000-\u001f]/g, "-").slice(0, 120);
+    return new File([bytes], safeName || `Imported page.${extension}`, { type: match[1] });
+  }
+
+  async function placeImagePages(pages) {
+    if (typeof addImageFile !== "function") throw new Error("The canvas image importer is unavailable.");
+
+    let offsetY = 0;
+    let imported = 0;
+    for (let index = 0; index < pages.length; index += 1) {
+      const page = pages[index] || {};
+      const file = fileFromImageDataUrl(page.dataUrl, page.name || `Page ${index + 1}.png`);
+      const item = await addImageFile(file, { offsetY });
+      if (!item) throw new Error(`Page ${index + 1} could not be placed on the canvas.`);
+      imported += 1;
+      offsetY += Math.max(160, Number(item.h) || Number(page.height) || 900) + 64;
+    }
+    return imported;
+  }
+
+  async function openDocument(control = null) {
+    if (documentImportActive) return;
+    const plugin = nativePlugin();
+    if (!plugin?.pickDocument) {
+      document.querySelector("#imagePickerBtn")?.click();
+      return;
+    }
+
+    documentImportActive = true;
+    if (control) control.disabled = true;
+    try {
+      const result = await plugin.pickDocument();
+      if (result?.cancelled) return;
+      const pages = Array.isArray(result?.pages) ? result.pages : [];
+      if (!pages.length) throw new Error("The selected document did not contain an importable page.");
+      const imported = await placeImagePages(pages);
+      showTenetMessage(`${imported} ${imported === 1 ? "page" : "pages"} placed on the canvas.`);
+    } catch (error) {
+      showTenetMessage(error?.message || "The document could not be opened.", "error");
+    } finally {
+      documentImportActive = false;
+      if (control) control.disabled = false;
+    }
+  }
+
+  async function openApplePencilSketch(control = null) {
+    if (pencilImportActive) return;
+    const plugin = nativePlugin();
+    if (!plugin?.presentPencilCanvas) {
+      showTenetMessage("Apple Pencil sketch is available in the Tenet iPad app.", "error");
+      return;
+    }
+
+    pencilImportActive = true;
+    if (control) control.disabled = true;
+    try {
+      const result = await plugin.presentPencilCanvas();
+      if (result?.cancelled) return;
+      if (!result?.dataUrl) throw new Error("The sketch did not return any ink.");
+      const imported = await placeImagePages([{
+        dataUrl: result.dataUrl,
+        width: result.width,
+        height: result.height,
+        name: "Apple Pencil sketch.png",
+      }]);
+      if (imported !== 1) throw new Error("The sketch could not be placed on this page.");
+      showTenetMessage("Apple Pencil sketch placed on the current page.");
+    } catch (error) {
+      showTenetMessage(error?.message || "The Apple Pencil sketch could not be placed.", "error");
+    } finally {
+      pencilImportActive = false;
+      if (control) control.disabled = false;
+    }
+  }
+
+  async function exportCurrentPageAsPdf(control = null) {
+    if (pdfExportActive) return;
+    const plugin = nativePlugin();
+    if (!plugin?.exportPdf) return;
+    if (typeof renderExportCanvas !== "function") {
+      showTenetMessage("PDF export is unavailable.", "error");
+      return;
+    }
+
+    pdfExportActive = true;
+    if (control) control.disabled = true;
+    let exportCanvas = null;
+    try {
+      exportCanvas = await renderExportCanvas();
+      if (!exportCanvas?.width || !exportCanvas?.height) throw new Error("Add something to the page before exporting it.");
+      const result = await plugin.exportPdf({
+        dataUrl: exportCanvas.toDataURL("image/png"),
+        filename: `${safeFileStem()}.pdf`,
+      });
+      if (!result?.cancelled) showTenetMessage("PDF ready to share or save.");
+    } catch (error) {
+      showTenetMessage(error?.message || "The PDF could not be exported.", "error");
+    } finally {
+      if (exportCanvas) {
+        exportCanvas.width = 0;
+        exportCanvas.height = 0;
+      }
+      pdfExportActive = false;
+      if (control) control.disabled = false;
+    }
+  }
+
+  function installNativeActions() {
+    document.addEventListener("tenet:open-document", (event) => {
+      void openDocument(event.target instanceof HTMLButtonElement ? event.target : null);
+    });
+    document.addEventListener("tenet:open-pencil-sketch", (event) => {
+      void openApplePencilSketch(event.target instanceof HTMLButtonElement ? event.target : null);
+    });
+    document.addEventListener("tenet:export-pdf", (event) => {
+      void exportCurrentPageAsPdf(event.target instanceof HTMLButtonElement ? event.target : null);
+    });
+  }
+
+  onReady(() => {
+    if (!isTenetWhiteboard()) return;
+    installStylesheet();
+    if (isNativeIos()) document.documentElement.classList.add("tenet-native-ios");
+    configureBrand();
+    hideStudentIrrelevantControls();
+    configureHeaderActions();
+    configureTitleDismissal();
+    hideLegacyPencilAction();
+    installNativeActions();
+  });
+})();

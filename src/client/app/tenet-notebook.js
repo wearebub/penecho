@@ -36,9 +36,13 @@
   let subjectSelect;
   let saveButton;
   let newPageButton;
+  let openDocumentButton;
+  let exportPdfButton;
   let imageButton;
   let imageMenu;
   let pencilButton;
+  let blankPaperButton;
+  let gridPaperButton;
   let cameraInput;
   let pageList;
   let emptyState;
@@ -133,7 +137,7 @@
     launcher.setAttribute("aria-expanded", "false");
     launcher.innerHTML = `
       <span class="tenet-notebook-launcher-mark" aria-hidden="true"><i></i><i></i><i></i></span>
-      <span>Notebook</span>
+      <span>Pages &amp; files</span>
       <span id="tenetNotebookPageCount" class="tenet-notebook-count">0</span>
     `;
 
@@ -164,7 +168,7 @@
         <section class="tenet-notebook-compose" aria-label="Current page">
           <label class="tenet-notebook-field tenet-notebook-title-field">
             <span>Page title</span>
-            <input id="tenetNotebookPageTitle" type="text" maxlength="48" autocomplete="off" placeholder="Untitled page" />
+            <input id="tenetNotebookPageTitle" type="text" maxlength="48" autocomplete="off" enterkeyhint="done" placeholder="Untitled page" />
           </label>
           <label class="tenet-notebook-field tenet-notebook-subject-field">
             <span>Subject</span>
@@ -173,32 +177,82 @@
           <button id="tenetNotebookSave" class="tenet-notebook-primary" type="button">Save page</button>
         </section>
 
-        <div class="tenet-notebook-actions">
-          <button id="tenetNotebookNewPage" class="tenet-notebook-action" type="button">
-            <span class="tenet-notebook-action-icon" aria-hidden="true">+</span>
-            New page
-          </button>
-          <div class="tenet-notebook-image-wrap">
-            <button id="tenetNotebookImage" class="tenet-notebook-action" type="button" aria-haspopup="menu" aria-expanded="false">
-              <span class="tenet-notebook-image-icon" aria-hidden="true"></span>
-              Add image
-            </button>
-            <div id="tenetNotebookImageMenu" class="tenet-notebook-image-menu" role="menu" hidden>
-              <button type="button" role="menuitem" data-image-action="library">
-                <strong>Photos &amp; Files</strong>
-                <small>Choose an image already on your iPad</small>
+        <section class="tenet-notebook-workflow" aria-labelledby="tenetNotebookWorkflowTitle">
+          <div class="tenet-notebook-workflow-heading">
+            <div>
+              <span class="tenet-notebook-eyebrow">PAGE TOOLS</span>
+              <h3 id="tenetNotebookWorkflowTitle">Create, import, or share</h3>
+            </div>
+            <p>Everything for this page, in one place.</p>
+          </div>
+
+          <div class="tenet-notebook-paper-choice">
+            <div class="tenet-notebook-paper-copy">
+              <strong>Paper</strong>
+              <small>Choose a blank page or a light drawing grid.</small>
+            </div>
+            <div class="tenet-notebook-paper-options" role="group" aria-label="Paper background">
+              <button id="tenetNotebookBlankPaper" class="tenet-notebook-paper-option" type="button" aria-pressed="false">
+                <span class="tenet-notebook-paper-swatch" data-paper="blank" aria-hidden="true"></span>
+                Blank
               </button>
-              <button type="button" role="menuitem" data-image-action="camera">
-                <strong>Take a photo</strong>
-                <small>Capture a worksheet, diagram, or notes</small>
-              </button>
-              <button id="tenetNotebookPencil" type="button" role="menuitem" data-image-action="pencil" hidden>
-                <strong>Pencil Studio</strong>
-                <small>Draw with Apple Pencil, then place it here</small>
+              <button id="tenetNotebookGridPaper" class="tenet-notebook-paper-option" type="button" aria-pressed="false">
+                <span class="tenet-notebook-paper-swatch" data-paper="grid" aria-hidden="true"></span>
+                Grid
               </button>
             </div>
           </div>
-        </div>
+
+          <div class="tenet-notebook-actions">
+            <button id="tenetNotebookNewPage" class="tenet-notebook-action tenet-notebook-action--featured" type="button">
+              <span class="tenet-notebook-action-icon" aria-hidden="true">+</span>
+              <span class="tenet-notebook-action-copy">
+                <strong>New page</strong>
+                <small>Start a fresh local canvas</small>
+              </span>
+            </button>
+            <button id="tenetNotebookOpenDocument" class="tenet-notebook-action" type="button">
+              <span class="tenet-notebook-document-icon" aria-hidden="true"></span>
+              <span class="tenet-notebook-action-copy">
+                <strong>Open document</strong>
+                <small>Bring classwork into Tenet</small>
+              </span>
+            </button>
+            <button id="tenetNotebookExportPdf" class="tenet-notebook-action" type="button">
+              <span class="tenet-notebook-action-badge" aria-hidden="true">PDF</span>
+              <span class="tenet-notebook-action-copy">
+                <strong>Export PDF</strong>
+                <small>Save or share this page</small>
+              </span>
+            </button>
+            <div class="tenet-notebook-image-wrap">
+              <button id="tenetNotebookImage" class="tenet-notebook-action" type="button" aria-haspopup="menu" aria-expanded="false">
+                <span class="tenet-notebook-image-icon" aria-hidden="true"></span>
+                <span class="tenet-notebook-action-copy">
+                  <strong>Add image</strong>
+                  <small>Photos, Files, or camera</small>
+                </span>
+              </button>
+              <div id="tenetNotebookImageMenu" class="tenet-notebook-image-menu" role="menu" hidden>
+                <button type="button" role="menuitem" data-image-action="library">
+                  <strong>Photos &amp; Files</strong>
+                  <small>Choose an image already on your iPad</small>
+                </button>
+                <button type="button" role="menuitem" data-image-action="camera">
+                  <strong>Take a photo</strong>
+                  <small>Capture a worksheet, diagram, or notes</small>
+                </button>
+              </div>
+            </div>
+            <button id="tenetNotebookPencil" class="tenet-notebook-action tenet-notebook-action--pencil" type="button">
+              <span class="tenet-notebook-pencil-icon" aria-hidden="true"></span>
+              <span class="tenet-notebook-action-copy">
+                <strong>Apple Pencil sketch</strong>
+                <small>Draw in a focused native canvas, then place the finished sketch on this page.</small>
+              </span>
+            </button>
+          </div>
+        </section>
 
         <div class="tenet-notebook-list-heading">
           <h3>Saved pages</h3>
@@ -223,9 +277,13 @@
     subjectSelect = overlay.querySelector("#tenetNotebookPageSubject");
     saveButton = overlay.querySelector("#tenetNotebookSave");
     newPageButton = overlay.querySelector("#tenetNotebookNewPage");
+    openDocumentButton = overlay.querySelector("#tenetNotebookOpenDocument");
+    exportPdfButton = overlay.querySelector("#tenetNotebookExportPdf");
     imageButton = overlay.querySelector("#tenetNotebookImage");
     imageMenu = overlay.querySelector("#tenetNotebookImageMenu");
     pencilButton = overlay.querySelector("#tenetNotebookPencil");
+    blankPaperButton = overlay.querySelector("#tenetNotebookBlankPaper");
+    gridPaperButton = overlay.querySelector("#tenetNotebookGridPaper");
     pageList = overlay.querySelector("#tenetNotebookPages");
     emptyState = overlay.querySelector("#tenetNotebookEmpty");
     statusLine = overlay.querySelector("#tenetNotebookStatus");
@@ -432,8 +490,6 @@
   }
 
   function toggleImageMenu() {
-    const nativePlugin = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.TenetNative;
-    pencilButton.hidden = !nativePlugin;
     const willOpen = imageMenu.hidden;
     imageMenu.hidden = !willOpen;
     imageButton.setAttribute("aria-expanded", String(willOpen));
@@ -441,6 +497,40 @@
       const firstAction = imageMenu.querySelector('button:not([hidden])');
       if (firstAction) firstAction.focus();
     }
+  }
+
+  function syncPaperChoice() {
+    const gridToggle = document.querySelector("#gridToggle");
+    const available = Boolean(gridToggle);
+    const gridIsActive = available && gridToggle.getAttribute("aria-pressed") === "true";
+
+    blankPaperButton.disabled = !available;
+    gridPaperButton.disabled = !available;
+    blankPaperButton.setAttribute("aria-pressed", String(available && !gridIsActive));
+    gridPaperButton.setAttribute("aria-pressed", String(gridIsActive));
+  }
+
+  function choosePaperStyle(useGrid) {
+    const gridToggle = document.querySelector("#gridToggle");
+    if (!gridToggle) {
+      setNotebookStatus("Paper controls are not available on this canvas.", "error");
+      syncPaperChoice();
+      return;
+    }
+
+    const gridIsActive = gridToggle.getAttribute("aria-pressed") === "true";
+    if (gridIsActive !== useGrid) gridToggle.click();
+    syncPaperChoice();
+    setNotebookStatus(useGrid ? "Grid paper selected" : "Blank paper selected", "saved");
+  }
+
+  function dispatchNotebookAction(button, eventName, status) {
+    button.dispatchEvent(new CustomEvent(eventName, { bubbles: true }));
+    setNotebookStatus(status, "neutral");
+  }
+
+  function openApplePencilSketch() {
+    dispatchNotebookAction(pencilButton, "tenet:open-pencil-sketch", "Apple Pencil sketch requested");
   }
 
   async function saveNotebookPage({ autosave = false } = {}) {
@@ -503,6 +593,7 @@
     launcher.setAttribute("aria-expanded", "true");
     document.body.classList.add("tenet-notebook-open");
     closeImageMenu();
+    syncPaperChoice();
     void refreshPages();
     window.requestAnimationFrame(() => closeButton.focus());
   }
@@ -534,6 +625,7 @@
   }
 
   function monitorAutosave() {
+    if (!overlay.hidden) syncPaperChoice();
     const revision = Number(state.userRevision) || 0;
     if (revision !== lastObservedRevision) {
       lastObservedRevision = revision;
@@ -555,7 +647,22 @@
     overlay.querySelector(".tenet-notebook-backdrop").addEventListener("click", closeNotebook);
     saveButton.addEventListener("click", () => void saveNotebookPage());
     newPageButton.addEventListener("click", () => void createNewPage());
+    openDocumentButton.addEventListener("click", () => {
+      dispatchNotebookAction(openDocumentButton, "tenet:open-document", "Document chooser requested");
+    });
+    exportPdfButton.addEventListener("click", () => {
+      dispatchNotebookAction(exportPdfButton, "tenet:export-pdf", "PDF export requested");
+    });
     imageButton.addEventListener("click", toggleImageMenu);
+    pencilButton.addEventListener("click", openApplePencilSketch);
+    blankPaperButton.addEventListener("click", () => choosePaperStyle(false));
+    gridPaperButton.addEventListener("click", () => choosePaperStyle(true));
+
+    titleInput.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      titleInput.blur();
+    });
 
     imageMenu.addEventListener("click", (event) => {
       const action = event.target.closest("[data-image-action]");
@@ -568,10 +675,6 @@
         if (existingPicker) existingPicker.click();
       } else if (kind === "camera") {
         cameraInput.click();
-      } else if (kind === "pencil") {
-        const nativePencilButton = document.querySelector("#tenetNativeActions .tenet-native-action-primary");
-        if (nativePencilButton) nativePencilButton.click();
-        else setNotebookStatus("Pencil Studio is available in the installed iPad app.", "neutral");
       }
     });
 

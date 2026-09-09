@@ -10,20 +10,20 @@
 
 .tenet-notebook-launcher {
   position: fixed;
-  left: max(14px, env(safe-area-inset-left));
-  bottom: max(18px, calc(env(safe-area-inset-bottom) + 10px));
+  left: max(16px, calc(env(safe-area-inset-left) + 8px));
+  bottom: max(18px, calc(env(safe-area-inset-bottom) + 12px));
   z-index: 10010;
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  min-height: 48px;
-  padding: 9px 12px 9px 10px;
+  min-height: 56px;
+  padding: 10px 15px 10px 12px;
   border: 1px solid rgba(20, 36, 59, 0.2);
   border-radius: 13px 13px 13px 4px;
   background: linear-gradient(145deg, #fffdf7 0%, #eee4d2 100%);
   box-shadow: 0 10px 28px rgba(20, 36, 59, 0.2);
   color: var(--tenet-notebook-ink);
-  font: 700 14px/1.1 "Avenir Next", "Century Gothic", sans-serif;
+  font: 750 15px/1.1 "Avenir Next", "Century Gothic", sans-serif;
   letter-spacing: 0.01em;
   cursor: pointer;
 }
@@ -85,7 +85,7 @@
   inset: 0;
   z-index: 10030;
   display: grid;
-  grid-template-columns: minmax(0, 440px) 1fr;
+  grid-template-columns: minmax(0, 520px) 1fr;
 }
 
 .tenet-notebook-backdrop {
@@ -100,10 +100,15 @@
 .tenet-notebook-panel {
   position: relative;
   grid-column: 1;
-  width: min(440px, 100vw);
+  box-sizing: border-box;
+  width: min(520px, 100vw);
   height: 100dvh;
   overflow: hidden auto;
-  padding: max(24px, env(safe-area-inset-top)) 22px max(32px, env(safe-area-inset-bottom));
+  padding:
+    calc(env(safe-area-inset-top) + 20px)
+    max(22px, calc(env(safe-area-inset-right) + 16px))
+    calc(env(safe-area-inset-bottom) + 30px)
+    max(22px, calc(env(safe-area-inset-left) + 16px));
   border-right: 1px solid rgba(20, 36, 59, 0.14);
   background:
     linear-gradient(90deg, transparent 0 42px, rgba(189, 109, 58, 0.12) 42px 43px, transparent 43px),
@@ -113,6 +118,8 @@
   color: var(--tenet-notebook-ink);
   animation: tenet-notebook-enter 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
   overscroll-behavior: contain;
+  scroll-padding-top: calc(env(safe-area-inset-top) + 16px);
+  -webkit-overflow-scrolling: touch;
 }
 
 .tenet-notebook-header {
@@ -140,8 +147,8 @@
 .tenet-notebook-icon-button {
   display: grid;
   place-items: center;
-  width: 38px;
-  height: 38px;
+  width: 44px;
+  height: 44px;
   border: 1px solid var(--tenet-notebook-line);
   border-radius: 50%;
   background: rgba(255, 253, 247, 0.76);
@@ -213,7 +220,8 @@
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  padding: 9px 10px 8px;
+  min-height: 44px;
+  padding: 10px 12px 9px;
   border: 1px solid color-mix(in srgb, var(--subject-color) 28%, transparent);
   border-bottom: 3px solid var(--subject-color);
   border-radius: 9px 9px 4px 4px;
@@ -271,7 +279,7 @@
 .tenet-notebook-field select,
 .tenet-notebook-page-subject select {
   width: 100%;
-  min-height: 38px;
+  min-height: 44px;
   border: 1px solid rgba(20, 36, 59, 0.18);
   border-radius: 8px;
   background: #fff;
@@ -290,7 +298,7 @@
 
 .tenet-notebook-primary {
   grid-column: 1 / -1;
-  min-height: 42px;
+  min-height: 48px;
   border: 0;
   border-radius: 9px;
   background: var(--tenet-notebook-ink);
@@ -311,31 +319,183 @@
   opacity: 0.55;
 }
 
+.tenet-notebook-workflow {
+  margin: 12px 0 26px 26px;
+  padding: 16px;
+  border: 1px solid var(--tenet-notebook-line);
+  border-radius: 16px 16px 16px 6px;
+  background: rgba(255, 253, 247, 0.9);
+  box-shadow: 0 8px 24px rgba(20, 36, 59, 0.09);
+}
+
+.tenet-notebook-workflow-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 14px;
+}
+
+.tenet-notebook-workflow-heading .tenet-notebook-eyebrow {
+  margin-bottom: 4px;
+}
+
+.tenet-notebook-workflow-heading h3 {
+  margin: 0;
+  font: 800 17px/1.15 "Avenir Next", "Century Gothic", sans-serif;
+}
+
+.tenet-notebook-workflow-heading p {
+  max-width: 150px;
+  margin: 0;
+  color: rgba(20, 36, 59, 0.58);
+  font: 550 10px/1.35 "Avenir Next", "Century Gothic", sans-serif;
+  text-align: right;
+}
+
+.tenet-notebook-paper-choice {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 12px;
+  padding: 11px 12px;
+  border: 1px solid rgba(20, 36, 59, 0.12);
+  border-radius: 12px;
+  background: rgba(247, 242, 231, 0.7);
+}
+
+.tenet-notebook-paper-copy {
+  display: grid;
+  gap: 3px;
+}
+
+.tenet-notebook-paper-copy strong {
+  font: 800 12px/1.2 "Avenir Next", "Century Gothic", sans-serif;
+}
+
+.tenet-notebook-paper-copy small {
+  color: rgba(20, 36, 59, 0.62);
+  font: 550 10px/1.3 "Avenir Next", "Century Gothic", sans-serif;
+}
+
+.tenet-notebook-paper-options {
+  display: inline-grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 11px;
+  background: rgba(20, 36, 59, 0.08);
+}
+
+.tenet-notebook-paper-option {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 76px;
+  min-height: 44px;
+  padding: 7px 9px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--tenet-notebook-ink);
+  font: 750 11px/1 "Avenir Next", "Century Gothic", sans-serif;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.tenet-notebook-paper-option[aria-pressed="true"] {
+  border-color: rgba(47, 111, 187, 0.28);
+  background: #fff;
+  box-shadow: 0 3px 10px rgba(20, 36, 59, 0.13);
+  color: #245f9d;
+}
+
+.tenet-notebook-paper-option:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.tenet-notebook-paper-swatch {
+  width: 22px;
+  height: 17px;
+  border: 1px solid rgba(20, 36, 59, 0.18);
+  border-radius: 3px;
+  background: #fff;
+}
+
+.tenet-notebook-paper-swatch[data-paper="grid"] {
+  background:
+    repeating-linear-gradient(0deg, transparent 0 5px, rgba(47, 111, 187, 0.2) 5px 6px),
+    repeating-linear-gradient(90deg, transparent 0 5px, rgba(47, 111, 187, 0.2) 5px 6px),
+    #fff;
+}
+
 .tenet-notebook-actions {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 9px;
-  margin: 10px 0 24px 26px;
+  gap: 10px;
 }
 
 .tenet-notebook-action {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  gap: 8px;
+  justify-content: flex-start;
+  gap: 11px;
   width: 100%;
-  min-height: 42px;
+  min-height: 64px;
+  padding: 10px 12px;
   border: 1px solid rgba(20, 36, 59, 0.18);
   border-radius: 10px;
   background: rgba(255, 253, 247, 0.78);
   color: var(--tenet-notebook-ink);
-  font: 750 12px/1 "Avenir Next", "Century Gothic", sans-serif;
+  font: 750 12px/1.15 "Avenir Next", "Century Gothic", sans-serif;
+  text-align: left;
   cursor: pointer;
+  touch-action: manipulation;
 }
 
 .tenet-notebook-action:hover {
   border-color: var(--tenet-notebook-copper);
   background: #fffdf7;
+}
+
+.tenet-notebook-action--featured {
+  border-color: var(--tenet-notebook-ink);
+  background: var(--tenet-notebook-ink);
+  color: #fff;
+}
+
+.tenet-notebook-action--featured:hover {
+  border-color: #203a5c;
+  background: #203a5c;
+}
+
+.tenet-notebook-action--pencil {
+  grid-column: 1 / -1;
+  min-height: 70px;
+  border-color: rgba(47, 111, 187, 0.28);
+  background: linear-gradient(135deg, rgba(47, 111, 187, 0.1), rgba(255, 253, 247, 0.92));
+}
+
+.tenet-notebook-action-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.tenet-notebook-action-copy strong {
+  font: 800 12px/1.15 "Avenir Next", "Century Gothic", sans-serif;
+}
+
+.tenet-notebook-action-copy small {
+  color: rgba(20, 36, 59, 0.61);
+  font: 550 9px/1.3 "Avenir Next", "Century Gothic", sans-serif;
+}
+
+.tenet-notebook-action--featured .tenet-notebook-action-copy small {
+  color: rgba(255, 255, 255, 0.72);
 }
 
 .tenet-notebook-action-icon {
@@ -349,7 +509,70 @@
   font-size: 18px;
 }
 
+.tenet-notebook-action--featured .tenet-notebook-action-icon {
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+}
+
+.tenet-notebook-action-badge {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 28px;
+  height: 23px;
+  border: 1px solid rgba(189, 109, 58, 0.34);
+  border-radius: 5px;
+  background: rgba(189, 109, 58, 0.1);
+  color: #95512d;
+  font: 850 8px/1 "Avenir Next", "Century Gothic", sans-serif;
+  letter-spacing: 0.04em;
+}
+
+.tenet-notebook-document-icon {
+  position: relative;
+  flex: 0 0 auto;
+  width: 20px;
+  height: 25px;
+  margin: 0 4px;
+  border: 2px solid #2f6fbb;
+  border-radius: 3px;
+  background: rgba(47, 111, 187, 0.08);
+}
+
+.tenet-notebook-document-icon::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  top: 7px;
+  height: 2px;
+  background: #2f6fbb;
+  box-shadow: 0 5px 0 #2f6fbb, 0 10px 0 #2f6fbb;
+}
+
+.tenet-notebook-pencil-icon {
+  position: relative;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 7px;
+  margin: 0 1px;
+  border-radius: 999px 3px 3px 999px;
+  background: #2f6fbb;
+  transform: rotate(-35deg);
+}
+
+.tenet-notebook-pencil-icon::after {
+  content: "";
+  position: absolute;
+  right: -7px;
+  top: 0;
+  border-top: 4px solid transparent;
+  border-bottom: 3px solid transparent;
+  border-left: 8px solid #14243b;
+}
+
 .tenet-notebook-image-icon {
+  flex: 0 0 auto;
   position: relative;
   width: 20px;
   height: 16px;
@@ -381,6 +604,10 @@
 
 .tenet-notebook-image-wrap {
   position: relative;
+}
+
+.tenet-notebook-image-wrap > .tenet-notebook-action {
+  height: 100%;
 }
 
 .tenet-notebook-image-menu {
@@ -628,7 +855,7 @@
   .tenet-notebook-header,
   .tenet-notebook-local-note,
   .tenet-notebook-compose,
-  .tenet-notebook-actions,
+  .tenet-notebook-workflow,
   .tenet-notebook-list-heading,
   .tenet-notebook-pages,
   .tenet-notebook-empty {
@@ -646,6 +873,26 @@
     grid-template-columns: minmax(0, 1fr) 106px;
   }
 
+  .tenet-notebook-workflow-heading,
+  .tenet-notebook-paper-choice {
+    align-items: stretch;
+    grid-template-columns: 1fr;
+  }
+
+  .tenet-notebook-workflow-heading {
+    display: grid;
+  }
+
+  .tenet-notebook-workflow-heading p {
+    max-width: none;
+    text-align: left;
+  }
+
+  .tenet-notebook-paper-options,
+  .tenet-notebook-actions {
+    grid-template-columns: 1fr 1fr;
+  }
+
   .tenet-notebook-page-card {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -658,6 +905,25 @@
 
   .tenet-notebook-page-subject select {
     width: auto;
+  }
+}
+
+@media (min-width: 768px) and (orientation: landscape) {
+  .tenet-notebook-overlay {
+    grid-template-columns: minmax(0, 540px) 1fr;
+  }
+
+  .tenet-notebook-panel {
+    width: min(540px, 62vw);
+  }
+
+  .tenet-notebook-launcher {
+    min-height: 58px;
+    padding-inline: 14px 17px;
+  }
+
+  .tenet-notebook-action {
+    min-height: 68px;
   }
 }
 

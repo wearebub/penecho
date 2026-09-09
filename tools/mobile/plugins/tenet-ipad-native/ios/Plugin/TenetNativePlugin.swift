@@ -2,15 +2,31 @@ import AuthenticationServices
 import Capacitor
 import CryptoKit
 import Foundation
+import ImageIO
+import PDFKit
 import PencilKit
 import Security
 import UIKit
+import UniformTypeIdentifiers
 import WebKit
 
 private let callbackScheme = "tenet-whiteboard"
 private let sessionCookieName = "tenet_mobile_session"
 private let keychainAccount = "native-student-session"
 private let maximumPencilPngBytes = 6 * 1024 * 1024
+private let maximumImportedSourceBytes = 40 * 1024 * 1024
+private let maximumImportedPageCount = 24
+private let maximumImportedPageDimension = 2_400
+private let maximumImportedPagePixels = 6_000_000
+private let maximumImportedSourceDimension = 32_768
+private let maximumImportedSourcePixels = 100_000_000
+private let maximumImportedPagePngBytes = 5 * 1024 * 1024
+private let maximumImportedTotalPngBytes = 18 * 1024 * 1024
+private let maximumExportPngBytes = 16 * 1024 * 1024
+private let maximumExportImageDimension = 8_192
+private let maximumExportImagePixels = 32_000_000
+private let maximumExportPdfBytes = 24 * 1024 * 1024
+private let maximumExportPagePoints: CGFloat = 1_440
 
 private func parseInternetDateTime(_ value: String) -> Date? {
     let fractional = ISO8601DateFormatter()
@@ -29,6 +45,70 @@ private struct ExchangeResponse: Decodable {
     let token: String
     let profile: String
     let expiresAt: String
+}
+
+private struct NativeDocumentPage {
+    let data: Data
+    let width: Int
+    let height: Int
+    let name: String
+}
+
+private enum NativeDocumentError: LocalizedError {
+    case unsupportedDocument
+    case malformedDocument
+    case sourceTooLarge
+    case sourceDimensionsTooLarge
+    case pageLimitExceeded
+    case pageRenderTooLarge
+    case totalRenderTooLarge
+    case invalidPngDataUrl
+    case exportImageTooLarge
+    case invalidFilename
+    case pdfCreationFailed
+
+    var code: String {
+        switch self {
+        case .unsupportedDocument: return "document_unsupported"
+        case .malformedDocument: return "document_malformed"
+        case .sourceTooLarge: return "document_too_large"
+        case .sourceDimensionsTooLarge: return "document_dimensions_too_large"
+        case .pageLimitExceeded: return "document_page_limit"
+        case .pageRenderTooLarge: return "document_page_render_too_large"
+        case .totalRenderTooLarge: return "document_render_too_large"
+        case .invalidPngDataUrl: return "invalid_png_data_url"
+        case .exportImageTooLarge: return "export_image_too_large"
+        case .invalidFilename: return "invalid_export_filename"
+        case .pdfCreationFailed: return "pdf_creation_failed"
+        }
+    }
+
+    var errorDescription: String? {
+        switch self {
+        case .unsupportedDocument:
+            return "Choose a PDF or a common image file."
+        case .malformedDocument:
+            return "The selected document could not be read."
+        case .sourceTooLarge:
+            return "The selected document exceeds the 40 MiB import limit."
+        case .sourceDimensionsTooLarge:
+            return "The selected image dimensions are too large to import safely."
+        case .pageLimitExceeded:
+            return "PDF imports are limited to \(maximumImportedPageCount) pages."
+        case .pageRenderTooLarge:
+            return "A document page could not be reduced to the safe import size."
+        case .totalRenderTooLarge:
+            return "The rendered document exceeds the 18 MiB import limit."
+        case .invalidPngDataUrl:
+            return "Export requires a valid PNG data URL."
+        case .exportImageTooLarge:
+            return "The PNG exceeds the safe PDF export limits."
+        case .invalidFilename:
+            return "Provide a short PDF filename without path characters."
+        case .pdfCreationFailed:
+            return "The PDF could not be created on this iPad."
+        }
+    }
 }
 
 private struct ResolvedConfiguration {
@@ -138,8 +218,323 @@ private func isOpaqueCapability(_ value: String) -> Bool {
     value.range(of: "^[A-Za-z0-9_-]{43}$", options: .regularExpression) != nil
 }
 
+private func boundedPixelSize(for sourceSize: CGSize) throws -> CGSize {
+    guard
+        sourceSize.width.isFinite,
+        sourceSize.height.isFinite,
+        sourceSize.width > 0,
+        sourceSize.height > 0
+    else {
+        throw NativeDocumentError.malformedDocument
+    }
+
+    let area = sourceSize.width * sourceSize.height
+    guard area.isFinite else { throw NativeDocumentError.malformedDocument }
+
+    var scale = min(
+        1,
+        CGFloat(maximumImportedPageDimension) / max(sourceSize.width, sourceSize.height)
+    )
+    if area * scale * scale > CGFloat(maximumImportedPagePixels) {
+        scale = min(scale, sqrt(CGFloat(maximumImportedPagePixels) / area))
+    }
+
+    return CGSize(
+        width: max(1, floor(sourceSize.width * scale)),
+        height: max(1, floor(sourceSize.height * scale))
+    )
+}
+
+private func encodeBoundedPng(_ image: UIImage) throws -> (data: Data, width: Int, height: Int) {
+    var size = try boundedPixelSize(for: image.size)
+
+    for _ in 0..<7 {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        let renderer = UIGraphicsImageRenderer(size: size, format: format)
+        let rendered = renderer.image { context in
+            let bounds = CGRect(origin: .zero, size: size)
+            context.cgContext.setFillColor(UIColor.white.cgColor)
+            context.cgContext.fill(bounds)
+            image.draw(in: bounds)
+        }
+        guard let data = rendered.pngData() else {
+            throw NativeDocumentError.malformedDocument
+        }
+        if data.count <= maximumImportedPagePngBytes {
+            return (data, Int(size.width), Int(size.height))
+        }
+
+        let idealScale = sqrt(
+            CGFloat(maximumImportedPagePngBytes) / CGFloat(data.count)
+        ) * 0.9
+        let shrink = min(0.85, max(0.5, idealScale))
+        let next = CGSize(
+            width: max(1, floor(size.width * shrink)),
+            height: max(1, floor(size.height * shrink))
+        )
+        guard next != size else { break }
+        size = next
+    }
+
+    throw NativeDocumentError.pageRenderTooLarge
+}
+
+private func importedDocumentBaseName(_ url: URL) -> String {
+    let raw = url.deletingPathExtension().lastPathComponent
+    let withoutControls = raw.components(separatedBy: .controlCharacters).joined()
+    let trimmed = withoutControls.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty ? "Imported document" : String(trimmed.prefix(80))
+}
+
+private func renderImportedImage(_ data: Data, name: String) throws -> NativeDocumentPage {
+    guard let source = CGImageSourceCreateWithData(data as CFData, nil) else {
+        throw NativeDocumentError.malformedDocument
+    }
+    guard
+        let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+        let width = (properties[kCGImagePropertyPixelWidth] as? NSNumber)?.intValue,
+        let height = (properties[kCGImagePropertyPixelHeight] as? NSNumber)?.intValue,
+        width > 0,
+        height > 0
+    else {
+        throw NativeDocumentError.malformedDocument
+    }
+    let (pixels, overflow) = width.multipliedReportingOverflow(by: height)
+    guard
+        !overflow,
+        width <= maximumImportedSourceDimension,
+        height <= maximumImportedSourceDimension,
+        pixels <= maximumImportedSourcePixels
+    else {
+        throw NativeDocumentError.sourceDimensionsTooLarge
+    }
+
+    let options: [CFString: Any] = [
+        kCGImageSourceCreateThumbnailFromImageAlways: true,
+        kCGImageSourceCreateThumbnailWithTransform: true,
+        kCGImageSourceThumbnailMaxPixelSize: maximumImportedPageDimension,
+        kCGImageSourceShouldCacheImmediately: true,
+    ]
+    guard let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+        throw NativeDocumentError.malformedDocument
+    }
+    let rendered = try encodeBoundedPng(UIImage(cgImage: thumbnail))
+    return NativeDocumentPage(
+        data: rendered.data,
+        width: rendered.width,
+        height: rendered.height,
+        name: "\(name).png"
+    )
+}
+
+private func renderImportedDocument(at url: URL) throws -> [NativeDocumentPage] {
+    let values = try url.resourceValues(forKeys: [.isRegularFileKey, .contentTypeKey])
+    guard values.isRegularFile == true else {
+        throw NativeDocumentError.malformedDocument
+    }
+
+    let handle = try FileHandle(forReadingFrom: url)
+    let fileSize: UInt64
+    do {
+        fileSize = try handle.seekToEnd()
+        try handle.close()
+    } catch {
+        try? handle.close()
+        throw error
+    }
+    guard fileSize > 0 else { throw NativeDocumentError.malformedDocument }
+    guard fileSize <= UInt64(maximumImportedSourceBytes) else {
+        throw NativeDocumentError.sourceTooLarge
+    }
+
+    let extensionType = UTType(filenameExtension: url.pathExtension)
+    let isPdf = values.contentType?.conforms(to: .pdf) == true
+        || extensionType?.conforms(to: .pdf) == true
+    let isImage = values.contentType?.conforms(to: .image) == true
+        || extensionType?.conforms(to: .image) == true
+    let baseName = importedDocumentBaseName(url)
+
+    if isPdf {
+        guard let document = PDFDocument(url: url), !document.isLocked, document.pageCount > 0 else {
+            throw NativeDocumentError.malformedDocument
+        }
+        guard document.pageCount <= maximumImportedPageCount else {
+            throw NativeDocumentError.pageLimitExceeded
+        }
+
+        var pages: [NativeDocumentPage] = []
+        var totalBytes = 0
+        pages.reserveCapacity(document.pageCount)
+        for index in 0..<document.pageCount {
+            let rendered: NativeDocumentPage = try autoreleasepool {
+                guard let page = document.page(at: index) else {
+                    throw NativeDocumentError.malformedDocument
+                }
+                let bounds = page.bounds(for: .cropBox)
+                let targetSize = try boundedPixelSize(for: CGSize(
+                    width: bounds.width * 2,
+                    height: bounds.height * 2
+                ))
+                let thumbnail = page.thumbnail(of: targetSize, for: .cropBox)
+                let png = try encodeBoundedPng(thumbnail)
+                return NativeDocumentPage(
+                    data: png.data,
+                    width: png.width,
+                    height: png.height,
+                    name: "\(baseName) - Page \(index + 1).png"
+                )
+            }
+            let (nextTotal, overflow) = totalBytes.addingReportingOverflow(rendered.data.count)
+            guard !overflow, nextTotal <= maximumImportedTotalPngBytes else {
+                throw NativeDocumentError.totalRenderTooLarge
+            }
+            totalBytes = nextTotal
+            pages.append(rendered)
+        }
+        return pages
+    }
+
+    if isImage {
+        let data = try Data(contentsOf: url, options: .mappedIfSafe)
+        guard data.count <= maximumImportedSourceBytes else {
+            throw NativeDocumentError.sourceTooLarge
+        }
+        let page = try renderImportedImage(data, name: baseName)
+        guard page.data.count <= maximumImportedTotalPngBytes else {
+            throw NativeDocumentError.totalRenderTooLarge
+        }
+        return [page]
+    }
+
+    throw NativeDocumentError.unsupportedDocument
+}
+
+private func normalizedPdfFilename(_ raw: String) throws -> String {
+    let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard
+        !trimmed.isEmpty,
+        trimmed.count <= 120,
+        trimmed.rangeOfCharacter(from: CharacterSet(charactersIn: "/\\:")) == nil,
+        trimmed.rangeOfCharacter(from: .controlCharacters) == nil
+    else {
+        throw NativeDocumentError.invalidFilename
+    }
+
+    var stem = trimmed
+    if stem.lowercased().hasSuffix(".pdf") {
+        stem.removeLast(4)
+        stem = stem.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    guard !stem.isEmpty, stem != ".", stem != ".." else {
+        throw NativeDocumentError.invalidFilename
+    }
+    return "\(stem).pdf"
+}
+
+private func decodeExportPng(_ dataUrl: String) throws -> (image: UIImage, width: Int, height: Int) {
+    let prefix = "data:image/png;base64,"
+    guard dataUrl.hasPrefix(prefix) else {
+        throw NativeDocumentError.invalidPngDataUrl
+    }
+    let payload = dataUrl.dropFirst(prefix.count)
+    let maximumEncodedLength = ((maximumExportPngBytes + 2) / 3) * 4
+    guard !payload.isEmpty, payload.utf8.count <= maximumEncodedLength else {
+        throw NativeDocumentError.exportImageTooLarge
+    }
+    guard
+        let data = Data(base64Encoded: String(payload)),
+        !data.isEmpty,
+        data.count <= maximumExportPngBytes
+    else {
+        throw NativeDocumentError.invalidPngDataUrl
+    }
+
+    let header = [UInt8](data.prefix(24))
+    guard
+        header.count == 24,
+        header[0] == 0x89,
+        header[1] == 0x50,
+        header[2] == 0x4E,
+        header[3] == 0x47,
+        header[4] == 0x0D,
+        header[5] == 0x0A,
+        header[6] == 0x1A,
+        header[7] == 0x0A,
+        header[12] == 0x49,
+        header[13] == 0x48,
+        header[14] == 0x44,
+        header[15] == 0x52
+    else {
+        throw NativeDocumentError.invalidPngDataUrl
+    }
+
+    let width = (Int(header[16]) << 24)
+        | (Int(header[17]) << 16)
+        | (Int(header[18]) << 8)
+        | Int(header[19])
+    let height = (Int(header[20]) << 24)
+        | (Int(header[21]) << 16)
+        | (Int(header[22]) << 8)
+        | Int(header[23])
+    let (pixels, overflow) = width.multipliedReportingOverflow(by: height)
+    guard
+        width > 0,
+        height > 0,
+        !overflow,
+        width <= maximumExportImageDimension,
+        height <= maximumExportImageDimension,
+        pixels <= maximumExportImagePixels
+    else {
+        throw NativeDocumentError.exportImageTooLarge
+    }
+    guard let image = UIImage(data: data, scale: 1), image.cgImage != nil else {
+        throw NativeDocumentError.invalidPngDataUrl
+    }
+    return (image, width, height)
+}
+
+private func createExportPdf(dataUrl: String, filename: String) throws -> (url: URL, filename: String) {
+    let decoded = try decodeExportPng(dataUrl)
+    let safeFilename = try normalizedPdfFilename(filename)
+    let longestSide = CGFloat(max(decoded.width, decoded.height))
+    let pageScale = min(1, maximumExportPagePoints / longestSide)
+    let pageSize = CGSize(
+        width: max(1, CGFloat(decoded.width) * pageScale),
+        height: max(1, CGFloat(decoded.height) * pageScale)
+    )
+    let pageBounds = CGRect(origin: .zero, size: pageSize)
+    let renderer = UIGraphicsPDFRenderer(bounds: pageBounds)
+    let pdfData = renderer.pdfData { context in
+        context.beginPage()
+        context.cgContext.setFillColor(UIColor.white.cgColor)
+        context.cgContext.fill(pageBounds)
+        decoded.image.draw(in: pageBounds)
+    }
+    guard !pdfData.isEmpty, pdfData.count <= maximumExportPdfBytes else {
+        throw NativeDocumentError.pdfCreationFailed
+    }
+
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("tenet-pdf-\(UUID().uuidString)", isDirectory: true)
+    do {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appendingPathComponent(safeFilename, isDirectory: false)
+        try pdfData.write(to: url, options: .atomic)
+        return (url, safeFilename)
+    } catch {
+        try? FileManager.default.removeItem(at: directory)
+        throw NativeDocumentError.pdfCreationFailed
+    }
+}
+
+private func removeTemporaryExport(_ url: URL) {
+    try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
+}
+
 @objc(TenetNativePlugin)
-public final class TenetNativePlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthenticationPresentationContextProviding, UIPencilInteractionDelegate {
+public final class TenetNativePlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthenticationPresentationContextProviding, UIPencilInteractionDelegate, UIDocumentPickerDelegate {
     public let identifier = "TenetNativePlugin"
     public let jsName = "TenetNative"
     public let pluginMethods: [CAPPluginMethod] = [
@@ -148,10 +543,16 @@ public final class TenetNativePlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthenti
         CAPPluginMethod(name: "authenticate", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "signOut", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "presentPencilCanvas", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "pickDocument", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "exportPdf", returnType: CAPPluginReturnPromise),
     ]
 
     private var authenticationSession: ASWebAuthenticationSession?
     private var webCanvasPencilInteraction: UIPencilInteraction?
+    private var documentPickerCall: CAPPluginCall?
+    private var documentPickerController: UIDocumentPickerViewController?
+    private var exportCall: CAPPluginCall?
+    private var exportTemporaryUrl: URL?
 
     public override func load() {
         super.load()
@@ -488,7 +889,7 @@ public final class TenetNativePlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthenti
     @objc public func presentPencilCanvas(_ call: CAPPluginCall) {
         let config = configuration()
         guard config.valid, config.pencilKitEnabled else {
-            call.reject("Pencil studio is disabled by managed configuration.", "pencil_disabled")
+            call.reject("Apple Pencil sketch is disabled by managed configuration.", "pencil_disabled")
             return
         }
         guard let presenter = bridge?.viewController else {
@@ -517,6 +918,174 @@ public final class TenetNativePlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthenti
                 }
             }
             presenter.present(navigation, animated: true)
+        }
+    }
+
+    @objc public func pickDocument(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            guard self.documentPickerCall == nil else {
+                call.reject("A document picker is already active.", "document_picker_busy")
+                return
+            }
+            guard
+                let presenter = self.bridge?.viewController,
+                presenter.viewIfLoaded?.window != nil,
+                presenter.presentedViewController == nil
+            else {
+                call.reject("The native presentation context is unavailable.", "presentation_unavailable")
+                return
+            }
+
+            let picker = UIDocumentPickerViewController(
+                forOpeningContentTypes: [UTType.pdf, UTType.image],
+                asCopy: true
+            )
+            picker.delegate = self
+            picker.allowsMultipleSelection = false
+            self.documentPickerCall = call
+            self.documentPickerController = picker
+            presenter.present(picker, animated: true)
+        }
+    }
+
+    public func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+        guard controller === documentPickerController, let call = documentPickerCall else { return }
+        documentPickerCall = nil
+        documentPickerController = nil
+        call.resolve([
+            "cancelled": true,
+            "pages": JSArray(),
+        ])
+    }
+
+    public func documentPicker(
+        _ controller: UIDocumentPickerViewController,
+        didPickDocumentsAt urls: [URL]
+    ) {
+        guard controller === documentPickerController, let call = documentPickerCall else { return }
+        documentPickerController = nil
+        guard urls.count == 1, let url = urls.first else {
+            documentPickerCall = nil
+            call.reject("Choose exactly one document.", "document_selection_invalid")
+            return
+        }
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            let accessed = url.startAccessingSecurityScopedResource()
+            defer {
+                if accessed { url.stopAccessingSecurityScopedResource() }
+            }
+
+            do {
+                let pages = try renderImportedDocument(at: url)
+                let pageObjects: JSArray = pages.map { page in
+                    [
+                        "dataUrl": "data:image/png;base64,\(page.data.base64EncodedString())",
+                        "width": page.width,
+                        "height": page.height,
+                        "name": page.name,
+                    ] as JSObject
+                }
+                DispatchQueue.main.async {
+                    self.documentPickerCall = nil
+                    call.resolve([
+                        "cancelled": false,
+                        "pages": pageObjects,
+                    ])
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self.documentPickerCall = nil
+                    let code = (error as? NativeDocumentError)?.code ?? "document_read_failed"
+                    call.reject(error.localizedDescription, code, error)
+                }
+            }
+        }
+    }
+
+    @objc public func exportPdf(_ call: CAPPluginCall) {
+        guard
+            let dataUrl = call.getString("dataUrl"),
+            let filename = call.getString("filename")
+        else {
+            call.reject(
+                NativeDocumentError.invalidPngDataUrl.localizedDescription,
+                NativeDocumentError.invalidPngDataUrl.code
+            )
+            return
+        }
+
+        DispatchQueue.main.async {
+            guard self.exportCall == nil else {
+                call.reject("A PDF export is already active.", "export_busy")
+                return
+            }
+            guard
+                let presenter = self.bridge?.viewController,
+                presenter.viewIfLoaded?.window != nil,
+                presenter.presentedViewController == nil
+            else {
+                call.reject("The native presentation context is unavailable.", "presentation_unavailable")
+                return
+            }
+
+            self.exportCall = call
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    let export = try createExportPdf(dataUrl: dataUrl, filename: filename)
+                    DispatchQueue.main.async {
+                        guard
+                            self.exportCall != nil,
+                            presenter.presentedViewController == nil
+                        else {
+                            self.exportCall = nil
+                            removeTemporaryExport(export.url)
+                            call.reject("Another screen is currently open.", "presentation_busy")
+                            return
+                        }
+
+                        self.exportTemporaryUrl = export.url
+                        let activity = UIActivityViewController(
+                            activityItems: [export.url],
+                            applicationActivities: nil
+                        )
+                        if let popover = activity.popoverPresentationController {
+                            popover.sourceView = presenter.view
+                            popover.sourceRect = CGRect(
+                                x: presenter.view.bounds.midX,
+                                y: presenter.view.bounds.midY,
+                                width: 1,
+                                height: 1
+                            )
+                            popover.permittedArrowDirections = []
+                        }
+                        activity.completionWithItemsHandler = { [weak self] _, completed, _, error in
+                            DispatchQueue.main.async {
+                                removeTemporaryExport(export.url)
+                                guard let self else { return }
+                                self.exportCall = nil
+                                self.exportTemporaryUrl = nil
+                                if let error {
+                                    call.reject(error.localizedDescription, "share_failed", error)
+                                } else {
+                                    call.resolve([
+                                        "cancelled": !completed,
+                                        "filename": export.filename,
+                                    ])
+                                }
+                            }
+                        }
+                        presenter.present(activity, animated: true)
+                    }
+                } catch {
+                    DispatchQueue.main.async {
+                        self.exportCall = nil
+                        self.exportTemporaryUrl = nil
+                        let code = (error as? NativeDocumentError)?.code ?? "pdf_creation_failed"
+                        call.reject(error.localizedDescription, code, error)
+                    }
+                }
+            }
         }
     }
 
@@ -549,7 +1118,8 @@ private final class TenetPencilViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = UIColor(red: 246 / 255, green: 242 / 255, blue: 232 / 255, alpha: 1)
-        title = "Pencil studio"
+        title = "Apple Pencil sketch"
+        navigationItem.prompt = "Tap Done to place this sketch on the current page."
         navigationItem.leftBarButtonItem = UIBarButtonItem(
             barButtonSystemItem: .cancel,
             target: self,

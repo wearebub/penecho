@@ -1,0 +1,138 @@
+:root {
+  --tenet-ink: #10243e;
+  --tenet-copper: #b9612e;
+  --tenet-paper: #fbf8f0;
+  --tenet-line: #d8d2c4;
+}
+
+body.tenet-whiteboard #coords,
+body.tenet-whiteboard #shareCanvasBtn,
+body.tenet-whiteboard #cloudAccountBtn,
+body.tenet-whiteboard #settingsBtn,
+body.tenet-whiteboard .tenet-legacy-pencil-action {
+  display: none !important;
+}
+
+body.tenet-whiteboard .tenet-brand-button {
+  appearance: none;
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 12px;
+  color: var(--tenet-ink);
+  cursor: pointer;
+  display: inline-flex;
+  font-family: "Avenir Next", "Trebuchet MS", sans-serif;
+  font-size: 18px;
+  font-weight: 800;
+  gap: 8px;
+  min-height: 44px;
+  padding: 4px 8px;
+}
+
+body.tenet-whiteboard .tenet-brand-button:focus-visible {
+  box-shadow: 0 0 0 3px rgba(185, 97, 46, 0.28);
+  outline: 2px solid var(--tenet-copper);
+  outline-offset: 2px;
+}
+
+body.tenet-whiteboard .tenet-brand-button img {
+  border-radius: 10px;
+  display: block;
+  height: 36px;
+  width: 36px;
+}
+
+body.tenet-whiteboard .tenet-header-action {
+  align-items: center;
+  background: var(--tenet-paper);
+  border: 1px solid var(--tenet-line);
+  border-radius: 10px;
+  color: var(--tenet-ink);
+  display: inline-flex;
+  font-family: "Avenir Next", "Trebuchet MS", sans-serif;
+  font-size: 13px;
+  font-weight: 800;
+  justify-content: center;
+  min-height: 44px;
+  min-width: 58px;
+  padding: 0 12px;
+  white-space: nowrap;
+}
+
+body.tenet-whiteboard .tenet-header-action:hover,
+body.tenet-whiteboard .tenet-header-action:focus-visible {
+  background: #f3ecdf;
+  border-color: #bf754a;
+}
+
+html.tenet-native-ios body.tenet-whiteboard .topbar {
+  box-sizing: content-box;
+  padding-top: max(8px, env(safe-area-inset-top));
+}
+
+html.tenet-native-ios body.tenet-whiteboard footer {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+html.tenet-native-ios body.tenet-whiteboard button,
+html.tenet-native-ios body.tenet-whiteboard [role="button"] {
+  touch-action: manipulation;
+}
+
+html.tenet-native-ios body.tenet-whiteboard .object-chrome-button,
+html.tenet-native-ios body.tenet-whiteboard .selection-toolbar button,
+html.tenet-native-ios body.tenet-whiteboard .object-toolbar button {
+  min-height: 48px !important;
+  min-width: 48px !important;
+}
+
+html.tenet-native-ios body.tenet-whiteboard .canvas-widget-resize-handle {
+  opacity: 1 !important;
+  touch-action: none;
+}
+
+html.tenet-native-ios body.tenet-whiteboard .canvas-widget-resize-handle.corner {
+  bottom: -22px !important;
+  height: 44px !important;
+  right: -22px !important;
+  width: 44px !important;
+}
+
+html.tenet-native-ios body.tenet-whiteboard .canvas-widget-resize-handle.width {
+  right: -18px !important;
+  width: 36px !important;
+}
+
+html.tenet-native-ios body.tenet-whiteboard .canvas-widget-resize-handle.height {
+  bottom: -18px !important;
+  height: 36px !important;
+}
+
+html.tenet-native-ios body.tenet-whiteboard .tenet-product-lockup {
+  max-width: min(260px, calc(100vw - 32px));
+}
+
+html.tenet-native-ios body.tenet-whiteboard .tenet-brand-source {
+  font-size: 10px;
+  line-height: 1.25;
+}
+
+@media (max-width: 1100px) {
+  body.tenet-whiteboard .tenet-header-action {
+    min-width: 52px;
+    padding-inline: 9px;
+  }
+
+  body.tenet-whiteboard .tenet-brand-button span {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body.tenet-whiteboard .tenet-header-action,
+  body.tenet-whiteboard .tenet-brand-button {
+    scroll-behavior: auto;
+    transition: none;
+  }
+}
