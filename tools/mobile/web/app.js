@@ -1,33 +1,104 @@
 "use strict";
 
-const form = document.querySelector("#connectForm");
-const input = document.querySelector("#serverUrl");
+const primaryAction = document.querySelector("#primaryAction");
+const openAction = document.querySelector("#openAction");
+const statusText = document.querySelector("#statusText");
+const statusDot = document.querySelector("#statusDot");
+const profileText = document.querySelector("#profileText");
 const error = document.querySelector("#error");
-const saved = localStorage.getItem("penecho.mobile.serverUrl");
 
-if (saved) input.value = saved;
+let configuration = null;
+let authenticated = false;
 
-function showError(message) {
-  error.hidden = false;
-  error.textContent = message;
+function nativeBridge() {
+  return window.Capacitor && window.Capacitor.Plugins
+    ? window.Capacitor.Plugins.TenetNative
+    : null;
 }
 
-form.addEventListener("submit", event => {
-  event.preventDefault();
+function setBusy(busy, message) {
+  primaryAction.disabled = busy || !configuration || !configuration.valid;
+  primaryAction.textContent = busy ? message : "Sign in with Google";
+}
+
+function setStatus(message, state) {
+  statusText.textContent = message;
+  statusDot.dataset.state = state;
+}
+
+function showError(message) {
+  error.textContent = message;
+  error.hidden = false;
+}
+
+function clearError() {
   error.hidden = true;
-  let target;
+  error.textContent = "";
+}
+
+function openWhiteboard() {
+  if (!configuration || !configuration.valid || !authenticated) return;
+  const target = new URL(configuration.baseUrl);
+  target.searchParams.set("tenet_native", "1");
+  window.location.replace(target.href);
+}
+
+async function initialize() {
+  const bridge = nativeBridge();
+  if (!bridge) {
+    setStatus("Native iPad bridge unavailable", "blocked");
+    showError("This launcher must run inside the signed Tenet Whiteboard iPad application.");
+    return;
+  }
+
   try {
-    target = new URL(input.value.trim());
-  } catch {
-    showError("Enter a complete server address, including http:// or https://.");
-    return;
+    configuration = await bridge.getConfiguration();
+    profileText.textContent = configuration.profileLabel || "Unavailable";
+    if (!configuration.valid) {
+      setStatus("Managed configuration required", "blocked");
+      showError(configuration.reason || "Contact your district administrator.");
+      return;
+    }
+
+    setStatus("Restoring secure session...", "working");
+    const restored = await bridge.restoreSession();
+    authenticated = restored.authenticated === true;
+    if (authenticated) {
+      setStatus("Student rules active", "ready");
+      primaryAction.hidden = true;
+      openAction.hidden = false;
+      return;
+    }
+
+    setStatus("Sign in required", "waiting");
+    primaryAction.disabled = false;
+  } catch (cause) {
+    setStatus("Unable to initialize", "blocked");
+    showError(cause && cause.message ? cause.message : "The native application could not initialize.");
   }
-  if (!["http:", "https:"].includes(target.protocol) || target.username || target.password || target.search || target.hash) {
-    showError("Use an http:// or https:// server address without credentials or query parameters.");
-    return;
+}
+
+primaryAction.addEventListener("click", async () => {
+  const bridge = nativeBridge();
+  if (!bridge || !configuration || !configuration.valid) return;
+  clearError();
+  setBusy(true, "Opening secure sign-in...");
+  setStatus("Complete sign-in in the system window", "working");
+  try {
+    const result = await bridge.authenticate({ baseUrl: configuration.baseUrl });
+    authenticated = result.authenticated === true;
+    if (!authenticated) throw new Error("Sign-in did not establish a session.");
+    setStatus("Student rules active", "ready");
+    primaryAction.hidden = true;
+    openAction.hidden = false;
+    openWhiteboard();
+  } catch (cause) {
+    setStatus("Sign in required", "waiting");
+    showError(cause && cause.message ? cause.message : "Google sign-in did not complete.");
+    setBusy(false, "");
   }
-  target.pathname = "/";
-  target.search = "";
-  localStorage.setItem("penecho.mobile.serverUrl", target.href);
-  window.location.href = target.href;
 });
+
+openAction.addEventListener("click", openWhiteboard);
+
+void initialize();

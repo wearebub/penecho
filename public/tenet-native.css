@@ -1,0 +1,57 @@
+.tenet-native-actions {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 7px;
+  width: 100%;
+  pointer-events: auto;
+}
+
+.tenet-native-action {
+  min-height: 34px;
+  padding: 0 11px;
+  border: 1px solid rgba(20, 36, 59, 0.16);
+  border-radius: 10px;
+  background: rgba(20, 36, 59, 0.06);
+  color: #14243b;
+  font-family: "Avenir Next", "Century Gothic", Futura, sans-serif;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.tenet-native-action-primary {
+  border-color: #14243b;
+  background: #14243b;
+  color: #fffdf8;
+}
+
+.tenet-native-action:disabled { opacity: 0.55; }
+
+.tenet-native-toast {
+  position: fixed;
+  top: max(16px, env(safe-area-inset-top));
+  left: 50%;
+  z-index: 10020;
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 11px 15px;
+  border: 1px solid rgba(45, 128, 106, 0.24);
+  border-radius: 13px;
+  background: rgba(241, 249, 246, 0.96);
+  box-shadow: 0 16px 45px rgba(20, 36, 59, 0.18);
+  color: #205f50;
+  font-family: "Avenir Next", "Century Gothic", Futura, sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  transform: translateX(-50%);
+}
+
+.tenet-native-toast[data-kind="error"] {
+  border-color: rgba(164, 62, 56, 0.24);
+  background: rgba(253, 244, 242, 0.97);
+  color: #872f2a;
+}
+
+@media (max-width: 640px) {
+  .tenet-native-actions { grid-template-columns: 1fr; }
+  .tenet-native-action { min-height: 38px; }
+}

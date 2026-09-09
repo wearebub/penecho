@@ -24691,3 +24691,344 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   scheduleAIOrbIdle();
   requestAnimationFrame(() => requestAnimationFrame(maybeStartOnboarding));
 })();
+(function initTenetWhiteboardBranding(global) {
+  "use strict";
+
+  const config = global.PENECHO_CONFIG;
+  if (!config || config.tenetMode !== true) return;
+
+  const PRODUCT_NAME = "Tenet Whiteboard";
+  const MANAGED_ATTR = "data-tenet-managed";
+  const BRAND_ATTRIBUTES = ["aria-label", "title", "placeholder", "alt"];
+
+  function replaceProductName(value) {
+    if (!value || !value.includes("PenEcho")) return value;
+    return value
+      .replace(/PenEcho Agent/g, "Tenet Tutor")
+      .replace(/PenEcho Cloud/g, "Tenet Cloud")
+      .replace(/PenEcho/g, PRODUCT_NAME);
+  }
+
+  function upsertMeta(name, content) {
+    let meta = document.head.querySelector(`meta[name="${name}"][${MANAGED_ATTR}]`);
+    if (!meta) {
+      meta = document.createElement("meta");
+      meta.name = name;
+      meta.setAttribute(MANAGED_ATTR, "true");
+      document.head.appendChild(meta);
+    }
+    meta.content = content;
+  }
+
+  function upsertLink(rel, href, sizes) {
+    let link = document.head.querySelector(`link[rel="${rel}"][${MANAGED_ATTR}]`);
+    if (!link) {
+      link = document.createElement("link");
+      link.rel = rel;
+      link.setAttribute(MANAGED_ATTR, "true");
+      document.head.appendChild(link);
+    }
+    link.href = href;
+    if (sizes) link.sizes = sizes;
+  }
+
+  function installAppMetadata() {
+    document.title = PRODUCT_NAME;
+    document.documentElement.setAttribute("data-tenet-product", "whiteboard");
+    upsertLink("stylesheet", "/tenet-branding.css");
+    upsertLink("manifest", "/manifest.webmanifest");
+    upsertLink("apple-touch-icon", "/tenet-whiteboard-icon-180.png", "180x180");
+    upsertMeta("application-name", PRODUCT_NAME);
+    upsertMeta("theme-color", "#14243b");
+    upsertMeta("mobile-web-app-capable", "yes");
+    upsertMeta("apple-mobile-web-app-capable", "yes");
+    upsertMeta("apple-mobile-web-app-title", PRODUCT_NAME);
+    upsertMeta("apple-mobile-web-app-status-bar-style", "default");
+  }
+
+  function shouldSkip(element) {
+    return !element || Boolean(element.closest(
+      ".tenet-product-lockup, script, style, noscript, template, code, pre"
+    ));
+  }
+
+  function rewriteTextNode(node) {
+    const parent = node.parentElement;
+    if (shouldSkip(parent)) return;
+    const next = replaceProductName(node.nodeValue);
+    if (next !== node.nodeValue) node.nodeValue = next;
+  }
+
+  function rewriteElement(element) {
+    if (!element || shouldSkip(element)) return;
+    let changed = false;
+    for (const attribute of BRAND_ATTRIBUTES) {
+      if (!element.hasAttribute(attribute)) continue;
+      const current = element.getAttribute(attribute);
+      const next = replaceProductName(current);
+      if (next !== current) {
+        element.setAttribute(attribute, next);
+        changed = true;
+      }
+    }
+    if (changed) {
+      element.removeAttribute("data-i18n");
+      element.removeAttribute("data-i18n-title");
+      element.removeAttribute("data-i18n-placeholder");
+      element.removeAttribute("data-i18n-aria-label");
+    }
+  }
+
+  function rewriteSubtree(root) {
+    if (!root) return;
+    if (root.nodeType === 3) {
+      rewriteTextNode(root);
+      return;
+    }
+    if (root.nodeType !== 1) return;
+    rewriteElement(root);
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let textNode = walker.nextNode();
+    while (textNode) {
+      rewriteTextNode(textNode);
+      textNode = walker.nextNode();
+    }
+    root.querySelectorAll(BRAND_ATTRIBUTES.map((name) => `[${name}]`).join(","))
+      .forEach(rewriteElement);
+  }
+
+  function isStandalone() {
+    return Boolean(
+      global.navigator.standalone === true ||
+      (global.matchMedia && global.matchMedia("(display-mode: standalone)").matches)
+    );
+  }
+
+  function isIPad() {
+    const platform = global.navigator.platform || "";
+    const userAgent = global.navigator.userAgent || "";
+    return /iPad/.test(userAgent) ||
+      (platform === "MacIntel" && global.navigator.maxTouchPoints > 1);
+  }
+
+  function appendText(parent, tagName, className, text) {
+    const element = document.createElement(tagName);
+    element.className = className;
+    element.textContent = text;
+    parent.appendChild(element);
+    return element;
+  }
+
+  function renderProductLockup() {
+    let badge = document.getElementById("tenetBadge");
+    if (!badge) {
+      badge = document.createElement("aside");
+      badge.id = "tenetBadge";
+      document.body.appendChild(badge);
+    }
+
+    badge.hidden = false;
+    badge.className = "tenet-badge tenet-product-lockup";
+    badge.setAttribute("aria-label", `${PRODUCT_NAME}, student rules active`);
+    badge.setAttribute(
+      "title",
+      "Google sign-in grants access to this private app. Tenet Gateway governs each AI turn."
+    );
+    badge.replaceChildren();
+
+    const mark = document.createElement("img");
+    mark.className = "tenet-brand-mark";
+    mark.src = "/tenet-whiteboard-icon-180.png";
+    mark.alt = "";
+    mark.setAttribute("aria-hidden", "true");
+    badge.appendChild(mark);
+
+    const copy = document.createElement("div");
+    copy.className = "tenet-brand-copy";
+    appendText(copy, "span", "tenet-brand-eyebrow", "TENET AI GOVERNANCE");
+    appendText(copy, "strong", "tenet-brand-name", PRODUCT_NAME);
+    const session = appendText(copy, "span", "tenet-brand-session", "Student rules active");
+    const dot = document.createElement("span");
+    dot.className = "tenet-brand-session-dot";
+    dot.setAttribute("aria-hidden", "true");
+    session.prepend(dot);
+    badge.appendChild(copy);
+
+    if (isIPad() && !isStandalone()) {
+      appendText(
+        badge,
+        "span",
+        "tenet-install-hint",
+        "On iPad: Share, then Add to Home Screen"
+      );
+    }
+
+    appendText(
+      badge,
+      "span",
+      "tenet-brand-source",
+      "Canvas foundation: PenEcho | AGPL-3.0"
+    );
+  }
+
+  function startBrandEnforcement() {
+    if (!global.MutationObserver || !document.body) return;
+    if (global.__tenetWhiteboardBrandObserver) {
+      global.__tenetWhiteboardBrandObserver.disconnect();
+    }
+    const observer = new MutationObserver((records) => {
+      for (const record of records) {
+        if (record.type === "characterData") {
+          rewriteTextNode(record.target);
+          continue;
+        }
+        if (record.type === "attributes") {
+          rewriteElement(record.target);
+          continue;
+        }
+        record.addedNodes.forEach(rewriteSubtree);
+      }
+    });
+    observer.observe(document.body, {
+      subtree: true,
+      childList: true,
+      characterData: true,
+      attributes: true,
+      attributeFilter: BRAND_ATTRIBUTES,
+    });
+    global.__tenetWhiteboardBrandObserver = observer;
+    global.addEventListener("pagehide", () => observer.disconnect(), { once: true });
+  }
+
+  function applyBranding() {
+    document.body.classList.add("tenet-mode", "tenet-whiteboard");
+    rewriteSubtree(document.body);
+    renderProductLockup();
+    startBrandEnforcement();
+  }
+
+  installAppMetadata();
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", applyBranding, { once: true });
+  } else {
+    applyBranding();
+  }
+})(window);
+(function initTenetNativeBridge(global) {
+  "use strict";
+
+  const config = global.PENECHO_CONFIG;
+  const capacitor = global.Capacitor;
+  if (!config || config.tenetMode !== true || !capacitor || !capacitor.Plugins) return;
+  if (typeof capacitor.getPlatform === "function" && capacitor.getPlatform() !== "ios") return;
+
+  const native = capacitor.Plugins.TenetNative;
+  if (!native) return;
+
+  function upsertStylesheet() {
+    if (document.head.querySelector('link[data-tenet-native="true"]')) return;
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.href = "/tenet-native.css";
+    link.setAttribute("data-tenet-native", "true");
+    document.head.appendChild(link);
+  }
+
+  function showMessage(message, isError) {
+    let toast = document.querySelector("#tenetNativeToast");
+    if (!toast) {
+      toast = document.createElement("div");
+      toast.id = "tenetNativeToast";
+      toast.className = "tenet-native-toast";
+      toast.setAttribute("role", "status");
+      document.body.appendChild(toast);
+    }
+    toast.textContent = message;
+    toast.dataset.kind = isError ? "error" : "success";
+    toast.hidden = false;
+    global.clearTimeout(toast.__tenetTimer);
+    toast.__tenetTimer = global.setTimeout(() => { toast.hidden = true; }, 3600);
+  }
+
+  async function importPencilDrawing(result) {
+    if (!result || typeof result.dataUrl !== "string" || !result.dataUrl.startsWith("data:image/png;base64,")) {
+      throw new Error("PencilKit returned an invalid drawing.");
+    }
+    const input = document.querySelector("#imagePickerInput");
+    if (!input || typeof DataTransfer !== "function") {
+      throw new Error("This canvas cannot import the native drawing.");
+    }
+    const response = await fetch(result.dataUrl);
+    const blob = await response.blob();
+    const file = new File([blob], `tenet-pencil-${Date.now()}.png`, { type: "image/png" });
+    const transfer = new DataTransfer();
+    transfer.items.add(file);
+    input.files = transfer.files;
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  async function openPencilStudio(button) {
+    button.disabled = true;
+    try {
+      const managed = await native.getConfiguration();
+      if (managed.pencilKitEnabled === false) {
+        throw new Error("Pencil studio is disabled by managed configuration.");
+      }
+      const result = await native.presentPencilCanvas({
+        fingerDrawing: managed.fingerDrawingEnabled === true,
+      });
+      if (result && result.cancelled === true) return;
+      await importPencilDrawing(result);
+      showMessage("PencilKit drawing added to the whiteboard.", false);
+    } catch (cause) {
+      showMessage(cause && cause.message ? cause.message : "Pencil studio could not open.", true);
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  async function signOut(button) {
+    if (!global.confirm("Sign out of Tenet Whiteboard on this iPad?")) return;
+    button.disabled = true;
+    try {
+      await native.signOut();
+      global.location.replace("capacitor://localhost/");
+    } catch (cause) {
+      showMessage(cause && cause.message ? cause.message : "Sign out failed.", true);
+      button.disabled = false;
+    }
+  }
+
+  function installActions() {
+    document.documentElement.classList.add("tenet-native-ios");
+    document.querySelectorAll(".tenet-install-hint").forEach((element) => element.remove());
+    const badge = document.querySelector("#tenetBadge");
+    if (!badge || badge.querySelector("#tenetNativeActions")) return;
+
+    const actions = document.createElement("div");
+    actions.id = "tenetNativeActions";
+    actions.className = "tenet-native-actions";
+
+    const pencil = document.createElement("button");
+    pencil.type = "button";
+    pencil.className = "tenet-native-action tenet-native-action-primary";
+    pencil.textContent = "Pencil studio";
+    pencil.addEventListener("click", () => { void openPencilStudio(pencil); });
+
+    const logout = document.createElement("button");
+    logout.type = "button";
+    logout.className = "tenet-native-action";
+    logout.textContent = "Sign out";
+    logout.addEventListener("click", () => { void signOut(logout); });
+
+    actions.append(pencil, logout);
+    badge.appendChild(actions);
+  }
+
+  upsertStylesheet();
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", installActions, { once: true });
+  } else {
+    installActions();
+  }
+})(window);

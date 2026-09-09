@@ -1,0 +1,17 @@
+Pod::Spec.new do |s|
+  s.name = 'TenetIpadNative'
+  s.version = '0.1.0'
+  s.summary = 'First-party native iPad bridge for Tenet Whiteboard.'
+  s.license = { :type => 'Proprietary', :text => 'Copyright TrueMadeAI' }
+  s.homepage = 'https://truemadeai.com'
+  s.author = { 'TrueMadeAI' => 'engineering@truemadeai.com' }
+  s.source = { :git => 'https://github.com/wearebub/tenet.git', :tag => s.version.to_s }
+  s.source_files = 'ios/Plugin/**/*.{swift}'
+  s.resource_bundles = {
+    'TenetIpadNativePrivacy' => ['ios/Plugin/PrivacyInfo.xcprivacy']
+  }
+  s.ios.deployment_target = '15.0'
+  s.swift_version = '5.9'
+  s.dependency 'Capacitor'
+  s.frameworks = 'AuthenticationServices', 'CryptoKit', 'PencilKit', 'Security', 'UIKit', 'WebKit'
+end

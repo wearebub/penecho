@@ -1,8 +1,13 @@
-name: iOS release
+name: Tenet Whiteboard iOS
 
 on:
   workflow_dispatch:
     inputs:
+      build_signed_ipa:
+        description: Build a signed IPA using the ios-signing environment
+        required: false
+        type: boolean
+        default: false
       upload_testflight:
         description: Upload the signed IPA to TestFlight
         required: false
@@ -16,11 +21,58 @@ permissions:
   contents: read
 
 concurrency:
-  group: ios-release-${{ github.ref }}
+  group: tenet-whiteboard-ios-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  ios:
+  compile:
+    name: Compile iPad app
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22.x
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            tools/mobile/package-lock.json
+      - run: npm ci
+      - run: npm ci --prefix tools/mobile
+      - run: npm run build:client
+      - run: npm run mobile:ios:prepare
+      - name: Compile unsigned Simulator application
+        shell: bash
+        run: |
+          xcodebuild \
+            -workspace tools/mobile/ios/App/App.xcworkspace \
+            -scheme App \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath tools/mobile/ios/build \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+      - name: Package Simulator application
+        shell: bash
+        run: |
+          APP="$(find tools/mobile/ios/build/Build/Products/Debug-iphonesimulator -maxdepth 1 -type d -name '*.app' -print -quit)"
+          if [[ -z "$APP" ]]; then
+            echo "::error::Compiled Simulator application was not produced"
+            exit 1
+          fi
+          mkdir -p release/mobile
+          ditto -c -k --sequesterRsrc --keepParent "$APP" release/mobile/Tenet-Whiteboard-simulator.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tenet-whiteboard-ios-simulator
+          path: release/mobile/Tenet-Whiteboard-simulator.zip
+          if-no-files-found: error
+
+  release:
+    name: Build signed iPad application
+    needs: compile
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.build_signed_ipa == true || inputs.upload_testflight == true
     runs-on: macos-15
     environment: ios-signing
     env:
@@ -33,9 +85,6 @@ jobs:
       APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
       APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
       IOS_BUILD_NUMBER: ${{ github.run_number }}
-      # Version tags always build a signed IPA artifact. TestFlight remains an
-      # explicit release choice so a tag cannot submit an unaccepted mobile
-      # runtime change to App Store Connect.
       UPLOAD_TESTFLIGHT: ${{ inputs.upload_testflight == true }}
     steps:
       - uses: actions/checkout@v6
@@ -69,10 +118,10 @@ jobs:
       - name: Import distribution certificate and provisioning profile
         shell: bash
         run: |
-          CERTIFICATE_PATH="$RUNNER_TEMP/penecho-ios.p12"
-          PROFILE_PATH="$RUNNER_TEMP/penecho-ios.mobileprovision"
-          PROFILE_PLIST="$RUNNER_TEMP/penecho-ios-profile.plist"
-          KEYCHAIN_PATH="$RUNNER_TEMP/penecho-ios-signing.keychain-db"
+          CERTIFICATE_PATH="$RUNNER_TEMP/tenet-whiteboard-ios.p12"
+          PROFILE_PATH="$RUNNER_TEMP/tenet-whiteboard-ios.mobileprovision"
+          PROFILE_PLIST="$RUNNER_TEMP/tenet-whiteboard-ios-profile.plist"
+          KEYCHAIN_PATH="$RUNNER_TEMP/tenet-whiteboard-ios-signing.keychain-db"
           KEYCHAIN_PASSWORD="$(openssl rand -base64 32)"
           printf '%s' "$IOS_DISTRIBUTION_CERTIFICATE_P12_BASE64" | /usr/bin/base64 -D > "$CERTIFICATE_PATH"
           printf '%s' "$IOS_PROVISIONING_PROFILE_BASE64" | /usr/bin/base64 -D > "$PROFILE_PATH"
@@ -98,20 +147,20 @@ jobs:
       - name: Verify signed IPA
         shell: bash
         run: |
-          IPA="$(find release/mobile -maxdepth 1 -type f -name 'PenEcho-*-ios.ipa' -print -quit)"
+          IPA="$(find release/mobile -maxdepth 1 -type f -name '*.ipa' -print -quit)"
           if [[ -z "$IPA" ]]; then
             echo "::error::Signed IPA was not produced"
             exit 1
           fi
-          VERIFY_ROOT="$RUNNER_TEMP/penecho-ios-verify"
+          VERIFY_ROOT="$RUNNER_TEMP/tenet-whiteboard-ios-verify"
           ditto -x -k "$IPA" "$VERIFY_ROOT"
           APP="$(find "$VERIFY_ROOT/Payload" -maxdepth 1 -type d -name '*.app' -print -quit)"
           codesign --verify --deep --strict --verbose=2 "$APP"
           codesign -dv --verbose=4 "$APP"
       - uses: actions/upload-artifact@v4
         with:
-          name: penecho-ios
-          path: release/mobile/PenEcho-*-ios.ipa
+          name: tenet-whiteboard-ios
+          path: release/mobile/*.ipa
           if-no-files-found: error
       - name: Restore App Store Connect API key
         if: env.UPLOAD_TESTFLIGHT == 'true'
@@ -125,5 +174,5 @@ jobs:
         if: env.UPLOAD_TESTFLIGHT == 'true'
         shell: bash
         run: |
-          IPA="$(find release/mobile -maxdepth 1 -type f -name 'PenEcho-*-ios.ipa' -print -quit)"
+          IPA="$(find release/mobile -maxdepth 1 -type f -name '*.ipa' -print -quit)"
           xcrun altool --upload-app --type ios --file "$IPA" --apiKey "$APPLE_API_KEY_ID" --apiIssuer "$APPLE_API_ISSUER"

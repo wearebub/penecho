@@ -3,24 +3,48 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#101827">
-  <title>PenEcho Mobile</title>
-  <link rel="icon" href="penecho-mark.png">
+  <meta name="theme-color" content="#14243b">
+  <title>Tenet Whiteboard</title>
+  <link rel="icon" href="tenet-whiteboard-icon.png">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <main class="shell">
-    <img class="mark" src="penecho-mark.png" alt="PenEcho">
-    <p class="eyebrow">PenEcho</p>
-    <h1>Connect your canvas</h1>
-    <p class="description">Enter the address of a PenEcho server running on this computer or on your private network.</p>
-    <form id="connectForm">
-      <label for="serverUrl">PenEcho server address</label>
-      <input id="serverUrl" name="serverUrl" type="url" inputmode="url" autocomplete="url" placeholder="http://192.168.1.20:3888" required>
+  <main class="shell" aria-labelledby="appTitle">
+    <section class="brand-panel">
+      <div class="mark-wrap">
+        <img class="mark" src="tenet-whiteboard-icon.png" alt="">
+      </div>
+      <p class="eyebrow">Tenet AI Governance</p>
+      <h1 id="appTitle">Whiteboard</h1>
+      <p class="description">A focused canvas with student rules enforced by the Tenet Gateway.</p>
+    </section>
+
+    <section class="session-card" aria-live="polite">
+      <div class="status-row">
+        <span id="statusDot" class="status-dot" aria-hidden="true"></span>
+        <div>
+          <p class="status-label">Student access</p>
+          <p id="statusText" class="status-text">Reading managed configuration...</p>
+        </div>
+      </div>
+
+      <dl class="configuration">
+        <div>
+          <dt>Rule source</dt>
+          <dd>Tenet Gateway</dd>
+        </div>
+        <div>
+          <dt>Managed profile</dt>
+          <dd id="profileText">Checking</dd>
+        </div>
+      </dl>
+
       <p id="error" class="error" role="alert" hidden></p>
-      <button type="submit">Connect</button>
-    </form>
-    <p class="note">Use HTTPS for a server exposed outside your private network.</p>
+      <button id="primaryAction" type="button" disabled>Sign in with Google</button>
+      <button id="openAction" class="secondary" type="button" hidden>Open whiteboard</button>
+    </section>
+
+    <p class="privacy-note">Your sign-in token stays in this iPad's Keychain. Class-level rules remain server-owned and are never accepted from local storage.</p>
   </main>
   <script src="app.js"></script>
 </body>

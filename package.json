@@ -94,6 +94,7 @@
     "predesktop": "npm run icons",
     "desktop:deps": "npm ci --prefix tools/electron",
     "mobile:deps": "npm ci --prefix tools/mobile",
+    "mobile:ios:prepare": "node tools/mobile/build-mobile.js ios-project",
     "mobile:apk": "node tools/mobile/build-mobile.js android",
     "mobile:ipa": "node tools/mobile/build-mobile.js ios",
     "desktop:package": "npm run icons && node tools/electron/run-forge.js package",

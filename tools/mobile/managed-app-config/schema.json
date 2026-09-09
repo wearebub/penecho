@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Tenet Whiteboard managed app configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "studentRuleProfile",
+    "requireManagedConfiguration"
+  ],
+  "properties": {
+    "studentRuleProfile": {
+      "type": "string",
+      "enum": [
+        "district",
+        "spanish"
+      ]
+    },
+    "requireManagedConfiguration": {
+      "const": true
+    },
+    "pencilKitEnabled": {
+      "type": "boolean",
+      "default": true
+    },
+    "fingerDrawingEnabled": {
+      "type": "boolean",
+      "default": false
+    }
+  }
+}

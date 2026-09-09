@@ -1,9 +1,19 @@
 {
-  "appId": "ai.penecho.mobile",
-  "appName": "PenEcho",
+  "appId": "ai.truemade.tenet.whiteboard",
+  "appName": "Tenet Whiteboard",
   "webDir": "web",
   "server": {
-    "allowNavigation": ["*"],
-    "cleartext": true
+    "hostname": "localhost",
+    "iosScheme": "capacitor",
+    "allowNavigation": [
+      "district.connect.truemadeai.com",
+      "spanish.connect.truemadeai.com"
+    ],
+    "cleartext": false
+  },
+  "ios": {
+    "backgroundColor": "#f6f2e8",
+    "contentInset": "always",
+    "preferredContentMode": "desktop"
   }
 }

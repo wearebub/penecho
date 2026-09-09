@@ -1,0 +1,20 @@
+{
+  "name": "@truemade/tenet-ipad-native",
+  "version": "0.1.0",
+  "private": true,
+  "description": "First-party native iPad bridge for Tenet Whiteboard",
+  "license": "UNLICENSED",
+  "files": [
+    "ios/",
+    "Package.swift",
+    "TenetIpadNative.podspec"
+  ],
+  "peerDependencies": {
+    "@capacitor/core": ">=7.0.0 <8.0.0"
+  },
+  "capacitor": {
+    "ios": {
+      "src": "ios"
+    }
+  }
+}

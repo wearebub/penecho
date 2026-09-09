@@ -1,8 +1,8 @@
 {
-  "name": "penecho-mobile-toolchain",
-  "version": "0.6.0",
+  "name": "tenet-whiteboard-mobile-toolchain",
+  "version": "0.7.0",
   "private": true,
-  "description": "Isolated Capacitor toolchain for PenEcho Android and iOS clients",
+  "description": "Isolated Capacitor toolchain for the native Tenet Whiteboard iPad application",
   "engines": {
     "node": ">=22.12.0"
   },
@@ -11,6 +11,7 @@
     "@capacitor/cli": "7.4.3",
     "@capacitor/core": "7.4.3",
     "@capacitor/ios": "7.4.3",
+    "@truemade/tenet-ipad-native": "file:plugins/tenet-ipad-native",
     "plist": "3.1.1",
     "xml2js": "0.6.2"
   }

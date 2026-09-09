@@ -1,0 +1,27 @@
+{
+  "name": "Tenet Whiteboard",
+  "short_name": "Tenet",
+  "description": "A student whiteboard governed by the Tenet AI Governance Platform.",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f6f2e8",
+  "theme_color": "#14243b",
+  "categories": ["education", "productivity"],
+  "icons": [
+    {
+      "src": "/tenet-whiteboard-icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/tenet-whiteboard-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
