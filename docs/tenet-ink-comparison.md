@@ -5,7 +5,7 @@ PencilKit in the same notebook. The underlying need is to compare two renderers
 under comparable tasks and settings while preserving existing work.
 
 The comparison module is integrated with the canvas ink adapter and native Swift
-surface. The main integration has passed 34 focused source tests and the hosted
+surface. The main integration has passed 41 focused source tests and the hosted
 macOS simulator and signed-device builds. Local browser checks use an explicit
 mock bridge; real iPad drawing quality must still be graded in TestFlight.
 

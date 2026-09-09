@@ -166,12 +166,19 @@
       timing.visibilityPauses = value.timing.visibilityPauses;
       const source = value.strokeDiagnostics;
       const strokes = {};
-      for (const key of ['events', 'ignoredHiddenEvents', 'startStrokeCount']) {
+      for (const key of ['events', 'ignoredHiddenEvents']) {
         if (count(source[key]) === null) return null;
         strokes[key] = source[key];
       }
-      strokes.endStrokeCount = count(source.endStrokeCount);
-      strokes.deltaStrokeCount = count(source.deltaStrokeCount);
+      // Web raster ink has no authoritative inventory. Only explicit null is
+      // unknown; malformed counts must not be silently converted into null.
+      for (const key of ['startStrokeCount', 'endStrokeCount', 'deltaStrokeCount']) {
+        if (source[key] !== null && count(source[key]) === null) return null;
+        strokes[key] = source[key];
+      }
+      if (strokes.startStrokeCount === null || strokes.endStrokeCount === null) {
+        strokes.deltaStrokeCount = null;
+      }
       strokes.strokeDurationMs = sanitizedStats(source.strokeDurationMs);
       strokes.samplesPerStroke = sanitizedStats(source.samplesPerStroke);
       strokes.commitMs = sanitizedStats(source.commitMs);
@@ -306,7 +313,7 @@
       strokeDiagnostics: {
         events: trial.events, ignoredHiddenEvents: trial.ignoredHiddenEvents,
         startStrokeCount: trial.startStrokeCount, endStrokeCount: endCount,
-        deltaStrokeCount: endCount !== null && endCount >= trial.startStrokeCount
+        deltaStrokeCount: trial.startStrokeCount !== null && endCount !== null && endCount >= trial.startStrokeCount
           ? endCount - trial.startStrokeCount : null,
         strokeDurationMs: summarize(trial.strokeDuration), samplesPerStroke: summarize(trial.samples),
         commitMs: summarize(trial.commits)
