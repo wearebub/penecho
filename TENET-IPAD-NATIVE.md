@@ -234,3 +234,34 @@ When Apple advances its minimum accepted SDK, update the runner only after
 confirming the replacement image and installed Xcode versions in the official
 `actions/runner-images` inventory. A green archive and signature check do not
 prove App Store acceptance; the `Upload to TestFlight` step must also pass.
+
+## Initial TestFlight activation receipt
+
+The first accepted internal build was activated on 2026-09-09 with this
+non-secret identity chain:
+
+- Source commit: `ba3d7b0f5f1441e5631fb551e9a95b816177645c`
+- GitHub Actions run: `34398479150`
+- Marketing version and build: `1.2.0 (12)`
+- App Store Connect app ID: `6810373797`
+- Internal group: `Tenet Internal Testers`
+- Internal group ID: `9d08361e-a3ac-46cc-9281-27e1584182e4`
+- Initial tester: `caleb@truemadeai.com`
+- Automatic distribution: enabled
+
+The workflow derives the Apple build number from the GitHub workflow run number;
+do not pass or invent a separate build-number input. Dispatch
+`ios-release.yml` on `codex/tenet-ipad` with `upload_testflight=true`. A normal
+push also starts the unsigned qualification job, so cancel that redundant run if
+it is holding the iOS concurrency slot ahead of an explicitly dispatched signed
+release.
+
+After `Upload to TestFlight` succeeds, wait for App Store Connect processing,
+then confirm the build appears under the internal group and the tester row shows
+access. The initial build processed in roughly two minutes. App Store Connect
+showed the build-level status `Ready to Submit` while the internal tester row
+already showed `Installed 1.2.0 (12)`; `Ready to Submit` is therefore not a
+blocker for this internal-test path. It applies to further beta submission work.
+
+No external testing group, Beta App Review submission, or public App Store
+release was created during this activation. Those remain separate release gates.
