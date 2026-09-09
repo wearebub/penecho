@@ -259,7 +259,7 @@
       button.setAttribute("role", "tab");
       button.setAttribute("aria-selected", String(metadata.activeSubject === subject.id));
       button.dataset.active = String(metadata.activeSubject === subject.id);
-      button.style.setProperty("--subject-color", subject.color);
+      button.dataset.subject = subject.id;
 
       const label = document.createElement("span");
       label.textContent = subject.label;
@@ -284,7 +284,7 @@
     const card = document.createElement("article");
     card.className = "tenet-notebook-page-card";
     card.dataset.current = String(current);
-    card.style.setProperty("--subject-color", subject.color);
+    card.dataset.subject = subjectId;
 
     const openButton = document.createElement("button");
     openButton.type = "button";

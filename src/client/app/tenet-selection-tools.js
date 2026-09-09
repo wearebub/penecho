@@ -67,10 +67,10 @@
     const colors = document.createElement("div");
     colors.className = "tenet-selection-colors";
     colors.setAttribute("aria-label", "Recolor selected ink");
-    for (const color of INK_COLORS) {
+    for (const [index, color] of INK_COLORS.entries()) {
       const swatch = makeButton("", "tenet-selection-color");
       swatch.dataset.tenetSelectionEdit = "recolor";
-      swatch.style.setProperty("--selection-color", color);
+      swatch.dataset.selectionColor = String(index);
       swatch.setAttribute("aria-label", `Recolor selection ${color}`);
       swatch.addEventListener("click", (event) => {
         event.preventDefault();

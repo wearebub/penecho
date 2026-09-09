@@ -184,6 +184,30 @@
   display: none;
 }
 
+:is(.tenet-notebook-subject-tab, .tenet-notebook-page-card)[data-subject="all"] {
+  --subject-color: #14243b;
+}
+
+:is(.tenet-notebook-subject-tab, .tenet-notebook-page-card)[data-subject="math"] {
+  --subject-color: #2f6fbb;
+}
+
+:is(.tenet-notebook-subject-tab, .tenet-notebook-page-card)[data-subject="science"] {
+  --subject-color: #2d806a;
+}
+
+:is(.tenet-notebook-subject-tab, .tenet-notebook-page-card)[data-subject="english"] {
+  --subject-color: #bd6d3a;
+}
+
+:is(.tenet-notebook-subject-tab, .tenet-notebook-page-card)[data-subject="social-studies"] {
+  --subject-color: #8a5a44;
+}
+
+:is(.tenet-notebook-subject-tab, .tenet-notebook-page-card)[data-subject="other"] {
+  --subject-color: #667085;
+}
+
 .tenet-notebook-subject-tab {
   flex: 0 0 auto;
   display: inline-flex;

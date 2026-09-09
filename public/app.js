@@ -13858,7 +13858,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     selectionToolbar.hidden = false;
     selectionToolbar.setAttribute("aria-busy", String(selectionBusy));
     if (selectionTypesetButton) {
-      selectionTypesetButton.disabled = selectionBusy;
+      selectionTypesetButton.disabled = false;
       selectionTypesetButton.setAttribute("aria-busy", String(isTypesetting));
       selectionTypesetButton.textContent = t(isTypesetting ? "selectionTypesetting" : "selectionTypeset");
     }
@@ -23250,7 +23250,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       button.setAttribute("role", "tab");
       button.setAttribute("aria-selected", String(metadata.activeSubject === subject.id));
       button.dataset.active = String(metadata.activeSubject === subject.id);
-      button.style.setProperty("--subject-color", subject.color);
+      button.dataset.subject = subject.id;
 
       const label = document.createElement("span");
       label.textContent = subject.label;
@@ -23275,7 +23275,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     const card = document.createElement("article");
     card.className = "tenet-notebook-page-card";
     card.dataset.current = String(current);
-    card.style.setProperty("--subject-color", subject.color);
+    card.dataset.subject = subjectId;
 
     const openButton = document.createElement("button");
     openButton.type = "button";
@@ -23680,10 +23680,10 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     const colors = document.createElement("div");
     colors.className = "tenet-selection-colors";
     colors.setAttribute("aria-label", "Recolor selected ink");
-    for (const color of INK_COLORS) {
+    for (const [index, color] of INK_COLORS.entries()) {
       const swatch = makeButton("", "tenet-selection-color");
       swatch.dataset.tenetSelectionEdit = "recolor";
-      swatch.style.setProperty("--selection-color", color);
+      swatch.dataset.selectionColor = String(index);
       swatch.setAttribute("aria-label", `Recolor selection ${color}`);
       swatch.addEventListener("click", (event) => {
         event.preventDefault();
@@ -23936,12 +23936,12 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     state.drawing = {
       id: e.pointerId,
       inputType: e.pointerType,
-      startedAt: performance.now(),
+      startedAt: Date.now(),
       last: p,
       rawLast: p,
       filteredPoint: p,
       filteredCssSize: cssSize,
-      lastSampleTimestamp: Number(e.timeStamp) || performance.now(),
+      lastSampleTimestamp: Number(e.timeStamp) || Date.now(),
       lastClientPoint: { x:e.clientX, y:e.clientY },
       size,
       color: state.inkColor,
@@ -24189,7 +24189,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     };
     requestInteractionLayerRender();
   }
-  function updateActiveCanvasDrawing(e, options = {}) {
+  function updateActiveCanvasDrawing(e, options) {
+    options = options || {};
     const d = state.drawing;
     if (!d || d.id !== e.pointerId) return false;
     const samples = normalizedDrawingSamples(e);

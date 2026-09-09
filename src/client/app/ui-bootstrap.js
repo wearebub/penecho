@@ -209,12 +209,12 @@
     state.drawing = {
       id: e.pointerId,
       inputType: e.pointerType,
-      startedAt: performance.now(),
+      startedAt: Date.now(),
       last: p,
       rawLast: p,
       filteredPoint: p,
       filteredCssSize: cssSize,
-      lastSampleTimestamp: Number(e.timeStamp) || performance.now(),
+      lastSampleTimestamp: Number(e.timeStamp) || Date.now(),
       lastClientPoint: { x:e.clientX, y:e.clientY },
       size,
       color: state.inkColor,
@@ -462,7 +462,8 @@
     };
     requestInteractionLayerRender();
   }
-  function updateActiveCanvasDrawing(e, options = {}) {
+  function updateActiveCanvasDrawing(e, options) {
+    options = options || {};
     const d = state.drawing;
     if (!d || d.id !== e.pointerId) return false;
     const samples = normalizedDrawingSamples(e);

@@ -3232,7 +3232,7 @@
     selectionToolbar.hidden = false;
     selectionToolbar.setAttribute("aria-busy", String(selectionBusy));
     if (selectionTypesetButton) {
-      selectionTypesetButton.disabled = selectionBusy;
+      selectionTypesetButton.disabled = false;
       selectionTypesetButton.setAttribute("aria-busy", String(isTypesetting));
       selectionTypesetButton.textContent = t(isTypesetting ? "selectionTypesetting" : "selectionTypeset");
     }

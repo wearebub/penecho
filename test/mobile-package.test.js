@@ -99,8 +99,8 @@ test("the shared Canvas preserves coalesced Apple Pencil samples before committi
   assert.match(persistence, /state\.pen \* \(0\.72 \+ e\.pressure \* 0\.7\)/);
   assert.match(bindings, /if \(e\.pointerType === "touch"\)[\s\S]*?state\.panGesture/);
   assert.match(bindings, /const cssSize = erasing \? state\.eraser : pressureWidth\(e\)/);
-  assert.match(bindings, /getCoalescedEvents[\s\S]*?coalesced\.length > 1 \? coalesced : \[e\]/);
-  assert.match(bindings, /for \(const s of samples\)[\s\S]*?drawingClientPoint\(d, sample\)[\s\S]*?appendLiveInkSample\(d, p, size\)[\s\S]*?commitLiveInkDrawingProgress\(d\)/);
+  assert.match(bindings, /getCoalescedEvents[\s\S]*?coalesced\.length \? \[\.\.\.coalesced\] : \[event\][\s\S]*?source\.push\(event\)/);
+  assert.match(bindings, /for \(let index = 0; index < samples\.length; index\+\+\)[\s\S]*?const sample = samples\[index\][\s\S]*?drawingClientPoint\(d, sample\)[\s\S]*?appendLiveInkSample\(d, p, size\)[\s\S]*?commitLiveInkDrawingProgress\(d\)/);
 });
 
 test("release workflow builds and publishes the Android APK", () => {

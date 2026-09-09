@@ -85,6 +85,12 @@
   touch-action: manipulation;
 }
 
+.tenet-selection-color[data-selection-color="0"] { --selection-color: #172a3a; }
+.tenet-selection-color[data-selection-color="1"] { --selection-color: #2166d1; }
+.tenet-selection-color[data-selection-color="2"] { --selection-color: #c9362b; }
+.tenet-selection-color[data-selection-color="3"] { --selection-color: #1f7a4d; }
+.tenet-selection-color[data-selection-color="4"] { --selection-color: #d27a00; }
+
 .tenet-selection-hint {
   grid-column: 1 / -1;
   margin: 0;
