@@ -68,7 +68,10 @@ test("iOS builder exports a signed IPA with an independent CI build number", () 
   assert.match(builder, /IOS_BUILD_NUMBER/);
   assert.match(builder, /APP_STORE_CONNECT|app-store-connect/);
   assert.match(builder, /IOS_PROVISIONING_PROFILE_SPECIFIER/);
+  assert.match(builder, /function configureIosAppSigning/);
+  assert.match(builder, /Expected two App target build configurations/);
   assert.match(builder, /PROVISIONING_PROFILE_SPECIFIER/);
+  assert.doesNotMatch(builder, /`PROVISIONING_PROFILE_SPECIFIER=\$\{signing\.profile\}`/);
   assert.match(builder, /-exportArchive/);
   assert.match(builder, /ITSAppUsesNonExemptEncryption = false/);
   assert.match(builder, /ARTIFACT_NAME = "Tenet-Whiteboard"/);

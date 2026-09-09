@@ -110,6 +110,105 @@ The Apple team must own the `ai.truemade.tenet.whiteboard` identifier. Do not
 commit signing identities, provisioning profiles, OAuth secrets, or exported
 student sessions.
 
+## TestFlight signing and release runbook
+
+The first Apple provisioning setup was completed on September 9, 2026. These
+identifiers are safe to record; none of the private key material is committed:
+
+- GitHub repository: `wearebub/penecho`
+- release branch: `codex/tenet-ipad`
+- Apple team ID: `TFJBB5HWMJ`
+- bundle ID: `ai.truemade.tenet.whiteboard`
+- App Store Connect Apple ID: `6810373797`
+- App Store Connect issuer ID: `410fbb18-7ef9-4e82-bb62-bca62590ff1a`
+- TestFlight CI key ID: `N54B6AMD2X`, role `Developer`
+- Apple Distribution certificate resource ID: `YU6F647GHR`
+- certificate serial: `0E1CE9C02A91750240117461BD50BF47`
+- certificate SHA-256 fingerprint: `7A:8B:3A:AD:9B:26:F5:E1:D7:5B:AA:93:BE:D3:12:B9:8D:E2:C2:8C:5F:2F:14:89:62:94:F9:CF:82:C6:1A:21`
+- provisioning profile resource ID: `2XF5N2MYFH`
+- provisioning profile UUID: `6a60ef30-189e-4e9f-bd39-3d7397c15051`
+- provisioning profile name: `Tenet Whiteboard App Store`
+- certificate and profile expiration: September 9, 2027
+
+Private local signing material lives outside the repository at
+`%USERPROFILE%\.tenet\apple\tenet-whiteboard`. Never copy that directory into
+the repository, an issue, an Actions artifact, or a support ticket.
+
+The `ios-signing` GitHub environment must contain exactly these workflow
+secrets:
+
+- `APPLE_TEAM_ID`
+- `IOS_SIGNING_IDENTITY`
+- `IOS_DISTRIBUTION_CERTIFICATE_P12_BASE64`
+- `IOS_DISTRIBUTION_CERTIFICATE_PASSWORD`
+- `IOS_PROVISIONING_PROFILE_BASE64`
+- `APPLE_API_KEY_P8_BASE64`
+- `APPLE_API_KEY_ID`
+- `APPLE_API_ISSUER`
+
+The persistent App Store Connect key is intentionally limited to the
+`Developer` role. It can upload a signed build to TestFlight but cannot create
+certificates or profiles. During the first setup, a separate Admin key named
+`Tenet Provisioning Bootstrap` was created, used locally through Apple's
+official provisioning API, and revoked immediately. Its key ID was
+`87QKT65AX7`; it was never stored in GitHub. Repeat that temporary-key pattern
+only when the certificate/profile must be rotated. Do not widen the persistent
+CI key to Admin.
+
+For an ordinary TestFlight build while the recorded certificate and profile
+remain active, no Apple portal work is required. Dispatch the existing workflow:
+
+```powershell
+gh workflow run ios-release.yml `
+  --repo wearebub/penecho `
+  --ref codex/tenet-ipad `
+  -f build_signed_ipa=true `
+  -f upload_testflight=true
+```
+
+Then follow the run without exposing any secret values:
+
+```powershell
+gh run list --repo wearebub/penecho --workflow ios-release.yml --limit 1
+gh run watch <run-id> --repo wearebub/penecho --exit-status
+```
+
+The workflow uses `npm ci` for both lockfiles, compiles the Simulator target,
+imports the encrypted distribution identity and profile into a temporary macOS
+keychain, archives the device app, verifies its signature, stores the IPA as a
+GitHub artifact, and uploads that IPA to TestFlight with the Developer key.
+
+First-time setup or annual rotation follows this order:
+
+1. Confirm the Apple Developer membership and App Store Connect access are active.
+2. Register the explicit bundle ID and create the App Store Connect app record.
+3. Generate a local RSA private key and CSR outside the repository.
+4. Create an Apple Distribution certificate from that CSR.
+5. Create an `IOS_APP_STORE` profile for the bundle and exact certificate.
+6. Export the certificate and private key as a password-protected PKCS#12 file.
+7. Store only Base64 credential payloads and identifiers in the encrypted `ios-signing` environment.
+8. Revoke any temporary Admin provisioning key and retain only the Developer upload key.
+9. Run the signed workflow and confirm both the GitHub IPA artifact and TestFlight processing result.
+
+Known setup pitfalls:
+
+- Do not pass `PROVISIONING_PROFILE_SPECIFIER` as a global `xcodebuild`
+  command-line setting. Xcode applies it to every workspace target, including
+  CocoaPods frameworks that cannot use provisioning profiles. The mobile
+  generator scopes manual signing to the generated `App` target instead.
+- A Developer-role App Store Connect key returns `403 FORBIDDEN_ERROR` when it
+  attempts certificate creation. Use a temporary Admin key locally and revoke
+  it instead of broadening the persistent CI key.
+- Chrome file upload requires the ChatGPT browser extension's file-URL access.
+  The official provisioning API avoids that browser-only dependency.
+- The profile list endpoint does not support a name filter. List profiles and
+  compare `attributes.name` locally before creating one, or Apple's endpoint
+  may return an unhelpful server error.
+- The generated native `tools/mobile/ios` directory is ignored and is not a
+  source of truth. Always regenerate it through `mobile:ios:prepare`.
+- Use `npm ci`, not `npm install`; npm 11 rewrites peer annotations in the root
+  lockfile even when dependency versions do not change.
+
 ## Intentionally deferred
 
 - Clever and ClassLink authentication adapters can terminate at the same

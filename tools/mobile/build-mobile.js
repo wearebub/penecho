@@ -144,6 +144,52 @@ function configureIosProject() {
   fs.writeFileSync(projectPath, project);
 }
 
+function pbxQuoted(value, label) {
+  const text = String(value || "");
+  if (!text || /[\r\n]/.test(text)) throw new Error(`Invalid ${label} for the Xcode project.`);
+  return `"${text.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+
+function configureIosAppSigning(iosRoot, signing) {
+  const projectPath = path.join(iosRoot, "App", "App.xcodeproj", "project.pbxproj");
+  let project = fs.readFileSync(projectPath, "utf8");
+  const newline = project.includes("\r\n") ? "\r\n" : "\n";
+  let appConfigurations = 0;
+
+  project = project.replace(
+    /(\s*buildSettings = \{\r?\n)([\s\S]*?)(\r?\n\s*\};)/g,
+    (block, opening, settings, closing) => {
+      const bundleSetting = `PRODUCT_BUNDLE_IDENTIFIER = ${BUNDLE_ID};`;
+      if (!settings.includes(bundleSetting)) return block;
+
+      appConfigurations += 1;
+      const indent = settings.match(/^(\s*)PRODUCT_BUNDLE_IDENTIFIER =/m)?.[1];
+      if (!indent) throw new Error("Could not locate the App target signing indentation.");
+      const cleaned = settings
+        .replace(/^\s*CODE_SIGN_IDENTITY = [^;]*;\r?\n/gm, "")
+        .replace(/^\s*CODE_SIGN_STYLE = [^;]*;\r?\n/gm, "")
+        .replace(/^\s*DEVELOPMENT_TEAM = [^;]*;\r?\n/gm, "")
+        .replace(/^\s*PROVISIONING_PROFILE_SPECIFIER = [^;]*;\r?\n/gm, "");
+      const scopedSigning = [
+        `${indent}CODE_SIGN_IDENTITY = ${pbxQuoted(signing.identity, "signing identity")};`,
+        `${indent}CODE_SIGN_STYLE = Manual;`,
+        `${indent}DEVELOPMENT_TEAM = ${pbxQuoted(signing.teamId, "Apple team ID")};`,
+        `${indent}PROVISIONING_PROFILE_SPECIFIER = ${pbxQuoted(signing.profile, "provisioning profile")};`,
+      ].join(newline);
+      const configured = cleaned.replace(
+        `${indent}${bundleSetting}`,
+        `${scopedSigning}${newline}${indent}${bundleSetting}`,
+      );
+      return `${opening}${configured}${closing}`;
+    },
+  );
+
+  if (appConfigurations !== 2) {
+    throw new Error(`Expected two App target build configurations, found ${appConfigurations}.`);
+  }
+  fs.writeFileSync(projectPath, project);
+}
+
 function configureIosInfo() {
   const plist = require("plist");
   const plistPath = path.join(MOBILE_ROOT, "ios", "App", "App", "Info.plist");
@@ -246,6 +292,7 @@ async function buildIos() {
   }
 
   const signing = iosSigning();
+  if (signing) configureIosAppSigning(iosRoot, signing);
   const projectVersion = String(iosBuildNumber());
   const archiveRoot = path.join(RELEASE_DIR, "ios", "TenetWhiteboard.xcarchive");
   fs.rmSync(archiveRoot, { recursive: true, force: true });
@@ -259,14 +306,7 @@ async function buildIos() {
     `MARKETING_VERSION=${APP_PACKAGE.version}`,
     `CURRENT_PROJECT_VERSION=${projectVersion}`,
   ];
-  if (signing) {
-    archiveArgs.push(
-      `DEVELOPMENT_TEAM=${signing.teamId}`,
-      "CODE_SIGN_STYLE=Manual",
-      `CODE_SIGN_IDENTITY=${signing.identity}`,
-      `PROVISIONING_PROFILE_SPECIFIER=${signing.profile}`,
-    );
-  } else {
+  if (!signing) {
     archiveArgs.push("CODE_SIGNING_ALLOWED=NO", "CODE_SIGNING_REQUIRED=NO", "CODE_SIGN_IDENTITY=");
   }
   run("xcodebuild", archiveArgs, MOBILE_ROOT);
