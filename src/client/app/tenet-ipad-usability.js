@@ -541,6 +541,68 @@
     }
   }
 
+  function installCanvasChromeLayout() {
+    const viewport = document.getElementById("viewport");
+    if (!viewport) return;
+    const occluders = [...document.querySelectorAll(".topbar, [data-tenet-ink-toolbar], .toolbar")];
+    const lifetime = new AbortController();
+    const signal = lifetime.signal;
+    let frame = 0;
+    let disposed = false;
+    const measure = () => {
+      frame = 0;
+      if (disposed) return;
+      const bounds = viewport.getBoundingClientRect();
+      if (!bounds.width || !bounds.height) return;
+      const visual = window.visualViewport;
+      const visibleTop = visual?.offsetTop || 0;
+      const visibleRight = (visual?.offsetLeft || 0) + (visual?.width || window.innerWidth);
+      let coveredTop = Math.max(0, visibleTop - bounds.top);
+      for (const element of occluders) {
+        if (element.hidden) continue;
+        const box = element.getBoundingClientRect();
+        if (box.width > 0 && box.height > 0 && box.right > bounds.left && box.left < bounds.right) {
+          coveredTop = Math.max(coveredTop, box.bottom - bounds.top);
+        }
+      }
+      // Separate from --studio-toolbar-height: feeding measured height into
+      // the toolbar's own min-height would stop it shrinking after rotation.
+      const values = {
+        "--tenet-canvas-controls-top": Math.ceil(Math.min(bounds.height, coveredTop)) + "px",
+        "--tenet-canvas-right-occlusion": Math.ceil(Math.max(0, bounds.right - visibleRight)) + "px",
+      };
+      const declaration = runtimeElementStyle(viewport, "tenet-canvas-chrome");
+      if (!declaration) return;
+      for (const [name, value] of Object.entries(values)) {
+        if (declaration.getPropertyValue(name) !== value) declaration.setProperty(name, value);
+      }
+      // CSS position changes do not resize the orb, but its native hit-test
+      // exclusion must follow the newly positioned button as well.
+      tenetInkController?.sync?.();
+    };
+    const schedule = () => {
+      if (!disposed && !frame) frame = requestAnimationFrame(measure);
+    };
+    const observer = new ResizeObserver(schedule);
+    new Set([viewport, ...occluders]).forEach(element => observer.observe(element));
+    window.addEventListener("resize", schedule, { signal });
+    window.addEventListener("pageshow", schedule, { signal });
+    window.visualViewport?.addEventListener("resize", schedule, { signal });
+    window.visualViewport?.addEventListener("scroll", schedule, { passive: true, signal });
+    document.addEventListener("scroll", schedule, { capture: true, passive: true, signal });
+    document.addEventListener("transitionend", event => {
+      if (event.target === embodiment || event.target?.classList?.contains("canvas-frame")) schedule();
+    }, { signal });
+    window.addEventListener("pagehide", event => {
+      if (event.persisted) return;
+      disposed = true;
+      if (frame) cancelAnimationFrame(frame);
+      observer.disconnect();
+      lifetime.abort();
+    }, { signal });
+    schedule();
+  }
+
   function configureTitleDismissal() {
     const titleInput = document.querySelector("#canvasDocumentNameInput");
     titleInput?.addEventListener("keydown", (event) => {
@@ -731,6 +793,7 @@
     configureHeaderActions();
     installDrawingTools();
     installShapeTools();
+    installCanvasChromeLayout();
     configureTitleDismissal();
     hideLegacyPencilAction();
     installNativeActions();

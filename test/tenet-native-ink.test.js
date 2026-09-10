@@ -250,6 +250,42 @@ test("finger pan updates the shared viewport without changing its zoom", async (
   assert.equal(h.state.panY, -110);
 });
 
+test("native ink counts as content from first contact through snapshot acceptance and restore", async () => {
+  const h = await harness();
+  const sessionId = h.currentSession();
+  const activity = h.listeners.get("inkSurfaceActivity");
+  assert.equal(h.controller.hasContent(), false);
+  activity({ sessionId, active: true, tool: "ink" });
+  assert.equal(h.controller.hasContent(), true);
+  activity({ sessionId, active: false, tool: "ink", completed: true });
+  assert.equal(h.controller.hasContent(), true, "lifting must not flash the welcome while encoding finishes");
+  h.addStroke();
+  await h.settle();
+  assert.equal(h.controller.snapshot().strokeCount, 1);
+  assert.equal(h.controller.hasContent(), true);
+  const prepared = await h.controller.prepare(h.controller.snapshot());
+  h.controller.restore(null);
+  assert.equal(h.controller.hasContent(), false);
+  h.controller.restore(prepared);
+  assert.equal(h.controller.hasContent(), true, "saved native-only pages are not empty in either engine");
+});
+
+test("eraser activity, canceled ink and old-session activity do not leave an empty page populated", async () => {
+  const h = await harness();
+  const sessionId = h.currentSession();
+  const activity = h.listeners.get("inkSurfaceActivity");
+  activity({ sessionId, active: true, tool: "eraser" });
+  assert.equal(h.controller.hasContent(), false);
+  activity({ sessionId, active: false, tool: "eraser", completed: true });
+  activity({ sessionId, active: true, tool: "ink" });
+  assert.equal(h.controller.hasContent(), true);
+  activity({ sessionId, active: false, tool: "ink", completed: false });
+  assert.equal(h.controller.hasContent(), false);
+  h.controller.restore(null);
+  activity({ sessionId, active: true, tool: "ink" });
+  assert.equal(h.controller.hasContent(), false, "old page callbacks cannot dismiss the new page's welcome");
+});
+
 test("a viewport change during an in-flight bridge call is replayed", async () => {
   const h=await harness();
   let release;

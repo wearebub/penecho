@@ -77,7 +77,7 @@
     return studioNavigatorIsStudio() && studioNavigatorPanelAllowed() && document.body.classList.contains("studio-navigator-open");
     }
     function studioCanvasHasContent() {
-      return Boolean(tiles.size || state.images.length || state.textBoxes.length || state.preservedSnapshotAnimations.length || (pluginEnabled("animation") && state.animations.length) || visibleWidgets().length);
+      return Boolean(tiles.size || tenetInkController?.hasContent?.() || state.images.length || state.textBoxes.length || state.preservedSnapshotAnimations.length || (pluginEnabled("animation") && state.animations.length) || visibleWidgets().length);
     }
     function updateStudioDocumentState() {
       const active = studioNavigatorIsStudio(), saved = Boolean(state.currentSnapshotId), edited = saved && (canvasHasUnsavedChanges() || Boolean(state.currentCanvasSuggestedName)),

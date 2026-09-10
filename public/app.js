@@ -21980,7 +21980,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     return studioNavigatorIsStudio() && studioNavigatorPanelAllowed() && document.body.classList.contains("studio-navigator-open");
     }
     function studioCanvasHasContent() {
-      return Boolean(tiles.size || state.images.length || state.textBoxes.length || state.preservedSnapshotAnimations.length || (pluginEnabled("animation") && state.animations.length) || visibleWidgets().length);
+      return Boolean(tiles.size || tenetInkController?.hasContent?.() || state.images.length || state.textBoxes.length || state.preservedSnapshotAnimations.length || (pluginEnabled("animation") && state.animations.length) || visibleWidgets().length);
     }
     function updateStudioDocumentState() {
       const active = studioNavigatorIsStudio(), saved = Boolean(state.currentSnapshotId), edited = saved && (canvasHasUnsavedChanges() || Boolean(state.currentCanvasSuggestedName)),
@@ -23111,6 +23111,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     const PREVIEW_CHARS = Math.ceil(12 * 1024 * 1024 / 3) * 4 + 32;
     const HISTORY_CHARS = 64 * 1024 * 1024;
     let engine = "web", ready = false, stopped = false, active = false;
+    let activeInk = false, pendingInk = false;
     let sessionId = crypto.randomUUID(), nativeSession = null, revision = -1;
     let drawing = null, preview = null, visible = false, lock = 0;
     let wire = Promise.resolve(), reception = Promise.resolve(), syncFrame = 0;
@@ -23186,12 +23187,15 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       drawing = prepared?.drawing || null;
       preview = prepared?.preview || null;
       active = false;
+      activeInk = false;
+      pendingInk = false;
       visible = false;
       lastConfiguration = "";
       state.tenetNativeHistoryBefore = undefined;
       state.currentSnapshotManifestExtensions = tenetInkManifestExtensions();
       scheduleSync();
       requestCommittedInkRender();
+      window.PenEchoStudioNavigator?.updateDocument?.();
       emitStatus();
     }
     function draw(context, region) {
@@ -23218,7 +23222,13 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     function receive(packet) {
       const apply = async () => {
         if (stopped || packet?.sessionId !== sessionId || !Number.isSafeInteger(packet.revision) || packet.revision <= revision) return;
-        if (packet.drawingData === drawing?.drawingData) { revision = packet.revision; receiveError = null; return; }
+        if (packet.drawingData === drawing?.drawingData) {
+          revision = packet.revision;
+          receiveError = null;
+          pendingInk = activeInk;
+          window.PenEchoStudioNavigator?.updateDocument?.();
+          return;
+        }
         const expectedSession = sessionId;
         const prepared = await prepare(packet);
         if (expectedSession !== sessionId || packet.revision <= revision) return;
@@ -23226,6 +23236,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
         save();
         drawing = prepared.drawing;
         preview = prepared.preview;
+        pendingInk = activeInk;
         revision = packet.revision;
         receiveError = null;
         // An empty initial drawing is a baseline, not a user edit.
@@ -23246,10 +23257,10 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
           }
           state.autoEligible ||= drawing.strokeCount > 0;
           canvasAgentDidCommitUserCanvasChange(entry);
-          window.PenEchoStudioNavigator?.updateDocument?.();
           if (!active && state.autoEligible) schedule();
         }
         state.currentSnapshotManifestExtensions = tenetInkManifestExtensions();
+        window.PenEchoStudioNavigator?.updateDocument?.();
         requestCommittedInkRender();
         requestInteractionLayerRender();
         emitStatus();
@@ -23398,7 +23409,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     }
     function resume(reason) { suspended.delete(String(reason)); scheduleSync(); }
 
-    tenetInkController = { available, snapshot:() => drawing, draw, prepare, restore:install,
+    tenetInkController = { available, snapshot:() => drawing,
+      hasContent:() => Boolean(drawing?.strokeCount || pendingInk), draw, prepare, restore:install,
       flush, sync:scheduleSync, active:() => active || lock > 0, history, applyHistory:applyNativeHistory,
       stageClear, boundHistory, suspend, resume };
     window.TenetInk = { available, getStatus:status, setEngine, flush, suspend, resume,
@@ -23414,6 +23426,11 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
         listeners.push(await native.addListener("inkSurfaceActivity", event => {
           if (event.sessionId !== sessionId) return;
           active = event.active === true;
+          activeInk = active && event.tool === "ink";
+          // Hide the empty-page prompt immediately, not after PNG encoding and
+          // the bridge round trip. Keep it hidden between lift and acceptance.
+          if (activeInk) pendingInk = true;
+          else if (event.completed === false) pendingInk = false;
           if (active) {
             state.userRevision++;
             supersedeActiveAI("native-user-input-started");
@@ -23424,6 +23441,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
           if (!active && event.tool === "ink" && event.completed !== false) window.dispatchEvent(new CustomEvent("tenet:ink-sample", { detail:{
             engine:"pencilkit", kind:"stroke", durationMs:event.durationMs, sampleCount:event.sampleCount,
           } }));
+          window.PenEchoStudioNavigator?.updateDocument?.();
           emitStatus();
         }));
         listeners.push(await native.addListener("inkSurfaceError", event => {
@@ -25822,6 +25840,68 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     }
   }
 
+  function installCanvasChromeLayout() {
+    const viewport = document.getElementById("viewport");
+    if (!viewport) return;
+    const occluders = [...document.querySelectorAll(".topbar, [data-tenet-ink-toolbar], .toolbar")];
+    const lifetime = new AbortController();
+    const signal = lifetime.signal;
+    let frame = 0;
+    let disposed = false;
+    const measure = () => {
+      frame = 0;
+      if (disposed) return;
+      const bounds = viewport.getBoundingClientRect();
+      if (!bounds.width || !bounds.height) return;
+      const visual = window.visualViewport;
+      const visibleTop = visual?.offsetTop || 0;
+      const visibleRight = (visual?.offsetLeft || 0) + (visual?.width || window.innerWidth);
+      let coveredTop = Math.max(0, visibleTop - bounds.top);
+      for (const element of occluders) {
+        if (element.hidden) continue;
+        const box = element.getBoundingClientRect();
+        if (box.width > 0 && box.height > 0 && box.right > bounds.left && box.left < bounds.right) {
+          coveredTop = Math.max(coveredTop, box.bottom - bounds.top);
+        }
+      }
+      // Separate from --studio-toolbar-height: feeding measured height into
+      // the toolbar's own min-height would stop it shrinking after rotation.
+      const values = {
+        "--tenet-canvas-controls-top": Math.ceil(Math.min(bounds.height, coveredTop)) + "px",
+        "--tenet-canvas-right-occlusion": Math.ceil(Math.max(0, bounds.right - visibleRight)) + "px",
+      };
+      const declaration = runtimeElementStyle(viewport, "tenet-canvas-chrome");
+      if (!declaration) return;
+      for (const [name, value] of Object.entries(values)) {
+        if (declaration.getPropertyValue(name) !== value) declaration.setProperty(name, value);
+      }
+      // CSS position changes do not resize the orb, but its native hit-test
+      // exclusion must follow the newly positioned button as well.
+      tenetInkController?.sync?.();
+    };
+    const schedule = () => {
+      if (!disposed && !frame) frame = requestAnimationFrame(measure);
+    };
+    const observer = new ResizeObserver(schedule);
+    new Set([viewport, ...occluders]).forEach(element => observer.observe(element));
+    window.addEventListener("resize", schedule, { signal });
+    window.addEventListener("pageshow", schedule, { signal });
+    window.visualViewport?.addEventListener("resize", schedule, { signal });
+    window.visualViewport?.addEventListener("scroll", schedule, { passive: true, signal });
+    document.addEventListener("scroll", schedule, { capture: true, passive: true, signal });
+    document.addEventListener("transitionend", event => {
+      if (event.target === embodiment || event.target?.classList?.contains("canvas-frame")) schedule();
+    }, { signal });
+    window.addEventListener("pagehide", event => {
+      if (event.persisted) return;
+      disposed = true;
+      if (frame) cancelAnimationFrame(frame);
+      observer.disconnect();
+      lifetime.abort();
+    }, { signal });
+    schedule();
+  }
+
   function configureTitleDismissal() {
     const titleInput = document.querySelector("#canvasDocumentNameInput");
     titleInput?.addEventListener("keydown", (event) => {
@@ -26012,6 +26092,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     configureHeaderActions();
     installDrawingTools();
     installShapeTools();
+    installCanvasChromeLayout();
     configureTitleDismissal();
     hideLegacyPencilAction();
     installNativeActions();

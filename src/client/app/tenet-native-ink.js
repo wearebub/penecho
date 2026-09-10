@@ -41,6 +41,7 @@
     const PREVIEW_CHARS = Math.ceil(12 * 1024 * 1024 / 3) * 4 + 32;
     const HISTORY_CHARS = 64 * 1024 * 1024;
     let engine = "web", ready = false, stopped = false, active = false;
+    let activeInk = false, pendingInk = false;
     let sessionId = crypto.randomUUID(), nativeSession = null, revision = -1;
     let drawing = null, preview = null, visible = false, lock = 0;
     let wire = Promise.resolve(), reception = Promise.resolve(), syncFrame = 0;
@@ -116,12 +117,15 @@
       drawing = prepared?.drawing || null;
       preview = prepared?.preview || null;
       active = false;
+      activeInk = false;
+      pendingInk = false;
       visible = false;
       lastConfiguration = "";
       state.tenetNativeHistoryBefore = undefined;
       state.currentSnapshotManifestExtensions = tenetInkManifestExtensions();
       scheduleSync();
       requestCommittedInkRender();
+      window.PenEchoStudioNavigator?.updateDocument?.();
       emitStatus();
     }
     function draw(context, region) {
@@ -148,7 +152,13 @@
     function receive(packet) {
       const apply = async () => {
         if (stopped || packet?.sessionId !== sessionId || !Number.isSafeInteger(packet.revision) || packet.revision <= revision) return;
-        if (packet.drawingData === drawing?.drawingData) { revision = packet.revision; receiveError = null; return; }
+        if (packet.drawingData === drawing?.drawingData) {
+          revision = packet.revision;
+          receiveError = null;
+          pendingInk = activeInk;
+          window.PenEchoStudioNavigator?.updateDocument?.();
+          return;
+        }
         const expectedSession = sessionId;
         const prepared = await prepare(packet);
         if (expectedSession !== sessionId || packet.revision <= revision) return;
@@ -156,6 +166,7 @@
         save();
         drawing = prepared.drawing;
         preview = prepared.preview;
+        pendingInk = activeInk;
         revision = packet.revision;
         receiveError = null;
         // An empty initial drawing is a baseline, not a user edit.
@@ -176,10 +187,10 @@
           }
           state.autoEligible ||= drawing.strokeCount > 0;
           canvasAgentDidCommitUserCanvasChange(entry);
-          window.PenEchoStudioNavigator?.updateDocument?.();
           if (!active && state.autoEligible) schedule();
         }
         state.currentSnapshotManifestExtensions = tenetInkManifestExtensions();
+        window.PenEchoStudioNavigator?.updateDocument?.();
         requestCommittedInkRender();
         requestInteractionLayerRender();
         emitStatus();
@@ -328,7 +339,8 @@
     }
     function resume(reason) { suspended.delete(String(reason)); scheduleSync(); }
 
-    tenetInkController = { available, snapshot:() => drawing, draw, prepare, restore:install,
+    tenetInkController = { available, snapshot:() => drawing,
+      hasContent:() => Boolean(drawing?.strokeCount || pendingInk), draw, prepare, restore:install,
       flush, sync:scheduleSync, active:() => active || lock > 0, history, applyHistory:applyNativeHistory,
       stageClear, boundHistory, suspend, resume };
     window.TenetInk = { available, getStatus:status, setEngine, flush, suspend, resume,
@@ -344,6 +356,11 @@
         listeners.push(await native.addListener("inkSurfaceActivity", event => {
           if (event.sessionId !== sessionId) return;
           active = event.active === true;
+          activeInk = active && event.tool === "ink";
+          // Hide the empty-page prompt immediately, not after PNG encoding and
+          // the bridge round trip. Keep it hidden between lift and acceptance.
+          if (activeInk) pendingInk = true;
+          else if (event.completed === false) pendingInk = false;
           if (active) {
             state.userRevision++;
             supersedeActiveAI("native-user-input-started");
@@ -354,6 +371,7 @@
           if (!active && event.tool === "ink" && event.completed !== false) window.dispatchEvent(new CustomEvent("tenet:ink-sample", { detail:{
             engine:"pencilkit", kind:"stroke", durationMs:event.durationMs, sampleCount:event.sampleCount,
           } }));
+          window.PenEchoStudioNavigator?.updateDocument?.();
           emitStatus();
         }));
         listeners.push(await native.addListener("inkSurfaceError", event => {

@@ -15,6 +15,25 @@ body.tenet-whiteboard #penSizeValue {
 }
 
 /* Labelled file actions must not inherit the upstream square icon width. */
+/* The toolbar floats over the canvas and can grow when native controls wrap.
+   Use its measured occlusion, not the upstream single-row height estimate. */
+body.tenet-whiteboard #aiEmbodiment {
+  top: clamp(8px, calc(var(--tenet-canvas-controls-top, var(--studio-toolbar-height, 42px)) + 10px), calc(100% - 64px));
+  right: clamp(8px, calc(max(10px, env(safe-area-inset-right)) + max(var(--studio-agent-edge-shift, 0px), var(--tenet-canvas-right-occlusion, 0px))), calc(100% - 64px));
+  width: 56px;
+  height: 56px;
+  opacity: 1;
+  transform: none;
+}
+body.tenet-whiteboard #aiOrb {
+  inset: 4px;
+  width: 48px;
+  height: 48px;
+}
+body.tenet-whiteboard #canvasWelcome {
+  top: var(--tenet-canvas-controls-top, var(--studio-toolbar-height, 42px));
+}
+
 body.tenet-whiteboard .top-row {
   flex-wrap: wrap;
   gap: 8px;
