@@ -262,6 +262,13 @@
     try { await tenetInkFlush(); }
     catch (error) { tenetInkMessage(error?.message || "Native ink is not ready for AI capture."); return; }
     requestOptions = requestOptions || {};
+    // A crop prepared before a page/ink change must never be sent as current work.
+    if (requestOptions.expectedRevision !== undefined &&
+        (requestOptions.expectedRevision !== state.userRevision ||
+         requestOptions.expectedGeneration !== state.recognitionGeneration)) {
+      tenetInkMessage("The page changed. Circle the work again before asking Tenet.");
+      return;
+    }
     const automatic = action === "auto";
     if (!automatic) {
       clearTimeout(state.timer);
@@ -424,7 +431,7 @@
         debug("ai-deferred", { ...meta, reason: "user-revision-changed" });
         return;
       }
-      if (state.images.length + commands.filter((command) => command.tool === "plot_function").length > MAX_VISIBLE_IMAGES) {
+      if (state.images.length + commands.filter((command) => ["plot_function", "draw_image"].includes(command.tool)).length > MAX_VISIBLE_IMAGES) {
         setStatusKey("imageLimitReached");
         throw Error(t("imageLimitReached"));
       }
@@ -766,6 +773,71 @@
       selectionContext: context,
     };
   }
+  function tenetRegionGeometry(points) {
+    if (!Array.isArray(points) || points.length < 3 || points.length > 512 ||
+        points.some(p => !p || !Number.isFinite(p.x) || !Number.isFinite(p.y) || p.x < 0 || p.y < 0 || p.x > SIZE || p.y > SIZE)) return null;
+    const x = Math.min(...points.map(p => p.x)), y = Math.min(...points.map(p => p.y));
+    const w = Math.max(...points.map(p => p.x)) - x, h = Math.max(...points.map(p => p.y)) - y;
+    return w > 0 && h > 0 ? { x, y, w, h } : null;
+  }
+  function buildTenetRegionImage(points, question = "") {
+    const sourceRect = tenetRegionGeometry(points);
+    if (!sourceRect) throw Error("Circle an area of the page first.");
+    if (typeof question !== "string" || question.length > 1000) throw Error("Keep your question under 1,000 characters.");
+    const imageScale = Math.min(1, MAX_ATLAS_WIDTH / sourceRect.w, MAX_ATLAS_HEIGHT / sourceRect.h) * (1 - Number.EPSILON * 4);
+    const atlasSize = { w:Math.ceil(sourceRect.w * imageScale), h:Math.ceil(sourceRect.h * imageScale) };
+    const out = offscreen(atlasSize.w, atlasSize.h), q = out.getContext("2d");
+    q.fillStyle = "#fff";
+    q.fillRect(0, 0, out.width, out.height);
+    q.save();
+    q.setTransform(imageScale, 0, 0, imageScale, -sourceRect.x * imageScale, -sourceRect.y * imageScale);
+    q.beginPath();
+    points.forEach((p, i) => i ? q.lineTo(p.x, p.y) : q.moveTo(p.x, p.y));
+    q.closePath();
+    // Apply the mask BEFORE drawing any layer, including the native preview.
+    q.clip("evenodd");
+    drawAnimationsToContext(q, sourceRect, performance.now());
+    drawWidgetsToContext(q, sourceRect);
+    drawImagesToContext(q, sourceRect);
+    drawTextBoxesToContext(q, sourceRect);
+    forTiles(sourceRect.x, sourceRect.y, sourceRect.w, sourceRect.h, (c, tx, ty) => q.drawImage(c, tx * TILE, ty * TILE), false);
+    drawSharpOverlays(q, sourceRect);
+    q.restore();
+    return {
+      atlasImage:out.toDataURL("image/png"), atlasSize, imageScale,
+      visibleRect:{ x:0, y:0, w:SIZE, h:SIZE }, captureRect:{ ...sourceRect }, sourceRect,
+      changedBox:{ ...sourceRect }, focusInset:null,
+      hotspotGrid:{ columns:8, rows:8, order:"oldest-to-newest", hotspots:[] },
+      selectionContext:{ box:{ ...sourceRect }, path:points.map(p => ({ x:p.x, y:p.y })), closed:true },
+      ...(question.trim() ? { selectionQuestion:question.trim() } : {}),
+    };
+  }
+  function tenetIllustrationBytes(command) {
+    if (!command || typeof command.png !== "string" || command.png.length > 2800000 ||
+        !/^data:image\/png;base64,[A-Za-z0-9+/]+={0,2}$/.test(command.png)) throw Error("The illustration is not a supported PNG image.");
+    const raw = atob(command.png.slice(22));
+    const bytes = Uint8Array.from(raw, c => c.charCodeAt(0));
+    const signature = [137,80,78,71,13,10,26,10];
+    if (bytes.length < 33 || signature.some((n, i) => bytes[i] !== n) ||
+        String.fromCharCode(...bytes.slice(12,16)) !== "IHDR") throw Error("The illustration has an invalid PNG header.");
+    const header = new DataView(bytes.buffer), w = header.getUint32(16), h = header.getUint32(20);
+    if (!w || !h || w > 1536 || h > 1536) throw Error("The illustration exceeds the supported image dimensions.");
+    return bytes;
+  }
+  async function tenetIllustrationImage(command) {
+    const blob = new Blob([tenetIllustrationBytes(command)], { type:"image/png" });
+    const url = URL.createObjectURL(blob), image = new Image();
+    try {
+      await new Promise((resolve, reject) => {
+        image.onload = resolve;
+        image.onerror = () => reject(Error("The illustration could not be decoded."));
+        image.src = url;
+      });
+      image.logicalWidth = command.w;
+      image.logicalHeight = command.h;
+      return { image, blob };
+    } finally { image.onload = image.onerror = null; URL.revokeObjectURL(url); }
+  }
   function drawFocusInset(out, latestBox, sourceRect, mainScale, captureTime = performance.now()) {
     const largeInput = latestBox.w > 1800 || latestBox.h > 1200,
       padding = largeInput ? Math.max(40, Math.min(120, Math.max(latestBox.w, latestBox.h) * 0.04)) : Math.max(50, Math.min(280, Math.max(latestBox.w, latestBox.h) * 0.18)),
@@ -912,6 +984,7 @@
       widgetSlots = widgetEditTarget ? 1 : Math.max(0, MAX_VISIBLE_WIDGETS - state.widgets.length),
       widgetPluginIds = new Set(enabledPluginDescriptors().map((plugin) => plugin.id));
     const acceptedTools = ["write_text", "draw_formula", "plot_function", "draw", "erase"];
+    if (window.PENECHO_CONFIG?.tenetMode) acceptedTools.push("draw_image");
     if (widgetPluginIds.size) acceptedTools.push("html_widget");
     if (widgetPluginIds.has("flowchart")) acceptedTools.push("diagram_source");
     const validated = cmds
@@ -949,6 +1022,10 @@
           }
           c.color = aiColor;
           plotPixels += c.w * c.h;
+        }
+        if (c.tool === "draw_image") {
+          if (![c.x,c.y,c.w,c.h].every(Number.isFinite) || c.x < 0 || c.y < 0 || c.w < 80 || c.h < 80 || c.w > 6000 || c.h > 6000 || c.x+c.w > SIZE || c.y+c.h > SIZE || Math.max(c.w/c.h,c.h/c.w) > 8) return null;
+          try { tenetIllustrationBytes(c); } catch { return null; }
         }
         if (c.tool === "draw") {
           const normalized = DRAW?.normalize(c, SIZE);
@@ -1084,6 +1161,10 @@
           const preparedPlot = await plotObjectImage(c);
           image = preparedPlot.image;
           plotBlob = preparedPlot.blob;
+        } else if (c.tool === "draw_image") {
+          const prepared = await tenetIllustrationImage(c);
+          image = prepared.image;
+          plotBlob = prepared.blob;
         } else if (c.tool === "animate_scene") {
           pendingCommand = ANIMATION.normalize(c, SIZE);
           image = pendingCommand ? ANIMATION.rasterize(pendingCommand, offscreen, 0, Math.min(2, sharpRenderRatio())) : null;
@@ -1128,6 +1209,11 @@
       const preparedPlot = await plotObjectImage(c);
       image = preparedPlot.image;
       plotBlob = preparedPlot.blob;
+    }
+    else if (c.tool === "draw_image") {
+      const prepared = await tenetIllustrationImage(c);
+      image = prepared.image;
+      plotBlob = prepared.blob;
     }
     else if (c.tool === "animate_scene") {
       pendingCommand = ANIMATION.normalize(c, SIZE);
@@ -1938,7 +2024,7 @@
       const box = draftBounds(p);
       addAnimation(p.animationScene, box, p.animationPlayback);
     }
-    else if (p.command?.tool === "plot_function") addPendingPlotImage(p, draftBounds(p));
+    else if (["plot_function", "draw_image"].includes(p.command?.tool)) addPendingPlotImage(p, draftBounds(p));
     else if (p.textCommand) {
       const box = draftBounds(p);
       blitClipped(p.image, p.x, p.y, (p.image.logicalWidth || p.image.width) * p.scaleX, (p.image.logicalHeight || p.image.height) * p.scaleY, box.w, box.h);
@@ -2213,7 +2299,7 @@
   }
   function addPendingPlotImage(item, box = pendingItemBounds(item)) {
     const expression = typeof item?.command?.expression === "string" ? item.command.expression.trim() : "";
-    if (!expression || !(item.plotBlob instanceof Blob) || state.images.length >= MAX_VISIBLE_IMAGES) throw Error("Plot object could not be committed");
+    if ((!expression && item.command?.tool !== "draw_image") || !(item.plotBlob instanceof Blob) || state.images.length >= MAX_VISIBLE_IMAGES) throw Error("Image object could not be committed");
     recordImagesBefore();
     const record = imageRecord({
       image:item.image,
@@ -2225,9 +2311,9 @@
       naturalW:item.image.width,
       naturalH:item.image.height,
       sourceName:"",
-      plotExpression:expression,
+      ...(expression ? { plotExpression:expression } : {}),
     });
-    if (!record) throw Error("Plot object could not be committed");
+    if (!record) throw Error("Image object could not be committed");
     state.images.push(record);
     return record;
   }
@@ -2236,7 +2322,7 @@
     if (item.erase) eraseWithMask(item.image, box.x, box.y, box.w, box.h);
     else if (item.textCommand) blitClipped(item.image, item.x, item.y, (item.image.logicalWidth || item.image.width) * item.scaleX, (item.image.logicalHeight || item.image.height) * item.scaleY, box.w, box.h);
     else if (item.animationScene) addAnimation(item.animationScene, box, item.animationPlayback);
-    else if (item.command?.tool === "plot_function") addPendingPlotImage(item, box);
+    else if (["plot_function", "draw_image"].includes(item.command?.tool)) addPendingPlotImage(item, box);
     else blitSized(item.image, box.x, box.y, (item.image.logicalWidth || item.image.width) * item.scaleX, (item.image.logicalHeight || item.image.height) * item.scaleY);
   }
   function armPendingCopy(e, hit, itemIndex = null) {

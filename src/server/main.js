@@ -50,6 +50,7 @@ const {
 } = require("./public-fetch.js");
 const PLUGIN_FORMAT = require("../../public/plugins.js");
 const DRAW = require("../../public/draw.js");
+const { TENET_ILLUSTRATION_PROMPT, rasterizeTenetIllustrations, validSelectionQuestion } = require("./tenet-illustration.js");
 const APP_PACKAGE = require("../../package.json");
 let sharp = null;
 try { sharp = require("sharp"); } catch {}
@@ -1133,12 +1134,12 @@ const TENET_CANVAS_PROTOCOL = `Canvas protocol (rendering only). The attached im
 
 A hand-drawn box or circle selects the content inside it; an arrow connects the selected source to a destination; labels near an arrow such as "more", "detail", "expand", "explain", or "why" ask for a fuller explanation of the selected content and are not copied into the response. Follow an arrow chain to its final arrowhead and place the explanation in the clear space immediately beyond it. Whenever selectionContext is present, treat that lasso as the exclusive context for the request and place output beside the selected rectangle.
 
-Treat the canvas as an existing document to extend, never to reproduce: add only the missing continuation, hint, annotation, or new visual element, and never rewrite, trace, or redraw text, equations, labels, strokes, or diagrams that are already present. Use write_text for words; draw_formula for math notation; plot_function for a single-variable function y=f(x) with a browser-evaluable ASCII expression using x, numbers, + - * / ^, parentheses, pi, e, sin, cos, tan, sqrt, abs, exp, log, ln (explicit multiplication such as 3*x; at least 240 by 180, aspect ratio between 1:6 and 6:1); native draw only for a very simple static sketch or annotation of about 10 or fewer primitives or line segments. There are no plugins, HTML widgets, animations, or external tools in this mode; describe anything larger in words.
+Treat the canvas as an existing document to extend, never to reproduce: add only the missing continuation, hint, annotation, or new visual element, and never rewrite, trace, or redraw text, equations, labels, strokes, or diagrams that are already present. Use write_text for words; draw_formula for math notation; plot_function for a single-variable function y=f(x) with a browser-evaluable ASCII expression using x, numbers, + - * / ^, parentheses, pi, e, sin, cos, tan, sqrt, abs, exp, log, ln (explicit multiplication such as 3*x; at least 240 by 180, aspect ratio between 1:6 and 6:1); native draw for simple ink sketches and draw_image for static illustrations under the restricted image protocol below. There are no plugins, HTML widgets, animations, image-search tools, or external tools in this mode.
 
 You are responsible for text layout. Every write_text command MUST choose x and y as the top-left start position and maxWidth as the wrapping width, in a blank area near latestInput.globalRect or the final arrow destination, inside captureRect, without covering existing writing, and never at the top edge merely because it is blank. Match fontSize approximately to nearby handwriting; lineHeight is a multiplier such as 1.35. Do not return color; the client applies the user's AI color. The logical canvas is 20000 by 20000 and ALL coordinates are finite global logical coordinates, never image coordinates. Draw encodings: one draw command with one global integer origin and integer coordinates relative to it; types and items have equal lengths; line or smooth [x1,y1,x2,y2,...]; rect [x,y,w,h]; ellipse [cx,cy,rx,ry]; circle [cx,cy,r]; arc [cx,cy,rx,ry,startDeg,sweepDeg]; optional closed, fill, and arrows list item indices; width 2..200; tension 0..100. Every command MUST identify its tool with property "tool". Tools: write_text {tool:"write_text",x,y,text,fontSize,maxWidth,lineHeight}; draw_formula {tool:"draw_formula",x,y,latex,fontSize}; plot_function {tool:"plot_function",x,y,w,h,expression}; draw {tool:"draw",origin:[x,y],types:["line|smooth|rect|ellipse|circle|arc",...],items:[[...],...],width?,tension?,closed?,fill?,arrows?}; erase {tool:"erase",mode:"rect",x,y,w,h} or {tool:"erase",mode:"path",points:[[x,y],...],size}. Keep within canvas, use at most 16 commands, and keep text and formulas short. If the newest input is non-empty but unclear or lacks context, return one short write_text clarification question. Use intent none with an empty commands array only when there is genuinely no new input.`;
 
 function tenetSystemPrompt(literalTypeset = false) {
-  return [TENET_TUTOR_PROMPT, TENET_CANVAS_PROTOCOL, literalTypeset ? NORMALIZE_TYPESET_POLICY : "", MANDATORY_VISIBLE_RESPONSE_PROMPT, JSON_RESPONSE_SCHEMA_PROMPT].filter(Boolean).join("\n\n");
+  return [TENET_TUTOR_PROMPT, TENET_CANVAS_PROTOCOL, TENET_ILLUSTRATION_PROMPT, literalTypeset ? NORMALIZE_TYPESET_POLICY : "", MANDATORY_VISIBLE_RESPONSE_PROMPT, JSON_RESPONSE_SCHEMA_PROMPT].filter(Boolean).join("\n\n");
 }
 
 function activeSystemPrompt(literalTypeset = false, animationEnabled = false, pluginsEnabled = false) {
@@ -1681,6 +1682,7 @@ function tenetGatewayError(error) {
   return { code, category, requestId, status, headline, detail, message:`${headline} — ${code}${category ? ` (${category})` : ""}${requestId ? ` · ${requestId}` : ""}` };
 }
 function publicModelError(error, { clientError = false, timedOut = false, upstreamStatus = null, provider = null } = {}) {
+  if (error?.name === "TenetIllustrationError") return error.message;
   if (clientError) return error?.message || "Invalid request.";
   const gateway = tenetGatewayError(error);
   if (gateway) return gateway.message;
@@ -1705,7 +1707,7 @@ function publicModelError(error, { clientError = false, timedOut = false, upstre
     return "AI service returned an invalid response. Please retry.";
   return "Could not reach the AI service. Please retry.";
 }
-const DEBUG_TOOLS = new Set(["write_text", "draw_formula", "plot_function", "draw", "animate_scene", "html_widget", "diagram_source", "erase"]),
+const DEBUG_TOOLS = new Set(["write_text", "draw_formula", "plot_function", "draw", "draw_image", "animate_scene", "html_widget", "diagram_source", "erase"]),
   DEBUG_ACTIONS = new Set(["auto", "hint", "continue", "explain", "check", "practice", "plot", "answer", "normalize"]),
   DEBUG_INTENTS = new Set(["none", "hint", "continue", "explain", "plot", "correct", "erase", "answer", "typeset"]);
 function finiteDebugBox(value) {
@@ -1883,7 +1885,7 @@ function validPayload(p) {
   const typedValid = validTypedInput(p?.typedInput, p?.changedBox, p?.sourceRect), selectionValid = validSelectionContext(p?.selectionContext), selectionRequired = !["normalize", "check", "practice"].includes(p?.userAction) || Boolean(p?.selectionContext), contextBox = selectionBox(p?.selectionContext?.box), selectionGeometry = !p?.selectionContext || Boolean(contextBox && selectionBoxesMatch(contextBox, p?.sourceRect) && selectionBoxesMatch(contextBox, p?.changedBox)),
     widgetEdit = validPlugins ? canonicalWidgetEdit(p?.widgetEdit, p.plugins || []) : false,
     widgetEditValid = widgetEdit !== false && (!widgetEdit || p.trigger === "manual" && p.userAction !== "normalize" && !p.selectionContext);
-  return p && typeof p === "object" && p.canvasSize?.w === CANVAS_SIZE && p.canvasSize?.h === CANVAS_SIZE && validGeometry && validSize && validGrid && validInset && validTheme && validPersona && validAction && validEffort && validAnimation && validPlugins && validTrigger && typedValid && selectionValid && selectionRequired && selectionGeometry && widgetEditValid && image;
+  return p && typeof p === "object" && p.canvasSize?.w === CANVAS_SIZE && p.canvasSize?.h === CANVAS_SIZE && validGeometry && validSize && validGrid && validInset && validTheme && validPersona && validAction && validEffort && validAnimation && validPlugins && validTrigger && typedValid && selectionValid && selectionRequired && selectionGeometry && widgetEditValid && image && validSelectionQuestion(p.selectionQuestion, p.selectionContext, p.trigger);
 }
 function canonicalPayload(p) {
   const box = value => ({ x:value.x, y:value.y, w:value.w, h:value.h });
@@ -1908,6 +1910,7 @@ function canonicalPayload(p) {
     widgetEdit:canonicalWidgetEdit(p.widgetEdit, plugins) || null,
     typedInput:p.typedInput ? { text:p.typedInput.text, box:box(p.typedInput.box) } : null,
     selectionContext:canonicalSelectionContext(p.selectionContext),
+    ...(typeof p.selectionQuestion === "string" ? { selectionQuestion:p.selectionQuestion.trim() } : {}),
     canvasSize:{ w:CANVAS_SIZE, h:CANVAS_SIZE },
     uiTheme:p.uiTheme,
     persona:THEME_PERSONAS[p.uiTheme],
@@ -2949,12 +2952,12 @@ function translateTypesetGroup(commands,selected,metrics){
 function normalizeCommandPlacements(commands,payload){
   if(!Array.isArray(commands)||!commands.length)return commands;
   const metrics=command=>{
-    if(command?.tool==="plot_function"&&Number.isFinite(command.w)&&Number.isFinite(command.h))return{fontSize:24,width:command.w,height:command.h};
+    if(["plot_function","draw_image"].includes(command?.tool)&&Number.isFinite(command.w)&&Number.isFinite(command.h))return{fontSize:24,width:command.w,height:command.h};
     const fontSize=Math.max(24,Math.min(650,+command?.fontSize||180)),lineHeight=command?.tool==="write_text"?Math.max(1,Math.min(2.2,+command.lineHeight||1.35)):1.8,
       width=command?.tool==="write_text"&&Number.isFinite(command.maxWidth)?Math.max(fontSize,command.maxWidth):command?.tool==="draw_formula"?Math.min(5000,Math.max(fontSize,String(command.latex||"").length*fontSize*.72)):fontSize;
     return { fontSize, width:Math.min(CANVAS_SIZE,width), height:Math.min(CANVAS_SIZE,Math.max(24,fontSize*lineHeight*(command?.tool==="write_text"?2:1))) };
   };
-  if(payload.userAction==="normalize"&&payload.selectionContext?.box){
+  if(payload.selectionContext?.box && (payload.userAction==="normalize" || TENET_MODE)){
     return translateTypesetGroup(commands,payload.selectionContext.box,metrics);
   }
   if(commands.length!==1)return commands;
@@ -4081,7 +4084,7 @@ const server = http.createServer(async (req, res) => {
           explain:"explain the newest content or the content referenced by a box and arrow",
           check:"evaluate only the selected work: state what is correct, identify the first incorrect or unsupported step, and give one concise next step without completing all remaining work",
           practice:"create three concise new practice items targeting the same skill and approximate difficulty as the selected work, without solutions or an answer key",
-          plot:"produce at least one renderable visual command; use plot_function for y=f(x), native draw for a very simple static sketch, otherwise General HTML with SVG",
+          plot:TENET_MODE ? "produce a renderable visual: plot_function for y=f(x), draw for simple ink, draw_image for a safe static illustration" : "produce at least one renderable visual command; use plot_function for y=f(x), native draw for a very simple static sketch, otherwise General HTML with SVG",
           answer:"directly answer the newest question or spatial request",
           normalize:"make a faithful, clean, copyable Typeset reproduction of only the selected visible source under normalizePolicy",
         }[payload.userAction]||"respond appropriately"),
@@ -4110,6 +4113,7 @@ ${WIDGET_PATCH_FORMAT_POLICY}`,
         latestInput,
         typedInput:payload.typedInput||null,
         selectionContext:payload.selectionContext||null,
+        ...(payload.selectionQuestion ? { selectionQuestion:payload.selectionQuestion } : {}),
         normalizePolicy:payload.userAction==="normalize"?NORMALIZE_TYPESET_POLICY:null,
         focusInset:payload.focusInset||null,
         hotspotGrid:payload.hotspotGrid,
@@ -4179,6 +4183,7 @@ ${WIDGET_PATCH_FORMAT_POLICY}`,
         if(fallback){result.commands.push(fallback);log({type:"ai-plot-fallback",requestId,ip})}
       }
       result.commands=normalizeCommandPlacements(result.commands,payload);
+      if (TENET_MODE) result.commands=await rasterizeTenetIllustrations(result.commands,sharp);
       const loggedIntent=DEBUG_INTENTS.has(result.intent)?result.intent:"invalid",loggedTools=result.commands.map(c=>c?.tool).filter(tool=>DEBUG_TOOLS.has(tool));
       const sentImage=imageDataUrlParts(activeAtlasImage);
       const selectionLog=payload.selectionContext?{box:payload.selectionContext.box,closed:payload.selectionContext.closed,pointCount:payload.selectionContext.path.length}:null;
@@ -4199,7 +4204,7 @@ ${WIDGET_PATCH_FORMAT_POLICY}`,
       const timedOut=error?.name==="AbortError"||error?.message==="This operation was aborted";
       const upstreamStatus = Number.isInteger(error.status) && error.status >= 400 && error.status <= 599 ? error.status : null,
         code = clientError ? 400 : timedOut ? 504 : upstreamStatus || 502;
-      log({ type:"ai", requestId, ip, status:code, elapsedMs:Date.now()-started, error:clientError?"client-error":timedOut?"timeout":upstreamStatus?"upstream-error":"model-error", ...(REQUEST_TRACE_ENABLED ? { failure:compactErrorLog(error) } : {}) });
+      log({ type:"ai", requestId, ip, status:code, elapsedMs:Date.now()-started, error:clientError?"client-error":timedOut?"timeout":upstreamStatus?"upstream-error":"model-error", failureCategory:error?.name==="TenetIllustrationError"?"invalid-static-illustration":typeof error?.upstream?.rawContent==="string"?"invalid-model-response":"other", ...(REQUEST_TRACE_ENABLED ? { failure:compactErrorLog(error) } : {}) });
       const userMessage=publicModelError(error,{clientError,timedOut,upstreamStatus,provider:providerSnapshot});
       const gateway=tenetGatewayError(error),responseBody={error:userMessage,requestId,...(gateway?{gateway}:{})};
       completeRequestTrace(requestTrace,timedOut?"timeout":"failed",code,responseBody,error);

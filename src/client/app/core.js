@@ -4518,6 +4518,10 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     cancelWidgetRefinement("manual-action");
     clearTimeout(state.timer);
     state.timer = 0;
+    if (tenetCanvasAI?.selectionActive()) {
+      void tenetCanvasAI.ask(action === "auto" ? "hint" : action);
+      return;
+    }
     if (state.selection?.phase === "active") {
       const selection = state.selection,
         packed = buildSelectionTypesetRequest(selection);
@@ -4526,6 +4530,10 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       return;
     }
     supersedeActiveAI("manual-action");
+    if (tenetCanvasAI) {
+      void tenetCanvasAI.quick(action);
+      return;
+    }
     requestAI(action, null, { captureCurrentViewport: true });
   }
   const AI_ORB_IDLE_DELAY_MS = 5000;

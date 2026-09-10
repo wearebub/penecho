@@ -4636,8 +4636,8 @@ test("AI text, formula, and function-plot drafts expose copy and axis-resize con
   assert.match(update, /g\.hit === "height"[\s\S]*?p\.scaleY = Math\.max/);
   assert.match(pendingChrome, /pendingCopyable\(target\)[\s\S]*?copyPendingText\(itemIndex\)/);
   assert.match(pendingChrome, /tool === "plot_function"[\s\S]*?addObjectToolbarSpecs[\s\S]*?kind:"copy"[\s\S]*?copyPendingText\(itemIndex\)/);
-  assert.match(functionSource(app, "acceptPending"), /tool === "plot_function"[\s\S]*?addPendingPlotImage\(p, draftBounds\(p\)\)/);
-  assert.match(functionSource(app, "commitPendingItem"), /tool === "plot_function"[\s\S]*?addPendingPlotImage\(item, box\)/);
+  assert.match(functionSource(app, "acceptPending"), /\["plot_function", "draw_image"\]\.includes\(p\.command\?\.tool\)[\s\S]*?addPendingPlotImage\(p, draftBounds\(p\)\)/);
+  assert.match(functionSource(app, "commitPendingItem"), /\["plot_function", "draw_image"\]\.includes\(item\.command\?\.tool\)[\s\S]*?addPendingPlotImage\(item, box\)/);
   assert.match(functionSource(app, "addPendingPlotImage"), /imageRecord\([\s\S]*?plotExpression:expression[\s\S]*?state\.images\.push\(record\)/);
   assert.match(functionSource(app, "plotObjectImage"), /rendered = plot\(command\)[\s\S]*?MAX_IMAGE_DIMENSION[\s\S]*?canvasBlob\(image\)/);
   assert.match(css, /\.clipboard-copy-fallback\s*\{[^}]*left:\s*-10000px/);

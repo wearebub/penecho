@@ -4602,6 +4602,7 @@
   }
   function syncObjectChrome() {
     if (!objectChromeLayer) return;
+    if (typeof tenetSyncResizeHandles === "function") tenetSyncResizeHandles();
     const active = new Set();
     const knownPositions = new Map();
     const attachedWidgetShells = new Set();

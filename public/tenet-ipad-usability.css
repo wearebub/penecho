@@ -5,6 +5,71 @@
   --tenet-line: #d8d2c4;
 }
 
+/* Tenet adds labeled tools. Never assign them to upstream's navigator-sized
+   four-column compact grid; let real touch targets wrap in document order. */
+body.tenet-whiteboard[data-theme="studio"] .toolbar {
+  display: flex !important;
+  flex-wrap: wrap;
+  height: auto !important;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  overflow: visible;
+}
+body.tenet-whiteboard[data-theme="studio"] .toolbar > .primary-tools {
+  flex: 1 1 560px;
+  width: auto;
+  min-width: 0;
+  height: auto;
+  min-height: 44px;
+  flex-wrap: wrap;
+  align-content: center;
+  gap: 6px;
+}
+body.tenet-whiteboard[data-theme="studio"] [data-tenet-ink-toolbar] button {
+  min-height: 44px;
+  min-width: 40px;
+}
+body.tenet-whiteboard[data-theme="studio"] .toolbar > .tenet-tool-trigger,
+body.tenet-whiteboard[data-theme="studio"] .toolbar > .tenet-ai-entry {
+  flex: 0 0 auto;
+  width: auto;
+  max-width: 100%;
+}
+body.tenet-whiteboard.tenet-using-pencilkit .eraser-tool-menu,
+body.tenet-whiteboard.tenet-using-pencilkit [data-mode="eraser"],
+body.tenet-whiteboard.tenet-using-pencilkit .pen-tool-properties {
+  display: none !important;
+}
+body.tenet-whiteboard #tenetInsertDialog {
+  position: fixed;
+  width: min(328px, calc(100vw - 16px));
+  max-height: min(520px, calc(100dvh - var(--tenet-insert-top, 100px) - 12px));
+  margin: 0;
+  inset: var(--tenet-insert-top, 100px) auto auto var(--tenet-insert-left, 8px);
+  padding: 12px;
+  border-radius: 14px;
+}
+body.tenet-whiteboard #tenetInsertDialog h2 { font-size: 18px; }
+body.tenet-whiteboard #tenetInsertDialog .tenet-tool-description { font-size: 12px; margin: 8px 0; }
+body.tenet-whiteboard #tenetInsertDialog .tenet-tool-color { margin: 8px 0; justify-content: space-between; }
+body.tenet-whiteboard #tenetInsertDialog details { border-top: 1px solid var(--tenet-line); padding: 4px 0; }
+body.tenet-whiteboard #tenetInsertDialog summary { padding: 12px 4px; font-size: 14px; font-weight: 700; cursor: pointer; }
+body.tenet-whiteboard #tenetInsertDialog .tenet-insert-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
+body.tenet-whiteboard #tenetInsertDialog .tenet-insert-card { min-width: 0; padding: 6px 4px; gap: 4px; font-size: 11px; font-weight: 600; }
+body.tenet-whiteboard #tenetInsertDialog .tenet-insert-card canvas { height: 36px; }
+body.tenet-whiteboard #tenetInsertDialog [hidden] { display: none !important; }
+body.tenet-whiteboard .tenet-shape-search { box-sizing: border-box; width: 100%; min-height: 44px; padding: 8px; font-size: 16px; border: 1px solid var(--tenet-line); border-radius: 8px; }
+.tenet-resize-layer { position: absolute; inset: 0; z-index: 42; pointer-events: none; }
+.tenet-resize-layer[hidden] { display: none; }
+.tenet-resize-handle { position: absolute; width: 44px; height: 44px; padding: 0; border: 0; background: transparent; transform: translate(-50%, -50%); pointer-events: auto; touch-action: none; }
+.tenet-resize-handle::after { content: ""; position: absolute; inset: 16px; border: 2px solid #235975; border-radius: 3px; background: #fff; box-shadow: 0 1px 4px #10243e30; }
+.tenet-resize-handle:focus-visible { outline: 2px solid var(--tenet-copper); outline-offset: -4px; border-radius: 8px; }
+.trh-nw, .trh-se { cursor: nwse-resize; }
+.trh-ne, .trh-sw { cursor: nesw-resize; }
+.trh-e, .trh-w { cursor: ew-resize; }
+.trh-n, .trh-s { cursor: ns-resize; }
+
 /* Pages & files replaces the legacy navigator, not its title/save machinery. */
 body.tenet-whiteboard #studioNavigatorToggle,
 body.tenet-whiteboard #studioNavigator,
@@ -194,6 +259,15 @@ body.tenet-whiteboard .tenet-tool-error:empty {
 }
 body.tenet-whiteboard #tenetDrawingDialog {
   width: min(560px, calc(100vw - 32px));
+}
+body.tenet-whiteboard .tenet-width-preview {
+  display: block;
+  width: 100%;
+  height: 80px;
+  margin-top: 16px;
+  border: 1px solid var(--tenet-line);
+  border-radius: 12px;
+  background: #fff;
 }
 body.tenet-whiteboard .tenet-drawing-width-label,
 body.tenet-whiteboard .tenet-drawing-mode-label {

@@ -14,8 +14,9 @@ const TAG = /^tenet-(?:web-v\d+\.\d+\.\d+|ipad-v\d+\.\d+\.\d+-build\.[1-9]\d*)$/
 const WEB_PATHS = [
   'public/app.js', 'public/index.html', 'public/tenet-ink-comparison.css',
   'public/tenet-ipad-usability.css', 'public/tenet-notebook.css',
-  'scripts/build-client.js', 'src/client',
+  'public/tenet-selection-tools.css', 'scripts/build-client.js', 'src/client',
 ];
+const WHITEBOARD_SERVER_PATHS = ['src/server/main.js', 'src/server/tenet-illustration.js'];
 
 function command(name, args, options = {}) {
   return execFileSync(name, args, { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, ...options });
@@ -42,18 +43,20 @@ function committedSource(source) {
   return source;
 }
 
-export function createClientArchive(source, directory, version) {
+export function createClientArchive(source, directory, version, includeWhiteboardServer = false) {
   committedSource(source);
   assert.match(version, VERSION);
-  const names = command('git', ['ls-tree', '-r', '--name-only', source, '--', ...WEB_PATHS]).trim().split('\n');
+  const archivePaths = includeWhiteboardServer ? [...WEB_PATHS, ...WHITEBOARD_SERVER_PATHS] : WEB_PATHS;
+  const names = command('git', ['ls-tree', '-r', '--name-only', source, '--', ...archivePaths]).trim().split('\n');
   for (const required of WEB_PATHS.slice(0, -1)) assert(names.includes(required), `Missing client asset: ${required}`);
+  if (includeWhiteboardServer) for (const required of WHITEBOARD_SERVER_PATHS) assert(names.includes(required), `Missing Whiteboard runtime: ${required}`);
   const files = names.map(name => {
     assert(!name.includes('..') && !name.includes('\\') && !name.startsWith('/'), 'Unsafe archive path');
     const data = command('git', ['show', `${source}:${name}`], { encoding: null });
     return { path: name, sha256: sha256(data) };
   });
-  const archive = path.join(directory, `Tenet-Whiteboard-web-${version}.tar`);
-  command('git', ['archive', '--format=tar', `--output=${archive}`, source, '--', ...WEB_PATHS]);
+  const archive = path.join(directory, `Tenet-Whiteboard-${includeWhiteboardServer ? 'runtime' : 'web'}-${version}.tar`);
+  command('git', ['archive', '--format=tar', `--output=${archive}`, source, '--', ...archivePaths]);
   return { archive, files };
 }
 
@@ -221,12 +224,12 @@ async function main(kind) {
       const difference = current.map((value, index) => value - parts[index]).find(value => value !== 0n);
       assert(difference === undefined || difference > 0n, 'Hosted release versions must increase');
     }
-    const { archive, files } = createClientArchive(source, directory, version);
+    const { archive, files } = createClientArchive(source, directory, version, true);
     publishRelease({
       tag: `tenet-web-v${version}`, sourceCommit: source,
-      title: `Tenet Whiteboard hosted client ${version}`, directory, artifacts: [archive],
-      notes: `Client-only overlay from [workflow ${runId}](${run.html_url}), after full Node 22/24 CI.\n\nPaired native release: ${pairedIpad}. This pairing is an operator selection, not a claim of physical-device testing.\n\nPublishing does NOT deploy. The TAR contains only the client allowlist, not Gateway, authentication, secrets, or notebook data. See release.json for every path/hash and SHA256SUMS for artifact integrity.`,
-      provenance: { surface: 'hosted-client', version, pairedIpad, workflow: run.html_url, fullCi: 'passed', deployment: 'not performed by release publishing', files },
+      title: `Tenet Whiteboard hosted runtime ${version}`, directory, artifacts: [archive],
+      notes: `Whiteboard client and server overlay from [workflow ${runId}](${run.html_url}), after full Node 22/24 CI.\n\nPaired native release: ${pairedIpad}. This pairing is an operator selection, not a claim of physical-device testing.\n\nPublishing does NOT deploy. The TAR contains the client allowlist plus the Whiteboard command server and illustration rasterizer. Installing it requires a coordinated Whiteboard server restart. It does not include the Gateway, authentication service, secrets, dependencies, or notebook data. Back up every changed runtime file before installation. See release.json for every path/hash and SHA256SUMS for artifact integrity.`,
+      provenance: { surface: 'hosted-runtime', version, pairedIpad, workflow: run.html_url, fullCi: 'passed', deployment: 'not performed by release publishing', requiresWhiteboardRestart: true, files },
     });
   }
 }

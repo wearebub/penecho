@@ -4636,6 +4636,10 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     cancelWidgetRefinement("manual-action");
     clearTimeout(state.timer);
     state.timer = 0;
+    if (tenetCanvasAI?.selectionActive()) {
+      void tenetCanvasAI.ask(action === "auto" ? "hint" : action);
+      return;
+    }
     if (state.selection?.phase === "active") {
       const selection = state.selection,
         packed = buildSelectionTypesetRequest(selection);
@@ -4644,6 +4648,10 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       return;
     }
     supersedeActiveAI("manual-action");
+    if (tenetCanvasAI) {
+      void tenetCanvasAI.quick(action);
+      return;
+    }
     requestAI(action, null, { captureCurrentViewport: true });
   }
   const AI_ORB_IDLE_DELAY_MS = 5000;
@@ -9276,6 +9284,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   }
   function syncObjectChrome() {
     if (!objectChromeLayer) return;
+    if (typeof tenetSyncResizeHandles === "function") tenetSyncResizeHandles();
     const active = new Set();
     const knownPositions = new Map();
     const attachedWidgetShells = new Set();
@@ -14390,6 +14399,13 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     try { await tenetInkFlush(); }
     catch (error) { tenetInkMessage(error?.message || "Native ink is not ready for AI capture."); return; }
     requestOptions = requestOptions || {};
+    // A crop prepared before a page/ink change must never be sent as current work.
+    if (requestOptions.expectedRevision !== undefined &&
+        (requestOptions.expectedRevision !== state.userRevision ||
+         requestOptions.expectedGeneration !== state.recognitionGeneration)) {
+      tenetInkMessage("The page changed. Circle the work again before asking Tenet.");
+      return;
+    }
     const automatic = action === "auto";
     if (!automatic) {
       clearTimeout(state.timer);
@@ -14552,7 +14568,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
         debug("ai-deferred", { ...meta, reason: "user-revision-changed" });
         return;
       }
-      if (state.images.length + commands.filter((command) => command.tool === "plot_function").length > MAX_VISIBLE_IMAGES) {
+      if (state.images.length + commands.filter((command) => ["plot_function", "draw_image"].includes(command.tool)).length > MAX_VISIBLE_IMAGES) {
         setStatusKey("imageLimitReached");
         throw Error(t("imageLimitReached"));
       }
@@ -14894,6 +14910,71 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       selectionContext: context,
     };
   }
+  function tenetRegionGeometry(points) {
+    if (!Array.isArray(points) || points.length < 3 || points.length > 512 ||
+        points.some(p => !p || !Number.isFinite(p.x) || !Number.isFinite(p.y) || p.x < 0 || p.y < 0 || p.x > SIZE || p.y > SIZE)) return null;
+    const x = Math.min(...points.map(p => p.x)), y = Math.min(...points.map(p => p.y));
+    const w = Math.max(...points.map(p => p.x)) - x, h = Math.max(...points.map(p => p.y)) - y;
+    return w > 0 && h > 0 ? { x, y, w, h } : null;
+  }
+  function buildTenetRegionImage(points, question = "") {
+    const sourceRect = tenetRegionGeometry(points);
+    if (!sourceRect) throw Error("Circle an area of the page first.");
+    if (typeof question !== "string" || question.length > 1000) throw Error("Keep your question under 1,000 characters.");
+    const imageScale = Math.min(1, MAX_ATLAS_WIDTH / sourceRect.w, MAX_ATLAS_HEIGHT / sourceRect.h) * (1 - Number.EPSILON * 4);
+    const atlasSize = { w:Math.ceil(sourceRect.w * imageScale), h:Math.ceil(sourceRect.h * imageScale) };
+    const out = offscreen(atlasSize.w, atlasSize.h), q = out.getContext("2d");
+    q.fillStyle = "#fff";
+    q.fillRect(0, 0, out.width, out.height);
+    q.save();
+    q.setTransform(imageScale, 0, 0, imageScale, -sourceRect.x * imageScale, -sourceRect.y * imageScale);
+    q.beginPath();
+    points.forEach((p, i) => i ? q.lineTo(p.x, p.y) : q.moveTo(p.x, p.y));
+    q.closePath();
+    // Apply the mask BEFORE drawing any layer, including the native preview.
+    q.clip("evenodd");
+    drawAnimationsToContext(q, sourceRect, performance.now());
+    drawWidgetsToContext(q, sourceRect);
+    drawImagesToContext(q, sourceRect);
+    drawTextBoxesToContext(q, sourceRect);
+    forTiles(sourceRect.x, sourceRect.y, sourceRect.w, sourceRect.h, (c, tx, ty) => q.drawImage(c, tx * TILE, ty * TILE), false);
+    drawSharpOverlays(q, sourceRect);
+    q.restore();
+    return {
+      atlasImage:out.toDataURL("image/png"), atlasSize, imageScale,
+      visibleRect:{ x:0, y:0, w:SIZE, h:SIZE }, captureRect:{ ...sourceRect }, sourceRect,
+      changedBox:{ ...sourceRect }, focusInset:null,
+      hotspotGrid:{ columns:8, rows:8, order:"oldest-to-newest", hotspots:[] },
+      selectionContext:{ box:{ ...sourceRect }, path:points.map(p => ({ x:p.x, y:p.y })), closed:true },
+      ...(question.trim() ? { selectionQuestion:question.trim() } : {}),
+    };
+  }
+  function tenetIllustrationBytes(command) {
+    if (!command || typeof command.png !== "string" || command.png.length > 2800000 ||
+        !/^data:image\/png;base64,[A-Za-z0-9+/]+={0,2}$/.test(command.png)) throw Error("The illustration is not a supported PNG image.");
+    const raw = atob(command.png.slice(22));
+    const bytes = Uint8Array.from(raw, c => c.charCodeAt(0));
+    const signature = [137,80,78,71,13,10,26,10];
+    if (bytes.length < 33 || signature.some((n, i) => bytes[i] !== n) ||
+        String.fromCharCode(...bytes.slice(12,16)) !== "IHDR") throw Error("The illustration has an invalid PNG header.");
+    const header = new DataView(bytes.buffer), w = header.getUint32(16), h = header.getUint32(20);
+    if (!w || !h || w > 1536 || h > 1536) throw Error("The illustration exceeds the supported image dimensions.");
+    return bytes;
+  }
+  async function tenetIllustrationImage(command) {
+    const blob = new Blob([tenetIllustrationBytes(command)], { type:"image/png" });
+    const url = URL.createObjectURL(blob), image = new Image();
+    try {
+      await new Promise((resolve, reject) => {
+        image.onload = resolve;
+        image.onerror = () => reject(Error("The illustration could not be decoded."));
+        image.src = url;
+      });
+      image.logicalWidth = command.w;
+      image.logicalHeight = command.h;
+      return { image, blob };
+    } finally { image.onload = image.onerror = null; URL.revokeObjectURL(url); }
+  }
   function drawFocusInset(out, latestBox, sourceRect, mainScale, captureTime = performance.now()) {
     const largeInput = latestBox.w > 1800 || latestBox.h > 1200,
       padding = largeInput ? Math.max(40, Math.min(120, Math.max(latestBox.w, latestBox.h) * 0.04)) : Math.max(50, Math.min(280, Math.max(latestBox.w, latestBox.h) * 0.18)),
@@ -15040,6 +15121,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       widgetSlots = widgetEditTarget ? 1 : Math.max(0, MAX_VISIBLE_WIDGETS - state.widgets.length),
       widgetPluginIds = new Set(enabledPluginDescriptors().map((plugin) => plugin.id));
     const acceptedTools = ["write_text", "draw_formula", "plot_function", "draw", "erase"];
+    if (window.PENECHO_CONFIG?.tenetMode) acceptedTools.push("draw_image");
     if (widgetPluginIds.size) acceptedTools.push("html_widget");
     if (widgetPluginIds.has("flowchart")) acceptedTools.push("diagram_source");
     const validated = cmds
@@ -15077,6 +15159,10 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
           }
           c.color = aiColor;
           plotPixels += c.w * c.h;
+        }
+        if (c.tool === "draw_image") {
+          if (![c.x,c.y,c.w,c.h].every(Number.isFinite) || c.x < 0 || c.y < 0 || c.w < 80 || c.h < 80 || c.w > 6000 || c.h > 6000 || c.x+c.w > SIZE || c.y+c.h > SIZE || Math.max(c.w/c.h,c.h/c.w) > 8) return null;
+          try { tenetIllustrationBytes(c); } catch { return null; }
         }
         if (c.tool === "draw") {
           const normalized = DRAW?.normalize(c, SIZE);
@@ -15212,6 +15298,10 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
           const preparedPlot = await plotObjectImage(c);
           image = preparedPlot.image;
           plotBlob = preparedPlot.blob;
+        } else if (c.tool === "draw_image") {
+          const prepared = await tenetIllustrationImage(c);
+          image = prepared.image;
+          plotBlob = prepared.blob;
         } else if (c.tool === "animate_scene") {
           pendingCommand = ANIMATION.normalize(c, SIZE);
           image = pendingCommand ? ANIMATION.rasterize(pendingCommand, offscreen, 0, Math.min(2, sharpRenderRatio())) : null;
@@ -15256,6 +15346,11 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       const preparedPlot = await plotObjectImage(c);
       image = preparedPlot.image;
       plotBlob = preparedPlot.blob;
+    }
+    else if (c.tool === "draw_image") {
+      const prepared = await tenetIllustrationImage(c);
+      image = prepared.image;
+      plotBlob = prepared.blob;
     }
     else if (c.tool === "animate_scene") {
       pendingCommand = ANIMATION.normalize(c, SIZE);
@@ -16066,7 +16161,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       const box = draftBounds(p);
       addAnimation(p.animationScene, box, p.animationPlayback);
     }
-    else if (p.command?.tool === "plot_function") addPendingPlotImage(p, draftBounds(p));
+    else if (["plot_function", "draw_image"].includes(p.command?.tool)) addPendingPlotImage(p, draftBounds(p));
     else if (p.textCommand) {
       const box = draftBounds(p);
       blitClipped(p.image, p.x, p.y, (p.image.logicalWidth || p.image.width) * p.scaleX, (p.image.logicalHeight || p.image.height) * p.scaleY, box.w, box.h);
@@ -16341,7 +16436,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   }
   function addPendingPlotImage(item, box = pendingItemBounds(item)) {
     const expression = typeof item?.command?.expression === "string" ? item.command.expression.trim() : "";
-    if (!expression || !(item.plotBlob instanceof Blob) || state.images.length >= MAX_VISIBLE_IMAGES) throw Error("Plot object could not be committed");
+    if ((!expression && item.command?.tool !== "draw_image") || !(item.plotBlob instanceof Blob) || state.images.length >= MAX_VISIBLE_IMAGES) throw Error("Image object could not be committed");
     recordImagesBefore();
     const record = imageRecord({
       image:item.image,
@@ -16353,9 +16448,9 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       naturalW:item.image.width,
       naturalH:item.image.height,
       sourceName:"",
-      plotExpression:expression,
+      ...(expression ? { plotExpression:expression } : {}),
     });
-    if (!record) throw Error("Plot object could not be committed");
+    if (!record) throw Error("Image object could not be committed");
     state.images.push(record);
     return record;
   }
@@ -16364,7 +16459,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     if (item.erase) eraseWithMask(item.image, box.x, box.y, box.w, box.h);
     else if (item.textCommand) blitClipped(item.image, item.x, item.y, (item.image.logicalWidth || item.image.width) * item.scaleX, (item.image.logicalHeight || item.image.height) * item.scaleY, box.w, box.h);
     else if (item.animationScene) addAnimation(item.animationScene, box, item.animationPlayback);
-    else if (item.command?.tool === "plot_function") addPendingPlotImage(item, box);
+    else if (["plot_function", "draw_image"].includes(item.command?.tool)) addPendingPlotImage(item, box);
     else blitSized(item.image, box.x, box.y, (item.image.logicalWidth || item.image.width) * item.scaleX, (item.image.logicalHeight || item.image.height) * item.scaleY);
   }
   function armPendingCopy(e, hit, itemIndex = null) {
@@ -25183,6 +25278,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     installNotebook();
   }
 })();
+var tenetCanvasAI = null;
 (function initializeTenetSelectionToolsModule() {
   if (typeof PENECHO_CONFIG === "undefined" || !PENECHO_CONFIG.tenetMode) return;
 
@@ -25212,6 +25308,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   }
 
   function mount() {
+    mountCircleHelp();
     const toolbar = document.getElementById("selectionToolbar");
     if (!toolbar || toolbar.querySelector("[data-tenet-selection-tools]")) return;
     addStylesheet();
@@ -25292,6 +25389,225 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
 
     const deleteButton = document.getElementById("selectionDeleteBtn");
     if (deleteButton) deleteButton.textContent = "Erase selection";
+  }
+
+  function mountCircleHelp() {
+    const boardToolbar = document.querySelector('[data-tenet-ink-toolbar], .toolbar');
+    if (!boardToolbar || tenetCanvasAI) return;
+    addStylesheet();
+    const lifetime = new AbortController(), signal = lifetime.signal;
+    const entry = document.createElement("div");
+    entry.className = "tenet-ai-entry";
+    const circle = makeButton("Circle for AI", "tenet-selection-button tenet-selection-ai-button");
+    circle.setAttribute("aria-pressed", "false");
+    const scope = document.createElement("select");
+    scope.className = "tenet-ai-scope";
+    scope.setAttribute("aria-label", "Quick AI context");
+    for (const [value, label] of [["recent", "Recent writing"], ["page", "Visible page"]]) {
+      const option = document.createElement("option");
+      option.value = value; option.textContent = label; scope.append(option);
+    }
+    scope.title = "Choose what the Quick Ask button sends. Circle for AI selects an exact area.";
+    entry.append(circle, scope);
+    boardToolbar.prepend(entry);
+
+    const surface = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    surface.classList.add("tenet-ai-circle-surface");
+    surface.setAttribute("aria-label", "Circle the part of the page you want help with");
+    surface.setAttribute("role", "img");
+    surface.setAttribute("hidden", "");
+    const polygon = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+    surface.append(polygon);
+    const controls = document.createElement("div");
+    controls.className = "tenet-ai-region-controls";
+    controls.hidden = true;
+    controls.setAttribute("role", "region");
+    controls.setAttribute("aria-label", "Help with the circled area");
+    const notice = document.createElement("span");
+    notice.setAttribute("role", "status");
+    const help = makeButton("Quick help", "tenet-selection-button tenet-selection-ai-button");
+    const question = makeButton("Ask a question", "tenet-selection-button");
+    const redraw = makeButton("Circle again", "tenet-selection-button");
+    const cancel = makeButton("Cancel", "tenet-selection-button");
+    controls.append(notice, help, question, redraw, cancel);
+    view.append(surface, controls);
+
+    const dialog = document.createElement("dialog");
+    dialog.className = "tenet-ai-question";
+    dialog.setAttribute("aria-labelledby", "tenetAiQuestionTitle");
+    const form = document.createElement("form");
+    const title = document.createElement("h2");
+    title.id = "tenetAiQuestionTitle"; title.textContent = "Ask about your selection";
+    const caption = document.createElement("p");
+    caption.textContent = "Only the circled pixels and this question go to your district Gateway. The rest of the page is not included.";
+    const preview = document.createElement("img");
+    preview.alt = "Selected area that will be sent to Tenet";
+    const label = document.createElement("label");
+    label.textContent = "Your question";
+    const input = document.createElement("textarea");
+    input.rows = 3; input.maxLength = 1000; input.required = true;
+    input.placeholder = "For example: Why is this step incorrect?";
+    label.append(input);
+    const actions = document.createElement("div");
+    const submit = makeButton("Ask Tenet", "tenet-selection-button tenet-selection-ai-button");
+    submit.type = "submit";
+    const back = makeButton("Back", "tenet-selection-button");
+    actions.append(back, submit); form.append(title, caption, preview, label, actions);
+    dialog.append(form); document.body.append(dialog);
+
+    let region = null, pendingStart = 0, pointer = null, drawing = false, preparing = false;
+    function paint() {
+      if (!region) return;
+      const rect = view.getBoundingClientRect();
+      const metrics = canvasViewportMetrics(), factor = rect.width / Math.max(1, metrics.width);
+      surface.setAttribute("viewBox", `0 0 ${rect.width} ${rect.height}`);
+      polygon.setAttribute("points", region.points.map(p => `${(p.x*state.scale+state.panX)*factor},${(p.y*state.scale+state.panY)*factor}`).join(" "));
+      help.disabled = question.disabled = drawing || !tenetRegionGeometry(region.points) || preparing;
+    }
+    function close() {
+      pendingStart++;
+      if (dialog.open) dialog.close();
+      if (pointer !== null && surface.hasPointerCapture?.(pointer)) surface.releasePointerCapture(pointer);
+      pointer = null; drawing = false;
+      const reason = region?.reason;
+      region = null;
+      surface.setAttribute("hidden", "");
+      controls.hidden = true;
+      circle.setAttribute("aria-pressed", "false");
+      preview.removeAttribute("src"); input.value = "";
+      if (reason) tenetInkController?.resume(reason);
+    }
+    function unchanged(value) {
+      return region === value && value.revision === state.userRevision && value.generation === state.recognitionGeneration;
+    }
+    async function start() {
+      if (region) { close(); return; }
+      if (state.busy || state.pending || state.drawing || tenetInkController?.active()) {
+        tenetInkMessage("Finish the current stroke or AI draft, then circle an area."); return;
+      }
+      const token = ++pendingStart, reason = `ai-circle-${token}`;
+      preparing = true; circle.disabled = true;
+      try {
+        clearTimeout(state.timer); state.timer = 0;
+        if (state.selection) commitSelection();
+        await tenetInkController?.suspend(reason);
+        await tenetInkFlush();
+        if (token !== pendingStart) { tenetInkController?.resume(reason); return; }
+        document.activeElement?.blur?.();
+        region = { reason, points:[], revision:state.userRevision, generation:state.recognitionGeneration };
+        surface.removeAttribute("hidden");
+        controls.hidden = false;
+        circle.setAttribute("aria-pressed", "true");
+        notice.textContent = "Circle an area with your Pencil, finger, stylus, or mouse. Your ink will not move.";
+      } catch (error) { tenetInkController?.resume(reason); tenetInkMessage(error.message); }
+      finally { preparing = false; circle.disabled = false; paint(); }
+    }
+    function addPoint(event) {
+      const point = SELECT.clipPoint(clientPoint(event), SIZE), last = region.points.at(-1);
+      if (last && Math.hypot(point.x-last.x, point.y-last.y)*state.scale < 1) return;
+      if (region.points.length >= 256) region.points = region.points.filter((_, i) => i%2 === 0);
+      region.points.push({ x:point.x, y:point.y });
+    }
+    async function capture(value, text = "") {
+      if (!value || !unchanged(value)) throw Error("The page changed. Cancel and circle the work again.");
+      const bounds = tenetRegionGeometry(value.points);
+      if (!bounds) throw Error("Circle an area of the page first.");
+      await prepareVisibleWidgetSnapshots(bounds);
+      if (!unchanged(value)) throw Error("The page changed. Circle the work again.");
+      return buildTenetRegionImage(value.points, text);
+    }
+    async function ask(action = "hint", text = "") {
+      if (preparing || drawing) return;
+      preparing = true; paint();
+      const value = region;
+      try {
+        const packed = await capture(value, text);
+        const options = { isolatedSelection:true, expectedRevision:value.revision, expectedGeneration:value.generation };
+        close();
+        supersedeActiveAI("tenet-circled-area");
+        await requestAI(action === "auto" ? "hint" : action, packed, options);
+      } catch (error) { tenetInkMessage(error.message); }
+      finally { preparing = false; paint(); }
+    }
+    async function quick(action) {
+      if (preparing) return;
+      if (scope.value === "page") { await requestAI(action, null, { captureCurrentViewport:true }); return; }
+      preparing = true;
+      try {
+        await tenetInkFlush();
+        const visible = viewportRect(), recent = state.dirty || state.lastUserBox;
+        const bounds = recent && visible ? intersection(recent, visible) : null;
+        if (!bounds) throw Error("Write something new, circle an area, or choose Visible page for Quick Ask.");
+        const { x,y,w,h } = bounds, revision = state.userRevision, generation = state.recognitionGeneration;
+        await prepareVisibleWidgetSnapshots(bounds);
+        if (revision !== state.userRevision || generation !== state.recognitionGeneration) throw Error("The page changed. Try Quick Ask again.");
+        const packed = buildTenetRegionImage([{x,y},{x:x+w,y},{x:x+w,y:y+h},{x,y:y+h}]);
+        await requestAI(action, packed, { expectedRevision:revision, expectedGeneration:generation });
+      } catch (error) { tenetInkMessage(error.message); }
+      finally { preparing = false; }
+    }
+    circle.addEventListener("click", () => { void start(); }, { signal });
+    cancel.addEventListener("click", close, { signal });
+    redraw.addEventListener("click", () => {
+      if (region && !preparing) { region.points = []; notice.textContent = "Circle a new area."; paint(); }
+    }, { signal });
+    help.addEventListener("click", () => { void ask("hint"); }, { signal });
+    question.addEventListener("click", () => {
+      if (!region || preparing) return;
+      // Open synchronously from the gesture so iPad can present its keyboard.
+      dialog.showModal(); input.focus(); preparing = true; submit.disabled = true; paint();
+      const value = region;
+      void capture(value).then(packed => { if (dialog.open && unchanged(value)) preview.src = packed.atlasImage; })
+        .catch(error => { if (dialog.open) dialog.close(); tenetInkMessage(error.message); })
+        .finally(() => { preparing = false; submit.disabled = false; paint(); });
+    }, { signal });
+    back.addEventListener("click", () => dialog.close(), { signal });
+    form.addEventListener("submit", event => {
+      event.preventDefault();
+      if (!input.value.trim()) { input.focus(); return; }
+      void ask("answer", input.value.trim());
+    }, { signal });
+    surface.addEventListener("pointerdown", event => {
+      event.preventDefault(); event.stopPropagation();
+      if (!region || preparing || event.button > 0 || pointer !== null) return;
+      pointer = event.pointerId; drawing = true; region.points = [];
+      surface.setPointerCapture(pointer); addPoint(event); paint();
+    }, { signal });
+    surface.addEventListener("pointermove", event => {
+      event.preventDefault(); event.stopPropagation();
+      if (!drawing || event.pointerId !== pointer || !region) return;
+      const samples = event.getCoalescedEvents?.() || [];
+      for (const sample of samples.length ? samples : [event]) addPoint(sample);
+      paint();
+    }, { signal });
+    function finish(event) {
+      event.preventDefault(); event.stopPropagation();
+      if (event.pointerId !== pointer || !region) return;
+      if (event.type === "pointercancel") region.points = [];
+      else addPoint(event);
+      if (surface.hasPointerCapture?.(pointer)) surface.releasePointerCapture(pointer);
+      pointer = null; drawing = false;
+      const bounds = tenetRegionGeometry(region.points);
+      if (!bounds || bounds.w*state.scale < 8 || bounds.h*state.scale < 8) region.points = [];
+      notice.textContent = region.points.length ? "Only the circled area will be sent. Choose Quick help or ask your own question." : "Circle a larger area to select it.";
+      paint();
+    }
+    surface.addEventListener("pointerup", finish, { signal });
+    surface.addEventListener("pointercancel", finish, { signal });
+    document.addEventListener("pointerdown", event => {
+      if (!region || view.contains(event.target) || entry.contains(event.target) || dialog.contains(event.target)) return;
+      close();
+    }, { capture:true, signal });
+    document.addEventListener("keydown", event => {
+      if (event.key === "Escape" && region && !dialog.open) { close(); event.preventDefault(); }
+    }, { signal });
+    window.addEventListener("resize", paint, { signal });
+    window.visualViewport?.addEventListener("resize", paint, { signal });
+    window.addEventListener("pagehide", event => {
+      close();
+      if (!event.persisted) lifetime.abort();
+    }, { signal });
+    tenetCanvasAI = { selectionActive:() => Boolean(region), ask, quick, close };
   }
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", mount, { once: true });
@@ -25393,6 +25709,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   }
 
   function drawTenetInsertArtwork(kind, color, maxDimension = 1024) {
+    if (["ellipse","right-triangle","diamond","pentagon","hexagon","octagon","star","plus","heart","trapezoid","parallelogram","double-arrow","arc","bracket","cube","cuboid","cylinder","cone","sphere","pyramid","triangular-prism","graph-3d","graph-isometric","graph-polar","graph-numberline"].includes(kind)) return drawTenetExtraArtwork(kind, color, maxDimension);
     const graph = kind === "graph-four" || kind === "graph-first";
     const dimensions = {
       rectangle: [720, 480], square: [512, 512], circle: [512, 512],
@@ -25504,97 +25821,151 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     return canvas;
   }
 
+  function drawTenetExtraArtwork(kind, color, maxDimension = 1024) {
+    const canvas = document.createElement("canvas");
+    const ratio = Math.min(1, maxDimension / 800);
+    canvas.width = Math.round(800 * ratio); canvas.height = Math.round(600 * ratio);
+    const q = canvas.getContext("2d");
+    q.scale(canvas.width / 800, canvas.height / 600);
+    q.strokeStyle = color; q.fillStyle = color; q.lineWidth = 7;
+    q.lineCap = "round"; q.lineJoin = "round";
+    const path = (points, closed = false) => {
+      q.beginPath(); points.forEach(([x,y],i) => i ? q.lineTo(x,y) : q.moveTo(x,y));
+      if (closed) q.closePath(); q.stroke();
+    };
+    const ellipse = (x,y,rx,ry) => { q.beginPath(); q.ellipse(x,y,rx,ry,0,0,Math.PI*2); q.stroke(); };
+    if (kind.startsWith("graph-")) {
+      q.fillStyle="#fff"; q.fillRect(0,0,800,600); q.fillStyle=color;
+      q.font='24px "Avenir Next", "Trebuchet MS", sans-serif';
+      q.textAlign="center"; q.textBaseline="middle";
+      if (kind === "graph-polar") {
+        q.lineWidth=2; q.strokeStyle="#dce3e9";
+        for(let r=40;r<=240;r+=40) ellipse(400,300,r,r);
+        for(let i=0;i<12;i++) { const a=i*Math.PI/6; path([[400,300],[400+240*Math.cos(a),300+240*Math.sin(a)]]); }
+        q.strokeStyle=color; q.lineWidth=4; path([[120,300],[680,300]]); path([[400,30],[400,570]]);
+        for(const [text,x,y] of [["0",700,300],["90",400,20],["180",95,300],["270",400,585]]) q.fillText(text,x,y);
+      } else if (kind === "graph-numberline") {
+        path([[65,300],[735,300]]); path([[85,285],[65,300],[85,315]]); path([[715,285],[735,300],[715,315]]);
+        for(let i=-5;i<=5;i++) { const x=400+i*55; path([[x,288],[x,312]]); q.fillText(String(i),x,344); }
+      } else {
+        q.lineWidth=2; q.strokeStyle="#dce3e9";
+        for(let i=-5;i<=5;i++) {
+          const s=i*30;
+          path([[400+s-180,330+s*0.5+90],[400+s+180,330+s*0.5-90]]);
+          path([[400+s-180,330-s*0.5-90],[400+s+180,330-s*0.5+90]]);
+          if(kind === "graph-isometric") path([[400+s*2,95],[400+s*2,535]]);
+        }
+        q.strokeStyle=color; q.lineWidth=5;
+        path([[400,330],[675,465]]); path([[400,330],[125,465]]); path([[400,330],[400,70]]);
+        path([[649,462],[675,465],[659,444]]); path([[141,444],[125,465],[151,462]]); path([[386,92],[400,70],[414,92]]);
+        q.fillText("x",705,480); q.fillText("y",95,480); q.fillText("z",400,40); q.fillText("0",426,316);
+      }
+      return canvas;
+    }
+    const polygonSides={diamond:4,pentagon:5,hexagon:6,octagon:8};
+    if (polygonSides[kind] || kind === "star") {
+      const sides=polygonSides[kind] || 10;
+      path(Array.from({length:sides},(_,i)=>{const a=-Math.PI/2+i*Math.PI*2/sides; const r=kind === "star" && i%2 ? 95 : 220; return [400+Math.cos(a)*r,300+Math.sin(a)*r];}),true);
+    } else if(kind === "ellipse") ellipse(400,300,290,190);
+    else if(kind === "right-triangle") path([[180,80],[180,510],[650,510]],true);
+    else if(kind === "trapezoid") path([[255,110],[545,110],[690,490],[110,490]],true);
+    else if(kind === "parallelogram") path([[280,110],[690,110],[520,490],[110,490]],true);
+    else if(kind === "plus") path([[340,80],[460,80],[460,240],[650,240],[650,360],[460,360],[460,520],[340,520],[340,360],[150,360],[150,240],[340,240]],true);
+    else if(kind === "double-arrow") path([[80,300],[250,150],[250,245],[550,245],[550,150],[720,300],[550,450],[550,355],[250,355],[250,450]],true);
+    else if(kind === "heart") { q.beginPath(); q.moveTo(400,500); q.bezierCurveTo(50,270,180,20,400,190); q.bezierCurveTo(620,20,750,270,400,500); q.stroke(); }
+    else if(kind === "arc") { q.beginPath(); q.ellipse(400,380,270,240,0,Math.PI,2*Math.PI); q.stroke(); }
+    else if(kind === "bracket") path([[515,90],[285,90],[285,510],[515,510]]);
+    else if(kind === "cube" || kind === "cuboid") {
+      const right=kind === "cube" ? 490 : 610;
+      path([[160,200],[right,200],[right,500],[160,500]],true);
+      path([[160,200],[280,100],[right+120,100],[right,200]]);
+      path([[right+120,100],[right+120,400],[right,500]]);
+      q.setLineDash([12,10]); path([[280,100],[280,400],[160,500]]); path([[280,400],[right+120,400]]);
+    } else if(kind === "cylinder") {
+      ellipse(400,140,220,70); path([[180,140],[180,450]]); path([[620,140],[620,450]]); ellipse(400,450,220,70);
+    } else if(kind === "cone") {
+      path([[170,450],[400,75],[630,450]]); ellipse(400,450,230,70);
+    } else if(kind === "sphere") {
+      ellipse(400,300,230,230); q.lineWidth=3; ellipse(400,300,95,230); ellipse(400,300,230,70);
+    } else if(kind === "pyramid") {
+      path([[400,65],[120,420],[390,535],[680,420],[400,65],[390,535]]);
+      q.setLineDash([12,10]); path([[120,420],[410,325],[680,420]]); path([[410,325],[400,65]]);
+    } else if(kind === "triangular-prism") {
+      path([[120,480],[310,110],[480,480]],true); path([[310,110],[510,65],[690,415],[480,480]]);
+      q.setLineDash([12,10]); path([[120,480],[330,415],[690,415]]); path([[330,415],[510,65]]);
+    } else throw new Error("Unknown shape.");
+    return canvas;
+  }
+
   function installShapeTools() {
     const toolbar = document.querySelector("[data-tenet-ink-toolbar]");
     if (!toolbar || document.getElementById("tenetInsertBtn")) return;
     const trigger = document.createElement("button");
-    trigger.type = "button";
-    trigger.id = "tenetInsertBtn";
-    trigger.className = "tenet-tool-trigger";
-    trigger.textContent = "+ Insert";
-    trigger.title = "Insert shapes and coordinate graphs";
+    trigger.type="button"; trigger.id="tenetInsertBtn"; trigger.className="tenet-tool-trigger";
+    trigger.textContent="+ Insert"; trigger.title="Insert shapes and graphs";
     toolbar.prepend(trigger);
-    const tools = createTenetToolDialog("tenetInsertDialog", "Shapes & graphs",
-      "Made on this device. Insert, move and resize with Hand, then choose Pen to write on top.", trigger);
-    const colorLabel = document.createElement("label");
-    colorLabel.className = "tenet-tool-color";
-    colorLabel.textContent = "Outline / axes color";
-    const color = document.createElement("input");
-    color.type = "color";
-    color.value = /^#[0-9a-f]{6}$/i.test(state.inkColor) ? state.inkColor : "#10243e";
-    colorLabel.append(color);
-    tools.body.append(colorLabel);
-    const options = [
-      ["rectangle", "Rectangle"], ["square", "Square"], ["circle", "Circle"],
-      ["triangle", "Triangle"], ["line", "Line"], ["arrow", "Arrow"],
-      ["graph-four", "Four quadrants", "-5 to 5 on both axes"],
-      ["graph-first", "First quadrant", "0 to 10 on both axes"],
+    const tools=createTenetToolDialog("tenetInsertDialog","Insert","Choose a shape. Use Hand to move or resize it.",trigger);
+    const search=document.createElement("input"); search.type="search"; search.placeholder="Search shapes and graphs";
+    search.setAttribute("aria-label","Find a shape"); search.className="tenet-shape-search";
+    const colorLabel=document.createElement("label"); colorLabel.className="tenet-tool-color"; colorLabel.textContent="Color";
+    const color=document.createElement("input"); color.type="color"; color.value=/^#[0-9a-f]{6}$/i.test(state.inkColor) ? state.inkColor : "#10243e";
+    colorLabel.append(color); tools.body.append(search,colorLabel);
+    const groups=[
+      ["Basic shapes",[["rectangle","Rectangle"],["square","Square"],["circle","Circle"],["ellipse","Ellipse"],["triangle","Triangle"],["right-triangle","Right triangle"],["line","Line"],["arrow","Arrow"],["double-arrow","Double arrow"]]],
+      ["2D graphs",[["graph-four","Four quadrants"],["graph-first","First quadrant"],["graph-numberline","Number line"],["graph-polar","Polar grid"]]],
+      ["3D & geometry",[["graph-3d","3D axes"],["graph-isometric","Isometric grid"],["cube","Cube"],["cuboid","Cuboid"],["cylinder","Cylinder"],["cone","Cone"],["sphere","Sphere"],["pyramid","Pyramid"],["triangular-prism","Triangular prism"]]],
+      ["More shapes",[["diamond","Diamond"],["pentagon","Pentagon"],["hexagon","Hexagon"],["octagon","Octagon"],["star","Star"],["plus","Plus"],["heart","Heart"],["trapezoid","Trapezoid"],["parallelogram","Parallelogram"],["arc","Arc"],["bracket","Bracket"]]],
     ];
-    const errorMessage = document.createElement("p");
-    errorMessage.className = "tenet-tool-error";
-    errorMessage.setAttribute("role", "status");
-    const previews = [];
-    let inserting = false;
-    for (const [group, title] of [["shape", "Standard shapes"], ["graph", "Coordinate graphs"]]) {
-      const heading = document.createElement("h3");
-      heading.textContent = title;
-      const grid = document.createElement("div");
-      grid.className = "tenet-insert-grid" + (group === "graph" ? " tenet-insert-graphs" : "");
-      tools.body.append(heading, grid);
-      for (const [kind, label, caption] of options.filter(option => option[0].startsWith("graph-") === (group === "graph"))) {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = "tenet-insert-card";
-        button.setAttribute("aria-label", "Insert " + label.toLowerCase());
-        const preview = drawTenetInsertArtwork(kind, color.value, 220);
-        preview.setAttribute("aria-hidden", "true");
-        const name = document.createElement("strong");
-        name.textContent = label;
-        button.append(preview, name);
-        if (caption) {
-          const detail = document.createElement("small");
-          detail.textContent = caption;
-          button.append(detail);
-        }
-        grid.append(button);
-        previews.push({ button, kind });
-        button.addEventListener("click", async () => {
-          if (inserting) return;
-          inserting = true;
-          tools.setBusy(true);
-          errorMessage.textContent = "Adding " + label.toLowerCase() + "...";
-          const pageGeneration = state.snapshotLoadGeneration;
+    const entries=[], sections=[];
+    const errorMessage=document.createElement("p"); errorMessage.className="tenet-tool-error"; errorMessage.setAttribute("role","status");
+    let inserting=false;
+    for(const [title,options] of groups) {
+      const details=document.createElement("details"); details.open=sections.length===0;
+      const summary=document.createElement("summary"); summary.textContent=title;
+      const grid=document.createElement("div"); grid.className="tenet-insert-grid";
+      details.append(summary,grid); tools.body.append(details); sections.push(details);
+      for(const [kind,label] of options) {
+        const button=document.createElement("button"); button.type="button"; button.className="tenet-insert-card";
+        button.setAttribute("aria-label","Insert "+label.toLowerCase()); button.title=label;
+        const preview=drawTenetInsertArtwork(kind,color.value,120); preview.setAttribute("aria-hidden","true");
+        const name=document.createElement("span"); name.textContent=label; button.append(preview,name); grid.append(button);
+        entries.push({button,kind,label,details});
+        button.addEventListener("click",async()=>{
+          if(inserting)return; inserting=true; tools.setBusy(true); errorMessage.textContent="Adding "+label.toLowerCase()+"...";
+          const pageGeneration=state.snapshotLoadGeneration;
           try {
-            const artwork = drawTenetInsertArtwork(kind, color.value);
-            const blob = await new Promise(resolve => artwork.toBlob(resolve, "image/png"));
-            if (tools.signal.aborted) return;
-            if (!blob) throw new Error("Could not create this shape. Try again.");
-            if (pageGeneration !== state.snapshotLoadGeneration) throw new Error("The page changed. Reopen Insert on the page you want.");
-            const file = new File([blob], "Tenet " + label + ".png", { type: "image/png" });
-            const item = await addImageFile(file);
-            if (tools.signal.aborted) return;
-            if (!item) throw new Error("Could not add this object. Finish any active image or AI operation and try again.");
-            tools.setBusy(false);
-            tools.close();
-            showTenetMessage(label + " added. Use its handles to resize, or choose Pen to write.");
-          } catch (error) {
-            errorMessage.textContent = error?.message || "Could not insert this object.";
-          } finally {
-            inserting = false;
-            tools.setBusy(false);
-          }
-        }, { signal: tools.signal });
+            const artwork=drawTenetInsertArtwork(kind,color.value);
+            const blob=await new Promise(resolve=>artwork.toBlob(resolve,"image/png"));
+            if(tools.signal.aborted)return;
+            if(!blob)throw new Error("Could not create this shape.");
+            if(pageGeneration !== state.snapshotLoadGeneration)throw new Error("The page changed. Reopen Insert on the correct page.");
+            const file=new File([blob],"Tenet "+label+".png",{type:"image/png"});
+            const item=await addImageFile(file);
+            if(tools.signal.aborted)return;
+            if(!item)throw new Error("Finish the active image or AI operation and try again.");
+            tools.setBusy(false); tools.close(); showTenetMessage(label+" added. Use Hand and the resize handles, or Pen to write.");
+          } catch(error) { errorMessage.textContent=error?.message || "Could not insert this shape."; }
+          finally { inserting=false; tools.setBusy(false); }
+        },{signal:tools.signal});
       }
     }
     tools.body.append(errorMessage);
-    color.addEventListener("input", () => {
-      for (const { button, kind } of previews) {
-        const preview = drawTenetInsertArtwork(kind, color.value, 220);
-        preview.setAttribute("aria-hidden", "true");
-        button.firstElementChild.replaceWith(preview);
-      }
-    }, { signal: tools.signal });
-    tools.beforeOpen = () => { errorMessage.textContent = ""; };
+    color.addEventListener("input",()=>{
+      for(const {button,kind} of entries) { const preview=drawTenetInsertArtwork(kind,color.value,120); preview.setAttribute("aria-hidden","true"); button.firstElementChild.replaceWith(preview); }
+    },{signal:tools.signal});
+    search.addEventListener("input",()=>{
+      const term=search.value.trim().toLowerCase();
+      for(const entry of entries) entry.button.hidden=!entry.label.toLowerCase().includes(term);
+      for(const section of sections) { section.hidden=!entries.some(entry=>entry.details===section&&!entry.button.hidden); if(term)section.open=true; }
+    },{signal:tools.signal});
+    tools.beforeOpen=()=>{
+      errorMessage.textContent="";
+      const rect=trigger.getBoundingClientRect(), scale=rect.width/Math.max(1,trigger.offsetWidth);
+      const css=runtimeElementStyle(tools.dialog,"tenet-insert-anchor");
+      const left=Math.max(8,Math.min(rect.left,window.innerWidth-336*scale));
+      css?.setProperty("--tenet-insert-left",left/scale+"px");
+      css?.setProperty("--tenet-insert-top",Math.max(8,Math.min(rect.bottom+8,window.innerHeight-240*scale))/scale+"px");
+    };
   }
 
   function installDrawingTools() {
@@ -25623,8 +25994,10 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     trigger.id = "tenetDrawingOptionsBtn";
     trigger.className = "tenet-tool-trigger";
     trigger.title = "Line thickness and finger / stylus drawing";
-    (document.getElementById("penSizeValue") || penSize).after(trigger);
-    const tools = createTenetToolDialog("tenetDrawingDialog", "Drawing tools",
+    const toolbar = document.querySelector("[data-tenet-ink-toolbar]");
+    if (toolbar) toolbar.prepend(trigger);
+    else (document.getElementById("penSizeValue") || penSize).after(trigger);
+    const tools = createTenetToolDialog("tenetDrawingDialog", "Line thickness & input",
       "Choose a line thickness and how you draw. Thickness changes apply to new strokes, not existing work.", trigger);
     const label = document.createElement("label");
     label.className = "tenet-drawing-width-label";
@@ -25646,7 +26019,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       // Reuse the canvas width clamp, label update and native synchronization.
       penSize.dispatchEvent(new Event("input", { bubbles: true }));
     };
-    for (const [width, name] of [[2, "Fine"], [4, "Regular"], [8, "Bold"], [12, "Heavy"]]) {
+    for (const [width, name] of [[3, "Thin"], [5, "Medium"], [8, "Thick"]]) {
       if (width < Number(slider.min) || width > Number(slider.max)) continue;
       const button = document.createElement("button");
       button.type = "button";
@@ -25673,13 +26046,37 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     const note = document.createElement("p");
     note.className = "tenet-tool-description";
     note.setAttribute("role", "status");
-    tools.body.append(label, slider, presets, modeLabel, mode, note);
+    const preview = document.createElement("canvas");
+    preview.className = "tenet-width-preview";
+    preview.width = 840;
+    preview.height = 160;
+    preview.setAttribute("role", "img");
+    preview.setAttribute("aria-label", "Preview of new strokes at the selected thickness");
+    tools.body.append(label, slider, presets, preview, modeLabel, mode, note);
     const touchAllowed = () => deviceAllowsFinger()
       && !(window.TenetInk?.getStatus?.().engine === "pencilkit" && window.TenetInk?.fingerDrawingAllowed?.() === false);
     const updateWidth = () => {
       slider.value = penSize.value;
       value.textContent = penSize.value + " px";
-      trigger.textContent = "Pen: " + penSize.value + " px";
+      const nativeInk = window.TenetInk?.getStatus?.().engine === "pencilkit";
+      document.body.classList.toggle("tenet-using-pencilkit", nativeInk);
+      trigger.textContent = (nativeInk ? "Pencil thickness: " : "Line thickness: ") + penSize.value + " px";
+      trigger.setAttribute("aria-label", trigger.textContent);
+      const context = preview.getContext("2d");
+      if (context) {
+        context.clearRect(0, 0, preview.width, preview.height);
+        context.save();
+        context.scale(2, 2);
+        context.strokeStyle = /^#[0-9a-f]{6}$/i.test(state.inkColor) ? state.inkColor : "#10243e";
+        context.lineWidth = Number(penSize.value);
+        context.lineCap = "round";
+        context.beginPath();
+        context.moveTo(24, 46);
+        context.bezierCurveTo(100, 8, 130, 70, 210, 40);
+        context.bezierCurveTo(290, 10, 315, 70, 396, 32);
+        context.stroke();
+        context.restore();
+      }
       penSize.setAttribute("aria-valuetext", penSize.value + " pixels");
       presets.querySelectorAll("button").forEach(button => {
         button.setAttribute("aria-pressed", String(Number(button.dataset.width) === Number(penSize.value)));
@@ -25697,6 +26094,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     };
     slider.addEventListener("input", () => setWidth(slider.value), { signal: tools.signal });
     penSize.addEventListener("input", updateWidth, { signal: tools.signal });
+    window.addEventListener("tenet:ink-status", updateWidth, { signal: tools.signal });
     mode.addEventListener("change", () => {
       if (!touchAllowed()) { updateMode(); return; }
       inputMode = mode.value === "pencil" ? "pencil" : "touch";
@@ -26098,6 +26496,171 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     installNativeActions();
   });
 })();
+// Inside the existing canvas closure. Reuse edit/history transactions rather
+// than creating a second object model or changing the native ink archive.
+var tenetResizeUi = null;
+
+function tenetResizeBox(start, point, edge, minimum = 80, limit = 20000) {
+  const west = edge.includes("w"), east = edge.includes("e");
+  const north = edge.includes("n"), south = edge.includes("s");
+  const horizontal = west || east, vertical = north || south;
+  const anchorX = west ? start.x + start.w : start.x;
+  const anchorY = north ? start.y + start.h : start.y;
+  const maxW = west ? anchorX : limit - anchorX;
+  const maxH = north ? anchorY : limit - anchorY;
+  let w = horizontal ? (west ? anchorX - point.x : point.x - anchorX) : start.w;
+  let h = vertical ? (north ? anchorY - point.y : point.y - anchorY) : start.h;
+  if (horizontal && vertical) {
+    const low = Math.max(minimum / start.w, minimum / start.h);
+    const high = Math.min(maxW / start.w, maxH / start.h);
+    const ratio = Math.min(high, Math.max(low, Math.max(w / start.w, h / start.h)));
+    w = start.w * ratio;
+    h = start.h * ratio;
+  } else {
+    if (horizontal) w = Math.min(maxW, Math.max(minimum, w));
+    if (vertical) h = Math.min(maxH, Math.max(minimum, h));
+  }
+  return { ...start, x:west ? anchorX - w : start.x, y:north ? anchorY - h : start.y, w, h };
+}
+
+function tenetResizeTargets() {
+  if (state.mode !== "hand" || state.viewMode || snapshotLoadInProgress) return [];
+  const targets = [];
+  if (state.pending) {
+    const pending = state.pending;
+    const index = pending.items ? Math.max(0, Math.min(pending.items.length - 1, pending.selectedIndex || 0)) : null;
+    const item = index === null ? pending : pending.items[index];
+    if (item && !item.erase) targets.push({ key:"draft:" + (index ?? "single"), kind:"pending", item, index,
+      box:index === null ? draftBounds(pending) : pendingItemBounds(item), minimum:["plot_function", "draw_image"].includes(item.command?.tool) ? 80 : 40 });
+  }
+  const record = typeof handToolbarRecord === "function" ? handToolbarRecord() : null;
+  const activeObject = record && !record.hiding ? handToolbarObject(record) : null;
+  const image = (record?.kind === "image" ? activeObject : null) || (state.imageEdit ? selectedImage() : null);
+  if (image) targets.push({ key:"image:" + image.id, kind:"image", item:image, box:imageBox(image), minimum:80 });
+  const widget = state.pendingWidget || (record?.kind === "widget" ? activeObject : null) || (state.widgetEdit ? selectedWidget() : null);
+  if (widget) targets.push({ key:"widget:" + widget.id, kind:"widget", item:widget, pending:widget === state.pendingWidget, box:widgetLayout(widget), minimum:300 });
+  return targets;
+}
+
+function tenetBeginResize(event, descriptor, edge) {
+  if (state.mode !== "hand" || state.viewMode || snapshotLoadInProgress || tenetResizeUi?.gesture) return null;
+  const point = clientPoint(event);
+  if (descriptor.kind === "image") beginImageGesture(event, point, { image:descriptor.item, hit:"move" });
+  else if (descriptor.kind === "widget") beginWidgetGesture(event, point, { widget:descriptor.item, hit:"move", pending:descriptor.pending });
+  else beginPendingGesture(event, "move", descriptor.index);
+  const item = descriptor.item;
+  const gesture = { id:event.pointerId, descriptor, edge, point, start:{...descriptor.box},
+    scaleX:item.scaleX || 1, scaleY:item.scaleY || 1,
+    contentW:item.contentW, contentH:item.contentH, generation:state.snapshotLoadGeneration };
+  tenetResizeUi.gesture = gesture;
+  if (state.handToolbarActiveKey) beginHandToolbarOperation(event.pointerId, state.handToolbarActiveKey);
+  return gesture;
+}
+
+function tenetApplyResize(gesture, point, cancel = false) {
+  const { descriptor, start, edge } = gesture;
+  if (gesture.generation !== state.snapshotLoadGeneration || state.mode !== "hand") return;
+  if (!tenetResizeTargets().some(target => target.item === descriptor.item)) return;
+  const edgeX = edge.includes("w") ? start.x : start.x + start.w;
+  const edgeY = edge.includes("n") ? start.y : start.y + start.h;
+  const box = cancel ? start : tenetResizeBox(start, { x:edgeX + point.x - gesture.point.x, y:edgeY + point.y - gesture.point.y }, edge, descriptor.minimum, SIZE);
+  const item = descriptor.item;
+  if (descriptor.kind === "pending") {
+    item.x = box.x; item.y = box.y;
+    item.scaleX = gesture.scaleX * box.w / start.w;
+    item.scaleY = gesture.scaleY * box.h / start.h;
+  } else {
+    Object.assign(item, box);
+    const transaction = descriptor.kind === "image" ? state.imageGesture : state.widgetGesture;
+    if (transaction) transaction.changed = ["x", "y", "w", "h"].some(key => Math.abs(item[key] - start[key]) > 0.01);
+    if (descriptor.kind === "widget") {
+      if (edge === "e" || edge === "w") item.contentW = (gesture.contentW ?? start.w) * box.w / start.w;
+      if (edge === "n" || edge === "s") item.contentH = (gesture.contentH ?? start.h) * box.h / start.h;
+      positionWidget(item);
+    }
+  }
+  requestRender();
+  requestInteractionLayerRender();
+}
+
+function tenetFinishResize(event, cancel = false) {
+  const gesture = tenetResizeUi?.gesture;
+  if (!gesture || gesture.id !== event.pointerId) return;
+  if (cancel) tenetApplyResize(gesture, gesture.point, true);
+  if (gesture.generation === state.snapshotLoadGeneration) finishObjectChromeGesture(event);
+  tenetResizeUi.gesture = null;
+  requestInteractionLayerRender();
+}
+
+function tenetSyncResizeHandles() {
+  if (window.PENECHO_CONFIG?.tenetMode !== true || !view || !document.body) return;
+  if (!tenetResizeUi) {
+    const layer = document.createElement("div");
+    layer.className = "tenet-resize-layer";
+    view.append(layer);
+    tenetResizeUi = { layer, handles:new Map(), gesture:null };
+    window.addEventListener("pagehide", event => {
+      if (tenetResizeUi?.gesture) tenetFinishResize({pointerId:tenetResizeUi.gesture.id}, true);
+      if (!event.persisted) { layer.remove(); tenetResizeUi = null; }
+    });
+  }
+  const ui = tenetResizeUi, active = new Set();
+  const labels = { nw:"top left corner", n:"top edge", ne:"top right corner", e:"right edge", se:"bottom right corner", s:"bottom edge", sw:"bottom left corner", w:"left edge" };
+  for (const descriptor of tenetResizeTargets()) {
+    const screen = screenObjectBox(descriptor.box);
+    for (const [edge, label] of Object.entries(labels)) {
+      const key = descriptor.key + ":" + edge;
+      active.add(key);
+      let button = ui.handles.get(key);
+      if (!button) {
+        button = document.createElement("button");
+        button.type = "button";
+        button.className = "tenet-resize-handle trh-" + edge;
+        button.setAttribute("aria-label", "Resize " + label);
+        button.title = "Drag " + label + (edge.length === 2 ? " to resize proportionally" : " to stretch") + ". Arrow keys also resize.";
+        button.addEventListener("pointerdown", event => {
+          if (event.button !== 0 || !button.tenetDescriptor) return;
+          event.preventDefault(); event.stopPropagation();
+          if (tenetBeginResize(event, button.tenetDescriptor, edge)) {
+            try { button.setPointerCapture(event.pointerId); } catch {}
+          }
+        });
+        button.addEventListener("pointermove", event => {
+          if (ui.gesture?.id !== event.pointerId) return;
+          event.preventDefault(); event.stopPropagation();
+          tenetApplyResize(ui.gesture, clientPoint(event));
+        });
+        const finish = event => {
+          if (ui.gesture?.id !== event.pointerId) return;
+          event.preventDefault(); event.stopPropagation();
+          tenetFinishResize(event, event.type !== "pointerup");
+        };
+        for (const name of ["pointerup", "pointercancel", "lostpointercapture"]) button.addEventListener(name, finish);
+        button.addEventListener("keydown", event => {
+          if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
+          event.preventDefault(); event.stopPropagation();
+          const rect = button.getBoundingClientRect();
+          const input = {pointerId:-1, button:0, clientX:rect.left + rect.width / 2, clientY:rect.top + rect.height / 2};
+          const gesture = tenetBeginResize(input, button.tenetDescriptor, edge);
+          if (!gesture) return;
+          const step = (event.shiftKey ? 10 : 1) / state.scale;
+          tenetApplyResize(gesture, {x:gesture.point.x + (event.key === "ArrowRight" ? step : event.key === "ArrowLeft" ? -step : 0), y:gesture.point.y + (event.key === "ArrowDown" ? step : event.key === "ArrowUp" ? -step : 0)});
+          tenetFinishResize(input);
+        });
+        ui.layer.append(button);
+        ui.handles.set(key, button);
+      }
+      button.tenetDescriptor = descriptor;
+      const x = screen.left + (edge.includes("w") ? 0 : edge.includes("e") ? screen.width : screen.width / 2);
+      const y = screen.top + (edge.includes("n") ? 0 : edge.includes("s") ? screen.height : screen.height / 2);
+      const declaration = runtimeElementStyle(button, "tenet-resize-position-" + key);
+      declaration?.setProperty("left", x + "px");
+      declaration?.setProperty("top", y + "px");
+    }
+  }
+  for (const [key, button] of ui.handles) if (!active.has(key)) { button.remove(); ui.handles.delete(key); }
+  ui.layer.hidden = !active.size;
+}
 // Pointer and control bindings, portable snapshots, and application startup.
   const ERASER_TOOL_MENU_MS = 5000;
   let eraserToolMenuTimer = 0;

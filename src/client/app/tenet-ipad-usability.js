@@ -94,6 +94,7 @@
   }
 
   function drawTenetInsertArtwork(kind, color, maxDimension = 1024) {
+    if (["ellipse","right-triangle","diamond","pentagon","hexagon","octagon","star","plus","heart","trapezoid","parallelogram","double-arrow","arc","bracket","cube","cuboid","cylinder","cone","sphere","pyramid","triangular-prism","graph-3d","graph-isometric","graph-polar","graph-numberline"].includes(kind)) return drawTenetExtraArtwork(kind, color, maxDimension);
     const graph = kind === "graph-four" || kind === "graph-first";
     const dimensions = {
       rectangle: [720, 480], square: [512, 512], circle: [512, 512],
@@ -205,97 +206,151 @@
     return canvas;
   }
 
+  function drawTenetExtraArtwork(kind, color, maxDimension = 1024) {
+    const canvas = document.createElement("canvas");
+    const ratio = Math.min(1, maxDimension / 800);
+    canvas.width = Math.round(800 * ratio); canvas.height = Math.round(600 * ratio);
+    const q = canvas.getContext("2d");
+    q.scale(canvas.width / 800, canvas.height / 600);
+    q.strokeStyle = color; q.fillStyle = color; q.lineWidth = 7;
+    q.lineCap = "round"; q.lineJoin = "round";
+    const path = (points, closed = false) => {
+      q.beginPath(); points.forEach(([x,y],i) => i ? q.lineTo(x,y) : q.moveTo(x,y));
+      if (closed) q.closePath(); q.stroke();
+    };
+    const ellipse = (x,y,rx,ry) => { q.beginPath(); q.ellipse(x,y,rx,ry,0,0,Math.PI*2); q.stroke(); };
+    if (kind.startsWith("graph-")) {
+      q.fillStyle="#fff"; q.fillRect(0,0,800,600); q.fillStyle=color;
+      q.font='24px "Avenir Next", "Trebuchet MS", sans-serif';
+      q.textAlign="center"; q.textBaseline="middle";
+      if (kind === "graph-polar") {
+        q.lineWidth=2; q.strokeStyle="#dce3e9";
+        for(let r=40;r<=240;r+=40) ellipse(400,300,r,r);
+        for(let i=0;i<12;i++) { const a=i*Math.PI/6; path([[400,300],[400+240*Math.cos(a),300+240*Math.sin(a)]]); }
+        q.strokeStyle=color; q.lineWidth=4; path([[120,300],[680,300]]); path([[400,30],[400,570]]);
+        for(const [text,x,y] of [["0",700,300],["90",400,20],["180",95,300],["270",400,585]]) q.fillText(text,x,y);
+      } else if (kind === "graph-numberline") {
+        path([[65,300],[735,300]]); path([[85,285],[65,300],[85,315]]); path([[715,285],[735,300],[715,315]]);
+        for(let i=-5;i<=5;i++) { const x=400+i*55; path([[x,288],[x,312]]); q.fillText(String(i),x,344); }
+      } else {
+        q.lineWidth=2; q.strokeStyle="#dce3e9";
+        for(let i=-5;i<=5;i++) {
+          const s=i*30;
+          path([[400+s-180,330+s*0.5+90],[400+s+180,330+s*0.5-90]]);
+          path([[400+s-180,330-s*0.5-90],[400+s+180,330-s*0.5+90]]);
+          if(kind === "graph-isometric") path([[400+s*2,95],[400+s*2,535]]);
+        }
+        q.strokeStyle=color; q.lineWidth=5;
+        path([[400,330],[675,465]]); path([[400,330],[125,465]]); path([[400,330],[400,70]]);
+        path([[649,462],[675,465],[659,444]]); path([[141,444],[125,465],[151,462]]); path([[386,92],[400,70],[414,92]]);
+        q.fillText("x",705,480); q.fillText("y",95,480); q.fillText("z",400,40); q.fillText("0",426,316);
+      }
+      return canvas;
+    }
+    const polygonSides={diamond:4,pentagon:5,hexagon:6,octagon:8};
+    if (polygonSides[kind] || kind === "star") {
+      const sides=polygonSides[kind] || 10;
+      path(Array.from({length:sides},(_,i)=>{const a=-Math.PI/2+i*Math.PI*2/sides; const r=kind === "star" && i%2 ? 95 : 220; return [400+Math.cos(a)*r,300+Math.sin(a)*r];}),true);
+    } else if(kind === "ellipse") ellipse(400,300,290,190);
+    else if(kind === "right-triangle") path([[180,80],[180,510],[650,510]],true);
+    else if(kind === "trapezoid") path([[255,110],[545,110],[690,490],[110,490]],true);
+    else if(kind === "parallelogram") path([[280,110],[690,110],[520,490],[110,490]],true);
+    else if(kind === "plus") path([[340,80],[460,80],[460,240],[650,240],[650,360],[460,360],[460,520],[340,520],[340,360],[150,360],[150,240],[340,240]],true);
+    else if(kind === "double-arrow") path([[80,300],[250,150],[250,245],[550,245],[550,150],[720,300],[550,450],[550,355],[250,355],[250,450]],true);
+    else if(kind === "heart") { q.beginPath(); q.moveTo(400,500); q.bezierCurveTo(50,270,180,20,400,190); q.bezierCurveTo(620,20,750,270,400,500); q.stroke(); }
+    else if(kind === "arc") { q.beginPath(); q.ellipse(400,380,270,240,0,Math.PI,2*Math.PI); q.stroke(); }
+    else if(kind === "bracket") path([[515,90],[285,90],[285,510],[515,510]]);
+    else if(kind === "cube" || kind === "cuboid") {
+      const right=kind === "cube" ? 490 : 610;
+      path([[160,200],[right,200],[right,500],[160,500]],true);
+      path([[160,200],[280,100],[right+120,100],[right,200]]);
+      path([[right+120,100],[right+120,400],[right,500]]);
+      q.setLineDash([12,10]); path([[280,100],[280,400],[160,500]]); path([[280,400],[right+120,400]]);
+    } else if(kind === "cylinder") {
+      ellipse(400,140,220,70); path([[180,140],[180,450]]); path([[620,140],[620,450]]); ellipse(400,450,220,70);
+    } else if(kind === "cone") {
+      path([[170,450],[400,75],[630,450]]); ellipse(400,450,230,70);
+    } else if(kind === "sphere") {
+      ellipse(400,300,230,230); q.lineWidth=3; ellipse(400,300,95,230); ellipse(400,300,230,70);
+    } else if(kind === "pyramid") {
+      path([[400,65],[120,420],[390,535],[680,420],[400,65],[390,535]]);
+      q.setLineDash([12,10]); path([[120,420],[410,325],[680,420]]); path([[410,325],[400,65]]);
+    } else if(kind === "triangular-prism") {
+      path([[120,480],[310,110],[480,480]],true); path([[310,110],[510,65],[690,415],[480,480]]);
+      q.setLineDash([12,10]); path([[120,480],[330,415],[690,415]]); path([[330,415],[510,65]]);
+    } else throw new Error("Unknown shape.");
+    return canvas;
+  }
+
   function installShapeTools() {
     const toolbar = document.querySelector("[data-tenet-ink-toolbar]");
     if (!toolbar || document.getElementById("tenetInsertBtn")) return;
     const trigger = document.createElement("button");
-    trigger.type = "button";
-    trigger.id = "tenetInsertBtn";
-    trigger.className = "tenet-tool-trigger";
-    trigger.textContent = "+ Insert";
-    trigger.title = "Insert shapes and coordinate graphs";
+    trigger.type="button"; trigger.id="tenetInsertBtn"; trigger.className="tenet-tool-trigger";
+    trigger.textContent="+ Insert"; trigger.title="Insert shapes and graphs";
     toolbar.prepend(trigger);
-    const tools = createTenetToolDialog("tenetInsertDialog", "Shapes & graphs",
-      "Made on this device. Insert, move and resize with Hand, then choose Pen to write on top.", trigger);
-    const colorLabel = document.createElement("label");
-    colorLabel.className = "tenet-tool-color";
-    colorLabel.textContent = "Outline / axes color";
-    const color = document.createElement("input");
-    color.type = "color";
-    color.value = /^#[0-9a-f]{6}$/i.test(state.inkColor) ? state.inkColor : "#10243e";
-    colorLabel.append(color);
-    tools.body.append(colorLabel);
-    const options = [
-      ["rectangle", "Rectangle"], ["square", "Square"], ["circle", "Circle"],
-      ["triangle", "Triangle"], ["line", "Line"], ["arrow", "Arrow"],
-      ["graph-four", "Four quadrants", "-5 to 5 on both axes"],
-      ["graph-first", "First quadrant", "0 to 10 on both axes"],
+    const tools=createTenetToolDialog("tenetInsertDialog","Insert","Choose a shape. Use Hand to move or resize it.",trigger);
+    const search=document.createElement("input"); search.type="search"; search.placeholder="Search shapes and graphs";
+    search.setAttribute("aria-label","Find a shape"); search.className="tenet-shape-search";
+    const colorLabel=document.createElement("label"); colorLabel.className="tenet-tool-color"; colorLabel.textContent="Color";
+    const color=document.createElement("input"); color.type="color"; color.value=/^#[0-9a-f]{6}$/i.test(state.inkColor) ? state.inkColor : "#10243e";
+    colorLabel.append(color); tools.body.append(search,colorLabel);
+    const groups=[
+      ["Basic shapes",[["rectangle","Rectangle"],["square","Square"],["circle","Circle"],["ellipse","Ellipse"],["triangle","Triangle"],["right-triangle","Right triangle"],["line","Line"],["arrow","Arrow"],["double-arrow","Double arrow"]]],
+      ["2D graphs",[["graph-four","Four quadrants"],["graph-first","First quadrant"],["graph-numberline","Number line"],["graph-polar","Polar grid"]]],
+      ["3D & geometry",[["graph-3d","3D axes"],["graph-isometric","Isometric grid"],["cube","Cube"],["cuboid","Cuboid"],["cylinder","Cylinder"],["cone","Cone"],["sphere","Sphere"],["pyramid","Pyramid"],["triangular-prism","Triangular prism"]]],
+      ["More shapes",[["diamond","Diamond"],["pentagon","Pentagon"],["hexagon","Hexagon"],["octagon","Octagon"],["star","Star"],["plus","Plus"],["heart","Heart"],["trapezoid","Trapezoid"],["parallelogram","Parallelogram"],["arc","Arc"],["bracket","Bracket"]]],
     ];
-    const errorMessage = document.createElement("p");
-    errorMessage.className = "tenet-tool-error";
-    errorMessage.setAttribute("role", "status");
-    const previews = [];
-    let inserting = false;
-    for (const [group, title] of [["shape", "Standard shapes"], ["graph", "Coordinate graphs"]]) {
-      const heading = document.createElement("h3");
-      heading.textContent = title;
-      const grid = document.createElement("div");
-      grid.className = "tenet-insert-grid" + (group === "graph" ? " tenet-insert-graphs" : "");
-      tools.body.append(heading, grid);
-      for (const [kind, label, caption] of options.filter(option => option[0].startsWith("graph-") === (group === "graph"))) {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = "tenet-insert-card";
-        button.setAttribute("aria-label", "Insert " + label.toLowerCase());
-        const preview = drawTenetInsertArtwork(kind, color.value, 220);
-        preview.setAttribute("aria-hidden", "true");
-        const name = document.createElement("strong");
-        name.textContent = label;
-        button.append(preview, name);
-        if (caption) {
-          const detail = document.createElement("small");
-          detail.textContent = caption;
-          button.append(detail);
-        }
-        grid.append(button);
-        previews.push({ button, kind });
-        button.addEventListener("click", async () => {
-          if (inserting) return;
-          inserting = true;
-          tools.setBusy(true);
-          errorMessage.textContent = "Adding " + label.toLowerCase() + "...";
-          const pageGeneration = state.snapshotLoadGeneration;
+    const entries=[], sections=[];
+    const errorMessage=document.createElement("p"); errorMessage.className="tenet-tool-error"; errorMessage.setAttribute("role","status");
+    let inserting=false;
+    for(const [title,options] of groups) {
+      const details=document.createElement("details"); details.open=sections.length===0;
+      const summary=document.createElement("summary"); summary.textContent=title;
+      const grid=document.createElement("div"); grid.className="tenet-insert-grid";
+      details.append(summary,grid); tools.body.append(details); sections.push(details);
+      for(const [kind,label] of options) {
+        const button=document.createElement("button"); button.type="button"; button.className="tenet-insert-card";
+        button.setAttribute("aria-label","Insert "+label.toLowerCase()); button.title=label;
+        const preview=drawTenetInsertArtwork(kind,color.value,120); preview.setAttribute("aria-hidden","true");
+        const name=document.createElement("span"); name.textContent=label; button.append(preview,name); grid.append(button);
+        entries.push({button,kind,label,details});
+        button.addEventListener("click",async()=>{
+          if(inserting)return; inserting=true; tools.setBusy(true); errorMessage.textContent="Adding "+label.toLowerCase()+"...";
+          const pageGeneration=state.snapshotLoadGeneration;
           try {
-            const artwork = drawTenetInsertArtwork(kind, color.value);
-            const blob = await new Promise(resolve => artwork.toBlob(resolve, "image/png"));
-            if (tools.signal.aborted) return;
-            if (!blob) throw new Error("Could not create this shape. Try again.");
-            if (pageGeneration !== state.snapshotLoadGeneration) throw new Error("The page changed. Reopen Insert on the page you want.");
-            const file = new File([blob], "Tenet " + label + ".png", { type: "image/png" });
-            const item = await addImageFile(file);
-            if (tools.signal.aborted) return;
-            if (!item) throw new Error("Could not add this object. Finish any active image or AI operation and try again.");
-            tools.setBusy(false);
-            tools.close();
-            showTenetMessage(label + " added. Use its handles to resize, or choose Pen to write.");
-          } catch (error) {
-            errorMessage.textContent = error?.message || "Could not insert this object.";
-          } finally {
-            inserting = false;
-            tools.setBusy(false);
-          }
-        }, { signal: tools.signal });
+            const artwork=drawTenetInsertArtwork(kind,color.value);
+            const blob=await new Promise(resolve=>artwork.toBlob(resolve,"image/png"));
+            if(tools.signal.aborted)return;
+            if(!blob)throw new Error("Could not create this shape.");
+            if(pageGeneration !== state.snapshotLoadGeneration)throw new Error("The page changed. Reopen Insert on the correct page.");
+            const file=new File([blob],"Tenet "+label+".png",{type:"image/png"});
+            const item=await addImageFile(file);
+            if(tools.signal.aborted)return;
+            if(!item)throw new Error("Finish the active image or AI operation and try again.");
+            tools.setBusy(false); tools.close(); showTenetMessage(label+" added. Use Hand and the resize handles, or Pen to write.");
+          } catch(error) { errorMessage.textContent=error?.message || "Could not insert this shape."; }
+          finally { inserting=false; tools.setBusy(false); }
+        },{signal:tools.signal});
       }
     }
     tools.body.append(errorMessage);
-    color.addEventListener("input", () => {
-      for (const { button, kind } of previews) {
-        const preview = drawTenetInsertArtwork(kind, color.value, 220);
-        preview.setAttribute("aria-hidden", "true");
-        button.firstElementChild.replaceWith(preview);
-      }
-    }, { signal: tools.signal });
-    tools.beforeOpen = () => { errorMessage.textContent = ""; };
+    color.addEventListener("input",()=>{
+      for(const {button,kind} of entries) { const preview=drawTenetInsertArtwork(kind,color.value,120); preview.setAttribute("aria-hidden","true"); button.firstElementChild.replaceWith(preview); }
+    },{signal:tools.signal});
+    search.addEventListener("input",()=>{
+      const term=search.value.trim().toLowerCase();
+      for(const entry of entries) entry.button.hidden=!entry.label.toLowerCase().includes(term);
+      for(const section of sections) { section.hidden=!entries.some(entry=>entry.details===section&&!entry.button.hidden); if(term)section.open=true; }
+    },{signal:tools.signal});
+    tools.beforeOpen=()=>{
+      errorMessage.textContent="";
+      const rect=trigger.getBoundingClientRect(), scale=rect.width/Math.max(1,trigger.offsetWidth);
+      const css=runtimeElementStyle(tools.dialog,"tenet-insert-anchor");
+      const left=Math.max(8,Math.min(rect.left,window.innerWidth-336*scale));
+      css?.setProperty("--tenet-insert-left",left/scale+"px");
+      css?.setProperty("--tenet-insert-top",Math.max(8,Math.min(rect.bottom+8,window.innerHeight-240*scale))/scale+"px");
+    };
   }
 
   function installDrawingTools() {
@@ -324,8 +379,10 @@
     trigger.id = "tenetDrawingOptionsBtn";
     trigger.className = "tenet-tool-trigger";
     trigger.title = "Line thickness and finger / stylus drawing";
-    (document.getElementById("penSizeValue") || penSize).after(trigger);
-    const tools = createTenetToolDialog("tenetDrawingDialog", "Drawing tools",
+    const toolbar = document.querySelector("[data-tenet-ink-toolbar]");
+    if (toolbar) toolbar.prepend(trigger);
+    else (document.getElementById("penSizeValue") || penSize).after(trigger);
+    const tools = createTenetToolDialog("tenetDrawingDialog", "Line thickness & input",
       "Choose a line thickness and how you draw. Thickness changes apply to new strokes, not existing work.", trigger);
     const label = document.createElement("label");
     label.className = "tenet-drawing-width-label";
@@ -347,7 +404,7 @@
       // Reuse the canvas width clamp, label update and native synchronization.
       penSize.dispatchEvent(new Event("input", { bubbles: true }));
     };
-    for (const [width, name] of [[2, "Fine"], [4, "Regular"], [8, "Bold"], [12, "Heavy"]]) {
+    for (const [width, name] of [[3, "Thin"], [5, "Medium"], [8, "Thick"]]) {
       if (width < Number(slider.min) || width > Number(slider.max)) continue;
       const button = document.createElement("button");
       button.type = "button";
@@ -374,13 +431,37 @@
     const note = document.createElement("p");
     note.className = "tenet-tool-description";
     note.setAttribute("role", "status");
-    tools.body.append(label, slider, presets, modeLabel, mode, note);
+    const preview = document.createElement("canvas");
+    preview.className = "tenet-width-preview";
+    preview.width = 840;
+    preview.height = 160;
+    preview.setAttribute("role", "img");
+    preview.setAttribute("aria-label", "Preview of new strokes at the selected thickness");
+    tools.body.append(label, slider, presets, preview, modeLabel, mode, note);
     const touchAllowed = () => deviceAllowsFinger()
       && !(window.TenetInk?.getStatus?.().engine === "pencilkit" && window.TenetInk?.fingerDrawingAllowed?.() === false);
     const updateWidth = () => {
       slider.value = penSize.value;
       value.textContent = penSize.value + " px";
-      trigger.textContent = "Pen: " + penSize.value + " px";
+      const nativeInk = window.TenetInk?.getStatus?.().engine === "pencilkit";
+      document.body.classList.toggle("tenet-using-pencilkit", nativeInk);
+      trigger.textContent = (nativeInk ? "Pencil thickness: " : "Line thickness: ") + penSize.value + " px";
+      trigger.setAttribute("aria-label", trigger.textContent);
+      const context = preview.getContext("2d");
+      if (context) {
+        context.clearRect(0, 0, preview.width, preview.height);
+        context.save();
+        context.scale(2, 2);
+        context.strokeStyle = /^#[0-9a-f]{6}$/i.test(state.inkColor) ? state.inkColor : "#10243e";
+        context.lineWidth = Number(penSize.value);
+        context.lineCap = "round";
+        context.beginPath();
+        context.moveTo(24, 46);
+        context.bezierCurveTo(100, 8, 130, 70, 210, 40);
+        context.bezierCurveTo(290, 10, 315, 70, 396, 32);
+        context.stroke();
+        context.restore();
+      }
       penSize.setAttribute("aria-valuetext", penSize.value + " pixels");
       presets.querySelectorAll("button").forEach(button => {
         button.setAttribute("aria-pressed", String(Number(button.dataset.width) === Number(penSize.value)));
@@ -398,6 +479,7 @@
     };
     slider.addEventListener("input", () => setWidth(slider.value), { signal: tools.signal });
     penSize.addEventListener("input", updateWidth, { signal: tools.signal });
+    window.addEventListener("tenet:ink-status", updateWidth, { signal: tools.signal });
     mode.addEventListener("change", () => {
       if (!touchAllowed()) { updateMode(); return; }
       inputMode = mode.value === "pencil" ? "pencil" : "touch";
