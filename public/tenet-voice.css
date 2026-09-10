@@ -1,0 +1,22 @@
+.tenet-voice-entry { display:flex; align-items:center; gap:6px; flex-shrink:0; }
+.tenet-voice-entry button, .tenet-voice-dialog button { min-height:44px; padding:8px 13px; border:1px solid #c2cbc8; border-radius:11px; background:#fffdf7; color:#173d4d; font:700 13px "Avenir Next",Avenir,sans-serif; touch-action:manipulation; }
+.tenet-voice-entry [data-voice="open"], .tenet-voice-dialog [data-voice="ask"] { color:#fffdf7; background:#173d4d; border-color:#173d4d; }
+.tenet-voice-entry [hidden] { display:none; }
+.tenet-voice-dialog { box-sizing:border-box; width:min(540px,calc(100vw - 32px)); max-height:calc(100dvh - 48px); overflow:auto; padding:24px; border:1px solid #c5cfd1; border-radius:20px; background:linear-gradient(145deg,#fffdf7,#f2f0e5); color:#172a3a; font-family:"Avenir Next",Avenir,sans-serif; }
+.tenet-voice-dialog::backdrop { background:#172a3a66; }
+.tenet-voice-dialog header { position:static; display:block; height:auto; padding:0; border:0; background:none; }
+.tenet-voice-dialog header span { color:#426960; font-size:11px; letter-spacing:.12em; font-weight:800; }
+.tenet-voice-dialog h2 { margin:6px 0; font-size:25px; }
+.tenet-voice-dialog p { margin:8px 0 12px; font-size:14px; line-height:1.5; }
+.tenet-voice-dialog .tenet-voice-privacy { padding:12px; border-radius:12px; background:#e4ece7; font-size:12px; }
+.tenet-voice-dialog img { display:block; max-width:100%; max-height:130px; object-fit:contain; margin:12px auto; border:1px solid #c5cfd1; }
+.tenet-voice-dialog img:not([src]) { display:none; }
+.tenet-voice-dialog label { font-size:14px; font-weight:700; }
+.tenet-voice-dialog textarea { box-sizing:border-box; width:100%; margin:8px 0; padding:12px; border:1px solid #9fadb3; border-radius:12px; font:16px/1.5 "Avenir Next",Avenir,sans-serif; background:#fff; color:#172a3a; resize:vertical; }
+.tenet-voice-dialog [data-voice="status"] { min-height:42px; color:#42645d; }
+.tenet-voice-dialog .tenet-voice-reply { display:block; padding:10px 0; }
+.tenet-voice-reply input { width:22px; height:22px; vertical-align:middle; accent-color:#173d4d; }
+.tenet-voice-reply small { display:block; margin:4px 0 0 28px; color:#566963; font-size:12px; font-weight:400; }
+.tenet-voice-dialog footer { position:static; display:flex; flex-wrap:wrap; justify-content:flex-end; gap:8px; height:auto; padding:14px 0 0; border:0; background:none; }
+.tenet-voice-dialog button:disabled { opacity:.5; }
+@media (max-height:600px) { .tenet-voice-dialog { padding:16px; } .tenet-voice-dialog img { max-height:70px; } }

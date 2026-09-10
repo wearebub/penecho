@@ -80,6 +80,7 @@
     if (!global.confirm("Sign out of Tenet Whiteboard on this iPad?")) return;
     button.disabled = true;
     try {
+      global.dispatchEvent(new CustomEvent("tenet:sign-out"));
       await native.signOut();
       global.location.replace("capacitor://localhost/");
     } catch (cause) {

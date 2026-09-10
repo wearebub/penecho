@@ -262,6 +262,7 @@
     try { await tenetInkFlush(); }
     catch (error) { tenetInkMessage(error?.message || "Native ink is not ready for AI capture."); return; }
     requestOptions = requestOptions || {};
+    if (requestOptions.isCurrent && !requestOptions.isCurrent()) return;
     // A crop prepared before a page/ink change must never be sent as current work.
     if (requestOptions.expectedRevision !== undefined &&
         (requestOptions.expectedRevision !== state.userRevision ||
@@ -294,6 +295,7 @@
         generation:preparationGeneration,
         superseded:false,
         action,
+        voiceRequestId:requestOptions.voiceRequestId || null,
         widgetEdit:widgetEditTarget ? { target:widgetEditTarget, targetId:widgetEditTarget.id, pluginId:widgetEditTarget.pluginId, revision } : null,
       };
     let attentionBox = dirtySnapshot || (captureCurrentViewport ? null : latestBox);
@@ -347,6 +349,7 @@
       // snapshot as already preserved so superseding it cannot merge stale dirty ink back in.
       run = { controller, dirtySnapshot, recognitionGeneration, superseded: false, dirtyRestored: true, inputCleared:false, inputConsumed:isolatedSelection, isolatedSelection, oneShotInput, selection: requestOptions.selection || null, selectionRequestToken: requestOptions.selectionRequestToken || null, widgetEdit:widgetEditTarget ? { target:widgetEditTarget, targetId:widgetEditTarget.id, pluginId:widgetEditTarget.pluginId, revision } : null, action };
     if (aiPreparation !== preparation) return;
+    run.voiceRequestId = requestOptions.voiceRequestId || null;
     aiPreparation = null;
     state.activeAI = run;
     setStatusKey("aiSendingRequest");
@@ -434,6 +437,13 @@
       if (state.images.length + commands.filter((command) => ["plot_function", "draw_image"].includes(command.tool)).length > MAX_VISIBLE_IMAGES) {
         setStatusKey("imageLimitReached");
         throw Error(t("imageLimitReached"));
+      }
+      // Only validated, current, authenticated responses can be read aloud.
+      // This optional observer does not change draft acceptance or canvas tools.
+      if (typeof requestOptions.onReply === "function") {
+        const text = commands.filter(command => command.tool === "write_text")
+          .map(command => command.text).join("\n\n").slice(0, 4000);
+        try { requestOptions.onReply(text); } catch { /* UI must not interrupt rendering. */ }
       }
       if (commands.length) {
         if (!isolatedSelection) {

@@ -549,6 +549,12 @@ public final class TenetNativePlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthenti
         CAPPluginMethod(name: "inkSurfaceCommand", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "pickDocument", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "exportPdf", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "getVoiceCapabilities", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "startVoiceRecognition", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "stopVoiceRecognition", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "cancelVoiceRecognition", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "speakVoice", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "stopSpeaking", returnType: CAPPluginReturnPromise),
     ]
 
     private var authenticationSession: ASWebAuthenticationSession?
@@ -557,6 +563,9 @@ public final class TenetNativePlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthenti
     private var documentPickerController: UIDocumentPickerViewController?
     private var exportCall: CAPPluginCall?
     private var exportTemporaryUrl: URL?
+    private var voiceSession: TenetVoiceSession?
+    private var voiceLoadingObservation: NSKeyValueObservation?
+    private var voiceUrlObservation: NSKeyValueObservation?
 
     // The web page owns persistence. This controller owns only the live native drawing.
     private lazy var inkSurface = TenetInkSurface(
@@ -579,6 +588,93 @@ public final class TenetNativePlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthenti
             interaction.isEnabled = true
             webView.addInteraction(interaction)
             self.webCanvasPencilInteraction = interaction
+            // Do not replace WKNavigationDelegate: Capacitor owns navigation.
+            self.voiceLoadingObservation = webView.observe(\.isLoading, options: [.new]) { [weak self] _, change in
+                if change.newValue == true { self?.stopNativeVoice() }
+            }
+            self.voiceUrlObservation = webView.observe(\.url, options: [.new]) { [weak self] _, _ in
+                self?.stopNativeVoice()
+            }
+        }
+    }
+
+    deinit {
+        voiceLoadingObservation?.invalidate()
+        voiceUrlObservation?.invalidate()
+        voiceSession?.shutdown()
+    }
+
+    private func stopNativeVoice() {
+        DispatchQueue.main.async { [weak self] in
+            self?.voiceSession?.cancelAll()
+        }
+    }
+
+    // The Keychain capability, configured district and current page must agree.
+    // Never authorize voice using a client-side authenticated flag.
+    private func voiceAuthority() -> String? {
+        let config = configuration()
+        guard
+            UIDevice.current.userInterfaceIdiom == .pad,
+            config.valid,
+            let profile = config.profile,
+            let baseUrl = config.baseUrl,
+            let expected = URL(string: baseUrl),
+            let actual = bridge?.webView?.url,
+            actual.scheme == "https",
+            actual.host == expected.host,
+            (actual.port ?? 443) == (expected.port ?? 443),
+            actual.user == nil,
+            actual.password == nil,
+            let data = try? KeychainStore.read(),
+            let session = try? JSONDecoder().decode(NativeSession.self, from: data),
+            session.expiresAt > Date().addingTimeInterval(30),
+            session.profile == profile,
+            session.baseUrl == baseUrl,
+            isOpaqueCapability(session.token)
+        else { return nil }
+        return session.token
+    }
+
+    private func nativeVoice() -> TenetVoiceSession {
+        if let voiceSession { return voiceSession }
+        let session = TenetVoiceSession(
+            authority: { [weak self] in self?.voiceAuthority() },
+            emit: { [weak self] event, data in self?.notifyListeners(event, data: data) }
+        )
+        voiceSession = session
+        return session
+    }
+
+    @objc public func getVoiceCapabilities(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            call.resolve(self.nativeVoice().capabilities(locale: call.getString("locale")))
+        }
+    }
+
+    @objc public func startVoiceRecognition(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { self.nativeVoice().start(call) }
+    }
+
+    @objc public func stopVoiceRecognition(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { self.nativeVoice().stop(call) }
+    }
+
+    @objc public func cancelVoiceRecognition(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            self.voiceSession?.cancelRecognition(sessionId: call.getString("sessionId"))
+            call.resolve()
+        }
+    }
+
+    @objc public func speakVoice(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { self.nativeVoice().speak(call) }
+    }
+
+    @objc public func stopSpeaking(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            self.voiceSession?.stopSpeaking()
+            call.resolve()
         }
     }
 
@@ -668,6 +764,7 @@ public final class TenetNativePlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthenti
                 session.baseUrl == baseUrl,
                 isOpaqueCapability(session.token)
             else {
+                stopNativeVoice()
                 KeychainStore.delete()
                 call.resolve(["authenticated": false])
                 return
@@ -687,12 +784,14 @@ public final class TenetNativePlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthenti
                 }
             }
         } catch {
+            stopNativeVoice()
             KeychainStore.delete()
             call.reject(error.localizedDescription, "session_restore_failed", error)
         }
     }
 
     @objc public func authenticate(_ call: CAPPluginCall) {
+        stopNativeVoice()
         guard authenticationSession == nil else {
             call.reject("A sign-in session is already active.", "auth_in_progress")
             return
@@ -865,6 +964,7 @@ public final class TenetNativePlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthenti
     }
 
     @objc public func signOut(_ call: CAPPluginCall) {
+        stopNativeVoice()
         let stored: NativeSession?
         do {
             if let data = try KeychainStore.read() {

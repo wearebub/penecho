@@ -20,6 +20,7 @@ const SOURCES = [
   "src/client/app/tenet-ink-comparison.js",
   "src/client/app/tenet-notebook.js",
   "src/client/app/tenet-selection-tools.js",
+  "src/client/app/tenet-voice.js",
   "src/client/app/tenet-ipad-usability.js",
   "src/client/app/tenet-object-resize.js",
   "src/client/app/ui-bootstrap.js",

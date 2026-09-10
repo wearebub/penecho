@@ -14,7 +14,7 @@ const TAG = /^tenet-(?:web-v\d+\.\d+\.\d+|ipad-v\d+\.\d+\.\d+-build\.[1-9]\d*)$/
 const WEB_PATHS = [
   'public/app.js', 'public/index.html', 'public/tenet-ink-comparison.css',
   'public/tenet-ipad-usability.css', 'public/tenet-notebook.css',
-  'public/tenet-selection-tools.css', 'scripts/build-client.js', 'src/client',
+  'public/tenet-selection-tools.css', 'public/tenet-voice.css', 'scripts/build-client.js', 'src/client',
 ];
 const WHITEBOARD_SERVER_PATHS = ['src/server/main.js', 'src/server/tenet-illustration.js'];
 
