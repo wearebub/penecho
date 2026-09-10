@@ -1808,7 +1808,9 @@ test("professional diagrams accept local source renderers and keep unknown forma
       assert.doesNotMatch(files.find(file => file.path === "widget.json").content, new RegExp(field));
     }
     assert.deepEqual(modelInput.widgetEdit.patchFiles, [{ path:"widget.json" },{ path:"widget.source" }]);
-    assert.equal(modelInput.actionMeaning, "refine the supplied target widget in place using the newest instructions; return only the required widget_patch command");
+    assert.equal(modelInput.actionMeaning, "refine the supplied target widget in place using the newest instructions; return only the required widget_patch command, subject to the system tutoring policy");
+    assert.equal(modelInput.userAction, "answer", "non-Tenet widget actions must not become hint actions");
+    assert.equal("tutoringPolicy" in modelInput, false, "the Tenet-specific policy must not be added outside Tenet mode");
     assert.match(modelInput.widgetEditPolicy, /widget_patch[\s\S]*?standard unified diff/);
     assert.match(modelInput.widgetEditPolicy, /nl -ba -w6 -s TAB read views[\s\S]*?first ASCII TAB[\s\S]*?display metadata[\s\S]*?never copy either into diff lines/);
     assert.match(modelInput.widgetEditPolicy, /input `    42<TAB>  <p>x<\/p>`[\s\S]*?removal line is `-  <p>x<\/p>`[\s\S]*?never `-<TAB>/);
@@ -3139,7 +3141,7 @@ test("API mode uses one configured key without probes or fallback credentials", 
   const server=fs.readFileSync(path.join(ROOT,"src","server","main.js"),"utf8"),cli=fs.readFileSync(path.join(ROOT,"src","cli","main.js"),"utf8"),configure=fs.readFileSync(path.join(ROOT,"src","cli","configure-ui.js"),"utf8");
   for(const source of [server,cli,configure])assert.doesNotMatch(source,/OPENAI_PRO_API_KEY/);
   assert.doesNotMatch(server,/api-health|api-selection|api-runtime-failure|refreshApiConfig|testApiKey|HEALTH_INTERVAL|HEALTH_TIMEOUT/);
-  assert.match(server,/providerRequest\(provider\.apiKey,provider\.model,text,atlasImage,effort,literalTypeset,animationEnabled,pluginsEnabled,provider\.api,provider\)/);
+  assert.match(server,/providerRequest\(provider\.apiKey,provider\.model,text,atlasImage,effort,literalTypeset,animationEnabled,pluginsEnabled,provider\.api,provider,modelInput\?\.questionOnly\s*===\s*true\)/);
 });
 
 test("client and server contain no aggregate draft rejection budget", () => {

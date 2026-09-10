@@ -35,6 +35,60 @@
     return { x:region.x, y:region.y, w:region.w, h:region.h };
   }
 
+  function normalizeScope(scope) {
+    if (!scope || scope.closed !== true || !Array.isArray(scope.path) ||
+      scope.path.length < 3 || scope.path.length > 512 ||
+      scope.path.some(point => !point || ![point.x, point.y].every(value =>
+        Number.isFinite(value) && value >= 0 && value <= Number.MAX_SAFE_INTEGER))) return null;
+    const path = scope.path.map(point => ({ x:point.x, y:point.y })),
+      x = Math.min(...path.map(point => point.x)), y = Math.min(...path.map(point => point.y)),
+      w = Math.max(...path.map(point => point.x)) - x,
+      h = Math.max(...path.map(point => point.y)) - y;
+    if (w <= 0 || h <= 0) return null;
+    return { box:{ x, y, w, h }, path, closed:true };
+  }
+
+  function projectScope(scope, transform = {}) {
+    const normalized = normalizeScope(scope);
+    if (!normalized) return null;
+    const scale = Math.max(0.03, Number(transform.scale) || 1),
+      panX = Number(transform.panX) || 0, panY = Number(transform.panY) || 0;
+    if (![scale, panX, panY].every(Number.isFinite)) return null;
+    const path = normalized.path.map(point => ({ x:point.x * scale + panX, y:point.y * scale + panY }));
+    if (path.some(point => !Number.isFinite(point.x) || !Number.isFinite(point.y))) return null;
+    return { box:projectRegion(normalized.box, transform), path, closed:true };
+  }
+
+  function scopeLayout(scope, viewport = {}) {
+    const source = normalizeRegion(scope?.box);
+    if (!source) return null;
+    const width = Math.max(1, Number(viewport.width) || 1),
+      height = Math.max(1, Number(viewport.height) || 1),
+      margin = Math.min(THINKING_LAYOUT.viewportMargin, width / 4, height / 4),
+      below = source.y + source.h + THINKING_LAYOUT.statusGap,
+      above = source.y - THINKING_LAYOUT.statusGap - THINKING_LAYOUT.statusHeight,
+      statusY = below + THINKING_LAYOUT.statusHeight <= height - margin && below >= margin
+        ? below
+        : above >= margin && above + THINKING_LAYOUT.statusHeight <= height - margin
+          ? above : clamp(height - margin - THINKING_LAYOUT.statusHeight, margin, height),
+      statusWidth = Math.min(THINKING_LAYOUT.statusWidth, Math.max(1, width - margin * 2));
+    // Only the caption is bounded to the viewport. Canvas clipping preserves
+    // offscreen vertices; no padding, smoothing, or fallback region changes them.
+    return {
+      source, fallback:false,
+      status:{
+        x:clamp(source.x + source.w / 2, margin + statusWidth / 2, Math.max(margin + statusWidth / 2, width - margin - statusWidth / 2)),
+        y:statusY,
+        w:statusWidth,
+      },
+    };
+  }
+
+  function scopeIsCurrent(guard) {
+    try { return !guard || guard() === true; }
+    catch { return false; }
+  }
+
   function projectRegion(region, transform = {}) {
     const normalized = normalizeRegion(region),
       scale = Math.max(0.03, Number(transform.scale) || 1);
@@ -249,12 +303,17 @@
 
     function frame() {
       if (!model) return;
+      if (model.scope && !scopeIsCurrent(model.isCurrent)) { stop(); return; }
       rafId = requestAnimationFrame(frame);
       const transform = getTransform(),
         dpr = Math.max(1, Number(transform.dpr) || 1),
         elapsed = now() - startTime,
-        layout = echoLayout(projectRegion(model.region, transform), transform),
+        projectedScope = model.scope ? projectScope(model.scope, transform) : null,
+        layout = model.scope
+          ? scopeLayout(projectedScope, transform)
+          : echoLayout(projectRegion(model.region, transform), transform),
         color = getAiColor() || "#526ff1";
+      if (!layout) { stop(); return; }
       let fade = 1;
       if (hideAt) {
         fade = clamp01(1 - (now() - hideAt) / THINKING_LAYOUT.fadeSeconds);
@@ -270,19 +329,36 @@
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      const outer = buildEchoContour(layout.outer, "outer"),
-        inner = buildEchoContour(layout.inner, "inner"),
-        progress = getReducedMotion() ? 0.13 : (elapsed / THINKING_LAYOUT.cycleSeconds) % 1;
-      drawContour(ctx, outer, color, fade * 0.2, 1.15);
-      drawContour(ctx, inner, color, fade * 0.1, 0.9);
-      drawHighlight(ctx, outer, color, progress, fade);
+      const progress = getReducedMotion() ? 0.13 : (elapsed / THINKING_LAYOUT.cycleSeconds) % 1;
+      if (projectedScope) {
+        const points = projectedScope.path;
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(points[0].x, points[0].y);
+        for (let index = 1; index < points.length; index++) ctx.lineTo(points[index].x, points[index].y);
+        ctx.closePath();
+        ctx.clip("evenodd");
+        drawContour(ctx, points, color, fade * 0.25, 1.5);
+        drawHighlight(ctx, points, color, progress, fade);
+        ctx.restore();
+      } else {
+        const outer = buildEchoContour(layout.outer, "outer"),
+          inner = buildEchoContour(layout.inner, "inner");
+        drawContour(ctx, outer, color, fade * 0.2, 1.15);
+        drawContour(ctx, inner, color, fade * 0.1, 0.9);
+        drawHighlight(ctx, outer, color, progress, fade);
+      }
       placeText(layout, fade, color);
     }
 
-    function show(region) {
+    function show(region, options = {}) {
       if (!ctx || !canvas || !textLayer) return false;
       stop();
-      model = { region:normalizeRegion(region) };
+      const scoped = Boolean(options && Object.prototype.hasOwnProperty.call(options, "scope")),
+        scope = scoped ? normalizeScope(options.scope) : null,
+        isCurrent = scope && typeof options.scope.isCurrent === "function" ? options.scope.isCurrent : null;
+      if (scoped && (!scope || !scopeIsCurrent(isCurrent))) return false;
+      model = { region:scope ? scope.box : normalizeRegion(region), scope, isCurrent };
       buildText();
       canvas.dataset.effect = "spatial-echo";
       canvas.hidden = false;
@@ -293,6 +369,7 @@
     }
 
     function hide() {
+      if (model?.scope) { stop(); return; }
       if (model && !hideAt) hideAt = now();
       else if (!model) stop();
     }
@@ -314,6 +391,9 @@
     THINKING_LAYOUT,
     normalizeRegion,
     projectRegion,
+    normalizeScope,
+    projectScope,
+    scopeLayout,
     echoLayout,
     buildEchoContour,
     create,

@@ -3126,7 +3126,15 @@ test("PenEcho Agent UI and browser Facade support local and Cloud runtimes and a
   assert.match(runtime,/assertCanvasCaptureRaster\(result,limits,'reported'\)[\s\S]*data\.length > limits\.maxBytes[\s\S]*assertCanvasCaptureRaster\(attachment,limits,'decoded'\)[\s\S]*attachment\.mediaType !== match\[1\]/);
   assert.doesNotMatch(runtime,/name:'canvas_mutate'/);
   assert.doesNotMatch(runtime,/animate_scene/);
-  assert.match(server,/authorize:browserRequestError/);
+  assert.match(server,/authorize:tenetCanvasAgentRequestError/);
+  for(const tenetMode of [false,true])for(const browserError of [null,"Invalid origin","Authentication required"]){
+    const requests=[],request={headers:{host:"127.0.0.1"}},authorize=vm.runInNewContext(`(${functionSource(server,"tenetCanvasAgentRequestError")})`,{
+      TENET_MODE:tenetMode,browserRequestError:req=>{requests.push(req);return browserError;},
+    });
+    const error=authorize(request);
+    if(tenetMode){assert.match(error,/disabled in Tenet mode/);assert.equal(requests.length,0);}
+    else{assert.equal(error,browserError);assert.deepEqual(requests,[request]);}
+  }
   assert.match(server,/canvasAgent:!TENET_MODE/);
   assert.match(server,/canvasAgentAutoOpen:CANVAS_AGENT_AUTO_OPEN&&!TENET_MODE/);
   assert.match(core,/canvasAgentConnectionDidChange\(/);

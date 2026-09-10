@@ -3636,7 +3636,9 @@ test("Studio title bar exposes document identity, explicit save state, and a bla
   assert.match(functionSource(persistence, "saveCurrentCanvas"), /name = requestedName \|\| currentCanvasDisplayName\(\)/);
   assert.match(functionSource(persistence, "startBlankCanvas"), /PenEchoStudioNavigator\?\.updateDocument/);
   for (const key of ["canvasUntitledName", "canvasRename", "canvasRenameCurrent", "canvasRenameNamed", "canvasRenameConfirm", "canvasNamePlaceholder", "canvasNameRequired", "canvasRenamed", "canvasSaveStateUnsaved", "canvasSaveStateSaved", "canvasSaveStateEdited", "canvasSaveStateSaving", "canvasWelcomeKicker", "canvasWelcomeTitle", "canvasWelcomeBody"]) {
-    assert.match(core, new RegExp(`\\b${key}:\\s*"`));
+    if (key === "canvasWelcomeBody") {
+      assert.match(core, /canvasWelcomeBody:\s*window\.PENECHO_CONFIG\?\.tenetMode\s*\? "Write or sketch, circle work for help, or ask the tutor\."\s*:\s*"Draw with your pen, or start a conversation in the Agent sidebar on the right\."/);
+    } else assert.match(core, new RegExp(`\\b${key}:\\s*"`));
     assert.match(zh, new RegExp(`\\b${key}:\\s*"`));
   }
 });

@@ -1,0 +1,22 @@
+{
+  "sourceCommit": "9bc6539dbcaafb3fae4e7de8c462cbd1e5ca6cb8",
+  "artifacts": [
+    {
+      "sha256": "45e3284e10009d5f2acd5f693b3e72931f933bad7d645df1922dfb84ccd417a5",
+      "name": "release.json"
+    },
+    {
+      "sha256": "cda205c06fb78360fe1225eb6b446172e90b90131a755bf68442b1d73fe2ae2f",
+      "name": "SHA256SUMS"
+    },
+    {
+      "sha256": "a25773b0f660433ffedb57c8b5eb61b8ed2be39145a1357b4a81964b1986285b",
+      "name": "tenet-web-v1.6.0-source.zip"
+    },
+    {
+      "sha256": "873a318ccf0dfb49f658444ad709dd4886e3e4d92fb0dc3f29ccb853b2babacd",
+      "name": "Tenet-Whiteboard-runtime-1.6.0.tar"
+    }
+  ],
+  "verifiedAt": "2026-09-10T21:39:34.0329411Z"
+}

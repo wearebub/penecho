@@ -829,7 +829,9 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       canvasSaveStateSaving: "Saving…",
       canvasWelcomeKicker: "start here",
       canvasWelcomeTitle: "Start sketching, or ask PenEcho Agent",
-      canvasWelcomeBody: "Draw with your pen, or start a conversation in the Agent sidebar on the right.",
+      canvasWelcomeBody: window.PENECHO_CONFIG?.tenetMode
+        ? "Write or sketch, circle work for help, or ask the tutor."
+        : "Draw with your pen, or start a conversation in the Agent sidebar on the right.",
       exportPng: "Export PNG",
       newCanvasTitle: "New canvas",
       newCanvasDescription: "Save this canvas if needed. Unaccepted AI drafts aren't included.",
@@ -1979,6 +1981,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     setStatusKey(candidates[index]);
     return true;
   }
+  let summonProcessingScope = null;
   const summonFX = SUMMON?.create({
     fxCanvas:summonLayer,
     textLayer: document.querySelector("#summonTextLayer"),
@@ -1990,6 +1993,11 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   });
   function showSummon() {
     if (!summonFX || !state.summonEnabled) return;
+    if (summonProcessingScope) {
+      if (!summonProcessingScope.isCurrent()) { hideSummon(); return; }
+      summonFX.show(summonProcessingScope.box, { scope:summonProcessingScope });
+      return;
+    }
     summonFX.show(state.summonAnchor);
   }
   function hideSummon() {
@@ -4371,8 +4379,9 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     fit();
     window.dispatchEvent(new Event("resize"));
   }
-  function setBusy(value) {
+  function setBusy(value, processingScope = null) {
     state.busy = Boolean(value);
+    summonProcessingScope = state.busy ? processingScope : null;
     embodiment.classList.toggle("working", state.busy);
     embodiment.setAttribute("aria-busy", String(state.busy));
     if (state.busy) {

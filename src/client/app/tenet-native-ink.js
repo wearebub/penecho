@@ -49,6 +49,9 @@
     let nativeToolKey = "", nativeToolWidth = 4, receiveError = null, toolRequestId = 0, widthRequestId = 0;
     let fingerDrawing = false, lastError = "", reportTimer = 0;
     const suspended = new Set(), listeners = [];
+    // HTML controls remain web-owned for both finger and Pencil, including
+    // nonmodal popovers placed inside the canvas rather than in a named toolbar.
+    const webControlSelector = 'button, input, textarea, select, label[for], a[href], summary, [role="button"], [role="link"], [role="textbox"], [role="combobox"], [role="slider"], [contenteditable]:not([contenteditable="false"]), dialog[open], [role="dialog"], [role="menu"], [role="listbox"], [data-tenet-ink-toolbar]';
     const lifetime = new AbortController();
     const signal = lifetime.signal;
 
@@ -219,14 +222,30 @@
         nativeToolKey = toolKey;
         nativeToolWidth = Math.min(1024, state.pen / Math.max(.03, state.scale));
       }
-      const shouldShow = engine === "pencilkit" && !lock && !suspended.size && !document.hidden
+      let shouldShow = engine === "pencilkit" && !lock && !suspended.size && !document.hidden
         && !state.viewMode && !snapshotLoadInProgress && ["pen", "eraser", "select"].includes(state.mode) && !modalOpen();
-    const exclusions = [...document.querySelectorAll(
-      '.topbar, [data-tenet-ink-toolbar], footer, #tenetBadge, #tenetNotebookLauncherDock, .tenet-voice-entry, .tenet-ai-entry, .ai-embodiment, .canvas-navigation-lock, #canvasAgentPanel, #studioNavigator, .hand-object-toolbar, .selection-toolbar, #tenetNativeToast, .tenet-ink-comparison.tic-dock > *, [role="menu"], [role="listbox"]'
-      )].filter(onscreen).map(element => {
+      const exclusions = [];
+      const containsRect = (outer, inner) => outer.x <= inner.x && outer.y <= inner.y
+        && outer.x + outer.width >= inner.x + inner.width && outer.y + outer.height >= inner.y + inner.height;
+      for (const element of document.querySelectorAll(
+        '.topbar, footer, #tenetBadge, #tenetNotebookLauncherDock, #tenetNotebookCollapse, .tenet-voice-entry, .tenet-ai-entry, .ai-embodiment, .canvas-navigation-lock, #canvasAgentPanel, #studioNavigator, .hand-object-toolbar, .selection-toolbar, #tenetNativeToast, #tenetInkToast, .tenet-ink-comparison.tic-dock > *, ' + webControlSelector
+      )) {
+        if (!onscreen(element)) continue;
         const box = element.getBoundingClientRect();
-        return { x:box.x, y:box.y, width:box.width, height:box.height };
-      });
+        const x = Math.max(rect.x, box.x), y = Math.max(rect.y, box.y);
+        const width = Math.min(rect.x + rect.width, box.x + box.width) - x;
+        const height = Math.min(rect.y + rect.height, box.y + box.height) - y;
+        if (![x, y, width, height].every(Number.isFinite) || width <= 0 || height <= 0) continue;
+        const hole = { x, y, width, height };
+        if (exclusions.some(existing => containsRect(existing, hole))) continue;
+        for (let index = exclusions.length - 1; index >= 0; index--) {
+          if (containsRect(hole, exclusions[index])) exclusions.splice(index, 1);
+        }
+        exclusions.push(hole);
+        // Never truncate holes and expose the omitted controls to native input.
+        // Existing hide/preview lifecycle retains the drawing on overflow.
+        if (exclusions.length > 128) { shouldShow = false; exclusions.length = 0; break; }
+      }
       return { sessionId, frame:{ x:rect.x, y:rect.y, width:rect.width, height:rect.height },
         viewportWidth:window.innerWidth, panX:state.panX * factor, panY:state.panY * factor,
         scale:state.scale * factor, canvasSize:SIZE, visible:shouldShow, inputEnabled:shouldShow,
@@ -471,6 +490,9 @@
     }, { signal });
     document.addEventListener("pointerdown", event => {
       if (!lock || !view.contains(event.target)) return;
+      // The lock protects canvas mutations, not Submit/Cancel or other UI.
+      // Preventing this pointerdown also suppresses the browser's finger click.
+      if (event.target?.closest?.(webControlSelector)) return;
       event.preventDefault();
       event.stopImmediatePropagation();
     }, { capture:true, signal });

@@ -13,9 +13,11 @@ function harness() {
     fillRect:() => operations.push("white"), save(){}, restore(){}, setTransform(){},
     beginPath:() => operations.push("path"), moveTo(){},lineTo(){},closePath(){},
     clip:rule => operations.push(`clip:${rule}`),drawImage:() => operations.push("tiles"),
+    getImageData:() => ({data:new Uint8ClampedArray([20,20,20,255])}),
   };
   const context = vm.createContext({
     SIZE:20000, TILE:256, MAX_ATLAS_WIDTH:2048, MAX_ATLAS_HEIGHT:1536,
+    window:{PENECHO_CONFIG:{tenetMode:true}},
     performance:{now:()=>1},
     offscreen:(w,h) => ({width:w,height:h,getContext:()=>context2d,toDataURL:()=>"data:image/png;base64,test"}),
     drawAnimationsToContext:() => operations.push("animations"),

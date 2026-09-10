@@ -4721,7 +4721,10 @@
   }
   function nearbyCoarseObjectActionButton(event) {
     if (!usesTouchSizedCanvasTargets(event.pointerType) || Number(event.button) !== 0
-      || event.target?.closest?.(".object-chrome-button")) return null;
+      || event.defaultPrevented
+      || event.target?.closest?.(".object-chrome-button, button, a, input, textarea, select, label, summary, dialog, iframe, [role='button'], [role='dialog'], [contenteditable='true'], .tenet-ai-circle-surface, .tenet-ai-region-controls, .tenet-ai-entry, .tenet-voice-entry")
+      || document.querySelector("dialog[open]")
+      || (typeof tenetCanvasAI !== "undefined" && tenetCanvasAI?.selectionActive?.())) return null;
     const clientX = Number(event.clientX), clientY = Number(event.clientY);
     if (!Number.isFinite(clientX) || !Number.isFinite(clientY)) return null;
     const candidates = [];

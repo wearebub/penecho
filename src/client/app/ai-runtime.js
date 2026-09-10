@@ -258,7 +258,35 @@
       && inner.x + inner.w <= outer.x + outer.w
       && inner.y + inner.h <= outer.y + outer.h);
   }
+  function createAIProcessingScope(packed, preparation) {
+    // A text-only question has no image region to animate. An explicit invalid
+    // visual scope suppresses the legacy recent-ink fallback without changing
+    // the normal request progress/status lifecycle.
+    if (packed?.questionOnly === true) return Object.freeze({ closed:false, path:Object.freeze([]), box:null });
+    if (!packed || !Object.prototype.hasOwnProperty.call(packed, "selectionContext")) return null;
+    const context = packed.selectionContext;
+    const box = context?.closed === true ? tenetRegionGeometry(context.path) : null;
+    const page = state.snapshotLoadGeneration, revision = state.userRevision,
+      recognitionGeneration = state.recognitionGeneration;
+    // This immutable snapshot is visual-only. Never rewrite the atlas/transport
+    // or borrow the editable selection object used for accepting AI drafts.
+    const scope = Object.freeze({
+      box: box ? Object.freeze({ ...box }) : null,
+      path: Object.freeze(box ? context.path.map(point => Object.freeze({ x:point.x, y:point.y })) : []),
+      closed: Boolean(box),
+      isCurrent: () => Boolean(
+        state.busy && page === state.snapshotLoadGeneration && revision === state.userRevision &&
+        recognitionGeneration === state.recognitionGeneration &&
+        preparation.generation === aiPreparationGeneration && !preparation.controller.signal.aborted &&
+        ((aiPreparation === preparation && !preparation.superseded) ||
+          (state.activeAI?.processingScope === scope && !state.activeAI.superseded))
+      ),
+    });
+    return scope;
+  }
+
   async function requestAI(action, packedOverride = null, requestOptions = null) {
+    if (window.PENECHO_CONFIG?.tenetMode && action === "answer") action = "hint";
     try { await tenetInkFlush(); }
     catch (error) { tenetInkMessage(error?.message || "Native ink is not ready for AI capture."); return; }
     requestOptions = requestOptions || {};
@@ -298,11 +326,14 @@
         voiceRequestId:requestOptions.voiceRequestId || null,
         widgetEdit:widgetEditTarget ? { target:widgetEditTarget, targetId:widgetEditTarget.id, pluginId:widgetEditTarget.pluginId, revision } : null,
       };
+    preparation.processingScope = createAIProcessingScope(packedOverride, preparation);
     let attentionBox = dirtySnapshot || (captureCurrentViewport ? null : latestBox);
     if (requestedAttentionBox) attentionBox = requestedAttentionBox;
     aiPreparation = preparation;
-    state.summonAnchor = dirtySnapshot || state.lastUserBox || null;
-    setBusy(true);
+    state.summonAnchor = preparation.processingScope
+      ? preparation.processingScope.box
+      : dirtySnapshot || state.lastUserBox || null;
+    setBusy(true, preparation.processingScope);
     setStatusKey("aiPreparingCanvas");
     if (pluginEnabled("flowchart")) {
       try { await ensurePluginRuntime("flowchart"); }
@@ -347,7 +378,7 @@
     const requestBox = packed.changedBox;
     const // A selection-scoped request never consumes the normal recognition state. Mark its
       // snapshot as already preserved so superseding it cannot merge stale dirty ink back in.
-      run = { controller, dirtySnapshot, recognitionGeneration, superseded: false, dirtyRestored: true, inputCleared:false, inputConsumed:isolatedSelection, isolatedSelection, oneShotInput, selection: requestOptions.selection || null, selectionRequestToken: requestOptions.selectionRequestToken || null, widgetEdit:widgetEditTarget ? { target:widgetEditTarget, targetId:widgetEditTarget.id, pluginId:widgetEditTarget.pluginId, revision } : null, action };
+      run = { controller, dirtySnapshot, recognitionGeneration, processingScope: preparation.processingScope, superseded: false, dirtyRestored: true, inputCleared:false, inputConsumed:isolatedSelection, isolatedSelection, oneShotInput, selection: requestOptions.selection || null, selectionRequestToken: requestOptions.selectionRequestToken || null, widgetEdit:widgetEditTarget ? { target:widgetEditTarget, targetId:widgetEditTarget.id, pluginId:widgetEditTarget.pluginId, revision } : null, action };
     if (aiPreparation !== preparation) return;
     run.voiceRequestId = requestOptions.voiceRequestId || null;
     aiPreparation = null;
@@ -790,6 +821,27 @@
     const w = Math.max(...points.map(p => p.x)) - x, h = Math.max(...points.map(p => p.y)) - y;
     return w > 0 && h > 0 ? { x, y, w, h } : null;
   }
+  function buildTenetTextQuestion(question, placement) {
+    const text = typeof question === "string" ? question.trim() : "";
+    if (!text || text.length > 1000) throw Error("Ask a question of up to 1,000 characters.");
+    if (!placement || ![placement.x, placement.y, placement.w, placement.h].every(Number.isFinite) ||
+        placement.x < 0 || placement.y < 0 || placement.w <= 0 || placement.h <= 0 ||
+        placement.x + placement.w > SIZE || placement.y + placement.h > SIZE)
+      throw Error("Move back onto the page before asking Tenet.");
+    return {
+      questionOnly:true, questionScope:"text-only", selectionQuestion:text,
+      visibleRect:{...placement}, changedBox:{...placement},
+    };
+  }
+  function tenetRenderedQuestionIsBlank(context, width, height) {
+    // Inspect the exact masked render, not tile counts or OCR. An erased tile
+    // can still exist, and native ink/images need not occupy any Web ink tiles.
+    // Read failures remain capture failures; never silently discard real work.
+    const data = context.getImageData(0, 0, width, height).data;
+    for (let i = 0; i < data.length; i += 4)
+      if (data[i + 3] !== 0 && (data[i] !== 255 || data[i + 1] !== 255 || data[i + 2] !== 255)) return false;
+    return true;
+  }
   function buildTenetRegionImage(points, question = "") {
     const sourceRect = tenetRegionGeometry(points);
     if (!sourceRect) throw Error("Circle an area of the page first.");
@@ -813,6 +865,8 @@
     forTiles(sourceRect.x, sourceRect.y, sourceRect.w, sourceRect.h, (c, tx, ty) => q.drawImage(c, tx * TILE, ty * TILE), false);
     drawSharpOverlays(q, sourceRect);
     q.restore();
+    if (window.PENECHO_CONFIG?.tenetMode && question.trim() && tenetRenderedQuestionIsBlank(q, out.width, out.height))
+      return buildTenetTextQuestion(question, sourceRect);
     return {
       atlasImage:out.toDataURL("image/png"), atlasSize, imageScale,
       visibleRect:{ x:0, y:0, w:SIZE, h:SIZE }, captureRect:{ ...sourceRect }, sourceRect,
@@ -933,7 +987,7 @@
   }
   function normalizeCommandPlacements(commands, packed, latestBox) {
     if (commands.length !== 1) return commands;
-    const capture = packed.captureRect,
+    const capture = packed.questionOnly ? packed.visibleRect : packed.captureRect,
       padding = Math.max(80, Math.min(320, latestBox.h * 0.15)),
       command = commands[0];
     if (command.tool !== "write_text" && command.tool !== "draw_formula") return commands;

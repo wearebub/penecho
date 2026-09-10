@@ -201,8 +201,8 @@ function configureIosInfo() {
     CFBundleURLSchemes: ["tenet-whiteboard"],
   }];
   info.ITSAppUsesNonExemptEncryption = false;
-  info.NSMicrophoneUsageDescription = "Tenet uses the microphone when you tap Talk to transcribe on this iPad. After 1.5 full seconds of silence, your transcript and selected or visible page image are automatically sent through your district Gateway. Audio is not uploaded or saved.";
-  info.NSSpeechRecognitionUsageDescription = "Tenet transcribes speech on this iPad only. After 1.5 full seconds of silence, only transcribed text from your speech is automatically sent through your district Gateway, together with the selected or visible page image. Audio is not uploaded or saved.";
+  info.NSMicrophoneUsageDescription = "Tenet uses the microphone when you tap Talk to transcribe on this iPad. After 1.5 seconds without a new transcribed word, your transcript and selected or visible page image are automatically sent through your district Gateway. Audio is not uploaded or saved.";
+  info.NSSpeechRecognitionUsageDescription = "Tenet transcribes speech on this iPad only. After 1.5 seconds without a new transcribed word, only transcribed text from your speech is automatically sent through your district Gateway, together with the selected or visible page image. Audio is not uploaded or saved.";
   info.UIApplicationSupportsIndirectInputEvents = true;
   info["UISupportedInterfaceOrientations~ipad"] = [
     "UIInterfaceOrientationPortrait",

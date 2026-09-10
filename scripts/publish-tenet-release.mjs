@@ -12,11 +12,11 @@ const BASE = `repos/${REPO}`;
 const VERSION = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 const TAG = /^tenet-(?:web-v\d+\.\d+\.\d+|ipad-v\d+\.\d+\.\d+-build\.[1-9]\d*)$/;
 const WEB_PATHS = [
-  'public/app.js', 'public/index.html', 'public/tenet-ink-comparison.css',
+  'public/app.js', 'public/index.html', 'public/summon.js', 'public/tenet-ink-comparison.css',
   'public/tenet-ipad-usability.css', 'public/tenet-notebook.css',
   'public/tenet-selection-tools.css', 'public/tenet-voice.css', 'scripts/build-client.js', 'src/client',
 ];
-const WHITEBOARD_SERVER_PATHS = ['src/server/main.js', 'src/server/tenet-illustration.js'];
+const WHITEBOARD_SERVER_PATHS = ['src/server/main.js', 'src/server/tenet-illustration.js', 'src/server/tenet-question-payload.js'];
 
 function command(name, args, options = {}) {
   return execFileSync(name, args, { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, ...options });

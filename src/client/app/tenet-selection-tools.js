@@ -119,6 +119,9 @@ var tenetCanvasAI = null;
     const entry = document.createElement("div");
     entry.className = "tenet-ai-entry";
     const circle = makeButton("Circle selection", "tenet-selection-button tenet-selection-ai-button");
+    circle.classList.add("tenet-circle-trigger");
+    circle.setAttribute("aria-label", "Circle selection");
+    circle.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 19c-5.5.6-10-2.5-10-7S7 4 12 4s9 3 9 7c0 1-.2 2-.7 2.8" stroke-dasharray="3 3"/><path d="m14 13 7 3-3.3 1.4-1.4 3.3Z"/></svg>';
     circle.setAttribute("aria-pressed", "false");
     circle.title = "Draw around an area to move its ink or ask Tenet. Tap again to cancel.";
     const scope = document.createElement("select");
@@ -151,6 +154,10 @@ var tenetCanvasAI = null;
     const move = makeButton("Move ink", "tenet-selection-button");
     move.setAttribute("aria-pressed", "false");
     const talk = makeButton("Talk to Tenet", "tenet-selection-button");
+    talk.classList.add("tenet-circle-talk");
+    talk.setAttribute("aria-label", "Talk to Tenet about this selection");
+    talk.title = "Talk to Tenet about this selection";
+    talk.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="6" y="3" width="6" height="11" rx="3"/><path d="M3 10v1a6 6 0 0 0 12 0v-1M9 17v4M6 21h6M19 8v8M22 10v4"/></svg>';
     const redraw = makeButton("Circle again", "tenet-selection-button");
     const cancel = makeButton("Cancel", "tenet-selection-button");
     controls.append(notice, move, help, question, talk, redraw, cancel);
@@ -201,8 +208,9 @@ var tenetCanvasAI = null;
     function close() {
       pendingStart++;
       if (dialog.open) dialog.close();
-      if (pointer !== null && surface.hasPointerCapture?.(pointer)) surface.releasePointerCapture(pointer);
+      const captured = pointer;
       pointer = null; drawing = false; moving = false; moveGesture = null;
+      if (captured !== null && surface.hasPointerCapture?.(captured)) surface.releasePointerCapture(captured);
       const reason = region?.reason;
       region = null;
       surface.setAttribute("hidden", "");
@@ -212,21 +220,22 @@ var tenetCanvasAI = null;
       if (reason) tenetInkController?.resume(reason);
     }
     function unchanged(value) {
-      return region === value && value.revision === state.userRevision && value.generation === state.recognitionGeneration;
+      return region === value && value.page === state.snapshotLoadGeneration &&
+        value.revision === state.userRevision && value.generation === state.recognitionGeneration;
     }
     async function start() {
       if (region) { close(); return; }
-      if (state.busy || state.pending || state.drawing || tenetInkController?.active()) {
+      if (state.busy || state.pending || state.pendingWidget || state.drawing || tenetInkController?.active()) {
         tenetInkMessage("Finish the current stroke or AI draft, then circle an area."); return;
       }
-      const token = ++pendingStart, reason = `ai-circle-${token}`;
+      const token = ++pendingStart, reason = `ai-circle-${token}`, page = state.snapshotLoadGeneration;
       preparing = true; circle.disabled = true;
       try {
         clearTimeout(state.timer); state.timer = 0;
         if (state.selection) commitSelection();
         await tenetInkController?.suspend(reason);
         await tenetInkFlush();
-        if (token !== pendingStart) { tenetInkController?.resume(reason); return; }
+        if (token !== pendingStart || page !== state.snapshotLoadGeneration) { tenetInkController?.resume(reason); return; }
         document.activeElement?.blur?.();
         region = { reason, points:[], revision:state.userRevision, generation:state.recognitionGeneration, page:state.snapshotLoadGeneration };
         surface.removeAttribute("hidden");
@@ -359,6 +368,9 @@ var tenetCanvasAI = null;
         moveGesture = {point, bounds, points:region.points.map(p => ({...p}))};
         surface.setPointerCapture(pointer); paint(); return;
       }
+      // A completed selection stays selected. A stray finger/palm landing on
+      // the SVG must not silently replace it; Circle again explicitly redraws.
+      if (tenetRegionGeometry(region.points)) return;
       pointer = event.pointerId; drawing = true; region.points = [];
       surface.setPointerCapture(pointer); addPoint(event); paint();
     }, { signal });
@@ -387,10 +399,11 @@ var tenetCanvasAI = null;
         else void finishMove(value, gesture);
         return;
       }
-      if (event.type === "pointercancel") region.points = [];
+      if (event.type !== "pointerup") region.points = [];
       else addPoint(event);
-      if (surface.hasPointerCapture?.(pointer)) surface.releasePointerCapture(pointer);
+      const captured = pointer;
       pointer = null; drawing = false;
+      if (surface.hasPointerCapture?.(captured)) surface.releasePointerCapture(captured);
       const bounds = tenetRegionGeometry(region.points);
       if (!bounds || bounds.w*state.scale < 8 || bounds.h*state.scale < 8) region.points = [];
       notice.textContent = region.points.length ? "Selection ready. Move its ink, or ask Tenet about only this area." : "Circle a larger area to select it.";
@@ -398,7 +411,8 @@ var tenetCanvasAI = null;
     }
     surface.addEventListener("pointerup", finish, { signal });
     surface.addEventListener("pointercancel", finish, { signal });
-    surface.addEventListener("lostpointercapture", event => { if (moveGesture) finish(event); }, {signal});
+    surface.addEventListener("lostpointercapture", event => { if (pointer !== null) finish(event); }, {signal});
+    document.addEventListener("visibilitychange", () => { if (document.hidden) close(); }, {signal});
     document.addEventListener("pointerdown", event => {
       if (!region || view.contains(event.target) || entry.contains(event.target) || dialog.contains(event.target)) return;
       close();

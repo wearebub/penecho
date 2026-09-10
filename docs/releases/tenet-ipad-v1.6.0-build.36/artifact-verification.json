@@ -1,0 +1,20 @@
+{
+  "manifestSha256": "2c2f1156e2225efddcc9af64d878e7ff385dd222e10a167cb2866336f8b7cfa0",
+  "testFlightUpload": "workflow step succeeded; Apple processing and device installation not independently verified",
+  "workflow": "https://github.com/wearebub/penecho/actions/runs/34532284158",
+  "artifacts": [
+    {
+      "name": "Tenet-Whiteboard-1.6.0-build.36.ipa",
+      "sha256": "c23039058bf5469d3577094e0fc23ce3f0a0e7b38cc8f4ce4906e8d2a491f537"
+    },
+    {
+      "name": "SHA256SUMS",
+      "sha256": "5cd7c67b74e19bc2d4f36a029a08ebdf84c8a3b2b2f52bcdfddf07b2aa746c54"
+    },
+    {
+      "name": "tenet-ipad-v1.6.0-build.36-source.zip",
+      "sha256": "62164bd211610acd33b14c9b9aeef3bfc857a59992d51f8f846c72f58277ef11"
+    }
+  ],
+  "verifiedAt": "2026-09-10T21:36:52.9339698Z"
+}

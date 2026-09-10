@@ -81,7 +81,7 @@ test("changed circled work cannot fall back to whole-page voice capture",async()
 });
 test("unsupported on-device language offers typing without microphone or cloud fallback",async()=>{
   const h=harness({async getVoiceCapabilities(){return {supported:false,onDevice:false,locale:"xx",reason:"Type instead"};}});
-  await h.api.activate();await h.api.open();assert.equal(h.api.ui.record.disabled,true);
+  await h.api.activate();await h.api.open();assert.equal(h.api.ui.record.disabled,false);
   h.api.ui.input.value="Help me start problem 12";await h.api.submit();
   assert.equal(h.calls.some(x=>x[0]==="start"),false);assert(h.calls.some(x=>x[0]==="request"));
 });
@@ -122,10 +122,108 @@ test("web layer has no audio recorder, speech-service endpoint, or transcript pe
   assert.match(ai,/requestOptions\.isCurrent && !requestOptions\.isCurrent\(\)/);
 });
 
+test("blank-page voice preserves the text-only envelope instead of overwriting its scope",async()=>{
+  const h=harness();await h.api.activate();
+  h.context.buildTenetRegionImage=(points,text)=>text
+    ? {questionOnly:true,questionScope:"text-only",selectionQuestion:text,visibleRect:{x:100,y:200,w:800,h:600},changedBox:{x:100,y:200,w:800,h:600}}
+    : {atlasImage:"data:image/png;base64,synthetic",selectionContext:{path:points}};
+  await h.api.open();await h.api.submit();
+  const sent=h.calls.find(c=>c[0]==="request");
+  assert.equal(sent[1],"hint");assert.equal(sent[2].questionOnly,true);
+  assert.equal(sent[2].questionScope,"text-only");assert.equal(sent[2].atlasImage,undefined);
+  assert.equal(sent[2].selectionContext,undefined);
+  assert(h.calls.some(c=>c[0]==="message"&&/without an image/.test(c[1])));
+});
+
 function autoSendHarness() {
   return harness({async getVoiceCapabilities(){return {supported:true,onDevice:true,locale:"en-US",supportsSilenceAutoSubmit:true,autoSubmitSilenceSeconds:1.5};}});
 }
 const settle = () => new Promise(resolve=>setImmediate(resolve));
+
+test("Talk starts recording without waiting for ink suspension or page preview",async()=>{
+  for(const blocked of ["suspend","preview"]) {
+    const h=harness();await h.api.activate();
+    let release;const pending=new Promise(resolve=>{release=resolve;});
+    if(blocked==="suspend")h.context.tenetInkController.suspend=()=>pending;
+    else h.context.prepareVisibleWidgetSnapshots=()=>pending;
+    await h.api.open();
+    assert.equal(h.api.phase,"listening");
+    assert.equal(h.calls.filter(c=>c[0]==="start").length,1);
+    h.api.cancel();release();await settle();
+    assert.equal(h.api.ui.preview.src,undefined);
+    assert.equal(h.calls.some(c=>c[0]==="request"),false);
+  }
+});
+
+test("a failed preview does not prevent recording or replace microphone status",async()=>{
+  const h=harness();await h.api.activate();
+  h.context.prepareVisibleWidgetSnapshots=async()=>{throw Error("Widget preview unavailable");};
+  await h.api.open();await settle();
+  assert.equal(h.api.phase,"listening");
+  assert.match(h.api.ui.status.textContent,/Listening on this iPad/);
+  assert.match(h.api.ui.previewStatus.textContent,/Preview unavailable/);
+  h.api.cancel();
+});
+
+test("Talk rechecks readiness instead of permanently caching unavailable permissions",async()=>{
+  let ready=false;
+  const h=harness({async getVoiceCapabilities(){return {supported:ready,onDevice:true,locale:"en-US",reason:"Microphone unavailable"};}});
+  await h.api.activate();ready=true;await h.api.open();
+  assert.equal(h.api.phase,"listening");
+  assert.equal(h.calls.filter(c=>c[0]==="start").length,1);
+  h.api.cancel();
+});
+
+test("recording cannot start until native listeners are installed",async()=>{
+  let release;const pending=new Promise(resolve=>{release=resolve;});
+  const h=harness({async addListener(){await pending;return {async remove(){}};}});
+  const activation=h.api.activate();await settle();
+  assert.equal(h.api.ui.entry.disabled,true);await h.api.open();
+  assert.equal(h.calls.some(c=>c[0]==="start"),false);
+  release();await activation;await h.api.open();
+  assert.equal(h.api.phase,"listening");h.api.cancel();
+});
+
+test("atomic silence completion sends final text without a preceding transcript event",async()=>{
+  const h=autoSendHarness();await h.api.activate();await h.api.open();
+  const sessionId=h.api.job.sessionId;
+  const terminal={sessionId,state:"stopped",reason:"silence",text:"Help me start problem 12",isFinal:true};
+  h.events.get("voiceState")(terminal);h.events.get("voiceState")(terminal);
+  h.events.get("voiceTranscript")({sessionId,text:"older partial text",isFinal:false});await settle();
+  const requests=h.calls.filter(c=>c[0]==="request");
+  assert.equal(requests.length,1);assert.equal(requests[0][1],"hint");
+  assert.equal(requests[0][2].selectionQuestion,"Help me start problem 12");
+});
+
+test("transcript inactivity uses the advertised word-pause trigger and preserves lasso scope",async()=>{
+  const h=harness({async getVoiceCapabilities(){return {supported:true,onDevice:true,locale:"en-US",supportsSilenceAutoSubmit:true,autoSubmitSilenceSeconds:1.5,autoSubmitTrigger:"transcript-inactivity"};}});
+  await h.api.activate();const points=[{x:120,y:230},{x:240,y:240},{x:190,y:300}];
+  await h.api.open({points,revision:2,generation:3,page:1});
+  assert.match(h.api.ui.timing.textContent,/1.5 seconds without a new word/);
+  assert.match(h.api.ui.status.textContent,/last new transcribed word/);
+  const sessionId=h.api.job.sessionId;
+  h.events.get("voiceState")({sessionId,state:"stopped",reason:"transcript-pause",text:"Help with this part",isFinal:true});
+  await settle();const requests=h.calls.filter(c=>c[0]==="request");
+  assert.equal(requests.length,1);assert.equal(requests[0][1],"hint");
+  assert.deepEqual(JSON.parse(JSON.stringify(requests[0][2].selectionContext.path)),points);
+  assert.equal(requests[0][2].visibleRect,undefined);
+});
+
+test("audio silence cannot trigger submission on a transcript-inactivity native build",async()=>{
+  const h=harness({async getVoiceCapabilities(){return {supported:true,onDevice:true,locale:"en-US",supportsSilenceAutoSubmit:true,autoSubmitSilenceSeconds:1.5,autoSubmitTrigger:"transcript-inactivity"};}});
+  await h.api.activate();await h.api.open();const sessionId=h.api.job.sessionId;
+  h.events.get("voiceState")({sessionId,state:"stopped",reason:"silence",text:"Wait for the words",isFinal:true});
+  await settle();assert.equal(h.calls.some(c=>c[0]==="request"),false);h.api.cancel();
+});
+
+test("malformed atomic completion cannot reuse an older final transcript",async()=>{
+  for(const fields of [{text:"",isFinal:true},{text:"partial",isFinal:false},{isFinal:true},{text:"question"},{text:"x".repeat(1001),isFinal:true}]) {
+    const h=autoSendHarness();await h.api.activate();await h.api.open();const sessionId=h.api.job.sessionId;
+    h.events.get("voiceTranscript")({sessionId,text:"old final question",isFinal:true});
+    h.events.get("voiceState")({sessionId,state:"stopped",reason:"silence",...fields});await settle();
+    assert.equal(h.calls.some(c=>c[0]==="request"),false);h.api.cancel();
+  }
+});
 
 test("native final transcript followed by 1.5-second silence auto-submits exactly one hint",async()=>{
   const h=autoSendHarness();await h.api.activate();await h.api.open();

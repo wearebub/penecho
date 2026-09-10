@@ -1,5 +1,6 @@
 "use strict";
 const test=require("node:test"),assert=require("node:assert/strict"),vm=require("node:vm"),fs=require("node:fs"),path=require("node:path");
+const {tenetTutoringAction}=require("../src/server/tenet-question-payload.js");
 const source=fs.readFileSync(path.join(__dirname,"../src/server/main.js"),"utf8");
 const placement=source.match(/function normalizeCommandPlacements\(commands,payload\)\{[\s\S]*?\n\}/)[0];
 const validation=source.slice(source.indexOf("function validPayload(p) {"),source.indexOf("function canonicalPayload(p) {"));
@@ -39,7 +40,7 @@ test("visible-page scope survives strict validation and canonicalization",()=>{
     atlasImage:"data:image/png;base64,YQ==",atlasSize:{w:2000,h:1500},imageScale:1,
     hotspotGrid:{columns:8,rows:8,order:"oldest-to-newest",hotspots:[]},uiTheme:"studio",persona:"test"};
   const canonical=source.slice(source.indexOf("function canonicalPayload(p) {"),source.indexOf("function imageDataUrlParts(dataUrl) {"));
-  const context=vm.createContext({p,TENET_MODE:true,CANVAS_SIZE:20000,THEME_PERSONAS:{studio:"test"},DEBUG_ACTIONS:new Set(["answer"]),
+  const context=vm.createContext({p,TENET_MODE:true,CANVAS_SIZE:20000,THEME_PERSONAS:{studio:"test"},DEBUG_ACTIONS:new Set(["answer"]),tenetTutoringAction,
     validTypedInput:()=>true,validSelectionContext:()=>true,selectionBox:x=>x,canonicalSelectionContext:x=>x,
     selectionBoxesMatch:(a,b)=>JSON.stringify(a)===JSON.stringify(b),canonicalWidgetEdit:()=>null,
     validSelectionQuestion:require("../src/server/tenet-illustration.js").validSelectionQuestion});

@@ -947,7 +947,9 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       canvasSaveStateSaving: "Saving…",
       canvasWelcomeKicker: "start here",
       canvasWelcomeTitle: "Start sketching, or ask PenEcho Agent",
-      canvasWelcomeBody: "Draw with your pen, or start a conversation in the Agent sidebar on the right.",
+      canvasWelcomeBody: window.PENECHO_CONFIG?.tenetMode
+        ? "Write or sketch, circle work for help, or ask the tutor."
+        : "Draw with your pen, or start a conversation in the Agent sidebar on the right.",
       exportPng: "Export PNG",
       newCanvasTitle: "New canvas",
       newCanvasDescription: "Save this canvas if needed. Unaccepted AI drafts aren't included.",
@@ -2097,6 +2099,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     setStatusKey(candidates[index]);
     return true;
   }
+  let summonProcessingScope = null;
   const summonFX = SUMMON?.create({
     fxCanvas:summonLayer,
     textLayer: document.querySelector("#summonTextLayer"),
@@ -2108,6 +2111,11 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   });
   function showSummon() {
     if (!summonFX || !state.summonEnabled) return;
+    if (summonProcessingScope) {
+      if (!summonProcessingScope.isCurrent()) { hideSummon(); return; }
+      summonFX.show(summonProcessingScope.box, { scope:summonProcessingScope });
+      return;
+    }
     summonFX.show(state.summonAnchor);
   }
   function hideSummon() {
@@ -4489,8 +4497,9 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     fit();
     window.dispatchEvent(new Event("resize"));
   }
-  function setBusy(value) {
+  function setBusy(value, processingScope = null) {
     state.busy = Boolean(value);
+    summonProcessingScope = state.busy ? processingScope : null;
     embodiment.classList.toggle("working", state.busy);
     embodiment.setAttribute("aria-busy", String(state.busy));
     if (state.busy) {
@@ -9403,7 +9412,10 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   }
   function nearbyCoarseObjectActionButton(event) {
     if (!usesTouchSizedCanvasTargets(event.pointerType) || Number(event.button) !== 0
-      || event.target?.closest?.(".object-chrome-button")) return null;
+      || event.defaultPrevented
+      || event.target?.closest?.(".object-chrome-button, button, a, input, textarea, select, label, summary, dialog, iframe, [role='button'], [role='dialog'], [contenteditable='true'], .tenet-ai-circle-surface, .tenet-ai-region-controls, .tenet-ai-entry, .tenet-voice-entry")
+      || document.querySelector("dialog[open]")
+      || (typeof tenetCanvasAI !== "undefined" && tenetCanvasAI?.selectionActive?.())) return null;
     const clientX = Number(event.clientX), clientY = Number(event.clientY);
     if (!Number.isFinite(clientX) || !Number.isFinite(clientY)) return null;
     const candidates = [];
@@ -14395,7 +14407,35 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       && inner.x + inner.w <= outer.x + outer.w
       && inner.y + inner.h <= outer.y + outer.h);
   }
+  function createAIProcessingScope(packed, preparation) {
+    // A text-only question has no image region to animate. An explicit invalid
+    // visual scope suppresses the legacy recent-ink fallback without changing
+    // the normal request progress/status lifecycle.
+    if (packed?.questionOnly === true) return Object.freeze({ closed:false, path:Object.freeze([]), box:null });
+    if (!packed || !Object.prototype.hasOwnProperty.call(packed, "selectionContext")) return null;
+    const context = packed.selectionContext;
+    const box = context?.closed === true ? tenetRegionGeometry(context.path) : null;
+    const page = state.snapshotLoadGeneration, revision = state.userRevision,
+      recognitionGeneration = state.recognitionGeneration;
+    // This immutable snapshot is visual-only. Never rewrite the atlas/transport
+    // or borrow the editable selection object used for accepting AI drafts.
+    const scope = Object.freeze({
+      box: box ? Object.freeze({ ...box }) : null,
+      path: Object.freeze(box ? context.path.map(point => Object.freeze({ x:point.x, y:point.y })) : []),
+      closed: Boolean(box),
+      isCurrent: () => Boolean(
+        state.busy && page === state.snapshotLoadGeneration && revision === state.userRevision &&
+        recognitionGeneration === state.recognitionGeneration &&
+        preparation.generation === aiPreparationGeneration && !preparation.controller.signal.aborted &&
+        ((aiPreparation === preparation && !preparation.superseded) ||
+          (state.activeAI?.processingScope === scope && !state.activeAI.superseded))
+      ),
+    });
+    return scope;
+  }
+
   async function requestAI(action, packedOverride = null, requestOptions = null) {
+    if (window.PENECHO_CONFIG?.tenetMode && action === "answer") action = "hint";
     try { await tenetInkFlush(); }
     catch (error) { tenetInkMessage(error?.message || "Native ink is not ready for AI capture."); return; }
     requestOptions = requestOptions || {};
@@ -14435,11 +14475,14 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
         voiceRequestId:requestOptions.voiceRequestId || null,
         widgetEdit:widgetEditTarget ? { target:widgetEditTarget, targetId:widgetEditTarget.id, pluginId:widgetEditTarget.pluginId, revision } : null,
       };
+    preparation.processingScope = createAIProcessingScope(packedOverride, preparation);
     let attentionBox = dirtySnapshot || (captureCurrentViewport ? null : latestBox);
     if (requestedAttentionBox) attentionBox = requestedAttentionBox;
     aiPreparation = preparation;
-    state.summonAnchor = dirtySnapshot || state.lastUserBox || null;
-    setBusy(true);
+    state.summonAnchor = preparation.processingScope
+      ? preparation.processingScope.box
+      : dirtySnapshot || state.lastUserBox || null;
+    setBusy(true, preparation.processingScope);
     setStatusKey("aiPreparingCanvas");
     if (pluginEnabled("flowchart")) {
       try { await ensurePluginRuntime("flowchart"); }
@@ -14484,7 +14527,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     const requestBox = packed.changedBox;
     const // A selection-scoped request never consumes the normal recognition state. Mark its
       // snapshot as already preserved so superseding it cannot merge stale dirty ink back in.
-      run = { controller, dirtySnapshot, recognitionGeneration, superseded: false, dirtyRestored: true, inputCleared:false, inputConsumed:isolatedSelection, isolatedSelection, oneShotInput, selection: requestOptions.selection || null, selectionRequestToken: requestOptions.selectionRequestToken || null, widgetEdit:widgetEditTarget ? { target:widgetEditTarget, targetId:widgetEditTarget.id, pluginId:widgetEditTarget.pluginId, revision } : null, action };
+      run = { controller, dirtySnapshot, recognitionGeneration, processingScope: preparation.processingScope, superseded: false, dirtyRestored: true, inputCleared:false, inputConsumed:isolatedSelection, isolatedSelection, oneShotInput, selection: requestOptions.selection || null, selectionRequestToken: requestOptions.selectionRequestToken || null, widgetEdit:widgetEditTarget ? { target:widgetEditTarget, targetId:widgetEditTarget.id, pluginId:widgetEditTarget.pluginId, revision } : null, action };
     if (aiPreparation !== preparation) return;
     run.voiceRequestId = requestOptions.voiceRequestId || null;
     aiPreparation = null;
@@ -14927,6 +14970,27 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     const w = Math.max(...points.map(p => p.x)) - x, h = Math.max(...points.map(p => p.y)) - y;
     return w > 0 && h > 0 ? { x, y, w, h } : null;
   }
+  function buildTenetTextQuestion(question, placement) {
+    const text = typeof question === "string" ? question.trim() : "";
+    if (!text || text.length > 1000) throw Error("Ask a question of up to 1,000 characters.");
+    if (!placement || ![placement.x, placement.y, placement.w, placement.h].every(Number.isFinite) ||
+        placement.x < 0 || placement.y < 0 || placement.w <= 0 || placement.h <= 0 ||
+        placement.x + placement.w > SIZE || placement.y + placement.h > SIZE)
+      throw Error("Move back onto the page before asking Tenet.");
+    return {
+      questionOnly:true, questionScope:"text-only", selectionQuestion:text,
+      visibleRect:{...placement}, changedBox:{...placement},
+    };
+  }
+  function tenetRenderedQuestionIsBlank(context, width, height) {
+    // Inspect the exact masked render, not tile counts or OCR. An erased tile
+    // can still exist, and native ink/images need not occupy any Web ink tiles.
+    // Read failures remain capture failures; never silently discard real work.
+    const data = context.getImageData(0, 0, width, height).data;
+    for (let i = 0; i < data.length; i += 4)
+      if (data[i + 3] !== 0 && (data[i] !== 255 || data[i + 1] !== 255 || data[i + 2] !== 255)) return false;
+    return true;
+  }
   function buildTenetRegionImage(points, question = "") {
     const sourceRect = tenetRegionGeometry(points);
     if (!sourceRect) throw Error("Circle an area of the page first.");
@@ -14950,6 +15014,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     forTiles(sourceRect.x, sourceRect.y, sourceRect.w, sourceRect.h, (c, tx, ty) => q.drawImage(c, tx * TILE, ty * TILE), false);
     drawSharpOverlays(q, sourceRect);
     q.restore();
+    if (window.PENECHO_CONFIG?.tenetMode && question.trim() && tenetRenderedQuestionIsBlank(q, out.width, out.height))
+      return buildTenetTextQuestion(question, sourceRect);
     return {
       atlasImage:out.toDataURL("image/png"), atlasSize, imageScale,
       visibleRect:{ x:0, y:0, w:SIZE, h:SIZE }, captureRect:{ ...sourceRect }, sourceRect,
@@ -15070,7 +15136,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   }
   function normalizeCommandPlacements(commands, packed, latestBox) {
     if (commands.length !== 1) return commands;
-    const capture = packed.captureRect,
+    const capture = packed.questionOnly ? packed.visibleRect : packed.captureRect,
       padding = Math.max(80, Math.min(320, latestBox.h * 0.15)),
       command = commands[0];
     if (command.tool !== "write_text" && command.tool !== "draw_formula") return commands;
@@ -23224,6 +23290,9 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     let nativeToolKey = "", nativeToolWidth = 4, receiveError = null, toolRequestId = 0, widthRequestId = 0;
     let fingerDrawing = false, lastError = "", reportTimer = 0;
     const suspended = new Set(), listeners = [];
+    // HTML controls remain web-owned for both finger and Pencil, including
+    // nonmodal popovers placed inside the canvas rather than in a named toolbar.
+    const webControlSelector = 'button, input, textarea, select, label[for], a[href], summary, [role="button"], [role="link"], [role="textbox"], [role="combobox"], [role="slider"], [contenteditable]:not([contenteditable="false"]), dialog[open], [role="dialog"], [role="menu"], [role="listbox"], [data-tenet-ink-toolbar]';
     const lifetime = new AbortController();
     const signal = lifetime.signal;
 
@@ -23394,14 +23463,30 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
         nativeToolKey = toolKey;
         nativeToolWidth = Math.min(1024, state.pen / Math.max(.03, state.scale));
       }
-      const shouldShow = engine === "pencilkit" && !lock && !suspended.size && !document.hidden
+      let shouldShow = engine === "pencilkit" && !lock && !suspended.size && !document.hidden
         && !state.viewMode && !snapshotLoadInProgress && ["pen", "eraser", "select"].includes(state.mode) && !modalOpen();
-    const exclusions = [...document.querySelectorAll(
-      '.topbar, [data-tenet-ink-toolbar], footer, #tenetBadge, #tenetNotebookLauncherDock, .tenet-voice-entry, .tenet-ai-entry, .ai-embodiment, .canvas-navigation-lock, #canvasAgentPanel, #studioNavigator, .hand-object-toolbar, .selection-toolbar, #tenetNativeToast, .tenet-ink-comparison.tic-dock > *, [role="menu"], [role="listbox"]'
-      )].filter(onscreen).map(element => {
+      const exclusions = [];
+      const containsRect = (outer, inner) => outer.x <= inner.x && outer.y <= inner.y
+        && outer.x + outer.width >= inner.x + inner.width && outer.y + outer.height >= inner.y + inner.height;
+      for (const element of document.querySelectorAll(
+        '.topbar, footer, #tenetBadge, #tenetNotebookLauncherDock, #tenetNotebookCollapse, .tenet-voice-entry, .tenet-ai-entry, .ai-embodiment, .canvas-navigation-lock, #canvasAgentPanel, #studioNavigator, .hand-object-toolbar, .selection-toolbar, #tenetNativeToast, #tenetInkToast, .tenet-ink-comparison.tic-dock > *, ' + webControlSelector
+      )) {
+        if (!onscreen(element)) continue;
         const box = element.getBoundingClientRect();
-        return { x:box.x, y:box.y, width:box.width, height:box.height };
-      });
+        const x = Math.max(rect.x, box.x), y = Math.max(rect.y, box.y);
+        const width = Math.min(rect.x + rect.width, box.x + box.width) - x;
+        const height = Math.min(rect.y + rect.height, box.y + box.height) - y;
+        if (![x, y, width, height].every(Number.isFinite) || width <= 0 || height <= 0) continue;
+        const hole = { x, y, width, height };
+        if (exclusions.some(existing => containsRect(existing, hole))) continue;
+        for (let index = exclusions.length - 1; index >= 0; index--) {
+          if (containsRect(hole, exclusions[index])) exclusions.splice(index, 1);
+        }
+        exclusions.push(hole);
+        // Never truncate holes and expose the omitted controls to native input.
+        // Existing hide/preview lifecycle retains the drawing on overflow.
+        if (exclusions.length > 128) { shouldShow = false; exclusions.length = 0; break; }
+      }
       return { sessionId, frame:{ x:rect.x, y:rect.y, width:rect.width, height:rect.height },
         viewportWidth:window.innerWidth, panX:state.panX * factor, panY:state.panY * factor,
         scale:state.scale * factor, canvasSize:SIZE, visible:shouldShow, inputEnabled:shouldShow,
@@ -23646,6 +23731,9 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     }, { signal });
     document.addEventListener("pointerdown", event => {
       if (!lock || !view.contains(event.target)) return;
+      // The lock protects canvas mutations, not Submit/Cancel or other UI.
+      // Preventing this pointerdown also suppresses the browser's finger click.
+      if (event.target?.closest?.(webControlSelector)) return;
       event.preventDefault();
       event.stopImmediatePropagation();
     }, { capture:true, signal });
@@ -24860,6 +24948,9 @@ var tenetCanvasAI = null;
     const entry = document.createElement("div");
     entry.className = "tenet-ai-entry";
     const circle = makeButton("Circle selection", "tenet-selection-button tenet-selection-ai-button");
+    circle.classList.add("tenet-circle-trigger");
+    circle.setAttribute("aria-label", "Circle selection");
+    circle.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 19c-5.5.6-10-2.5-10-7S7 4 12 4s9 3 9 7c0 1-.2 2-.7 2.8" stroke-dasharray="3 3"/><path d="m14 13 7 3-3.3 1.4-1.4 3.3Z"/></svg>';
     circle.setAttribute("aria-pressed", "false");
     circle.title = "Draw around an area to move its ink or ask Tenet. Tap again to cancel.";
     const scope = document.createElement("select");
@@ -24892,6 +24983,10 @@ var tenetCanvasAI = null;
     const move = makeButton("Move ink", "tenet-selection-button");
     move.setAttribute("aria-pressed", "false");
     const talk = makeButton("Talk to Tenet", "tenet-selection-button");
+    talk.classList.add("tenet-circle-talk");
+    talk.setAttribute("aria-label", "Talk to Tenet about this selection");
+    talk.title = "Talk to Tenet about this selection";
+    talk.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="6" y="3" width="6" height="11" rx="3"/><path d="M3 10v1a6 6 0 0 0 12 0v-1M9 17v4M6 21h6M19 8v8M22 10v4"/></svg>';
     const redraw = makeButton("Circle again", "tenet-selection-button");
     const cancel = makeButton("Cancel", "tenet-selection-button");
     controls.append(notice, move, help, question, talk, redraw, cancel);
@@ -24942,8 +25037,9 @@ var tenetCanvasAI = null;
     function close() {
       pendingStart++;
       if (dialog.open) dialog.close();
-      if (pointer !== null && surface.hasPointerCapture?.(pointer)) surface.releasePointerCapture(pointer);
+      const captured = pointer;
       pointer = null; drawing = false; moving = false; moveGesture = null;
+      if (captured !== null && surface.hasPointerCapture?.(captured)) surface.releasePointerCapture(captured);
       const reason = region?.reason;
       region = null;
       surface.setAttribute("hidden", "");
@@ -24953,21 +25049,22 @@ var tenetCanvasAI = null;
       if (reason) tenetInkController?.resume(reason);
     }
     function unchanged(value) {
-      return region === value && value.revision === state.userRevision && value.generation === state.recognitionGeneration;
+      return region === value && value.page === state.snapshotLoadGeneration &&
+        value.revision === state.userRevision && value.generation === state.recognitionGeneration;
     }
     async function start() {
       if (region) { close(); return; }
-      if (state.busy || state.pending || state.drawing || tenetInkController?.active()) {
+      if (state.busy || state.pending || state.pendingWidget || state.drawing || tenetInkController?.active()) {
         tenetInkMessage("Finish the current stroke or AI draft, then circle an area."); return;
       }
-      const token = ++pendingStart, reason = `ai-circle-${token}`;
+      const token = ++pendingStart, reason = `ai-circle-${token}`, page = state.snapshotLoadGeneration;
       preparing = true; circle.disabled = true;
       try {
         clearTimeout(state.timer); state.timer = 0;
         if (state.selection) commitSelection();
         await tenetInkController?.suspend(reason);
         await tenetInkFlush();
-        if (token !== pendingStart) { tenetInkController?.resume(reason); return; }
+        if (token !== pendingStart || page !== state.snapshotLoadGeneration) { tenetInkController?.resume(reason); return; }
         document.activeElement?.blur?.();
         region = { reason, points:[], revision:state.userRevision, generation:state.recognitionGeneration, page:state.snapshotLoadGeneration };
         surface.removeAttribute("hidden");
@@ -25100,6 +25197,9 @@ var tenetCanvasAI = null;
         moveGesture = {point, bounds, points:region.points.map(p => ({...p}))};
         surface.setPointerCapture(pointer); paint(); return;
       }
+      // A completed selection stays selected. A stray finger/palm landing on
+      // the SVG must not silently replace it; Circle again explicitly redraws.
+      if (tenetRegionGeometry(region.points)) return;
       pointer = event.pointerId; drawing = true; region.points = [];
       surface.setPointerCapture(pointer); addPoint(event); paint();
     }, { signal });
@@ -25128,10 +25228,11 @@ var tenetCanvasAI = null;
         else void finishMove(value, gesture);
         return;
       }
-      if (event.type === "pointercancel") region.points = [];
+      if (event.type !== "pointerup") region.points = [];
       else addPoint(event);
-      if (surface.hasPointerCapture?.(pointer)) surface.releasePointerCapture(pointer);
+      const captured = pointer;
       pointer = null; drawing = false;
+      if (surface.hasPointerCapture?.(captured)) surface.releasePointerCapture(captured);
       const bounds = tenetRegionGeometry(region.points);
       if (!bounds || bounds.w*state.scale < 8 || bounds.h*state.scale < 8) region.points = [];
       notice.textContent = region.points.length ? "Selection ready. Move its ink, or ask Tenet about only this area." : "Circle a larger area to select it.";
@@ -25139,7 +25240,8 @@ var tenetCanvasAI = null;
     }
     surface.addEventListener("pointerup", finish, { signal });
     surface.addEventListener("pointercancel", finish, { signal });
-    surface.addEventListener("lostpointercapture", event => { if (moveGesture) finish(event); }, {signal});
+    surface.addEventListener("lostpointercapture", event => { if (pointer !== null) finish(event); }, {signal});
+    document.addEventListener("visibilitychange", () => { if (document.hidden) close(); }, {signal});
     document.addEventListener("pointerdown", event => {
       if (!region || view.contains(event.target) || entry.contains(event.target) || dialog.contains(event.target)) return;
       close();
@@ -25168,7 +25270,7 @@ var tenetVoice = null;
   const reason = "tenet-voice-question", preference = "tenet.voice-replies.v1";
   const lifetime = new AbortController(), signal = lifetime.signal, listeners = [];
   let ui = null, capability = null, job = null, sequence = 0, guardTimer = 0;
-  let phase = "idle", speaking = false, disposed = false;
+  let phase = "idle", speaking = false, disposed = false, listenersReady = false;
 
   function voicePopoverBounds(entry, viewport, layoutWidth, contentHeight = 320) {
     if (!entry || !viewport || !Number.isFinite(layoutWidth) || layoutWidth <= 0 ||
@@ -25233,15 +25335,35 @@ var tenetVoice = null;
   function supportsSilenceAutoSubmit() {
     return capability?.supportsSilenceAutoSubmit === true && capability.autoSubmitSilenceSeconds === 1.5;
   }
+  function disclose(value) {
+    const context = value.selection, autoSend = supportsSilenceAutoSubmit();
+    const transcriptPause = capability?.autoSubmitTrigger === "transcript-inactivity";
+    const pause = transcriptPause ? "1.5 seconds without a new transcribed word" : "1.5 full seconds of silence";
+    ui.heading.textContent = context ? "Talk about your selection" : "Talk to Tenet";
+    ui.timing.textContent = autoSend
+      ? transcriptPause ? "Sends after 1.5 seconds without a new word" : "Sends after 1.5 seconds of silence"
+      : "Manual send. Update the iPad app for silence sending.";
+    ui.privacy.textContent = autoSend
+      ? context
+        ? `Your transcript and only the circled pixels are sent to your district Gateway after ${pause}. Audio stays on this iPad. Stop or cancel to prevent automatic sending.`
+        : `Your transcript and the visible page are sent to your district Gateway after ${pause}. Audio stays on this iPad. Off-screen work is not included. Stop or cancel to prevent automatic sending.`
+      : context
+        ? "Tap Ask Tenet to send your transcript and only the circled pixels to your district Gateway. Audio stays on this iPad."
+        : "Tap Ask Tenet to send your transcript and visible page to your district Gateway. Audio stays on this iPad. Off-screen work is not included.";
+    ui.preview.alt = context ? "Circled area included with your question" : "Visible page included with your question";
+  }
   function paint() {
     if (!ui) return;
     const recording = ["starting", "listening"].includes(phase);
     ui.record.textContent = recording ? "Stop listening" : "Record again";
-    ui.record.disabled = !capability?.supported || Boolean(job?.submitting) || ["starting", "finalizing", "sending"].includes(phase);
+    // Readiness/permissions can change after launch. A retry must reach native
+    // capability checks rather than remain disabled by an old snapshot.
+    ui.record.disabled = !listenersReady || !job || Boolean(job?.submitting) || ["starting", "finalizing", "sending"].includes(phase);
     ui.input.readOnly = recording || phase === "finalizing" || phase === "sending";
     ui.ask.disabled = !ui.input.value.trim() || Boolean(job?.submitting) || ["starting", "finalizing", "sending"].includes(phase);
     ui.stop.hidden = !speaking;
-    ui.entry.disabled = phase === "sending";
+    ui.entry.disabled = !listenersReady || phase === "sending";
+    ui.entry.setAttribute("data-voice-phase", phase);
     ui.entry.setAttribute("aria-expanded", String(ui.dialog.open));
   }
   function quiet() {
@@ -25270,11 +25392,11 @@ var tenetVoice = null;
     guardTimer = setInterval(() => { if (!current(value)) cancel(); }, 250);
   }
   async function record(value) {
-    if (!isOpenVoiceJob(value, value?.sessionId) || !capability?.supported || value.submitting || phase !== "idle") return;
+    if (!listenersReady || !isOpenVoiceJob(value, value?.sessionId) || value.submitting || phase !== "idle") return;
     quiet();
     const recordingSessionId = crypto.randomUUID();
     value.sessionId = recordingSessionId;
-    value.autoSubmitArmed = supportsSilenceAutoSubmit();
+    value.autoSubmitArmed = false;
     value.finalTranscript = null;
     value.autoSubmittedSessionId = null;
     phase = "starting";
@@ -25282,12 +25404,26 @@ var tenetVoice = null;
     message("Starting on-device dictation...");
     paint();
     try {
+      const refreshed = await native.getVoiceCapabilities({locale:navigator.language});
+      if (!isOpenVoiceJob(value, recordingSessionId)) return;
+      capability = refreshed;
+      disclose(value);
+      if (!capability?.supported) {
+        phase = "idle";
+        message(capability?.reason || "On-device dictation is unavailable. Check microphone and speech permissions, then tap Record again.");
+        ui.input.focus();
+        paint();
+        return;
+      }
+      value.autoSubmitArmed = supportsSilenceAutoSubmit();
       await native.startVoiceRecognition({sessionId:recordingSessionId, locale:capability.locale});
       if (!isOpenVoiceJob(value, recordingSessionId)) { await native.cancelVoiceRecognition({sessionId:recordingSessionId}); return; }
       if (phase === "starting") {
         phase = "listening";
         message(supportsSilenceAutoSubmit()
-          ? "Listening on this iPad. Pause for 1.5 full seconds to send. Stop listening to review instead."
+          ? capability?.autoSubmitTrigger === "transcript-inactivity"
+            ? "Listening on this iPad. Sends 1.5 seconds after the last new transcribed word. Stop listening to review instead."
+            : "Listening on this iPad. Pause for 1.5 full seconds to send. Stop listening to review instead."
           : "Listening on this iPad. Stop to review, or tap Ask Tenet to send.");
       }
     } catch (error) {
@@ -25328,7 +25464,7 @@ var tenetVoice = null;
     // A rectangular context selection requires no lasso gesture. It is explicitly
     // disclosed in the dialog and reuses the existing strict crop/question API.
     const packed = buildTenetRegionImage(selection ? selection.points : [{x,y},{x:x+w,y},{x:x+w,y:y+h},{x,y:y+h}], text);
-    if (!selection) {
+    if (!selection && !packed.questionOnly) {
       packed.visibleRect = {...bounds};
       if (text) packed.questionScope = "visible-page";
     }
@@ -25350,6 +25486,7 @@ var tenetVoice = null;
       paint();
       const {packed, revision, generation} = await capture(value, text);
       if (!current(value)) return;
+      if (packed.questionOnly) tenetInkMessage("Blank page: sending only your question, without an image.");
       ui.dialog.close();
       ui.preview.removeAttribute("src");
       ui.input.value = "";
@@ -25397,8 +25534,16 @@ var tenetVoice = null;
       return;
     }
     if (!["error","cancelled","stopped"].includes(event.state)) return;
-    const final = value.finalTranscript;
-    const autoSubmit = supportsSilenceAutoSubmit() && event.state === "stopped" && event.reason === "silence" && value.autoSubmitArmed
+    // New native builds deliver final text with the terminal event. Do not
+    // depend on ordering between two distinct Capacitor notifications, and do
+    // not fall back to older text if an explicit terminal payload is invalid.
+    const hasTerminalText = "text" in event || "isFinal" in event;
+    const final = hasTerminalText
+      ? event.isFinal === true && typeof event.text === "string" && event.text.length <= 1000
+        ? {sessionId:event.sessionId, text:event.text} : null
+      : value.finalTranscript;
+    const expectedReason = capability?.autoSubmitTrigger === "transcript-inactivity" ? "transcript-pause" : "silence";
+    const autoSubmit = supportsSilenceAutoSubmit() && event.state === "stopped" && event.reason === expectedReason && value.autoSubmitArmed
       && ["starting","listening","finalizing"].includes(phase)
       && final?.sessionId === event.sessionId && final.text.trim().length > 0;
     value.autoSubmitArmed = false;
@@ -25407,8 +25552,8 @@ var tenetVoice = null;
       value.autoSubmittedSessionId = event.sessionId;
       ui.input.value = final.text;
       message("Pause complete. Sending your question...");
-      // Only a native audio-silence terminal event may enter this path. There
-      // is deliberately no timer or transcript-update debounce in the webview.
+      // Only the native terminal event for the advertised pause trigger may
+      // enter this path. Native owns finalization and the inactivity timer.
       void submit();
     } else {
       message(event.message || (event.reason === "no-speech"
@@ -25418,6 +25563,7 @@ var tenetVoice = null;
     paint();
   }
   async function open(selection = null) {
+    if (!listenersReady) { tenetInkMessage("Connecting the microphone controls. Please try again in a moment."); return; }
     if (state.busy || state.pending || state.pendingWidget || state.drawing) {
       tenetInkMessage("Finish the current drawing or AI draft before starting a voice question."); return;
     }
@@ -25430,33 +25576,29 @@ var tenetVoice = null;
     document.activeElement?.blur();
     const value = {id:++sequence, sessionId:crypto.randomUUID(), page:state.snapshotLoadGeneration, selection:context};
     job = value;
-    ui.heading.textContent = context ? "Talk about your selection" : "Talk to Tenet";
-    const autoSend = supportsSilenceAutoSubmit();
-    ui.timing.textContent = autoSend ? "Sends after 1.5 seconds of silence"
-      : "Manual send. Update the iPad app for silence sending.";
-    ui.privacy.textContent = autoSend
-      ? context
-        ? "Your transcript and only the circled pixels are sent to your district Gateway after 1.5 full seconds of silence. Audio stays on this iPad. Stop or cancel to prevent automatic sending."
-        : "Your transcript and the visible page are sent to your district Gateway after 1.5 full seconds of silence. Audio stays on this iPad. Off-screen work is not included. Stop or cancel to prevent automatic sending."
-      : context
-        ? "Tap Ask Tenet to send your transcript and only the circled pixels to your district Gateway. Audio stays on this iPad."
-        : "Tap Ask Tenet to send your transcript and visible page to your district Gateway. Audio stays on this iPad. Off-screen work is not included.";
-    ui.preview.alt = context ? "Circled area included with your question" : "Visible page included with your question";
+    disclose(value);
+    ui.previewStatus.textContent = "Preparing the page preview...";
     ui.dialog.show();
     positionPopover();
     paint();
     watch(value);
-    message(autoSend ? "Speak, then pause for 1.5 full seconds to send. You can also type and tap Ask Tenet."
-      : "Record or type your question, then tap Ask Tenet to send.");
-    try {
-      await tenetInkController?.suspend(reason);
-      if (!current(value)) { await tenetInkController?.resume(reason); return; }
-      const preview = await capture(value, "");
-      if (!current(value)) return;
-      ui.preview.src = preview.packed.atlasImage;
-      if (capability.supported) await record(value);
-      else { message(capability.reason || "On-device dictation is unavailable for this language. Type below instead."); ui.input.focus(); }
-    } catch (error) { if (current(value)) { message(error?.message || "Unable to prepare the visible page."); paint(); } }
+    // Preview generation can wait for native ink or widget snapshots. It is
+    // optional UI work, not a microphone prerequisite; submit still performs
+    // the authoritative, revision-checked capture before anything is sent.
+    void (async () => {
+      try {
+        await tenetInkController?.suspend(reason);
+        if (!current(value)) return;
+        const preview = await capture(value, "");
+        if (!isOpenVoiceJob(value, value.sessionId) || value.submitting) return;
+        ui.preview.src = preview.packed.atlasImage;
+        ui.previewStatus.textContent = "";
+      } catch {
+        if (isOpenVoiceJob(value, value.sessionId) && !value.submitting)
+          ui.previewStatus.textContent = "Preview unavailable. Tenet will retry the same page or selected area before sending.";
+      }
+    })();
+    await record(value);
   }
   async function activate() {
     try { capability = await native.getVoiceCapabilities({locale:navigator.language}); }
@@ -25466,7 +25608,7 @@ var tenetVoice = null;
     if (!viewport) return;
     const link = document.createElement("link"); link.rel = "stylesheet"; link.href = "/tenet-voice.css"; document.head.append(link);
     const group = document.createElement("div"); group.className = "tenet-voice-entry";
-    group.innerHTML = '<button type="button" data-voice="open" aria-haspopup="dialog" aria-controls="tenetVoicePopover" aria-expanded="false">Talk to Tenet</button><button type="button" data-voice="stop" hidden>Stop voice</button>';
+    group.innerHTML = '<button type="button" data-voice="open" aria-label="Talk to Tenet" title="Talk to Tenet" aria-haspopup="dialog" aria-controls="tenetVoicePopover" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="6" y="3" width="6" height="11" rx="3"/><path d="M3 10v1a6 6 0 0 0 12 0v-1M9 17v4M6 21h6"/><path class="tenet-mic-wave" d="M19 7v10"/><path class="tenet-mic-wave" d="M22 10v4"/></svg></button><button type="button" data-voice="stop" hidden>Stop voice</button>';
     const dialog = document.createElement("dialog"); dialog.className = "tenet-voice-dialog tenet-voice-popover";
     dialog.id = "tenetVoicePopover";
     dialog.setAttribute("aria-labelledby", "tenetVoiceTitle");
@@ -25477,6 +25619,10 @@ var tenetVoice = null;
       ask:find(dialog,"ask"),reply:find(dialog,"reply"),status:find(dialog,"status"),
       input:dialog.querySelector("textarea"),preview:dialog.querySelector("img"),
       heading:dialog.querySelector("h2"),privacy:dialog.querySelector(".tenet-voice-privacy"),timing:find(dialog,"timing")};
+    ui.entry.disabled = true;
+    ui.previewStatus = document.createElement("p");
+    ui.previewStatus.className = "tenet-voice-preview-status";
+    find(dialog,"details").append(ui.previewStatus);
     const voiceQuality = document.createElement("p");
     voiceQuality.className = "tenet-voice-quality";
     voiceQuality.textContent = capability.voiceName
@@ -25524,6 +25670,7 @@ var tenetVoice = null;
       if (disposed) { await handle.remove(); return; }
       listeners.push(handle);
     }
+    listenersReady = true;
     paint();
   }
   document.addEventListener("visibilitychange", () => { if (document.hidden) cancel(); }, {signal});

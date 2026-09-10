@@ -13,6 +13,10 @@
 
 .tenet-ai-entry { position:absolute; z-index:47; top:calc(var(--tenet-canvas-controls-top,42px) + 10px); left:12px; display:flex; align-items:center; gap:6px; max-width:calc(100% - 150px); }
 .tenet-ai-entry button, .tenet-ai-scope { min-height:44px; }
+.tenet-ai-entry .tenet-circle-trigger, .tenet-ai-region-controls .tenet-circle-talk { display:grid; place-items:center; flex:0 0 52px; width:52px; height:52px; padding:0; border-radius:16px; background:#fffdf7; border:1px solid #b9c9c4; color:#173d4d; box-shadow:0 3px 12px #173d4d12; }
+.tenet-circle-trigger svg, .tenet-circle-talk svg { width:27px; height:27px; pointer-events:none; }
+.tenet-ai-entry .tenet-circle-trigger[aria-pressed="true"] { background:#173d4d; color:#fffdf7; border-color:#173d4d; box-shadow:0 0 0 3px #d7e9df; }
+.tenet-circle-trigger:focus-visible, .tenet-circle-talk:focus-visible { outline:3px solid #2f6fbb; outline-offset:3px; }
 .tenet-ai-scope { max-width:150px; border:1px solid #bcc7cb; border-radius:11px; padding:6px; background:#fffdf7; color:#172a3a; font:600 12px "Avenir Next",Avenir,sans-serif; }
 .tenet-ai-circle-surface { position:absolute; inset:0; width:100%; height:100%; z-index:45; touch-action:none; cursor:crosshair; }
 .tenet-ai-circle-surface polygon { fill:#2679b81a; fill-rule:evenodd; stroke:#2679b8; stroke-width:2; stroke-dasharray:7 5; vector-effect:non-scaling-stroke; }

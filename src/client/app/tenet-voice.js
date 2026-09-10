@@ -7,7 +7,7 @@ var tenetVoice = null;
   const reason = "tenet-voice-question", preference = "tenet.voice-replies.v1";
   const lifetime = new AbortController(), signal = lifetime.signal, listeners = [];
   let ui = null, capability = null, job = null, sequence = 0, guardTimer = 0;
-  let phase = "idle", speaking = false, disposed = false;
+  let phase = "idle", speaking = false, disposed = false, listenersReady = false;
 
   function voicePopoverBounds(entry, viewport, layoutWidth, contentHeight = 320) {
     if (!entry || !viewport || !Number.isFinite(layoutWidth) || layoutWidth <= 0 ||
@@ -72,15 +72,35 @@ var tenetVoice = null;
   function supportsSilenceAutoSubmit() {
     return capability?.supportsSilenceAutoSubmit === true && capability.autoSubmitSilenceSeconds === 1.5;
   }
+  function disclose(value) {
+    const context = value.selection, autoSend = supportsSilenceAutoSubmit();
+    const transcriptPause = capability?.autoSubmitTrigger === "transcript-inactivity";
+    const pause = transcriptPause ? "1.5 seconds without a new transcribed word" : "1.5 full seconds of silence";
+    ui.heading.textContent = context ? "Talk about your selection" : "Talk to Tenet";
+    ui.timing.textContent = autoSend
+      ? transcriptPause ? "Sends after 1.5 seconds without a new word" : "Sends after 1.5 seconds of silence"
+      : "Manual send. Update the iPad app for silence sending.";
+    ui.privacy.textContent = autoSend
+      ? context
+        ? `Your transcript and only the circled pixels are sent to your district Gateway after ${pause}. Audio stays on this iPad. Stop or cancel to prevent automatic sending.`
+        : `Your transcript and the visible page are sent to your district Gateway after ${pause}. Audio stays on this iPad. Off-screen work is not included. Stop or cancel to prevent automatic sending.`
+      : context
+        ? "Tap Ask Tenet to send your transcript and only the circled pixels to your district Gateway. Audio stays on this iPad."
+        : "Tap Ask Tenet to send your transcript and visible page to your district Gateway. Audio stays on this iPad. Off-screen work is not included.";
+    ui.preview.alt = context ? "Circled area included with your question" : "Visible page included with your question";
+  }
   function paint() {
     if (!ui) return;
     const recording = ["starting", "listening"].includes(phase);
     ui.record.textContent = recording ? "Stop listening" : "Record again";
-    ui.record.disabled = !capability?.supported || Boolean(job?.submitting) || ["starting", "finalizing", "sending"].includes(phase);
+    // Readiness/permissions can change after launch. A retry must reach native
+    // capability checks rather than remain disabled by an old snapshot.
+    ui.record.disabled = !listenersReady || !job || Boolean(job?.submitting) || ["starting", "finalizing", "sending"].includes(phase);
     ui.input.readOnly = recording || phase === "finalizing" || phase === "sending";
     ui.ask.disabled = !ui.input.value.trim() || Boolean(job?.submitting) || ["starting", "finalizing", "sending"].includes(phase);
     ui.stop.hidden = !speaking;
-    ui.entry.disabled = phase === "sending";
+    ui.entry.disabled = !listenersReady || phase === "sending";
+    ui.entry.setAttribute("data-voice-phase", phase);
     ui.entry.setAttribute("aria-expanded", String(ui.dialog.open));
   }
   function quiet() {
@@ -109,11 +129,11 @@ var tenetVoice = null;
     guardTimer = setInterval(() => { if (!current(value)) cancel(); }, 250);
   }
   async function record(value) {
-    if (!isOpenVoiceJob(value, value?.sessionId) || !capability?.supported || value.submitting || phase !== "idle") return;
+    if (!listenersReady || !isOpenVoiceJob(value, value?.sessionId) || value.submitting || phase !== "idle") return;
     quiet();
     const recordingSessionId = crypto.randomUUID();
     value.sessionId = recordingSessionId;
-    value.autoSubmitArmed = supportsSilenceAutoSubmit();
+    value.autoSubmitArmed = false;
     value.finalTranscript = null;
     value.autoSubmittedSessionId = null;
     phase = "starting";
@@ -121,12 +141,26 @@ var tenetVoice = null;
     message("Starting on-device dictation...");
     paint();
     try {
+      const refreshed = await native.getVoiceCapabilities({locale:navigator.language});
+      if (!isOpenVoiceJob(value, recordingSessionId)) return;
+      capability = refreshed;
+      disclose(value);
+      if (!capability?.supported) {
+        phase = "idle";
+        message(capability?.reason || "On-device dictation is unavailable. Check microphone and speech permissions, then tap Record again.");
+        ui.input.focus();
+        paint();
+        return;
+      }
+      value.autoSubmitArmed = supportsSilenceAutoSubmit();
       await native.startVoiceRecognition({sessionId:recordingSessionId, locale:capability.locale});
       if (!isOpenVoiceJob(value, recordingSessionId)) { await native.cancelVoiceRecognition({sessionId:recordingSessionId}); return; }
       if (phase === "starting") {
         phase = "listening";
         message(supportsSilenceAutoSubmit()
-          ? "Listening on this iPad. Pause for 1.5 full seconds to send. Stop listening to review instead."
+          ? capability?.autoSubmitTrigger === "transcript-inactivity"
+            ? "Listening on this iPad. Sends 1.5 seconds after the last new transcribed word. Stop listening to review instead."
+            : "Listening on this iPad. Pause for 1.5 full seconds to send. Stop listening to review instead."
           : "Listening on this iPad. Stop to review, or tap Ask Tenet to send.");
       }
     } catch (error) {
@@ -167,7 +201,7 @@ var tenetVoice = null;
     // A rectangular context selection requires no lasso gesture. It is explicitly
     // disclosed in the dialog and reuses the existing strict crop/question API.
     const packed = buildTenetRegionImage(selection ? selection.points : [{x,y},{x:x+w,y},{x:x+w,y:y+h},{x,y:y+h}], text);
-    if (!selection) {
+    if (!selection && !packed.questionOnly) {
       packed.visibleRect = {...bounds};
       if (text) packed.questionScope = "visible-page";
     }
@@ -189,6 +223,7 @@ var tenetVoice = null;
       paint();
       const {packed, revision, generation} = await capture(value, text);
       if (!current(value)) return;
+      if (packed.questionOnly) tenetInkMessage("Blank page: sending only your question, without an image.");
       ui.dialog.close();
       ui.preview.removeAttribute("src");
       ui.input.value = "";
@@ -236,8 +271,16 @@ var tenetVoice = null;
       return;
     }
     if (!["error","cancelled","stopped"].includes(event.state)) return;
-    const final = value.finalTranscript;
-    const autoSubmit = supportsSilenceAutoSubmit() && event.state === "stopped" && event.reason === "silence" && value.autoSubmitArmed
+    // New native builds deliver final text with the terminal event. Do not
+    // depend on ordering between two distinct Capacitor notifications, and do
+    // not fall back to older text if an explicit terminal payload is invalid.
+    const hasTerminalText = "text" in event || "isFinal" in event;
+    const final = hasTerminalText
+      ? event.isFinal === true && typeof event.text === "string" && event.text.length <= 1000
+        ? {sessionId:event.sessionId, text:event.text} : null
+      : value.finalTranscript;
+    const expectedReason = capability?.autoSubmitTrigger === "transcript-inactivity" ? "transcript-pause" : "silence";
+    const autoSubmit = supportsSilenceAutoSubmit() && event.state === "stopped" && event.reason === expectedReason && value.autoSubmitArmed
       && ["starting","listening","finalizing"].includes(phase)
       && final?.sessionId === event.sessionId && final.text.trim().length > 0;
     value.autoSubmitArmed = false;
@@ -246,8 +289,8 @@ var tenetVoice = null;
       value.autoSubmittedSessionId = event.sessionId;
       ui.input.value = final.text;
       message("Pause complete. Sending your question...");
-      // Only a native audio-silence terminal event may enter this path. There
-      // is deliberately no timer or transcript-update debounce in the webview.
+      // Only the native terminal event for the advertised pause trigger may
+      // enter this path. Native owns finalization and the inactivity timer.
       void submit();
     } else {
       message(event.message || (event.reason === "no-speech"
@@ -257,6 +300,7 @@ var tenetVoice = null;
     paint();
   }
   async function open(selection = null) {
+    if (!listenersReady) { tenetInkMessage("Connecting the microphone controls. Please try again in a moment."); return; }
     if (state.busy || state.pending || state.pendingWidget || state.drawing) {
       tenetInkMessage("Finish the current drawing or AI draft before starting a voice question."); return;
     }
@@ -269,33 +313,29 @@ var tenetVoice = null;
     document.activeElement?.blur();
     const value = {id:++sequence, sessionId:crypto.randomUUID(), page:state.snapshotLoadGeneration, selection:context};
     job = value;
-    ui.heading.textContent = context ? "Talk about your selection" : "Talk to Tenet";
-    const autoSend = supportsSilenceAutoSubmit();
-    ui.timing.textContent = autoSend ? "Sends after 1.5 seconds of silence"
-      : "Manual send. Update the iPad app for silence sending.";
-    ui.privacy.textContent = autoSend
-      ? context
-        ? "Your transcript and only the circled pixels are sent to your district Gateway after 1.5 full seconds of silence. Audio stays on this iPad. Stop or cancel to prevent automatic sending."
-        : "Your transcript and the visible page are sent to your district Gateway after 1.5 full seconds of silence. Audio stays on this iPad. Off-screen work is not included. Stop or cancel to prevent automatic sending."
-      : context
-        ? "Tap Ask Tenet to send your transcript and only the circled pixels to your district Gateway. Audio stays on this iPad."
-        : "Tap Ask Tenet to send your transcript and visible page to your district Gateway. Audio stays on this iPad. Off-screen work is not included.";
-    ui.preview.alt = context ? "Circled area included with your question" : "Visible page included with your question";
+    disclose(value);
+    ui.previewStatus.textContent = "Preparing the page preview...";
     ui.dialog.show();
     positionPopover();
     paint();
     watch(value);
-    message(autoSend ? "Speak, then pause for 1.5 full seconds to send. You can also type and tap Ask Tenet."
-      : "Record or type your question, then tap Ask Tenet to send.");
-    try {
-      await tenetInkController?.suspend(reason);
-      if (!current(value)) { await tenetInkController?.resume(reason); return; }
-      const preview = await capture(value, "");
-      if (!current(value)) return;
-      ui.preview.src = preview.packed.atlasImage;
-      if (capability.supported) await record(value);
-      else { message(capability.reason || "On-device dictation is unavailable for this language. Type below instead."); ui.input.focus(); }
-    } catch (error) { if (current(value)) { message(error?.message || "Unable to prepare the visible page."); paint(); } }
+    // Preview generation can wait for native ink or widget snapshots. It is
+    // optional UI work, not a microphone prerequisite; submit still performs
+    // the authoritative, revision-checked capture before anything is sent.
+    void (async () => {
+      try {
+        await tenetInkController?.suspend(reason);
+        if (!current(value)) return;
+        const preview = await capture(value, "");
+        if (!isOpenVoiceJob(value, value.sessionId) || value.submitting) return;
+        ui.preview.src = preview.packed.atlasImage;
+        ui.previewStatus.textContent = "";
+      } catch {
+        if (isOpenVoiceJob(value, value.sessionId) && !value.submitting)
+          ui.previewStatus.textContent = "Preview unavailable. Tenet will retry the same page or selected area before sending.";
+      }
+    })();
+    await record(value);
   }
   async function activate() {
     try { capability = await native.getVoiceCapabilities({locale:navigator.language}); }
@@ -305,7 +345,7 @@ var tenetVoice = null;
     if (!viewport) return;
     const link = document.createElement("link"); link.rel = "stylesheet"; link.href = "/tenet-voice.css"; document.head.append(link);
     const group = document.createElement("div"); group.className = "tenet-voice-entry";
-    group.innerHTML = '<button type="button" data-voice="open" aria-haspopup="dialog" aria-controls="tenetVoicePopover" aria-expanded="false">Talk to Tenet</button><button type="button" data-voice="stop" hidden>Stop voice</button>';
+    group.innerHTML = '<button type="button" data-voice="open" aria-label="Talk to Tenet" title="Talk to Tenet" aria-haspopup="dialog" aria-controls="tenetVoicePopover" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="6" y="3" width="6" height="11" rx="3"/><path d="M3 10v1a6 6 0 0 0 12 0v-1M9 17v4M6 21h6"/><path class="tenet-mic-wave" d="M19 7v10"/><path class="tenet-mic-wave" d="M22 10v4"/></svg></button><button type="button" data-voice="stop" hidden>Stop voice</button>';
     const dialog = document.createElement("dialog"); dialog.className = "tenet-voice-dialog tenet-voice-popover";
     dialog.id = "tenetVoicePopover";
     dialog.setAttribute("aria-labelledby", "tenetVoiceTitle");
@@ -316,6 +356,10 @@ var tenetVoice = null;
       ask:find(dialog,"ask"),reply:find(dialog,"reply"),status:find(dialog,"status"),
       input:dialog.querySelector("textarea"),preview:dialog.querySelector("img"),
       heading:dialog.querySelector("h2"),privacy:dialog.querySelector(".tenet-voice-privacy"),timing:find(dialog,"timing")};
+    ui.entry.disabled = true;
+    ui.previewStatus = document.createElement("p");
+    ui.previewStatus.className = "tenet-voice-preview-status";
+    find(dialog,"details").append(ui.previewStatus);
     const voiceQuality = document.createElement("p");
     voiceQuality.className = "tenet-voice-quality";
     voiceQuality.textContent = capability.voiceName
@@ -363,6 +407,7 @@ var tenetVoice = null;
       if (disposed) { await handle.remove(); return; }
       listeners.push(handle);
     }
+    listenersReady = true;
     paint();
   }
   document.addEventListener("visibilitychange", () => { if (document.hidden) cancel(); }, {signal});

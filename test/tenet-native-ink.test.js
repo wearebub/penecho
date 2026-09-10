@@ -117,14 +117,20 @@ test("Web remains default; new native sessions omit empty drawingData and honor 
   assert.equal(denied.calls.length,0);
 });
 
-test("top bars are excluded from Pencil hit testing without changing ink coordinates", async () => {
+test("top bars exclude only overlapping surface area without changing ink coordinates", async () => {
   const h = await harness();
-  const header = { hidden:false, closest:() => null, getBoundingClientRect:() => ({ x:0, y:24, width:1280, height:96 }) };
+  let headerHeight = 96;
+  const header = { hidden:false, closest:() => null, getBoundingClientRect:() => ({ x:0, y:24, width:1280, height:headerHeight }) };
   h.doc.querySelectorAll = selector => selector.includes(".topbar") ? [header] : [];
   await h.api.setEngine("pencilkit");
   await h.settle();
-  const latest = h.calls.filter(call => call.kind === "configure").at(-1);
-  assert.deepEqual(JSON.parse(JSON.stringify(latest.exclusions)), [{ x:0, y:24, width:1280, height:96 }]);
+  let latest = h.calls.filter(call => call.kind === "configure").at(-1);
+  assert.deepEqual(JSON.parse(JSON.stringify(latest.exclusions)), [], "a header ending at the canvas edge needs no hole");
+  headerHeight = 128;
+  h.controller.sync();
+  await h.settle();
+  latest = h.calls.filter(call => call.kind === "configure").at(-1);
+  assert.deepEqual(JSON.parse(JSON.stringify(latest.exclusions)), [{ x:40, y:120, width:1200, height:32 }]);
   assert.deepEqual(JSON.parse(JSON.stringify(latest.frame)), { x:40, y:120, width:1200, height:800 });
   assert.equal(latest.panY, 0);
   assert.equal(latest.scale, .5);
@@ -304,6 +310,17 @@ test("the real client includes the importer inside the canvas closure and flushe
   assert.ok(builder.indexOf('"src/client/app/tenet-ipad-usability.js"')<builder.indexOf('"src/client/app/ui-bootstrap.js"'));
   assert.match(read("src/client/app/persistence.js"),/async function renderExportCanvas\(\) \{\s*await tenetInkFlush\(\)/);
   assert.match(read("src/client/app/canvas-agent-runtime.js"),/async function canvasAgentCapture\(args,options\) \{\s*await tenetInkFlush\(\)/);
-  assert.match(read("src/client/app/ai-runtime.js"),/async function requestAI[^\n]*\n\s*try \{ await tenetInkFlush\(\)/);
+  const aiRuntime = read("src/client/app/ai-runtime.js");
+  const requestStart = aiRuntime.indexOf("async function requestAI(");
+  assert.notEqual(requestStart, -1, "requestAI must exist");
+  const request = aiRuntime.slice(requestStart);
+  // Tenet action normalization is safe before the unconditional flush. Capture
+  // must still wait for it, and a flush failure must return rather than proceed.
+  assert.match(request, /^async function requestAI[^\n]*\n\s*(?:if \(window\.PENECHO_CONFIG\?\.tenetMode && action === "answer"\) action = "hint";\s*)?try \{ await tenetInkFlush\(\); \}\s*catch \(error\) \{[^\n]*return; \}/);
+  const flushIndex = request.indexOf("await tenetInkFlush()");
+  for (const capture of ["planViewportImage(", "prepareVisibleWidgetSnapshots(", "buildViewportImage(", "emergencyViewportImage("]) {
+    const captureIndex = request.indexOf(capture);
+    assert.ok(captureIndex > flushIndex, `${capture} must occur after the awaited native ink flush`);
+  }
   assert.doesNotMatch(read("src/client/app/tenet-native-bridge.js"),/new DataTransfer|fetch\(result.dataUrl\)/);
 });

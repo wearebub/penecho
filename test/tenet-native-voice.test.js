@@ -34,8 +34,8 @@ test("microphone audio has both Apple on-device gates and no cloud, file, or log
   assert.match(capture, /guard let recognizer, recognizer\.supportsOnDeviceRecognition, recognizer\.isAvailable/);
   assert.match(capture, /request\.requiresOnDeviceRecognition = true/);
   assert.ok(capture.indexOf("request.requiresOnDeviceRecognition = true") < capture.indexOf("recognizer.recognitionTask(with: request)"));
-  assert.match(capture, /input\.installTap\(onBus: 0, bufferSize: 1024, format: format\) \{ \[weak self\] buffer, _ in\s*request\.append\(buffer\)/);
-  assert.match(capture, /silenceDetector\.observe\(buffer\)/);
+  assert.match(capture, /input\.installTap\(onBus: 0, bufferSize: 1024, format: format\) \{ buffer, _ in\s*request\.append\(buffer\)\s*\}/);
+  assert.doesNotMatch(voice, /TenetVoiceSilenceDetector|floatChannelData|silentSeconds|finalTranscriptActivity/);
   assert.doesNotMatch(voice, /requiresOnDeviceRecognition\s*=\s*false|SFSpeechURLRecognitionRequest|URLSession|URLRequest|AVAudioFile|AVAudioRecorder|FileManager|UserDefaults|\.write\(|print\(|NSLog|Logger\(/);
   assert.doesNotMatch(voice, /error\.localizedDescription/);
 });
@@ -46,7 +46,8 @@ test("capabilities do not prompt and permission callbacks cannot resurrect a can
   assert.match(capabilities, /authority\(\) != nil/);
   assert.match(capabilities, /"supportsSilenceAutoSubmit": false/);
   assert.ok(capabilities.indexOf('result["supportsSilenceAutoSubmit"] = true') > capabilities.indexOf('result["supported"] = true'));
-  assert.match(capabilities, /"autoSubmitSilenceSeconds": TenetVoiceSilenceDetector\.requiredSilenceSeconds/);
+  assert.match(capabilities, /"autoSubmitSilenceSeconds": Self\.transcriptPauseSeconds/);
+  assert.match(capabilities, /"autoSubmitTrigger": "transcript-inactivity"/);
   const permissions = section(voice, "private func advancePermissions()", "private func beginRecording()");
   assert.match(permissions, /UIApplication\.shared\.applicationState == \.active/);
   assert.equal((permissions.match(/self\.generation == currentGeneration, self\.phase == \.permissions/g) || []).length, 2);
@@ -86,6 +87,9 @@ test("background, interruption, navigation and teardown retire microphone and pl
     assert.ok(voice.includes(notification));
   }
   assert.match(voice, /phase == \.permissions && self\.permissionPromptOutstanding/);
+  const interruption = section(voice, "forName: AVAudioSession.interruptionNotification", "forName: AVAudioSession.routeChangeNotification");
+  assert.match(interruption, /AVAudioSessionInterruptionTypeKey/);
+  assert.match(interruption, /if type == AVAudioSession\.InterruptionType\.began\.rawValue \{ self\?\.cancelAll\(\) \}/);
   assert.match(plugin, /webView\.observe\(\\\.isLoading/);
   assert.match(plugin, /webView\.observe\(\\\.url/);
   assert.doesNotMatch(plugin, /navigationDelegate\s*=/);
@@ -118,53 +122,88 @@ test("spoken replies use Apple voices, cancel capture, and report actual delegat
   assert.match(section(voice, "func start(_ call:", "private func authorityMatches()"), /stopSpeaking\(\)/);
 });
 
-test("native audio silence requires 1.5 full seconds after activity and rejects cancelled or stale tickets", () => {
-  const detector = section(voice, "private final class TenetVoiceSilenceDetector", "final class TenetVoiceSession");
-  assert.match(detector, /requiredSilenceSeconds: TimeInterval = 1\.5/);
-  assert.match(detector, /buffer\.floatChannelData/);
-  assert.match(detector, /Double\(frames\) \/ sampleRate/);
-  assert.match(detector, /guard heardSpeech else \{ return nil \}/);
-  assert.match(detector, /silentSeconds \+= sample\.seconds/);
-  assert.match(detector, /silentSeconds >= Self\.requiredSilenceSeconds/);
-  assert.match(detector, /version == ticket/);
-  assert.match(detector, /retired = true/);
-  assert.doesNotMatch(detector, /\b(?:transcript|formattedString|bestTranscription)\s*[.(=]|DispatchQueue\.main\.asyncAfter|Timer\(/);
-  const capture = section(voice, "private func beginRecording()", "private func stopMicrophone()");
-  assert.match(capture, /self\.generation == currentGeneration, self\.phase == \.listening/);
-  assert.match(capture, /guard self\.authorityMatches\(\), UIApplication\.shared\.applicationState == \.active/);
-  assert.match(capture, /guard silenceDetector\.claim\(ticket\)/);
-  assert.match(capture, /self\.finalTranscriptActivity != ticket/);
-  assert.match(section(voice, "private func stopMicrophone()", "func stop(_ call:"), /silenceDetector\?\.cancel\(\)/);
+test("transcript inactivity normalizes bounded words and ignores repeated or punctuation-only callbacks", () => {
+  const normalize = section(voice, "private static func normalizedWords(", "func capabilities(locale:");
+  assert.match(normalize, /boundedTranscript\(value\)\.precomposedStringWithCanonicalMapping/);
+  assert.match(normalize, /folding\(options: \[\.caseInsensitive\]/);
+  assert.match(normalize, /components\(separatedBy: \.punctuationCharacters\)\.joined\(\)/);
+  assert.match(normalize, /CharacterSet\.alphanumerics\.union\(\.nonBaseCharacters\)\.inverted/);
+  assert.match(normalize, /rangeOfCharacter\(from: \.alphanumerics\) != nil/);
+  assert.match(normalize, /joined\(separator: " "\)/);
+  const pause = section(voice, "private func updateTranscriptPause()", "private func cancelTranscriptPause()");
+  assert.match(voice, /transcriptPauseSeconds: TimeInterval = 1\.5/);
+  assert.match(pause, /guard phase == \.listening/);
+  assert.match(pause, /let words = Self\.normalizedWords\(transcript\)/);
+  assert.match(pause, /guard !words\.isEmpty else \{\s*cancelTranscriptPause\(\)\s*transcriptWords = ""\s*return/);
+  assert.match(pause, /guard words != transcriptWords else \{ return \}\s*cancelTranscriptPause\(\)\s*transcriptWords = words/);
+  assert.match(pause, /self\.generation == currentGeneration, self\.phase == \.listening/);
+  assert.match(pause, /self\.transcriptPauseToken == token, self\.transcriptWords == words/);
+  assert.match(pause, /guard self\.authorityMatches\(\), UIApplication\.shared\.applicationState == \.active/);
+  assert.match(pause, /beginFinalization\(reason: "transcript-pause"\)/);
+  assert.match(pause, /asyncAfter\(deadline: \.now\(\) \+ Self\.transcriptPauseSeconds, execute: deadline\)/);
+  assert.doesNotMatch(pause, /Date\(|Timer\(|buffer|sampleRate|rms|peak/);
+  const capture = section(voice, "private func beginRecording()", "private func updateTranscriptPause()");
+  assert.match(capture, /self\.hasFinalTranscript = result\.isFinal/);
+  assert.match(capture, /if result\.isFinal && self\.phase == \.finishing \{ self\.completeRecording\(\); return \}/);
+  assert.match(capture, /self\.updateTranscriptPause\(\)/);
+  assert.doesNotMatch(capture, /hasFinalTranscript = true|reason: "silence"/);
 });
 
-test("silence completion requires settled nonempty text and reports a terminal reason without bypassing bounds", () => {
+test("manual stop, cancellation and cleanup revoke pending automatic transcript submission", () => {
+  const cancel = section(voice, "private func cancelTranscriptPause()", "private func stopMicrophone()");
+  assert.match(cancel, /transcriptPauseToken = UUID\(\)/);
+  assert.match(cancel, /transcriptPauseDeadline\?\.cancel\(\)/);
+  assert.match(cancel, /transcriptPauseDeadline = nil/);
+  const stopMic = section(voice, "private func stopMicrophone()", "func stop(_ call:");
+  assert.match(stopMic, /cancelTranscriptPause\(\)/);
+  assert.match(stopMic, /request\?\.endAudio\(\)/);
+  const stop = section(voice, "func stop(_ call:", "private func beginFinalization(reason:");
+  assert.match(stop, /guard sessionId == requestedId, phase != nil/);
+  assert.match(stop, /if phase == \.permissions \{\s*cancelRecognition\(sessionId: requestedId\)/);
+  assert.match(stop, /if phase == \.finishing \{ finalizationReason = "manual" \}\s*beginFinalization\(\)/);
+  const cleanup = section(voice, "private func cleanupRecognition()", "func cancelRecognition(");
+  assert.match(cleanup, /stopMicrophone\(\)/);
+  assert.match(cleanup, /hasFinalTranscript = false/);
+  assert.match(cleanup, /transcriptWords = ""/);
+  assert.match(cleanup, /finalizationReason = nil/);
+});
+
+test("transcript-pause terminal payload requires real final nonempty text or a bounded safe timeout", () => {
   const finish = section(voice, "private func beginFinalization(reason:", "private func emitTranscript(");
+  assert.match(finish, /reason: String = "manual"/);
   assert.match(finish, /guard phase == \.listening/);
+  assert.match(finish, /guard authorityMatches\(\), UIApplication\.shared\.applicationState == \.active/);
   assert.match(finish, /finalizationReason = reason/);
   assert.match(finish, /emitState\("finalizing", reason: reason\)/);
+  assert.match(finish, /if hasFinalTranscript \{ completeRecording\(\); return \}/);
+  assert.match(finish, /self\.generation == currentGeneration, self\.phase == \.finishing/);
   const complete = section(voice, "private func completeRecording()", "private func fail(");
-  assert.match(complete, /authorityMatches\(\)/);
-  assert.match(complete, /text\.trimmingCharacters\(in: \.whitespacesAndNewlines\)\.isEmpty/);
-  assert.match(complete, /completionReason = "no-speech"/);
-  assert.match(complete, /completionReason == "silence" && !hasFinalTranscript/);
-  assert.match(complete, /completionReason = "finalization-timeout"/);
-  assert.ok(complete.indexOf("emitTranscript(isFinal: true)") < complete.indexOf('emitState("stopped", reason: completionReason)'));
+  assert.match(complete, /authorityMatches\(\),\s*UIApplication\.shared\.applicationState == \.active/);
+  assert.match(complete, /let hasWords = !Self\.normalizedWords\(text\)\.isEmpty/);
+  assert.match(complete, /if !hasWords \{\s*completionReason = "no-speech"/);
+  assert.match(complete, /else if !hasFinalTranscript \{\s*completionReason = "finalization-timeout"/);
+  assert.match(complete, /Nothing was sent automatically\. Review the text and send it manually/);
+  assert.match(complete, /emitTranscript\(isFinal: hasFinalTranscript\)/);
+  assert.match(complete, /"stopped", message: completionMessage, reason: completionReason,\s*text: text, isFinal: hasFinalTranscript && hasWords/);
+  assert.ok(complete.indexOf('text: text, isFinal: hasFinalTranscript && hasWords') < complete.indexOf("cleanupRecognition()"));
+  assert.doesNotMatch(complete, /emitTranscript\(isFinal: true\)|hasFinalTranscript = true|completionReason = "transcript-pause"/);
   assert.match(complete, /call\.resolve\(\["text": text, "reason": completionReason\]\)/);
-  const cleanup = section(voice, "private func cleanupRecognition()", "func cancelRecognition(");
-  assert.match(cleanup, /hasFinalTranscript = false/);
-  assert.match(cleanup, /finalizationReason = nil/);
+  const state = section(voice, "private func emitState(", "private func completeRecording()");
+  assert.match(state, /if let text \{ payload\["text"\] = text \}/);
+  assert.match(state, /if let isFinal \{ payload\["isFinal"\] = isFinal \}/);
   assert.match(voice, /beginFinalization\(reason: "max-duration"\)/);
   assert.match(voice, /beginFinalization\(reason: "text-limit"\)/);
 });
 
-test("generated iPad privacy descriptions disclose silence auto-send of text with scoped image, never audio", () => {
+test("generated iPad privacy descriptions disclose transcript-pause auto-send with scoped image, never audio", () => {
   const info = section(packaging, "function configureIosInfo()", "function ensurePlatform(");
   assert.match(info, /info\.NSMicrophoneUsageDescription = "[^"\n]*Audio is not uploaded or saved\./);
   for (const key of ["NSMicrophoneUsageDescription", "NSSpeechRecognitionUsageDescription"]) {
     const description = info.match(new RegExp(`info\\.${key} = "([^"\\n]*)"`))?.[1];
     assert.ok(description, key);
     assert.match(description, /on this iPad/);
-    assert.match(description, /1\.5 full seconds of silence/);
+    assert.match(description, /1\.5 seconds without a new transcribed word/);
+    assert.doesNotMatch(description, /full seconds of silence/);
     assert.match(description, /automatically sent through your district Gateway/);
     assert.match(description, /selected or visible page image/);
     assert.match(description, /Audio is not uploaded or saved\./);

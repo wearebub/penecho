@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "product": "Tenet Whiteboard",
+  "tag": "tenet-ipad-v1.6.0-build.36",
+  "sourceCommit": "ee41e1e2c096afbb982206f68dd64289bc215344",
+  "sourceDate": "2026-09-10T16:27:22-05:00",
+  "channel": "testing",
+  "provenance": {
+    "surface": "ipad",
+    "version": "1.6.0",
+    "build": "36",
+    "bundleId": "ai.truemade.tenet.whiteboard",
+    "workflow": "https://github.com/wearebub/penecho/actions/runs/34532284158",
+    "artifact": "tenet-whiteboard-ios",
+    "fullCi": "passed",
+    "testFlightUpload": true
+  },
+  "artifacts": [
+    {
+      "name": "Tenet-Whiteboard-1.6.0-build.36.ipa",
+      "bytes": 1634573,
+      "sha256": "c23039058bf5469d3577094e0fc23ce3f0a0e7b38cc8f4ce4906e8d2a491f537"
+    },
+    {
+      "name": "tenet-ipad-v1.6.0-build.36-source.zip",
+      "bytes": 5074976,
+      "sha256": "62164bd211610acd33b14c9b9aeef3bfc857a59992d51f8f846c72f58277ef11"
+    }
+  ]
+}
