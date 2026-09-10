@@ -433,3 +433,27 @@ test("Swift source contract only: move validation/encoding precede guarded mutat
   assert.match(undo, /target\.undoableReplace\(previous, actionName: actionName\)/);
   assert.match(undo, /replaceDrawing\(drawing, resetUndo: false\)/);
 });
+
+test("Swift source contract only: exclusion masks subtract overlapping holes with bounded disjoint visible pieces", () => {
+  const clip = section(inkSwift, "private final class InkClipView: UIView", "private struct InkToolActivity");
+  assert.match(clip, /didSet \{ rebuildExclusionMask\(\) \}/);
+  assert.match(clip, /override func layoutSubviews\(\) \{\s*super\.layoutSubviews\(\)\s*rebuildExclusionMask\(\)/);
+  assert.match(clip, /maximumMaskPieces = 4096/);
+  assert.match(clip, /finiteRectangle\(bounds\), !bounds\.isEmpty, exclusions\.count <= 128/);
+  assert.match(clip, /guard finiteRectangle\(exclusion\) else \{ return \[\] \}/);
+  assert.match(clip, /var visible = \[bounds\]/);
+  assert.match(clip, /let hole = exclusion\.intersection\(bounds\)/);
+  assert.match(clip, /let overlap = rect\.intersection\(hole\)/);
+  assert.match(clip, /width: rect\.width, height: overlap\.minY - rect\.minY/);
+  assert.match(clip, /width: rect\.width, height: rect\.maxY - overlap\.maxY/);
+  assert.match(clip, /width: overlap\.minX - rect\.minX, height: overlap\.height/);
+  assert.match(clip, /width: rect\.maxX - overlap\.maxX, height: overlap\.height/);
+  assert.match(clip, /guard remaining\.count <= maximumMaskPieces else \{ return \[\] \}/);
+  assert.match(clip, /visible = remaining/);
+  assert.match(clip, /path\.addRect\(rect\.offsetBy\(dx: -surface\.minX, dy: -surface\.minY\)\)/);
+  assert.match(clip, /CATransaction\.setDisableActions\(true\)/);
+  assert.match(clip, /exclusionMask\.fillRule = \.nonZero/);
+  assert.match(clip, /layer\.mask = exclusionMask/);
+  assert.match(clip, /super\.point\(inside: point, with: event\) && !exclusions\.contains \{ \$0\.contains\(point\) \}/);
+  assert.doesNotMatch(clip, /\.evenOdd|canvas\.drawing|canvas\.frame|drawingPolicy|insertSubview/);
+});

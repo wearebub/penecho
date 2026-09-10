@@ -26,6 +26,12 @@ deployment receipts and rollback commands are recorded separately under
 - Theme and layout rules left chrome translucent. Tenet-specific selectors
   now set opaque surfaces without changing the safe area or undoing the
   AI-draft Move/resize stacking repair.
+- Native toolbar exclusions initially affected only touch hit-testing. Because
+  PencilKit is above WKWebView, a separate visual mask now removes those same
+  rectangles from the displayed ink surface. Disjoint rectangle subtraction
+  keeps overlapping exclusions hidden; rebuilding is bounded and nonanimated.
+  Drawing coordinates/data and native touch policies are unchanged. Release
+  attempt 34 was cancelled before publication to include this correction.
 - The expanded notebook launcher could obstruct notices. A separately stored
   UI preference collapses it into a side tab. Header Pages and the side tab
   should lead to the same subject-based notebook, not two separate libraries.
@@ -76,7 +82,7 @@ are bumped deliberately without npm-install peer-annotation churn.
 
 ## Device acceptance required
 
-The integrated local `npm.cmd run check` passed: 1,113 total tests, 1,110 passed,
+The integrated local `npm.cmd run check` passed: 1,114 total tests, 1,111 passed,
 zero failed and three skipped. The final run includes the voice silence event
 contracts, cancellation, old-binary fallback, selection scope/movement, native
 width contracts and keyboard popover coordinate cases. A pre-existing relay

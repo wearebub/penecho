@@ -3,6 +3,7 @@ import CoreFoundation
 import CryptoKit
 import Foundation
 import PencilKit
+import QuartzCore
 import UIKit
 import WebKit
 
@@ -460,7 +461,84 @@ private final class InkCanvasView: PKCanvasView {
 }
 
 private final class InkClipView: UIView {
-    var exclusions: [CGRect] = []
+    private static let maximumMaskPieces = 4096
+    private let exclusionMask = CAShapeLayer()
+    var exclusions: [CGRect] = [] {
+        didSet { rebuildExclusionMask() }
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        rebuildExclusionMask()
+    }
+
+    private static func finiteRectangle(_ rect: CGRect) -> Bool {
+        !rect.isNull && !rect.isInfinite
+            && rect.minX.isFinite && rect.minY.isFinite && rect.maxX.isFinite && rect.maxY.isFinite
+            && rect.width.isFinite && rect.height.isFinite && rect.width >= 0 && rect.height >= 0
+    }
+
+    private static func visibleRectangles(in bounds: CGRect, excluding exclusions: [CGRect]) -> [CGRect] {
+        guard finiteRectangle(bounds), !bounds.isEmpty, exclusions.count <= 128 else { return [] }
+        var visible = [bounds]
+        for exclusion in exclusions {
+            guard finiteRectangle(exclusion) else { return [] }
+            let hole = exclusion.intersection(bounds)
+            if hole.isNull || hole.isEmpty { continue }
+            var remaining: [CGRect] = []
+            for rect in visible {
+                let overlap = rect.intersection(hole)
+                if overlap.isNull || overlap.isEmpty {
+                    remaining.append(rect)
+                } else {
+                    // Full-width top/bottom strips plus middle-height side strips
+                    // are disjoint. Repeated subtraction removes the UNION of holes,
+                    // so overlapping toolbar exclusions never reveal ink again.
+                    if overlap.minY > rect.minY {
+                        remaining.append(CGRect(x: rect.minX, y: rect.minY,
+                            width: rect.width, height: overlap.minY - rect.minY))
+                    }
+                    if overlap.maxY < rect.maxY {
+                        remaining.append(CGRect(x: rect.minX, y: overlap.maxY,
+                            width: rect.width, height: rect.maxY - overlap.maxY))
+                    }
+                    if overlap.minX > rect.minX {
+                        remaining.append(CGRect(x: rect.minX, y: overlap.minY,
+                            width: overlap.minX - rect.minX, height: overlap.height))
+                    }
+                    if overlap.maxX < rect.maxX {
+                        remaining.append(CGRect(x: overlap.maxX, y: overlap.minY,
+                            width: rect.maxX - overlap.maxX, height: overlap.height))
+                    }
+                }
+                // Fail closed visually on excessive fragmentation; retain PKDrawing.
+                guard remaining.count <= maximumMaskPieces else { return [] }
+            }
+            visible = remaining
+            if visible.isEmpty { break }
+        }
+        return visible
+    }
+
+    private func rebuildExclusionMask() {
+        let surface = Self.finiteRectangle(bounds) ? bounds : .zero
+        let path = CGMutablePath()
+        for rect in Self.visibleRectangles(in: surface, excluding: exclusions) {
+            // Exclusions already use clip-local coordinates for hit testing.
+            // Only the mask path is normalized to its zero-origin layer bounds.
+            path.addRect(rect.offsetBy(dx: -surface.minX, dy: -surface.minY))
+        }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        exclusionMask.bounds = CGRect(origin: .zero, size: surface.size)
+        exclusionMask.position = CGPoint(x: surface.midX, y: surface.midY)
+        exclusionMask.contentsScale = layer.contentsScale
+        exclusionMask.fillColor = UIColor.black.cgColor
+        exclusionMask.fillRule = .nonZero
+        exclusionMask.path = path
+        layer.mask = exclusionMask
+        CATransaction.commit()
+    }
 
     override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
         // Returning false here prevents ANY canvas subview/recognizer from taking
