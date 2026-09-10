@@ -7,6 +7,8 @@ tap **Ask Tenet**. No circle gesture is required. The panel previews the visible
 page and shows the editable transcript. Ask stops recording before submission.
 Only the visible page crop and the transcript use the existing authenticated,
 district-governed AI request. Off-screen notebook work is not included.
+The explicit `visible-page` question scope keeps replies inside the viewport;
+ordinary circle-based help still places replies beside its selected region.
 
 **Read Tenet's reply aloud** is opt-in. The normal canvas answer and its existing
 accept/reject controls are retained. **Stop voice** interrupts playback. Only

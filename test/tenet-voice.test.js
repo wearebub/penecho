@@ -46,6 +46,8 @@ test("plain voice question needs no lasso and uses the disclosed visible-page cr
   await h.api.submit();
   const sent=h.calls.find(x=>x[0]==="request");
   assert.equal(sent[1],"answer"); assert.equal(sent[2].selectionQuestion,"Help me start problem 12");
+  assert.equal(sent[2].questionScope,"visible-page");
+  assert.equal(sent[2].visibleRect.w,800);
   assert.deepEqual(JSON.parse(JSON.stringify(sent[2].selectionContext.path)),[{x:100,y:200},{x:900,y:200},{x:900,y:800},{x:100,y:800}]);
   assert.equal(sent[3].isolatedSelection,true); assert.equal(sent[3].expectedRevision,2);
   assert(h.calls.findIndex(x=>x[0]==="stop")<h.calls.findIndex(x=>x[0]==="request"));

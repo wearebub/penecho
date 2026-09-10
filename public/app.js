@@ -25716,6 +25716,8 @@ var tenetCanvasAI = null;
     // A rectangular context selection requires no lasso gesture. It is explicitly
     // disclosed in the dialog and reuses the existing strict crop/question API.
     const packed = buildTenetRegionImage([{x,y},{x:x+w,y},{x:x+w,y:y+h},{x,y:y+h}], text);
+    packed.visibleRect = {...bounds};
+    if (text) packed.questionScope = "visible-page";
     return {packed, revision, generation};
   }
   async function submit() {
