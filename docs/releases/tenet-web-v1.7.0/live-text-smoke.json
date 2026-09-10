@@ -1,0 +1,13 @@
+{
+  "checkedAt": "2026-09-10T22:59:36.115Z",
+  "status": 200,
+  "requestId": "128fc24e-8354-48c2-a4bd-1b3c91dce16d",
+  "commandCount": 1,
+  "tools": [
+    "write_text"
+  ],
+  "requestHasImage": false,
+  "questionOnly": true,
+  "synthetic": true,
+  "surface": "operator-loopback-to-deployed-Gateway"
+}

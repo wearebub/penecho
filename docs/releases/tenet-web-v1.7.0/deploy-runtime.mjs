@@ -131,7 +131,7 @@ if(mode==='prepare') {
   assert.equal(hash(archive),config.archiveSha256);
   assert.equal(manifest.artifacts.find(item=>item.name===archiveName)?.sha256,config.archiveSha256);
   const expected=new Map(manifest.provenance.files.map(file=>[file.path,file.sha256]));
-  assert.equal(expected.size,29,'Unexpected runtime scope');
+  assert.equal(expected.size,31,'Unexpected runtime scope');
   for(const name of expected.keys()) assert(config.baselines.hasOwnProperty(name),`Unqualified path ${name}`);
   const files=unarchive(archive,expected);
   const previousReceipt=JSON.parse(fs.readFileSync(config.previousReceipt));

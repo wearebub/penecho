@@ -1,0 +1,376 @@
+{
+  "schemaVersion": 1,
+  "tag": "tenet-web-v1.7.0",
+  "sourceCommit": "e7fdf111681be974fa54f047d233b83a32f2b510",
+  "nativeRelease": "tenet-ipad-v1.6.0-build.36",
+  "workflow": "https://github.com/wearebub/penecho/actions/runs/34539541499",
+  "archiveSha256": "4ca02649e2c857eba775f9bb07ed5e9f09d55599c47493eeae33b96c8e7ecf9a",
+  "manifestSha256": "3dca13be0131e6e0d224b91be2269e89f72f17a8fcbde1f85f7a46c699585888",
+  "previousReceipt": "/opt/tenet-demo/backups/whiteboard-1.6.0-9bc6539/deployment-receipt.json",
+  "backup": "/opt/tenet-demo/backups/whiteboard-1.7.0-e7fdf11",
+  "status": "installed",
+  "preparedAt": "2026-09-10T22:55:29.917Z",
+  "files": [
+    {
+      "path": "public/index.html",
+      "sha256": "19b988e0aad1ccb7eb5196741edd19a1b8fdf6efdc050c2464f44704c7dba849",
+      "previousSha256": "19b988e0aad1ccb7eb5196741edd19a1b8fdf6efdc050c2464f44704c7dba849",
+      "mode": 420,
+      "uid": 997,
+      "gid": 987
+    },
+    {
+      "path": "public/summon.js",
+      "sha256": "ee20d809f3a02a50b370c02ae162d90f7a8df6a0c7dcf419eb28fd1eb0ce1d07",
+      "previousSha256": "f3ec1ec58f79f88d0d53ff89889abf4fc70990e17eb46f5f1bfb2791b7b353b0",
+      "mode": 420,
+      "uid": 997,
+      "gid": 987
+    },
+    {
+      "path": "public/tenet-ink-comparison.css",
+      "sha256": "3a526b435c73f22dd5a2ad0be5f48b593726b555084c5135341fdb3399a3b506",
+      "previousSha256": "3a526b435c73f22dd5a2ad0be5f48b593726b555084c5135341fdb3399a3b506",
+      "mode": 420,
+      "uid": 997,
+      "gid": 987
+    },
+    {
+      "path": "public/tenet-ipad-usability.css",
+      "sha256": "6671887cad6b42ee1f2556bbe2a493bb358e728e03c45a12823ba82e8c3cc111",
+      "previousSha256": "6671887cad6b42ee1f2556bbe2a493bb358e728e03c45a12823ba82e8c3cc111",
+      "mode": 420,
+      "uid": 997,
+      "gid": 987
+    },
+    {
+      "path": "public/tenet-notebook.css",
+      "sha256": "e270325e3ddc8e9c99c454288e80d21a3dbfbdd421d754aeb17553d59836d704",
+      "previousSha256": "e270325e3ddc8e9c99c454288e80d21a3dbfbdd421d754aeb17553d59836d704",
+      "mode": 420,
+      "uid": 997,
+      "gid": 987
+    },
+    {
+      "path": "public/tenet-selection-tools.css",
+      "sha256": "714fb1f254ee97b973e9f81026c20b826f602c3d18a2963120924384c6bc5216",
+      "previousSha256": "3f095105984d1951cb5bd347f01d836c6b5e72f2b02bb645584b8609c7371fd0",
+      "mode": 420,
+      "uid": 997,
+      "gid": 987
+    },
+    {
+      "path": "public/tenet-voice.css",
+      "sha256": "3c9619a306a2804e5b29618aa2c8dd231416bc11f00eb6a87d11df23ad9aa922",
+      "previousSha256": "b02a73959bfac8a664f725346d6a8548fe45abcdbeba6573808103783ceaece5",
+      "mode": 420,
+      "uid": 997,
+      "gid": 987
+    },
+    {
+      "path": "scripts/build-client.js",
+      "sha256": "d048638e27822801c892ec62aa9ce082c51ae7878a36e392681e9de6c790f06b",
+      "previousSha256": "d048638e27822801c892ec62aa9ce082c51ae7878a36e392681e9de6c790f06b",
+      "mode": 420,
+      "uid": 997,
+      "gid": 987
+    },
+    {
+      "path": "src/client/app/ai-runtime.js",
+      "sha256": "c149af14e7a5742f8dfe578bc47c32144135326d17fe09ea966e0f48d9c45bc5",
+      "previousSha256": "1d3c2a833a3155e3b3bb0dd78a8458e61c13e5c58eedb47d00fe3c028904a47d",
+      "mode": 420,
+      "uid": 997,
+      "gid": 987
+    },
+    {
+      "path": "src/client/app/canvas-agent-runtime.js",
+      "sha256": "6b4bed42052dbf988f80335d5a23c4c6813a4fb98f8c5aadd03f431f9b489e5b",
+      "previousSha256": "6b4bed42052dbf988f80335d5a23c4c6813a4fb98f8c5aadd03f431f9b489e5b",
+      "mode": 420,
+      "uid": 997,
+      "gid": 987
+    },
+    {
+      "path": "src/client/app/canvas-runtime.js",
+      "sha256": "5bfe897f14787a4a860de811a3b377c3ae5838b05a3cc7db43fd6e45c9d4cacf",
+      "previousSha256": "39ff5690ccbcbca7114bfb53398852d852b090d1220b74e6278d572f77798c24",
+      "mode": 420,
+      "uid": 997,
+      "gid": 987
+    },
+    {
+      "path": "src/client/app/client-activity.js",
+      "sha256": "ee3dc7dfe17facd25b5d54c04d68aca605c12c573b42f56a67acb29a1948d4c0",
+      "previousSha256": "ee3dc7dfe17facd25b5d54c04d68aca605c12c573b42f56a67acb29a1948d4c0",
+      "mode": 420,
+      "uid": 997,
+      "gid": 987
+    },
+    {
+      "path": "src/client/app/core.js",
+      "sha256": "2095cb9539988cc8c414b5e47d381250b4c698796302060e41018618c00c527c",
+      "previousSha256": "922593b02f16017459a0d7879177291568e352991411c71620eab9f9885992dd",
+      "mode": 420,
+      "uid": 997,
+      "gid": 987
+    },
+    {
+      "path": "src/client/app/keyboard-shortcuts.js",
+      "sha256": "8f53199f5c49f481a60a1155433a406cb61da0171232b62ea1ca0d8f6cb9cbad",
+      "previousSha256": "8f53199f5c49f481a60a1155433a406cb61da0171232b62ea1ca0d8f6cb9cbad",
+      "mode": 420,
+      "uid": 997,
+      "gid": 987
+    },
+    {
+      "path": "src/client/app/persistence.js",
+      "sha256": "45ac8fc5c0baa13c5be73d27aa1bc36704f1ce02e04efc379b3941d7852ec36a",
+      "previousSha256": "45ac8fc5c0baa13c5be73d27aa1bc36704f1ce02e04efc379b3941d7852ec36a",
+      "mode": 420,
+      "uid": 997,
+      "gid": 987
+    },
+    {
+      "path": "src/client/app/studio-navigator.js",
+      "sha256": "14edabaff98c76f3700229dd66276024baac8815b324ac2237846ecd0188939f",
+      "previousSha256": "14edabaff98c76f3700229dd66276024baac8815b324ac2237846ecd0188939f",
+      "mode": 420,
+      "uid": 997,
+      "gid": 987
+    },
+    {
+      "path": "src/client/app/tenet-branding.js",
+      "sha256": "db61fb87f221af30885a067dc2ddc00d5969028b6fb008a83f3a923d4d4f1bac",
+      "previousSha256": "db61fb87f221af30885a067dc2ddc00d5969028b6fb008a83f3a923d4d4f1bac",
+      "mode": 420,
+      "uid": 997,
+      "gid": 987
+    },
+    {
+      "path": "src/client/app/tenet-ink-comparison.js",
+      "sha256": "c2b8e64fe6b2e95eb0da73432ea1cb9a4a8df17d8ed6cffa103b1a514c9601bd",
+      "previousSha256": "c2b8e64fe6b2e95eb0da73432ea1cb9a4a8df17d8ed6cffa103b1a514c9601bd",
+      "mode": 420,
+      "uid": 997,
+      "gid": 987
+    },
+    {
+      "path": "src/client/app/tenet-ipad-usability.js",
+      "sha256": "5e222c475e9664022bf27306735b0d22b3120016fee747c0ca5dfb79e98b79c0",
+      "previousSha256": "5e222c475e9664022bf27306735b0d22b3120016fee747c0ca5dfb79e98b79c0",
+      "mode": 420,
+      "uid": 997,
+      "gid": 987
+    },
+    {
+      "path": "src/client/app/tenet-native-bridge.js",
+      "sha256": "2a2d56c9c6f8bcf1a532f49f49da436dea689007845469463a5e40c47b305e33",
+      "previousSha256": "2a2d56c9c6f8bcf1a532f49f49da436dea689007845469463a5e40c47b305e33",
+      "mode": 420,
+      "uid": 997,
+      "gid": 987
+    },
+    {
+      "path": "src/client/app/tenet-native-ink.js",
+      "sha256": "95910c625441c7edfc870c6c09ec5e238410adb025ba2068729c97b01113e6b6",
+      "previousSha256": "23067b1e130d5efc22a4c00eb14b2259173d44afc0c2b4c9d336c326d043da52",
+      "mode": 420,
+      "uid": 997,
+      "gid": 987
+    },
+    {
+      "path": "src/client/app/tenet-notebook.js",
+      "sha256": "3c9b69001d0574a25ecee12d54c1af3638a46f20aa9a299f66b5382a5c3902b0",
+      "previousSha256": "3c9b69001d0574a25ecee12d54c1af3638a46f20aa9a299f66b5382a5c3902b0",
+      "mode": 420,
+      "uid": 997,
+      "gid": 987
+    },
+    {
+      "path": "src/client/app/tenet-object-resize.js",
+      "sha256": "7fa0b8b8eb7560040150e413e14312071119e8efc1272af2936f0296f1e7587b",
+      "previousSha256": "7fa0b8b8eb7560040150e413e14312071119e8efc1272af2936f0296f1e7587b",
+      "mode": 420,
+      "uid": 997,
+      "gid": 987
+    },
+    {
+      "path": "src/client/app/tenet-selection-tools.js",
+      "sha256": "5c2730887ddb42130a12ec95cbdef63f06666f17fd028a4de9d3735c49ccb433",
+      "previousSha256": "17d5d1ef5f56f56afee2b04b2b5f19f0da9220774b78f32725275af6df8710df",
+      "mode": 420,
+      "uid": 997,
+      "gid": 987
+    },
+    {
+      "path": "src/client/app/tenet-voice.js",
+      "sha256": "84b43ab158ed144e12869f59faac83ffe1d8cf0ca6e4de9752cd5bf675cb711c",
+      "previousSha256": "a18fc760aa7a7becd31f8f7fd22865d43fb2d86a40c8e4784f0cb79576091573",
+      "mode": 420,
+      "uid": 997,
+      "gid": 987
+    },
+    {
+      "path": "src/client/app/ui-bootstrap.js",
+      "sha256": "255909a3d47632f1e09dd63bac3c9853680e6039d149457882c59786b1a20db7",
+      "previousSha256": "255909a3d47632f1e09dd63bac3c9853680e6039d149457882c59786b1a20db7",
+      "mode": 420,
+      "uid": 997,
+      "gid": 987
+    },
+    {
+      "path": "src/client/app/visual-explainer.js",
+      "sha256": "14af0d0e80ac0d1a29d2d0d20458ea2c1e8963d013e611eccc04528f63b6b57f",
+      "previousSha256": "14af0d0e80ac0d1a29d2d0d20458ea2c1e8963d013e611eccc04528f63b6b57f",
+      "mode": 420,
+      "uid": 997,
+      "gid": 987
+    },
+    {
+      "path": "src/server/main.js",
+      "sha256": "c48742f78f3aeee4878eaaba20cf22b9672a760aed3d8f664bc7ef0e4e2d68bd",
+      "previousSha256": "35fddb7fac82ec8304064d0826fd3b3947d0af4b172cc1d7f030d81378ab085b",
+      "mode": 420,
+      "uid": 997,
+      "gid": 987
+    },
+    {
+      "path": "src/server/tenet-illustration.js",
+      "sha256": "72915a6e5693e122514d33c123dd69ecb497925180f7af427a4df054d1869a65",
+      "previousSha256": "59218e1c74ff9e62b7df8fb8e798df3fe52fd67620c912b42cf09a200a5d032c",
+      "mode": 420,
+      "uid": 997,
+      "gid": 987
+    },
+    {
+      "path": "src/server/tenet-question-payload.js",
+      "sha256": "9ffa7ce0cd9e423978043e2731bb9b3cc76592193a1555183819d5458fb849d9",
+      "previousSha256": null,
+      "mode": 420,
+      "uid": 997,
+      "gid": 987
+    },
+    {
+      "path": "public/app.js",
+      "sha256": "454bfee7f62036cd4c098598b52168c1ac2b96aea901c3b80561b30cc64d644a",
+      "previousSha256": "c43638f68e3ebb09b5e076c4efd50d617295171eb18c91310801a15e6c1a72cb",
+      "mode": 420,
+      "uid": 997,
+      "gid": 987
+    }
+  ],
+  "policyBeforeSha256": "97d22dc488a47867ebcd78f6f99cbf057126f776299bd32944a36d947f394f79",
+  "servicesBefore": "MainPID=73141\nId=penecho-demo.service\nActiveState=active\n\nMainPID=60559\nId=tenet-mobile-auth.service\nActiveState=active\n\nMainPID=54100\nId=caddy.service\nActiveState=active\n",
+  "packageLockSha256": "243c53d1f2b5ff94e32e267edb819bf4b1966c6d2f53945ec7e21af7d6f6fa84",
+  "hostPid": 74206,
+  "served": [
+    {
+      "port": 3888,
+      "path": "public/index.html",
+      "sha256": "19b988e0aad1ccb7eb5196741edd19a1b8fdf6efdc050c2464f44704c7dba849",
+      "status": 200
+    },
+    {
+      "port": 3888,
+      "path": "public/summon.js",
+      "sha256": "ee20d809f3a02a50b370c02ae162d90f7a8df6a0c7dcf419eb28fd1eb0ce1d07",
+      "status": 200
+    },
+    {
+      "port": 3888,
+      "path": "public/tenet-ink-comparison.css",
+      "sha256": "3a526b435c73f22dd5a2ad0be5f48b593726b555084c5135341fdb3399a3b506",
+      "status": 200
+    },
+    {
+      "port": 3888,
+      "path": "public/tenet-ipad-usability.css",
+      "sha256": "6671887cad6b42ee1f2556bbe2a493bb358e728e03c45a12823ba82e8c3cc111",
+      "status": 200
+    },
+    {
+      "port": 3888,
+      "path": "public/tenet-notebook.css",
+      "sha256": "e270325e3ddc8e9c99c454288e80d21a3dbfbdd421d754aeb17553d59836d704",
+      "status": 200
+    },
+    {
+      "port": 3888,
+      "path": "public/tenet-selection-tools.css",
+      "sha256": "714fb1f254ee97b973e9f81026c20b826f602c3d18a2963120924384c6bc5216",
+      "status": 200
+    },
+    {
+      "port": 3888,
+      "path": "public/tenet-voice.css",
+      "sha256": "3c9619a306a2804e5b29618aa2c8dd231416bc11f00eb6a87d11df23ad9aa922",
+      "status": 200
+    },
+    {
+      "port": 3888,
+      "path": "public/app.js",
+      "sha256": "454bfee7f62036cd4c098598b52168c1ac2b96aea901c3b80561b30cc64d644a",
+      "status": 200
+    },
+    {
+      "port": 3889,
+      "path": "public/index.html",
+      "sha256": "19b988e0aad1ccb7eb5196741edd19a1b8fdf6efdc050c2464f44704c7dba849",
+      "status": 200
+    },
+    {
+      "port": 3889,
+      "path": "public/summon.js",
+      "sha256": "ee20d809f3a02a50b370c02ae162d90f7a8df6a0c7dcf419eb28fd1eb0ce1d07",
+      "status": 200
+    },
+    {
+      "port": 3889,
+      "path": "public/tenet-ink-comparison.css",
+      "sha256": "3a526b435c73f22dd5a2ad0be5f48b593726b555084c5135341fdb3399a3b506",
+      "status": 200
+    },
+    {
+      "port": 3889,
+      "path": "public/tenet-ipad-usability.css",
+      "sha256": "6671887cad6b42ee1f2556bbe2a493bb358e728e03c45a12823ba82e8c3cc111",
+      "status": 200
+    },
+    {
+      "port": 3889,
+      "path": "public/tenet-notebook.css",
+      "sha256": "e270325e3ddc8e9c99c454288e80d21a3dbfbdd421d754aeb17553d59836d704",
+      "status": 200
+    },
+    {
+      "port": 3889,
+      "path": "public/tenet-selection-tools.css",
+      "sha256": "714fb1f254ee97b973e9f81026c20b826f602c3d18a2963120924384c6bc5216",
+      "status": 200
+    },
+    {
+      "port": 3889,
+      "path": "public/tenet-voice.css",
+      "sha256": "3c9619a306a2804e5b29618aa2c8dd231416bc11f00eb6a87d11df23ad9aa922",
+      "status": 200
+    },
+    {
+      "port": 3889,
+      "path": "public/app.js",
+      "sha256": "454bfee7f62036cd4c098598b52168c1ac2b96aea901c3b80561b30cc64d644a",
+      "status": 200
+    },
+    {
+      "host": "district.connect.truemadeai.com",
+      "unauthenticatedStatus": 302
+    },
+    {
+      "host": "spanish.connect.truemadeai.com",
+      "unauthenticatedStatus": 302
+    }
+  ],
+  "servicesAfter": "MainPID=74206\nId=penecho-demo.service\nActiveState=active\n\nMainPID=60559\nId=tenet-mobile-auth.service\nActiveState=active\n\nMainPID=54100\nId=caddy.service\nActiveState=active\n",
+  "installedAt": "2026-09-10T22:56:08.418Z",
+  "scope": "Whiteboard client and server. Demo host restarted, rotating internal Gateway keys and resetting ephemeral demo state; policy restored exactly. Auth and Caddy were not restarted. No notebook, dependency or native binary changes."
+}
