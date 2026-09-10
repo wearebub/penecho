@@ -5,6 +5,24 @@
   --tenet-line: #d8d2c4;
 }
 
+/* Solid chrome must win over the studio theme's translucent surfaces.
+   Keep existing safe-area padding and canvas/object stacking untouched. */
+html body.tenet-whiteboard .topbar,
+html body.tenet-whiteboard .toolbar,
+html body.tenet-whiteboard[data-theme="studio"] .topbar,
+html body.tenet-whiteboard[data-theme="studio"] .toolbar,
+html body.tenet-whiteboard #app.page > header.topbar,
+html body.tenet-whiteboard #app.page .toolbar,
+html body.tenet-whiteboard[data-theme="studio"] #app .topbar,
+html body.tenet-whiteboard[data-theme="studio"] #app .toolbar,
+html body.tenet-whiteboard[data-theme="studio"] #app.page > header.topbar,
+html body.tenet-whiteboard[data-theme="studio"] #app.page .toolbar {
+  background: #fbf8f0 !important;
+  opacity: 1 !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
 /* Tenet adds labeled tools. Never assign them to upstream's navigator-sized
    four-column compact grid; let real touch targets wrap in document order. */
 body.tenet-whiteboard[data-theme="studio"] .toolbar {
@@ -317,6 +335,34 @@ body.tenet-whiteboard #tenetDrawingInput {
   }
 }
 
+/* Native notifications sit above the launcher in both of its sizes. */
+body.tenet-whiteboard #tenetNativeToast {
+  box-sizing: border-box;
+  top: auto;
+  right: max(16px, env(safe-area-inset-right, 0px));
+  bottom: var(--tenet-notebook-notice-bottom, calc(88px + env(safe-area-inset-bottom, 0px)));
+  left: max(16px, env(safe-area-inset-left, 0px));
+  z-index: 10020;
+  width: fit-content;
+  max-width: min(560px, calc(100vw - 32px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)));
+  max-height: calc(100dvh - 160px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+  margin-inline: auto;
+  overflow: auto;
+  transform: none;
+  background: #fffaf1;
+  color: #172a3a;
+  font-size: 15px;
+  line-height: 1.5;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  pointer-events: auto;
+}
+
+body.tenet-whiteboard #tenetNativeToast[hidden],
+body.tenet-whiteboard #tenetInkToast[hidden] {
+  display: none !important;
+}
+
 #tenetInkToast {
   position: fixed;
   z-index: 2147483647;
@@ -331,6 +377,10 @@ body.tenet-whiteboard #tenetDrawingInput {
   color: #172a3a;
   box-shadow: 0 8px 28px #172a3a22;
   pointer-events: none;
+  font-size: 15px;
+  line-height: 1.5;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 body.tenet-whiteboard #coords,

@@ -23221,7 +23221,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     let drawing = null, preview = null, visible = false, lock = 0;
     let wire = Promise.resolve(), reception = Promise.resolve(), syncFrame = 0;
     let syncPending = false, syncAgain = false, lastConfiguration = "", restoreImage = null;
-    let nativeToolKey = "", nativeToolWidth = 4, receiveError = null, toolRequestId = 0;
+    let nativeToolKey = "", nativeToolWidth = 4, receiveError = null, toolRequestId = 0, widthRequestId = 0;
     let fingerDrawing = false, lastError = "", reportTimer = 0;
     const suspended = new Set(), listeners = [];
     const lifetime = new AbortController();
@@ -23389,7 +23389,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       const metrics = canvasViewportMetrics(), rect = view.getBoundingClientRect();
       const factor = rect.width / Math.max(1, metrics.width);
       const nativeTool = state.mode === "select" ? "lasso" : state.mode === "eraser" ? "eraser" : "pen";
-      const toolKey = `${sessionId}:${nativeTool}:${state.inkColor}:${state.pen}`;
+      const toolKey = `${sessionId}:${nativeTool}:${state.inkColor}:${state.pen}:${widthRequestId}`;
       if (toolKey !== nativeToolKey) {
         nativeToolKey = toolKey;
         nativeToolWidth = Math.min(1024, state.pen / Math.max(.03, state.scale));
@@ -23397,7 +23397,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       const shouldShow = engine === "pencilkit" && !lock && !suspended.size && !document.hidden
         && !state.viewMode && !snapshotLoadInProgress && ["pen", "eraser", "select"].includes(state.mode) && !modalOpen();
     const exclusions = [...document.querySelectorAll(
-      '.topbar, [data-tenet-ink-toolbar], footer, #tenetBadge, #tenetNotebookLauncher, .ai-embodiment, .canvas-navigation-lock, #canvasAgentPanel, #studioNavigator, .hand-object-toolbar, .selection-toolbar, #tenetNativeToast, .tenet-ink-comparison.tic-dock > *, [role="menu"], [role="listbox"]'
+      '.topbar, [data-tenet-ink-toolbar], footer, #tenetBadge, #tenetNotebookLauncher, #tenetNotebookCollapse, .tenet-voice-entry, .tenet-ai-entry, .ai-embodiment, .canvas-navigation-lock, #canvasAgentPanel, #studioNavigator, .hand-object-toolbar, .selection-toolbar, #tenetNativeToast, .tenet-ink-comparison.tic-dock > *, [role="menu"], [role="listbox"]'
       )].filter(onscreen).map(element => {
         const box = element.getBoundingClientRect();
         return { x:box.x, y:box.y, width:box.width, height:box.height };
@@ -23405,7 +23405,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       return { sessionId, frame:{ x:rect.x, y:rect.y, width:rect.width, height:rect.height },
         viewportWidth:window.innerWidth, panX:state.panX * factor, panY:state.panY * factor,
         scale:state.scale * factor, canvasSize:SIZE, visible:shouldShow, inputEnabled:shouldShow,
-        tool:nativeTool, color:state.inkColor, width:nativeToolWidth, toolRequestId,
+        tool:nativeTool, color:state.inkColor, width:nativeToolWidth, toolRequestId, widthRequestId,
         fingerDrawing:fingerDrawing && (window.TenetDrawingPreferences?.fingerDrawing() ?? true),
         navigationLocked:state.navigationLocked === true, exclusions };
     }
@@ -23514,10 +23514,52 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     }
     function resume(reason) { suspended.delete(String(reason)); scheduleSync(); }
 
+    async function moveRegion(points, dx, dy) {
+      if (engine !== "pencilkit" || !ready || stopped) throw Error("Native ink movement requires the active PencilKit engine.");
+      if (lock || active || state.drawing || snapshotLoadInProgress) throw Error("Finish the current action before moving ink.");
+      if (!Array.isArray(points) || points.length < 3 || points.length > 256
+          || !points.every(point => point && Number.isFinite(point.x) && Number.isFinite(point.y)
+            && point.x >= 0 && point.x <= SIZE && point.y >= 0 && point.y <= SIZE)
+          || !Number.isFinite(dx) || !Number.isFinite(dy) || Math.abs(dx) > SIZE || Math.abs(dy) > SIZE) {
+        throw Error("Use a bounded selection of 3 to 256 page points and a finite move distance.");
+      }
+      const polygon = points.map(point => ({ x:point.x, y:point.y }));
+      const targetSession = sessionId;
+      const requireCurrentPage = () => {
+        if (stopped || sessionId !== targetSession || engine !== "pencilkit" || snapshotLoadInProgress) {
+          throw Error("The page changed before ink could be moved. Try again on the current page.");
+        }
+      };
+      lock++;
+      emitStatus();
+      try {
+        await flush();
+        return await serial(async () => {
+          requireCurrentPage();
+          // Hide and flush the surface through its normal lifecycle while the
+          // move is pending. Only the returned PKDrawing packet changes history.
+          await synchronize();
+          requireCurrentPage();
+          const packet = await native.inkSurfaceCommand({
+            sessionId:targetSession, command:"move-region", points:polygon, dx, dy,
+          });
+          requireCurrentPage();
+          if (packet?.sessionId !== targetSession || !Number.isSafeInteger(packet.moved) || packet.moved < 0) {
+            throw Error("Native ink returned an invalid move result.");
+          }
+          await receive(packet);
+          await reception;
+          if (receiveError) throw receiveError;
+          requireCurrentPage();
+          return { moved:packet.moved };
+        });
+      } finally { lock--; scheduleSync(); emitStatus(); }
+    }
+
     tenetInkController = { available, snapshot:() => drawing,
       hasContent:() => Boolean(drawing?.strokeCount || pendingInk), draw, prepare, restore:install,
       flush, sync:scheduleSync, active:() => active || lock > 0, history, applyHistory:applyNativeHistory,
-      stageClear, boundHistory, suspend, resume };
+      stageClear, boundHistory, suspend, resume, moveRegion };
     window.TenetInk = { available, getStatus:status, setEngine, flush, suspend, resume,
       fingerDrawingAllowed:() => fingerDrawing };
 
@@ -23580,9 +23622,9 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     }
     const resizeObserver = new ResizeObserver(scheduleSync);
     resizeObserver.observe(view);
-    document.querySelectorAll('.topbar, [data-tenet-ink-toolbar], footer').forEach(element => resizeObserver.observe(element));
+    document.querySelectorAll('.topbar, [data-tenet-ink-toolbar], footer, .tenet-voice-entry, .tenet-ai-entry, #tenetNotebookCollapse').forEach(element => resizeObserver.observe(element));
     const mutations = new MutationObserver(scheduleSync);
-    mutations.observe(document.body, { subtree:true, attributes:true, attributeFilter:["hidden", "open", "class", "aria-hidden", "aria-expanded"] });
+    mutations.observe(document.body, { subtree:true, childList:true, attributes:true, attributeFilter:["hidden", "open", "class", "aria-hidden", "aria-expanded"] });
     window.addEventListener("resize", scheduleSync, { signal });
     window.visualViewport?.addEventListener("resize", scheduleSync, { signal });
     window.visualViewport?.addEventListener("scroll", scheduleSync, { passive: true, signal });
@@ -23591,7 +23633,12 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       scheduleSync();
       if (document.hidden && !active) void flush().catch(fail);
     }, { signal });
-    document.addEventListener("input", scheduleSync, { signal });
+    document.addEventListener("input", event => {
+      // Reselecting a preset must still reach PencilKit after a native palette
+      // width change. It is a width edit, not an activation of the web pen tool.
+      if (event.target?.id === "penSize") widthRequestId++;
+      scheduleSync();
+    }, { capture:true, signal });
     document.addEventListener("click", event => {
       if (!event.target?.closest?.("[data-mode]")) return;
       toolRequestId++;
@@ -23626,33 +23673,16 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
 ;(function tenetInkComparisonModule() {
   'use strict';
 
-  // Deliberately independent of the surrounding canvas closure.
-  const STORAGE_KEY = 'tenet.ink-comparison.v1';
-  const LIMIT = 20;
+  // Keep the existing toolbar identity and engine-button hook for host integrations.
+  // Benchmark trials, diagnostics, ratings, exports, and comparison storage are retired.
   const PREFIX = 'tenet-ink-comparison';
-  const TASKS = {
-    routine: 'Full routine',
-    sentence: 'Write a sentence',
-    loops: 'Fast loops',
-    math: 'Small math',
-    graph: 'Pan, zoom, and graph manipulation'
-  };
-  const TASK_DETAILS = {
-    sentence: 'Write "The quick brown fox jumps over the lazy dog." twice at your normal writing size.',
-    loops: 'Draw five rows of ten connected small loops, moving as quickly as you comfortably can.',
-    math: 'Write y = 2x + 3 and x^2 + y^2 = 25 twice, including small superscripts and an equals sign.',
-    graph: 'Pan away and back, zoom in and out, then select and move an existing graph or graph control and return it to its starting position. Use the same graph and gestures for both engines.'
-  };
   const TOOLBAR_SELECTORS = [
     '[data-tenet-ink-toolbar]', '#top-toolbar', '#topToolbar',
     '[data-toolbar="top"]', '.top-toolbar', 'header [role="toolbar"]', '#toolbar'
   ];
   const state = {
-    ui: null, status: null, phase: 'idle', trial: null, pendingId: null,
-    results: [], loaded: false, storageWarning: '', hold: null,
-    epoch: 0, disposed: false, sequence: 0, raf: null, lastFrame: null,
-    listeners: [], observer: null, observerTimer: null, downloads: new Map(),
-    returnFocus: null
+    ui: null, status: null, phase: 'idle', epoch: 0, disposed: false,
+    listeners: [], observer: null, observerTimer: null
   };
 
   function listen(target, name, handler, options) {
@@ -23667,26 +23697,18 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
 
   function requireApi() {
     const api = availableApi();
-    if (!api || ['getStatus', 'setEngine', 'flush', 'suspend', 'resume']
-      .some(name => typeof api[name] !== 'function')) {
+    if (!api || ['getStatus', 'setEngine', 'flush'].some(name => typeof api[name] !== 'function')) {
       throw new Error('Ink API unavailable');
     }
     return api;
   }
 
-  function count(value) {
-    return Number.isSafeInteger(value) && value >= 0 ? value : null;
-  }
-
-  function numeric(value) {
-    return typeof value === 'number' && Number.isFinite(value) &&
-      value >= 0 && value <= Number.MAX_SAFE_INTEGER ? value : null;
-  }
-
   function normalizeStatus(value) {
     if (!value || !['web', 'pencilkit'].includes(value.engine) ||
       typeof value.busy !== 'boolean' || typeof value.nativeAvailable !== 'boolean' ||
-      (value.strokeCount !== null && count(value.strokeCount) === null)) throw new Error('Invalid ink status');
+      (value.strokeCount !== null && (!Number.isSafeInteger(value.strokeCount) || value.strokeCount < 0))) {
+      throw new Error('Invalid ink status');
+    }
     return {
       engine: value.engine, busy: value.busy,
       nativeAvailable: value.nativeAvailable, strokeCount: value.strokeCount
@@ -23706,560 +23728,51 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     return !state.disposed && state.epoch === epoch;
   }
 
-  function requireLive(epoch) {
-    if (!live(epoch)) throw new Error('Comparison disposed');
-  }
-
   function engineName(engine) {
     return engine === 'pencilkit' ? 'PencilKit' : 'Web';
   }
 
-  function dialogOpen() {
-    return Boolean(state.ui && state.ui.dialog.hasAttribute('open'));
-  }
-
-  function announce(message, error) {
-    if (!state.ui || state.disposed) return;
-    const target = dialogOpen() ? state.ui.dialogStatus : state.ui.notice;
-    const other = dialogOpen() ? state.ui.notice : state.ui.dialogStatus;
-    other.textContent = '';
-    other.hidden = true;
-    target.hidden = false;
-    target.setAttribute('role', error ? 'alert' : 'status');
-    target.setAttribute('aria-live', error ? 'assertive' : 'polite');
-    target.textContent = message;
-  }
-
-  function emptyStats() {
-    return { count: 0, mean: 0, m2: 0, min: Infinity, max: 0 };
-  }
-
-  function addStat(stats, value) {
-    if (numeric(value) === null) return;
-    stats.count += 1;
-    const delta = value - stats.mean;
-    stats.mean += delta / stats.count;
-    stats.m2 += delta * (value - stats.mean);
-    stats.min = Math.min(stats.min, value);
-    stats.max = Math.max(stats.max, value);
-  }
-
-  function rounded(value) {
-    return Math.round(value * 1000) / 1000;
-  }
-
-  function summarize(stats) {
-    return {
-      count: stats.count,
-      mean: stats.count ? rounded(stats.mean) : null,
-      min: stats.count ? rounded(stats.min) : null,
-      max: stats.count ? rounded(stats.max) : null,
-      standardDeviation: stats.count ? rounded(Math.sqrt(Math.max(0, stats.m2 / stats.count))) : null
-    };
-  }
-
-  function sanitizedStats(value) {
-    if (!value || count(value.count) === null) throw new Error('Invalid statistics');
-    const result = { count: value.count };
-    for (const key of ['mean', 'min', 'max', 'standardDeviation']) {
-      if (value.count === 0) result[key] = null;
-      else {
-        if (numeric(value[key]) === null) throw new Error('Invalid statistic');
-        result[key] = value[key];
-      }
-    }
-    return result;
-  }
-
-  // Rebuild a whitelist on load: never echo arbitrary storage fields into exports.
-  function sanitizedRecord(value) {
-    try {
-      if (!value || value.schemaVersion !== 1 || !['web', 'pencilkit'].includes(value.engine) ||
-        !Object.prototype.hasOwnProperty.call(TASKS, value.task) ||
-        !['stopped', 'interrupted'].includes(value.completion) ||
-        !/^\d{13}-\d+$/.test(value.id) ||
-        ![value.startedAt, value.endedAt].every(date => typeof date === 'string' &&
-          /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(date) && Number.isFinite(Date.parse(date)))) {
-        return null;
-      }
-      const timing = {};
-      for (const key of ['elapsedMs', 'visibleMs', 'hiddenMs']) {
-        if (numeric(value.timing[key]) === null) return null;
-        timing[key] = value.timing[key];
-      }
-      if (count(value.timing.visibilityPauses) === null) return null;
-      timing.visibilityPauses = value.timing.visibilityPauses;
-      const source = value.strokeDiagnostics;
-      const strokes = {};
-      for (const key of ['events', 'ignoredHiddenEvents']) {
-        if (count(source[key]) === null) return null;
-        strokes[key] = source[key];
-      }
-      // Web raster ink has no authoritative inventory. Only explicit null is
-      // unknown; malformed counts must not be silently converted into null.
-      for (const key of ['startStrokeCount', 'endStrokeCount', 'deltaStrokeCount']) {
-        if (source[key] !== null && count(source[key]) === null) return null;
-        strokes[key] = source[key];
-      }
-      if (strokes.startStrokeCount === null || strokes.endStrokeCount === null) {
-        strokes.deltaStrokeCount = null;
-      }
-      strokes.strokeDurationMs = sanitizedStats(source.strokeDurationMs);
-      strokes.samplesPerStroke = sanitizedStats(source.samplesPerStroke);
-      strokes.commitMs = sanitizedStats(source.commitMs);
-      const frames = sanitizedStats(value.frameIntervalsMs);
-      if (count(value.frameIntervalsMs.over33Ms) === null) return null;
-      frames.over33Ms = value.frameIntervalsMs.over33Ms;
-      let ratings = null;
-      if (value.ratings && ['smoothness', 'accuracy', 'toolUsability'].every(key =>
-        Number.isInteger(value.ratings[key]) && value.ratings[key] >= 1 && value.ratings[key] <= 5)) {
-        ratings = {
-          smoothness: value.ratings.smoothness, accuracy: value.ratings.accuracy,
-          toolUsability: value.ratings.toolUsability
-        };
-      }
-      return {
-        schemaVersion: 1, id: value.id, engine: value.engine, task: value.task,
-        startedAt: value.startedAt, endedAt: value.endedAt, completion: value.completion,
-        interruption: ['pagehide', 'engine-changed', 'unavailable', 'flush-failed'].includes(value.interruption)
-          ? value.interruption : null,
-        timing, strokeDiagnostics: strokes, frameIntervalsMs: frames,
-        ratings, missedStrokes: count(value.missedStrokes)
-      };
-    } catch (_) { return null; }
-  }
-
-  function loadResults() {
-    if (state.loaded) return;
-    state.loaded = true;
-    try {
-      const text = window.localStorage.getItem(STORAGE_KEY);
-      if (!text) return;
-      if (text.length > 196608) throw new Error('Oversize comparison storage');
-      const saved = JSON.parse(text);
-      if (!saved || saved.schemaVersion !== 1 || !Array.isArray(saved.results)) {
-        throw new Error('Invalid comparison storage');
-      }
-      const candidates = saved.results.slice(-LIMIT);
-      state.results = candidates.map(sanitizedRecord).filter(Boolean);
-      if (state.results.length !== candidates.length) {
-        state.storageWarning = 'Some saved results could not be read. Valid results and new trials remain available.';
-      }
-    } catch (_) {
-      state.storageWarning = 'Browser storage could not be read. Results will remain in memory; export them before leaving.';
-    }
-  }
-
-  function persistResults() {
-    state.results = state.results.slice(-LIMIT);
-    try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ schemaVersion: 1, results: state.results }));
-      state.storageWarning = '';
-    } catch (_) {
-      state.storageWarning = 'Browser storage could not save. Your current results are still in memory. Export JSON before leaving.';
-    }
-  }
-
-  function pauseClock(now) {
-    if (state.raf !== null) window.cancelAnimationFrame(state.raf);
-    state.raf = null;
-    state.lastFrame = null;
-    if (state.trial && state.trial.visibleSince !== null) {
-      state.trial.visibleMs += Math.max(0, now - state.trial.visibleSince);
-      state.trial.visibleSince = null;
-    }
-  }
-
-  function frame(timestamp) {
-    state.raf = null;
-    const trial = state.trial;
-    if (!trial || state.phase !== 'running' || document.hidden || state.disposed) {
-      state.lastFrame = null;
-      return;
-    }
-    if (state.lastFrame !== null) {
-      const interval = timestamp - state.lastFrame;
-      if (numeric(interval) !== null) {
-        addStat(trial.frames, interval);
-        if (interval > 33) trial.over33Ms += 1;
-      }
-    }
-    state.lastFrame = timestamp;
-    state.raf = window.requestAnimationFrame(frame);
-  }
-
-  function resumeClock() {
-    if (!state.trial || document.hidden || state.phase !== 'running' || state.disposed) return;
-    state.trial.visibleSince = performance.now();
-    state.lastFrame = null;
-    if (state.raf === null) state.raf = window.requestAnimationFrame(frame);
-  }
-
-  function onVisibility() {
-    if (!state.trial || state.phase !== 'running') return;
-    if (document.hidden) {
-      state.trial.visibilityPauses += 1;
-      pauseClock(performance.now());
-    } else resumeClock();
-    render();
-  }
-
-  function onSample(event) {
-    const trial = state.trial;
-    if (!trial || !['running', 'stopping'].includes(state.phase)) return;
-    const sample = event.detail;
-    if (!sample || sample.kind !== 'stroke' || sample.engine !== trial.engine) return;
-    if (document.hidden) {
-      trial.ignoredHiddenEvents += 1;
-      return;
-    }
-    trial.events += 1;
-    addStat(trial.strokeDuration, sample.durationMs);
-    if (count(sample.sampleCount) !== null) addStat(trial.samples, sample.sampleCount);
-    addStat(trial.commits, sample.commitMs);
-  }
-
-  function finishRecord(interruption) {
-    const trial = state.trial;
-    if (!trial) return null;
-    const now = trial.endMs === null ? performance.now() : trial.endMs;
-    pauseClock(now);
-    const elapsed = Math.max(0, now - trial.startMs);
-    const visible = Math.min(elapsed, trial.visibleMs);
-    const endCount = state.status && state.status.engine === trial.engine ? state.status.strokeCount : null;
-    const record = {
-      schemaVersion: 1, id: trial.id, engine: trial.engine, task: trial.task,
-      startedAt: trial.startedAt, endedAt: trial.endedAt || new Date().toISOString(),
-      completion: interruption ? 'interrupted' : 'stopped', interruption: interruption || null,
-      timing: {
-        elapsedMs: rounded(elapsed), visibleMs: rounded(visible),
-        hiddenMs: rounded(Math.max(0, elapsed - visible)), visibilityPauses: trial.visibilityPauses
-      },
-      strokeDiagnostics: {
-        events: trial.events, ignoredHiddenEvents: trial.ignoredHiddenEvents,
-        startStrokeCount: trial.startStrokeCount, endStrokeCount: endCount,
-        deltaStrokeCount: trial.startStrokeCount !== null && endCount !== null && endCount >= trial.startStrokeCount
-          ? endCount - trial.startStrokeCount : null,
-        strokeDurationMs: summarize(trial.strokeDuration), samplesPerStroke: summarize(trial.samples),
-        commitMs: summarize(trial.commits)
-      },
-      frameIntervalsMs: { ...summarize(trial.frames), over33Ms: trial.over33Ms },
-      ratings: null, missedStrokes: null
-    };
-    state.trial = null;
-    state.results.push(record);
-    state.pendingId = record.id;
-    persistResults();
-    return record;
-  }
-
-  async function releaseSurface(hold) {
-    const owned = hold || state.hold;
-    if (!owned) return;
-    await owned.api.resume(owned.reason);
-    if (state.hold === owned) state.hold = null;
-  }
-
-  function hideDialog() {
+  function clearNotice() {
     if (!state.ui) return;
-    const dialog = state.ui.dialog;
-    if (dialog.hasAttribute('open')) {
-      if (typeof dialog.close === 'function') dialog.close();
-      else dialog.removeAttribute('open');
-    }
-    state.ui.backdrop.hidden = true;
-    // Restore focus after the owning operation reenables its toolbar controls.
+    state.ui.notice.textContent = '';
+    state.ui.dock.hidden = true;
   }
 
-  async function showDialog(epoch) {
-    if (dialogOpen()) return;
-    const hold = state.hold || { api: requireApi(), reason: PREFIX + ':' + epoch };
-    const needsSuspend = !state.hold;
-    state.hold = hold;
-    try {
-      if (needsSuspend) await hold.api.suspend(hold.reason);
-      requireLive(epoch);
-      state.returnFocus = document.activeElement;
-      const dialog = state.ui.dialog;
-      if (typeof dialog.showModal === 'function') dialog.showModal();
-      else {
-        state.ui.backdrop.hidden = false;
-        dialog.setAttribute('open', '');
-      }
-      state.ui.notice.hidden = true;
-      state.ui.heading.focus();
-    } catch (error) {
-      try { await releaseSurface(hold); } catch (_) { /* Retry drawing retains the hold. */ }
-      throw error;
-    }
-  }
-
-  async function operation(phase, work, errorMessage, allowed) {
-    if (state.disposed || !(allowed || ['idle']).includes(state.phase)) return false;
-    const epoch = state.epoch;
-    state.phase = phase;
-    render();
-    try {
-      await work(epoch);
-      requireLive(epoch);
-      return true;
-    } catch (_) {
-      if (live(epoch)) {
-        refreshStatus();
-        announce(errorMessage, true);
-      }
-      return false;
-    } finally {
-      if (live(epoch)) {
-        if (state.phase === phase) state.phase = 'idle';
-        render();
-        if (!dialogOpen() && state.returnFocus) {
-          const previous = state.returnFocus;
-          state.returnFocus = null;
-          const target = state.trial ? state.ui.stop : [previous, state.ui.compare].find(element =>
-            element && element.isConnected && !element.disabled &&
-            !element.closest('[hidden]') && element.getClientRects().length);
-          if (target) target.focus();
-        }
-      }
-    }
-  }
-
-  async function openComparison() {
-    if (state.phase === 'running') return stopTrial(null);
-    if (dialogOpen() || state.phase !== 'idle') return;
-    await operation('opening', async epoch => {
-      await requireApi().flush();
-      requireLive(epoch);
-      state.status = readStatus();
-      await showDialog(epoch);
-      announce('Choose the same task and tools for each renderer. Start a trial to return to your notebook.');
-    }, 'The comparison could not open. Your work has not been cleared. Use Retry drawing if the surface is hidden.');
-  }
-
-  async function closeComparison() {
-    await operation('closing', async epoch => {
-      hideDialog();
-      await releaseSurface();
-      requireLive(epoch);
-      announce('Comparison closed. Your notebook is ready.');
-    }, 'The drawing surface could not resume. Use Retry drawing. Your saved comparisons are retained.');
+  function showError(message) {
+    if (!state.ui || state.disposed) return;
+    state.ui.dock.hidden = false;
+    state.ui.notice.textContent = message;
   }
 
   async function switchEngine(engine) {
-    if (!['web', 'pencilkit'].includes(engine) || state.trial) return;
-    await operation('switching', async epoch => {
+    if (state.disposed || state.phase !== 'idle' || !['web', 'pencilkit'].includes(engine)) return;
+    const epoch = state.epoch;
+    state.phase = 'switching';
+    clearNotice();
+    render();
+    try {
       const api = requireApi();
       const before = readStatus();
       if (before.busy || (engine === 'pencilkit' && !before.nativeAvailable)) {
         throw new Error('Engine unavailable or busy');
       }
+      // The adapter owns both histories. Flush before switching and never clear either.
       await api.flush();
-      requireLive(epoch);
+      if (!live(epoch)) return;
       await api.setEngine(engine);
-      requireLive(epoch);
+      if (!live(epoch)) return;
       state.status = readStatus();
       if (state.status.engine !== engine || state.status.busy) throw new Error('Engine switch incomplete');
-      announce('Ink is now using ' + engineName(engine) + '. Your notebook work is retained.');
-    }, 'The renderer could not switch. Check the current engine shown here and try again. Your work was not cleared by this comparison.');
-  }
-
-  async function startTrial() {
-    if (state.pendingId) {
-      announce('Save or skip the previous ratings before starting another trial.', true);
-      return;
-    }
-    await operation('starting', async epoch => {
-      const api = requireApi();
-      const task = state.ui.task.value;
-      const engine = state.ui.engine.value;
-      if (document.hidden || !Object.prototype.hasOwnProperty.call(TASKS, task)) {
-        throw new Error('Trial cannot start');
-      }
-      const before = readStatus();
-      if (before.busy || before.engine !== engine) throw new Error('Engine not ready');
-      await api.flush();
-      requireLive(epoch);
-      hideDialog();
-      await releaseSurface();
-      requireLive(epoch);
-      const ready = readStatus();
-      if (document.hidden || ready.busy || ready.engine !== engine ||
-        (engine === 'pencilkit' && !ready.nativeAvailable)) throw new Error('Engine not ready');
-      state.status = ready;
-      const now = performance.now();
-      state.trial = {
-        id: String(Date.now()) + '-' + (++state.sequence), engine, task,
-        startedAt: new Date().toISOString(), endedAt: null, startMs: now, endMs: null,
-        visibleSince: null, visibleMs: 0, visibilityPauses: 0,
-        startStrokeCount: ready.strokeCount, events: 0, ignoredHiddenEvents: 0,
-        strokeDuration: emptyStats(), samples: emptyStats(), commits: emptyStats(),
-        frames: emptyStats(), over33Ms: 0
-      };
-      state.phase = 'running';
-      resumeClock();
-      render();
-      state.ui.stop.focus();
-      announce(engineName(engine) + ' trial started. Complete the selected task, then choose Stop and rate.');
-    }, 'The trial could not start. No trial is running. Reopen Compare ink or use Retry drawing.');
-  }
-
-  async function stopTrial(interruption) {
-    if (!state.trial || state.phase !== 'running') return;
-    await operation('stopping', async epoch => {
-      state.trial.endMs = performance.now();
-      state.trial.endedAt = new Date().toISOString();
-      pauseClock(state.trial.endMs);
-      let reason = interruption;
-      if (availableApi()) {
-        try {
-          await requireApi().flush();
-          requireLive(epoch);
-        } catch (_) {
-          requireLive(epoch);
-          reason = reason || 'flush-failed';
-        }
-      } else reason = reason || 'unavailable';
-      requireLive(epoch);
-      refreshStatus();
-      if (!state.status) reason = reason || 'unavailable';
-      else if (state.status.engine !== state.trial.engine) reason = reason || 'engine-changed';
-      finishRecord(reason);
-      resetRatings();
-      renderResults();
-      if (availableApi()) await showDialog(epoch);
-      announce(reason
-        ? 'Trial interrupted. Available diagnostics were retained; this is not a completed comparison. You can still add ratings or export.'
-        : 'Trial stopped and diagnostics retained. Add your ratings and manual missed-stroke count.', Boolean(reason));
-    }, 'The trial stopped, but the comparison dialog could not open. Retained results are available from Compare ink.', ['running']);
-  }
-
-  function onStatus(event) {
-    ensureUI();
-    if (!state.ui || state.disposed) return;
-    try { state.status = availableApi() ? normalizeStatus(event.detail) : null; }
-    catch (_) {
-      state.status = null;
-      announce('Ink status could not be read. Use Retry drawing to refresh the controls.', true);
-    }
-    if (state.trial && state.phase === 'running' &&
-      (!state.status || state.status.engine !== state.trial.engine ||
-        (state.trial.engine === 'pencilkit' && !state.status.nativeAvailable))) {
-      void stopTrial(!state.status ? 'unavailable' : 'engine-changed');
-    }
-    if (!availableApi() && dialogOpen()) {
-      hideDialog();
-      const hold = state.hold;
-      if (hold) void releaseSurface(hold).catch(() => {
-        announce('Ink became unavailable and its surface could not resume.', true);
-      });
-    }
-    render();
-  }
-
-  function resetRatings() {
-    if (!state.ui) return;
-    state.ui.ratingForm.reset();
-  }
-
-  function saveRatings(event) {
-    event.preventDefault();
-    const record = state.results.find(result => result.id === state.pendingId);
-    if (!record) return;
-    const form = state.ui.ratingForm;
-    if (!form.checkValidity()) {
-      announce('Choose all three ratings and enter a whole-number missed-stroke count from 0 to 1000000.', true);
-      form.reportValidity();
-      return;
-    }
-    record.ratings = {
-      smoothness: Number(form.elements.namedItem('smoothness').value),
-      accuracy: Number(form.elements.namedItem('accuracy').value),
-      toolUsability: Number(form.elements.namedItem('toolUsability').value)
-    };
-    record.missedStrokes = Number(form.elements.namedItem('missedStrokes').value);
-    state.pendingId = null;
-    persistResults();
-    renderResults();
-    render();
-    state.ui.start.focus();
-    announce('Ratings saved for the ' + engineName(record.engine) + ' trial. You can now switch engines and repeat the same task.');
-  }
-
-  function skipRatings() {
-    state.pendingId = null;
-    render();
-    state.ui.start.focus();
-    announce('Diagnostics retained without ratings. You can start the next trial.');
-  }
-
-  function exportResults() {
-    if (!state.results.length) return;
-    let url = null;
-    let anchor = null;
-    try {
-      const payload = {
-        schemaVersion: 1, exportedAt: new Date().toISOString(),
-        metricNote: 'Local software diagnostics and subjective ratings only. Frame intervals, stroke durations, sample counts, and commit durations do not measure hardware Pencil-to-pixel latency. Hidden time is excluded from active timing and frame statistics. Missing optional metrics are null, not zero.',
-        tasks: TASK_DETAILS, results: state.results.map(sanitizedRecord).filter(Boolean)
-      };
-      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-      url = window.URL.createObjectURL(blob);
-      anchor = document.createElement('a');
-      anchor.href = url;
-      anchor.download = 'tenet-ink-comparison-' + new Date().toISOString().replace(/[:.]/g, '-') + '.json';
-      anchor.hidden = true;
-      document.body.appendChild(anchor);
-      anchor.click();
-      const retainedUrl = url;
-      const timer = window.setTimeout(() => {
-        window.URL.revokeObjectURL(retainedUrl);
-        state.downloads.delete(retainedUrl);
-      }, 60000);
-      state.downloads.set(url, timer);
-      announce('Local JSON export requested. Your browser handles the download; nothing was uploaded.');
     } catch (_) {
-      if (url) window.URL.revokeObjectURL(url);
-      announce('The JSON download could not start. Your current results are still retained; try exporting again.', true);
+      if (live(epoch)) {
+        refreshStatus();
+        showError('The ink engine could not switch. Check the current engine, then try again.');
+      }
     } finally {
-      if (anchor) anchor.remove();
-    }
-  }
-
-  function renderResults() {
-    if (!state.ui) return;
-    const body = state.ui.results;
-    body.replaceChildren();
-    state.ui.resultCount.textContent = state.results.length + ' of ' + LIMIT + ' retained results';
-    for (const record of state.results.slice().reverse()) {
-      const row = document.createElement('tr');
-      const mean = stats => stats.count ? stats.mean.toFixed(2) : 'Not reported';
-      const ratings = record.ratings
-        ? [record.ratings.smoothness, record.ratings.accuracy, record.ratings.toolUsability].join(' / ')
-        : 'Not rated';
-      const cells = [
-        engineName(record.engine) + (record.completion === 'interrupted' ? ' (interrupted)' : ''),
-        TASKS[record.task], new Date(record.startedAt).toLocaleString(),
-        (record.timing.visibleMs / 1000).toFixed(1), String(record.strokeDiagnostics.events),
-        mean(record.strokeDiagnostics.samplesPerStroke), mean(record.strokeDiagnostics.commitMs),
-        mean(record.frameIntervalsMs), ratings,
-        record.missedStrokes === null ? 'Not rated' : String(record.missedStrokes)
-      ];
-      cells.forEach((text, index) => {
-        const cell = document.createElement(index === 0 ? 'th' : 'td');
-        if (index === 0) cell.scope = 'row';
-        cell.textContent = text;
-        row.appendChild(cell);
-      });
-      body.appendChild(row);
-    }
-    if (!state.results.length) {
-      const row = document.createElement('tr');
-      const cell = document.createElement('td');
-      cell.colSpan = 10;
-      cell.textContent = 'No trials yet. Complete the same task once with each available engine.';
-      row.appendChild(cell);
-      body.appendChild(row);
+      if (live(epoch)) {
+        state.phase = 'idle';
+        render();
+      }
     }
   }
 
@@ -24268,49 +23781,24 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     if (!ui || state.disposed) return;
     const available = Boolean(availableApi());
     const status = state.status;
-    const running = Boolean(state.trial);
-    const idle = state.phase === 'idle';
-    const blocked = !available || !status || status.busy || !idle || running;
+    const switching = state.phase === 'switching';
     ui.toolbar.hidden = !available;
-    ui.engineButton.textContent = state.phase === 'switching' ? 'Ink: Switching...' :
+    ui.engineButton.textContent = switching ? 'Ink: Switching...' :
       'Ink: ' + (status ? engineName(status.engine) : 'Unavailable');
-    ui.engineButton.disabled = blocked || !status.nativeAvailable || Boolean(state.hold && !dialogOpen());
-    ui.engineButton.title = running ? 'Stop the trial before switching renderers.' :
-      status && !status.nativeAvailable ? 'PencilKit is not available on this device.' :
-        'Switch between Web and PencilKit without clearing your work.';
-    ui.compare.textContent = state.phase === 'running' ? 'Stop and rate' : 'Compare ink';
-    ui.compare.disabled = !available || (!idle && state.phase !== 'running');
-    ui.engine.disabled = blocked;
-    if (status) ui.engine.value = status.engine;
-    ui.nativeOption.disabled = !status || !status.nativeAvailable;
-    ui.nativeOption.textContent = status && status.nativeAvailable ? 'PencilKit' : 'PencilKit (unavailable)';
-    ui.availability.textContent = !status ? 'Ink status unavailable. Retry drawing to refresh.' :
-      status.busy ? 'The drawing engine is busy. Wait for it to finish.' :
-        status.nativeAvailable ? 'Both engines are available on this device.' :
-          'Web is available. PencilKit requires a native host that provides it.';
-    ui.task.disabled = !idle || running;
-    ui.start.disabled = blocked || Boolean(state.pendingId) || Boolean(state.hold && !dialogOpen());
-    ui.start.textContent = state.phase === 'starting' ? 'Starting...' : 'Start trial';
-    ui.close.disabled = !idle;
-    ui.dialog.setAttribute('aria-busy', String(!idle));
-    ui.trialBar.hidden = !running;
-    ui.stop.disabled = state.phase !== 'running';
-    if (running) {
-      ui.trialText.textContent = engineName(state.trial.engine) + ' trial: ' + TASKS[state.trial.task] +
-        (document.hidden ? '. Paused while this page is hidden.' : '. Draw in your notebook, then stop and rate.');
-    }
-    ui.ratings.hidden = !state.pendingId;
-    const pending = state.results.find(result => result.id === state.pendingId);
-    ui.ratingTitle.textContent = pending ? 'Rate your ' + engineName(pending.engine) + ' trial' : 'Rate your trial';
-    ui.ratingFields.disabled = !idle;
-    ui.exportButton.disabled = !state.results.length || !idle;
-    ui.persistence.textContent = state.storageWarning ||
-      'Up to 20 results are saved in this browser. No artwork, account details, or session data are stored.';
-    ui.persistence.setAttribute('role', state.storageWarning ? 'alert' : 'status');
-    ui.retry.hidden = !available || Boolean(status && (!state.hold || dialogOpen()));
-    ui.retry.disabled = !idle || running;
-    const selectedTask = ui.task.value;
-    for (const item of ui.taskList.children) item.hidden = selectedTask !== 'routine' && item.dataset.task !== selectedTask;
+    ui.engineButton.disabled = !available || !status || status.busy || switching || !status.nativeAvailable;
+    ui.engineButton.title = !status ? 'The ink engine is unavailable.' :
+      status.busy ? 'Wait for the drawing engine to finish.' :
+        !status.nativeAvailable ? 'PencilKit is not available on this device.' :
+          'Switch between Web and PencilKit without clearing your work.';
+    ui.toolbar.setAttribute('aria-busy', String(switching));
+  }
+
+  function onStatus(event) {
+    ensureUI();
+    if (!state.ui || state.disposed) return;
+    try { state.status = availableApi() ? normalizeStatus(event.detail) : null; }
+    catch (_) { state.status = null; }
+    render();
   }
 
   function mountToolbar() {
@@ -24326,29 +23814,11 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     return false;
   }
 
-  function onDialogKey(event) {
-    if (!dialogOpen()) return;
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      if (state.phase === 'idle') void closeComparison();
-      return;
-    }
-    if (event.key !== 'Tab') return;
-    const focusable = Array.from(state.ui.dialog.querySelectorAll(
-      'button:not([disabled]), select:not([disabled]), input:not([disabled]), [tabindex="0"]'
-    )).filter(element => !element.closest('[hidden]') && element.getClientRects().length && !element.matches(':disabled'));
-    if (!focusable.length) {
-      event.preventDefault();
-      state.ui.heading.focus();
-      return;
-    }
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-    if (event.shiftKey && (document.activeElement === first || !focusable.includes(document.activeElement))) {
-      event.preventDefault(); last.focus();
-    } else if (!event.shiftKey && (document.activeElement === last || !state.ui.dialog.contains(document.activeElement))) {
-      event.preventDefault(); first.focus();
-    }
+  function stopObserving() {
+    if (state.observer) state.observer.disconnect();
+    state.observer = null;
+    window.clearTimeout(state.observerTimer);
+    state.observerTimer = null;
   }
 
   function createUI() {
@@ -24361,192 +23831,51 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     toolbar.className = PREFIX + ' tic-toolbar tic-floating-toolbar';
     toolbar.setAttribute('role', 'group');
     toolbar.setAttribute('aria-label', 'Ink renderer controls');
-    toolbar.innerHTML = '<button type="button" data-tic="engine-button">Ink: Web</button><button type="button" data-tic="compare" aria-haspopup="dialog" aria-controls="tenet-ink-comparison-dialog">Compare ink</button>';
-    const backdrop = document.createElement('div');
-    backdrop.className = PREFIX + ' tic-backdrop';
-    backdrop.hidden = true;
-    backdrop.setAttribute('aria-hidden', 'true');
-    const dialog = document.createElement('dialog');
-    dialog.id = PREFIX + '-dialog';
-    dialog.className = PREFIX + ' tic-dialog';
-    dialog.setAttribute('role', 'dialog');
-    dialog.setAttribute('aria-modal', 'true');
-    dialog.setAttribute('aria-labelledby', PREFIX + '-title');
-    dialog.setAttribute('aria-describedby', PREFIX + '-intro');
-    dialog.innerHTML = `
-      <header class="tic-header"><div><p class="tic-eyebrow">TENET / ON-DEVICE COMPARISON</p>
-        <h2 id="tenet-ink-comparison-title" tabindex="-1" data-tic="heading">Compare ink</h2></div>
-        <button type="button" data-tic="close">Close</button></header>
-      <div class="tic-body">
-        <p id="tenet-ink-comparison-intro">Try the same drawing work with Web and PencilKit on this iPad. Starting closes this dialog so you can draw in your existing notebook. Stop and rate when finished.</p>
-        <p class="tic-callout">These are software diagnostics and your impressions. Stroke timing, commit timing, and animation frame intervals are <strong>not hardware Pencil-to-pixel latency</strong>.</p>
-        <p data-tic="dialog-status" class="tic-message" role="status" aria-live="polite" aria-atomic="true" hidden></p>
-        <div class="tic-grid">
-          <label>Drawing engine<select data-tic="engine" aria-describedby="tenet-ink-comparison-availability"><option value="web">Web</option><option value="pencilkit" data-tic="native-option">PencilKit</option></select></label>
-          <label>Task to repeat<select data-tic="task"><option value="routine">Full routine</option><option value="sentence">Write a sentence</option><option value="loops">Fast loops</option><option value="math">Small math</option><option value="graph">Pan, zoom, and graph manipulation</option></select></label>
-        </div>
-        <p id="tenet-ink-comparison-availability" data-tic="availability" class="tic-note"></p>
-        <h3>Keep the work comparable</h3>
-        <p>Use the same Pencil, pen width, color, zoom, and notebook area for both trials. Start from a comparable view and repeat the same task. Try reversing the engine order on a second pair.</p>
-        <ol data-tic="task-list"></ol>
-        <p class="tic-note">If there is no graph, prepare one with your usual notebook tools before starting either graph trial. This dialog does not create graphs or clear drawings. Hidden-page time is paused and excluded. Stop before changing engines.</p>
-        <div class="tic-actions"><button type="button" class="tic-primary" data-tic="start">Start trial</button></div>
-        <section data-tic="ratings" hidden aria-labelledby="tenet-ink-comparison-rating-title">
-          <h3 id="tenet-ink-comparison-rating-title" data-tic="rating-title">Rate your trial</h3>
-          <p id="tenet-ink-comparison-scale">Rate each item from 1 (poor) to 5 (excellent). Missed strokes are your manual count, not an automatic detection.</p>
-          <form data-tic="rating-form" novalidate><fieldset data-tic="rating-fields" aria-describedby="tenet-ink-comparison-scale">
-            <div class="tic-grid" data-tic="rating-inputs"></div>
-            <div class="tic-actions"><button type="submit" class="tic-primary">Save ratings</button><button type="button" data-tic="skip">Skip ratings</button></div>
-          </fieldset></form>
-        </section>
-        <section aria-labelledby="tenet-ink-comparison-results-title">
-          <h3 id="tenet-ink-comparison-results-title">Local results</h3>
-          <p data-tic="result-count" class="tic-note"></p>
-          <div class="tic-table-scroll" tabindex="0" role="region" aria-label="Comparison results; scroll horizontally for more columns">
-            <table><caption>Diagnostic averages and subjective ratings</caption><thead><tr>
-              <th scope="col">Engine</th><th scope="col">Task</th><th scope="col">Started</th><th scope="col">Visible seconds</th>
-              <th scope="col">Stroke events</th><th scope="col">Samples / stroke</th><th scope="col">Commit ms</th><th scope="col">Frame ms</th>
-              <th scope="col">Smooth / accurate / tools</th><th scope="col">Missed strokes</th>
-            </tr></thead><tbody data-tic="results"></tbody></table>
-          </div>
-          <p class="tic-note">Ratings are subjective. Frame intervals describe this page's animation scheduling, not native display presentation. Missing metrics are shown as Not reported. Full ranges and counts are in the JSON export.</p>
-          <p data-tic="persistence" class="tic-note" role="status" aria-live="polite"></p>
-          <div class="tic-actions"><button type="button" data-tic="export">Export JSON locally</button></div>
-        </section>
-      </div>`;
+    toolbar.innerHTML = '<button type="button" data-tic="engine-button">Ink: Web</button>';
     const dock = document.createElement('div');
     dock.className = PREFIX + ' tic-dock';
-    dock.innerHTML = '<div class="tic-trial-bar" data-tic="trial-bar" hidden><span data-tic="trial-text"></span><button type="button" data-tic="stop">Stop and rate</button></div><p class="tic-message" data-tic="notice" role="status" aria-live="polite" aria-atomic="true" hidden></p><button type="button" data-tic="retry" hidden>Retry drawing</button>';
-    const roots = [toolbar, dialog, dock];
-    const find = name => roots.map(root => root.querySelector('[data-tic="' + name + '"]')).find(Boolean);
-    const ui = { style, toolbar, backdrop, dialog, dock };
-    const names = {
-      engineButton: 'engine-button', compare: 'compare', heading: 'heading', close: 'close',
-      dialogStatus: 'dialog-status', engine: 'engine', nativeOption: 'native-option', task: 'task',
-      availability: 'availability', taskList: 'task-list', start: 'start', ratings: 'ratings',
-      ratingTitle: 'rating-title', ratingForm: 'rating-form', ratingFields: 'rating-fields',
-      ratingInputs: 'rating-inputs', skip: 'skip', resultCount: 'result-count', results: 'results',
-      persistence: 'persistence', exportButton: 'export', trialBar: 'trial-bar', trialText: 'trial-text',
-      stop: 'stop', notice: 'notice', retry: 'retry'
-    };
-    for (const [key, name] of Object.entries(names)) ui[key] = find(name);
-    for (const [task, description] of Object.entries(TASK_DETAILS)) {
-      const item = document.createElement('li');
-      item.dataset.task = task;
-      item.textContent = description;
-      ui.taskList.appendChild(item);
-    }
-    for (const [name, title] of [['smoothness', 'Smoothness'], ['accuracy', 'Accuracy'], ['toolUsability', 'Tool usability']]) {
-      const label = document.createElement('label');
-      label.textContent = title;
-      const select = document.createElement('select');
-      select.name = name;
-      select.required = true;
-      select.add(new Option('Choose a rating', ''));
-      for (let value = 1; value <= 5; value += 1) {
-        select.add(new Option(String(value) + (value === 1 ? ' - poor' : value === 5 ? ' - excellent' : ''), String(value)));
-      }
-      label.appendChild(select);
-      ui.ratingInputs.appendChild(label);
-    }
-    const missed = document.createElement('label');
-    missed.textContent = 'Missed strokes (manual count)';
-    const input = document.createElement('input');
-    input.type = 'number'; input.name = 'missedStrokes'; input.min = '0'; input.max = '1000000';
-    input.step = '1'; input.defaultValue = '0'; input.required = true; input.inputMode = 'numeric';
-    missed.appendChild(input);
-    ui.ratingInputs.appendChild(missed);
+    dock.hidden = true;
+    dock.innerHTML = '<p class="tic-message" data-tic="notice" role="alert" aria-live="assertive" aria-atomic="true"></p><button type="button" data-tic="dismiss" aria-label="Dismiss ink notification">Dismiss</button>';
+    const engineButton = toolbar.querySelector('[data-tic="engine-button"]');
+    const notice = dock.querySelector('[data-tic="notice"]');
+    state.ui = { style, toolbar, dock, engineButton, notice };
     document.head.appendChild(style);
-    document.body.append(toolbar, backdrop, dialog, dock);
-    state.ui = ui;
-    listen(ui.engineButton, 'click', () => {
+    document.body.append(toolbar, dock);
+    listen(engineButton, 'click', () => {
       if (state.status) void switchEngine(state.status.engine === 'web' ? 'pencilkit' : 'web');
     });
-    listen(ui.compare, 'click', () => { void openComparison(); });
-    listen(ui.engine, 'change', () => { void switchEngine(ui.engine.value); });
-    listen(ui.task, 'change', render);
-    listen(ui.start, 'click', () => { void startTrial(); });
-    listen(ui.stop, 'click', () => { void stopTrial(null); });
-    listen(ui.close, 'click', () => { void closeComparison(); });
-    listen(ui.dialog, 'cancel', event => {
-      event.preventDefault();
-      if (state.phase === 'idle') void closeComparison();
-    });
-    listen(document, 'keydown', onDialogKey, true);
-    listen(document, 'focusin', event => {
-      if (dialogOpen() && !ui.dialog.contains(event.target)) ui.heading.focus();
-    });
-    listen(ui.ratingForm, 'submit', saveRatings);
-    listen(ui.skip, 'click', skipRatings);
-    listen(ui.exportButton, 'click', exportResults);
-    listen(ui.retry, 'click', () => {
-      void operation('recovering', async epoch => {
-        if (!dialogOpen()) await releaseSurface();
-        requireLive(epoch);
-        state.status = readStatus();
-        announce(state.status.busy ? 'The drawing engine is still busy.' : 'Drawing controls are ready.');
-      }, 'Drawing controls could not recover. Try again when the ink engine is available.');
+    listen(dock.querySelector('[data-tic="dismiss"]'), 'click', () => {
+      clearNotice();
+      if (!engineButton.disabled && !toolbar.hidden) engineButton.focus();
     });
   }
 
   function ensureUI() {
     if (state.ui || state.disposed || document.readyState === 'loading' || !availableApi()) return;
-    // A second inclusion must not install a second set of controls or storage writers.
     if (document.getElementById(PREFIX + '-toolbar')) return;
     createUI();
-    loadResults();
     refreshStatus();
     if (!mountToolbar() && typeof MutationObserver === 'function') {
       state.observer = new MutationObserver(() => {
-        if (mountToolbar()) {
-          state.observer.disconnect(); state.observer = null;
-          window.clearTimeout(state.observerTimer); state.observerTimer = null;
-        }
+        if (mountToolbar()) stopObserving();
       });
       state.observer.observe(document.body, { childList: true, subtree: true });
-      state.observerTimer = window.setTimeout(() => {
-        if (state.observer) state.observer.disconnect();
-        state.observer = null; state.observerTimer = null;
-      }, 10000);
+      state.observerTimer = window.setTimeout(stopObserving, 10000);
     }
-    renderResults();
     render();
-    if (!state.status) announce('Ink status could not be read. Use Retry drawing.', true);
   }
 
   function onPageHide(event) {
     if (state.disposed) return;
-    // pagehide cannot reliably await native work. Keep a clearly interrupted snapshot.
-    if (state.trial) finishRecord('pagehide');
     state.disposed = true;
     state.epoch += 1;
-    pauseClock(performance.now());
     state.phase = 'idle';
     state.listeners.splice(0).forEach(unregister => unregister());
-    if (state.observer) state.observer.disconnect();
-    state.observer = null;
-    window.clearTimeout(state.observerTimer);
-    state.observerTimer = null;
-    for (const [url, timer] of state.downloads) {
-      window.clearTimeout(timer);
-      window.URL.revokeObjectURL(url);
-    }
-    state.downloads.clear();
-    const hold = state.hold;
-    if (hold) {
-      try {
-        Promise.resolve(hold.api.resume(hold.reason)).then(() => {
-          if (state.hold === hold) state.hold = null;
-        }).catch(() => { /* A restored page exposes Retry drawing. */ });
-      } catch (_) { /* A restored page exposes Retry drawing. */ }
-    }
+    stopObserving();
     if (state.ui) {
-      const ui = state.ui;
-      if (dialogOpen() && typeof ui.dialog.close === 'function') ui.dialog.close();
-      [ui.toolbar, ui.dialog, ui.backdrop, ui.dock, ui.style].forEach(element => element.remove());
+      [state.ui.toolbar, state.ui.dock, state.ui.style].forEach(element => element.remove());
       state.ui = null;
     }
-    state.returnFocus = null;
     if (event.persisted) window.addEventListener('pageshow', activate, { once: true });
   }
 
@@ -24554,8 +23883,6 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     state.disposed = false;
     state.epoch += 1;
     listen(window, 'tenet:ink-status', onStatus);
-    listen(window, 'tenet:ink-sample', onSample);
-    listen(document, 'visibilitychange', onVisibility);
     listen(window, 'pagehide', onPageHide);
     if (document.readyState === 'loading') listen(document, 'DOMContentLoaded', ensureUI, { once: true });
     else ensureUI();
@@ -24569,6 +23896,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   if (!window.PENECHO_CONFIG || window.PENECHO_CONFIG.tenetMode !== true) return;
 
   const NOTEBOOK_STORAGE_KEY = "tenet-notebook-v1";
+  const LAUNCHER_PREFERENCE_KEY = "tenet-notebook-launcher-v1";
   const AUTOSAVE_IDLE_MS = 1800;
   const AUTOSAVE_POLL_MS = 900;
   const SUBJECTS = Object.freeze([
@@ -24590,8 +23918,15 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   let lastRevisionChangeAt = Date.now();
   let autosaveInterval = null;
   let restoreFocusTarget = null;
+  let launcherCollapsed = readLauncherCollapsed();
+  let runtimeActive = false;
+  let focusFrame = null;
 
   let launcher;
+  let launcherDock;
+  let launcherToggle;
+  let headerPagesButton = null;
+  let headerPagesAttributes = null;
   let pageCount;
   let overlay;
   let panel;
@@ -24612,6 +23947,71 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   let pageList;
   let emptyState;
   let statusLine;
+
+  function readLauncherCollapsed(fallback = true) {
+    try {
+      return window.localStorage.getItem(LAUNCHER_PREFERENCE_KEY) !== "expanded";
+    } catch (_error) {
+      return fallback;
+    }
+  }
+
+  function setLauncherCollapsed(collapsed, persist = false) {
+    launcherCollapsed = collapsed === true;
+    launcherDock.dataset.collapsed = String(launcherCollapsed);
+    document.body.dataset.tenetNotebookLauncherCollapsed = String(launcherCollapsed);
+    launcherToggle.setAttribute("aria-expanded", String(!launcherCollapsed));
+    const label = launcherCollapsed ? "Expand Pages & files launcher" : "Collapse Pages & files launcher";
+    launcherToggle.setAttribute("aria-label", label);
+    launcherToggle.title = label;
+    launcherToggle.firstElementChild.textContent = launcherCollapsed ? ">" : "<";
+    if (persist) {
+      try {
+        window.localStorage.setItem(LAUNCHER_PREFERENCE_KEY, launcherCollapsed ? "collapsed" : "expanded");
+      } catch (_error) {
+        // Keep the preference for this page when storage is unavailable.
+      }
+    }
+  }
+
+  function handleLauncherPreferenceStorage(event) {
+    if (event.key === LAUNCHER_PREFERENCE_KEY || event.key === null) {
+      setLauncherCollapsed(readLauncherCollapsed(launcherCollapsed));
+    }
+  }
+
+  function handleHeaderPagesClick(event) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    openNotebook();
+  }
+
+  function bindHeaderPages() {
+    const button = document.querySelector("#historyBtn");
+    if (!button || headerPagesButton === button) return;
+    unbindHeaderPages();
+    headerPagesButton = button;
+    headerPagesAttributes = Object.fromEntries(
+      ["aria-controls", "aria-expanded", "aria-haspopup"].map((name) => [name, button.getAttribute(name)]),
+    );
+    button.setAttribute("aria-controls", "tenetNotebookOverlay");
+    button.setAttribute("aria-expanded", String(!overlay.hidden));
+    button.setAttribute("aria-haspopup", "dialog");
+    // The upstream bubble listener opens a different library. Tenet owns this
+    // destination only while its notebook runtime is active.
+    button.addEventListener("click", handleHeaderPagesClick, true);
+  }
+
+  function unbindHeaderPages() {
+    if (!headerPagesButton) return;
+    headerPagesButton.removeEventListener("click", handleHeaderPagesClick, true);
+    for (const [name, value] of Object.entries(headerPagesAttributes)) {
+      if (value === null) headerPagesButton.removeAttribute(name);
+      else headerPagesButton.setAttribute(name, value);
+    }
+    headerPagesButton = null;
+    headerPagesAttributes = null;
+  }
 
   function readMetadata() {
     const fallback = { version: 1, activeSubject: "all", pages: {} };
@@ -24694,17 +24094,32 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   }
 
   function buildShell() {
+    launcherDock = document.createElement("div");
+    launcherDock.id = "tenetNotebookLauncherDock";
+    launcherDock.className = "tenet-notebook-launcher-dock";
+    launcherDock.setAttribute("role", "group");
+    launcherDock.setAttribute("aria-label", "Pages & files");
     launcher = document.createElement("button");
     launcher.type = "button";
     launcher.id = "tenetNotebookLauncher";
     launcher.className = "tenet-notebook-launcher";
     launcher.setAttribute("aria-controls", "tenetNotebookOverlay");
     launcher.setAttribute("aria-expanded", "false");
+    launcher.setAttribute("aria-haspopup", "dialog");
+    launcher.setAttribute("aria-label", "Open Pages & files");
+    launcher.title = "Open Pages & files";
     launcher.innerHTML = `
       <span class="tenet-notebook-launcher-mark" aria-hidden="true"><i></i><i></i><i></i></span>
-      <span>Pages &amp; files</span>
+      <span class="tenet-notebook-launcher-label">Pages &amp; files</span>
       <span id="tenetNotebookPageCount" class="tenet-notebook-count">0</span>
     `;
+    launcherToggle = document.createElement("button");
+    launcherToggle.type = "button";
+    launcherToggle.id = "tenetNotebookLauncherToggle";
+    launcherToggle.className = "tenet-notebook-launcher-toggle";
+    launcherToggle.setAttribute("aria-controls", "tenetNotebookLauncher");
+    launcherToggle.innerHTML = '<span aria-hidden="true"></span>';
+    launcherDock.append(launcher, launcherToggle);
 
     overlay = document.createElement("div");
     overlay.id = "tenetNotebookOverlay";
@@ -24832,7 +24247,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       </aside>
     `;
 
-    document.body.append(launcher, overlay);
+    document.body.append(launcherDock, overlay);
+    setLauncherCollapsed(launcherCollapsed);
 
     pageCount = launcher.querySelector("#tenetNotebookPageCount");
     panel = overlay.querySelector(".tenet-notebook-panel");
@@ -25011,6 +24427,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   function renderNotebook(pages) {
     revokePreviewUrls();
     pageCount.textContent = String(pages.length);
+    launcher.setAttribute("aria-label", `Open Pages & files, ${pages.length} saved page${pages.length === 1 ? "" : "s"}`);
     renderSubjectTabs(pages);
     syncEditorForCurrentPage(pages);
     pageList.replaceChildren();
@@ -25025,6 +24442,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   }
 
   async function refreshPages(quiet = false) {
+    if (!runtimeActive) return;
     const sequence = ++refreshSequence;
     if (!quiet) setNotebookStatus("Loading local pages...", "working");
     try {
@@ -25153,20 +24571,28 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   }
 
   function openNotebook() {
+    if (!runtimeActive || !overlay.hidden) return;
     restoreFocusTarget = document.activeElement instanceof HTMLElement ? document.activeElement : launcher;
     overlay.hidden = false;
     launcher.setAttribute("aria-expanded", "true");
+    headerPagesButton?.setAttribute("aria-expanded", "true");
     document.body.classList.add("tenet-notebook-open");
     closeImageMenu();
     syncPaperChoice();
     void refreshPages();
-    window.requestAnimationFrame(() => closeButton.focus());
+    focusFrame = window.requestAnimationFrame(() => {
+      focusFrame = null;
+      if (runtimeActive && !overlay.hidden) closeButton.focus();
+    });
   }
 
   function closeNotebook() {
+    if (focusFrame !== null) window.cancelAnimationFrame(focusFrame);
+    focusFrame = null;
     if (overlay.hidden) return;
     overlay.hidden = true;
     launcher.setAttribute("aria-expanded", "false");
+    headerPagesButton?.setAttribute("aria-expanded", "false");
     document.body.classList.remove("tenet-notebook-open");
     closeImageMenu();
     if (restoreFocusTarget && restoreFocusTarget.isConnected) restoreFocusTarget.focus();
@@ -25208,6 +24634,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
 
   function bindEvents() {
     launcher.addEventListener("click", openNotebook);
+    launcherToggle.addEventListener("click", () => setLauncherCollapsed(!launcherCollapsed, true));
     closeButton.addEventListener("click", closeNotebook);
     overlay.querySelector(".tenet-notebook-backdrop").addEventListener("click", closeNotebook);
     saveButton.addEventListener("click", () => void saveNotebookPage());
@@ -25259,20 +24686,44 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       renderNotebook(latestPages);
     });
 
+    startRuntime();
+    window.addEventListener("pagehide", handlePageHide);
+    window.addEventListener("pageshow", handlePageShow);
+  }
+
+  function startRuntime() {
+    if (runtimeActive) return;
+    runtimeActive = true;
+    bindHeaderPages();
     document.addEventListener("pointerdown", handleDocumentPointerDown);
     document.addEventListener("keydown", handleDocumentKeydown);
+    window.addEventListener("storage", handleLauncherPreferenceStorage);
     autosaveInterval = window.setInterval(monitorAutosave, AUTOSAVE_POLL_MS);
+  }
 
-    window.addEventListener(
-      "pagehide",
-      () => {
-        window.clearInterval(autosaveInterval);
-        document.removeEventListener("pointerdown", handleDocumentPointerDown);
-        document.removeEventListener("keydown", handleDocumentKeydown);
-        revokePreviewUrls();
-      },
-      { once: true },
-    );
+  function handlePageHide(event) {
+    runtimeActive = false;
+    refreshSequence += 1;
+    window.clearInterval(autosaveInterval);
+    autosaveInterval = null;
+    document.removeEventListener("pointerdown", handleDocumentPointerDown);
+    document.removeEventListener("keydown", handleDocumentKeydown);
+    window.removeEventListener("storage", handleLauncherPreferenceStorage);
+    restoreFocusTarget = null;
+    closeNotebook();
+    unbindHeaderPages();
+    revokePreviewUrls();
+    if (!event.persisted) {
+      window.removeEventListener("pagehide", handlePageHide);
+      window.removeEventListener("pageshow", handlePageShow);
+    }
+  }
+
+  function handlePageShow(event) {
+    if (!event.persisted) return;
+    setLauncherCollapsed(readLauncherCollapsed(launcherCollapsed));
+    startRuntime();
+    void refreshPages(true);
   }
 
   function installNotebook() {
@@ -25408,8 +24859,9 @@ var tenetCanvasAI = null;
     const lifetime = new AbortController(), signal = lifetime.signal;
     const entry = document.createElement("div");
     entry.className = "tenet-ai-entry";
-    const circle = makeButton("Circle for AI", "tenet-selection-button tenet-selection-ai-button");
+    const circle = makeButton("Circle selection", "tenet-selection-button tenet-selection-ai-button");
     circle.setAttribute("aria-pressed", "false");
+    circle.title = "Draw around an area to move its ink or ask Tenet. Tap again to cancel.";
     const scope = document.createElement("select");
     scope.className = "tenet-ai-scope";
     scope.setAttribute("aria-label", "Quick AI context");
@@ -25417,9 +24869,9 @@ var tenetCanvasAI = null;
       const option = document.createElement("option");
       option.value = value; option.textContent = label; scope.append(option);
     }
-    scope.title = "Choose what the Quick Ask button sends. Circle for AI selects an exact area.";
+    scope.title = "Choose what Quick Ask sends. Circle selection chooses an exact area.";
     entry.append(circle, scope);
-    boardToolbar.prepend(entry);
+    view.append(entry);
 
     const surface = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     surface.classList.add("tenet-ai-circle-surface");
@@ -25436,10 +24888,13 @@ var tenetCanvasAI = null;
     const notice = document.createElement("span");
     notice.setAttribute("role", "status");
     const help = makeButton("Quick help", "tenet-selection-button tenet-selection-ai-button");
-    const question = makeButton("Ask a question", "tenet-selection-button");
+    const question = makeButton("Ask AI a question", "tenet-selection-button");
+    const move = makeButton("Move ink", "tenet-selection-button");
+    move.setAttribute("aria-pressed", "false");
+    const talk = makeButton("Talk to Tenet", "tenet-selection-button");
     const redraw = makeButton("Circle again", "tenet-selection-button");
     const cancel = makeButton("Cancel", "tenet-selection-button");
-    controls.append(notice, help, question, redraw, cancel);
+    controls.append(notice, move, help, question, talk, redraw, cancel);
     view.append(surface, controls);
 
     const dialog = document.createElement("dialog");
@@ -25466,19 +24921,29 @@ var tenetCanvasAI = null;
     dialog.append(form); document.body.append(dialog);
 
     let region = null, pendingStart = 0, pointer = null, drawing = false, preparing = false;
+    let moving = false, moveGesture = null;
     function paint() {
       if (!region) return;
       const rect = view.getBoundingClientRect();
       const metrics = canvasViewportMetrics(), factor = rect.width / Math.max(1, metrics.width);
       surface.setAttribute("viewBox", `0 0 ${rect.width} ${rect.height}`);
       polygon.setAttribute("points", region.points.map(p => `${(p.x*state.scale+state.panX)*factor},${(p.y*state.scale+state.panY)*factor}`).join(" "));
-      help.disabled = question.disabled = drawing || !tenetRegionGeometry(region.points) || preparing;
+      const ready = !drawing && Boolean(tenetRegionGeometry(region.points));
+      controls.hidden = !ready;
+      for (const button of [help, question, move, talk]) {
+        button.disabled = !ready || preparing || Boolean(moveGesture);
+        button.hidden = !ready;
+      }
+      talk.hidden = !ready || !tenetVoice;
+      move.setAttribute("aria-pressed", String(moving));
+      surface.classList.toggle("is-moving", moving);
+      cancel.disabled = redraw.disabled = preparing;
     }
     function close() {
       pendingStart++;
       if (dialog.open) dialog.close();
       if (pointer !== null && surface.hasPointerCapture?.(pointer)) surface.releasePointerCapture(pointer);
-      pointer = null; drawing = false;
+      pointer = null; drawing = false; moving = false; moveGesture = null;
       const reason = region?.reason;
       region = null;
       surface.setAttribute("hidden", "");
@@ -25504,11 +24969,11 @@ var tenetCanvasAI = null;
         await tenetInkFlush();
         if (token !== pendingStart) { tenetInkController?.resume(reason); return; }
         document.activeElement?.blur?.();
-        region = { reason, points:[], revision:state.userRevision, generation:state.recognitionGeneration };
+        region = { reason, points:[], revision:state.userRevision, generation:state.recognitionGeneration, page:state.snapshotLoadGeneration };
         surface.removeAttribute("hidden");
-        controls.hidden = false;
+        controls.hidden = true;
         circle.setAttribute("aria-pressed", "true");
-        notice.textContent = "Circle an area with your Pencil, finger, stylus, or mouse. Your ink will not move.";
+        notice.textContent = "Circle an area, then move its ink or ask Tenet about it.";
       } catch (error) { tenetInkController?.resume(reason); tenetInkMessage(error.message); }
       finally { preparing = false; circle.disabled = false; paint(); }
     }
@@ -25541,6 +25006,9 @@ var tenetCanvasAI = null;
     }
     async function quick(action) {
       if (preparing) return;
+      // Student help stays a hint across input methods. The hint contract
+      // already permits ordinary conversation without revealing school answers.
+      action = "hint";
       if (scope.value === "page") { await requestAI(action, null, { captureCurrentViewport:true }); return; }
       preparing = true;
       try {
@@ -25556,10 +25024,55 @@ var tenetCanvasAI = null;
       } catch (error) { tenetInkMessage(error.message); }
       finally { preparing = false; }
     }
+    function voiceContext() {
+      if (!region) return null;
+      if (drawing || preparing || moveGesture || !unchanged(region) || !tenetRegionGeometry(region.points))
+        throw Error("Finish circling an area before asking about it.");
+      return { points:region.points.map(point => ({...point})), revision:region.revision,
+        generation:region.generation, page:region.page };
+    }
+    async function finishMove(value, gesture) {
+      preparing = true; paint();
+      try {
+        if (!unchanged(value) || value.page !== state.snapshotLoadGeneration)
+          throw Error("The page changed. Circle the ink again.");
+        const dx = value.points[0].x - gesture.points[0].x;
+        const dy = value.points[0].y - gesture.points[0].y;
+        if (Math.abs(dx) + Math.abs(dy) < 0.01) return;
+        if (window.TenetInk?.getStatus?.().engine === "pencilkit") {
+          if (!tenetInkController?.moveRegion) throw Error("Update the iPad app to move circled PencilKit ink.");
+          const result = await tenetInkController.moveRegion(gesture.points, dx, dy);
+          if (!result?.moved) throw Error("Circle complete PencilKit strokes to move them. Images and other ink stay in place.");
+        } else {
+          if (!captureSelection(gesture.points)) throw Error("There is no Web ink inside this circle. Use Hand to move pictures or shapes.");
+          const selected = state.selection;
+          selected.box = {...selected.box, x:selected.box.x + dx, y:selected.box.y + dy};
+          commitSelection();
+        }
+        if (region !== value || value.page !== state.snapshotLoadGeneration) return;
+        value.revision = state.userRevision; value.generation = state.recognitionGeneration;
+        notice.textContent = "Ink moved. Drag again, ask about this area, or tap Done.";
+      } catch (error) {
+        if (region === value) value.points = gesture.points;
+        tenetInkMessage(error?.message || "The selected ink could not be moved.");
+      } finally { preparing = false; paint(); }
+    }
+    move.addEventListener("click", () => {
+      moving = !moving;
+      notice.textContent = moving
+        ? "Drag inside the circle and release to move ink from the current drawing engine. Pictures and other layers stay in place."
+        : "Choose Quick help, Ask AI a question, or Talk to Tenet.";
+      paint();
+    }, {signal});
+    talk.addEventListener("click", () => {
+      try { if (tenetVoice) void tenetVoice.openSelection(voiceContext()); }
+      catch (error) { tenetInkMessage(error.message); }
+    }, {signal});
+    cancel.textContent = "Done";
     circle.addEventListener("click", () => { void start(); }, { signal });
     cancel.addEventListener("click", close, { signal });
     redraw.addEventListener("click", () => {
-      if (region && !preparing) { region.points = []; notice.textContent = "Circle a new area."; paint(); }
+      if (region && !preparing) { region.points = []; moving = false; notice.textContent = "Circle a new area."; paint(); }
     }, { signal });
     help.addEventListener("click", () => { void ask("hint"); }, { signal });
     question.addEventListener("click", () => {
@@ -25575,16 +25088,30 @@ var tenetCanvasAI = null;
     form.addEventListener("submit", event => {
       event.preventDefault();
       if (!input.value.trim()) { input.focus(); return; }
-      void ask("answer", input.value.trim());
+      void ask("hint", input.value.trim());
     }, { signal });
     surface.addEventListener("pointerdown", event => {
       event.preventDefault(); event.stopPropagation();
       if (!region || preparing || event.button > 0 || pointer !== null) return;
+      if (moving) {
+        const point = clientPoint(event), bounds = tenetRegionGeometry(region.points);
+        if (!bounds || point.x < bounds.x || point.y < bounds.y || point.x > bounds.x + bounds.w || point.y > bounds.y + bounds.h) return;
+        pointer = event.pointerId;
+        moveGesture = {point, bounds, points:region.points.map(p => ({...p}))};
+        surface.setPointerCapture(pointer); paint(); return;
+      }
       pointer = event.pointerId; drawing = true; region.points = [];
       surface.setPointerCapture(pointer); addPoint(event); paint();
     }, { signal });
     surface.addEventListener("pointermove", event => {
       event.preventDefault(); event.stopPropagation();
+      if (moveGesture && event.pointerId === pointer && region) {
+        const point = clientPoint(event), box = moveGesture.bounds;
+        const dx = Math.max(-box.x, Math.min(SIZE - box.x - box.w, point.x - moveGesture.point.x));
+        const dy = Math.max(-box.y, Math.min(SIZE - box.y - box.h, point.y - moveGesture.point.y));
+        region.points = moveGesture.points.map(p => ({x:p.x + dx, y:p.y + dy}));
+        paint(); return;
+      }
       if (!drawing || event.pointerId !== pointer || !region) return;
       const samples = event.getCoalescedEvents?.() || [];
       for (const sample of samples.length ? samples : [event]) addPoint(sample);
@@ -25593,17 +25120,26 @@ var tenetCanvasAI = null;
     function finish(event) {
       event.preventDefault(); event.stopPropagation();
       if (event.pointerId !== pointer || !region) return;
+      if (moveGesture) {
+        const value = region, gesture = moveGesture, id = pointer;
+        moveGesture = null; pointer = null;
+        if (surface.hasPointerCapture?.(id)) surface.releasePointerCapture(id);
+        if (event.type !== "pointerup") { value.points = gesture.points; paint(); }
+        else void finishMove(value, gesture);
+        return;
+      }
       if (event.type === "pointercancel") region.points = [];
       else addPoint(event);
       if (surface.hasPointerCapture?.(pointer)) surface.releasePointerCapture(pointer);
       pointer = null; drawing = false;
       const bounds = tenetRegionGeometry(region.points);
       if (!bounds || bounds.w*state.scale < 8 || bounds.h*state.scale < 8) region.points = [];
-      notice.textContent = region.points.length ? "Only the circled area will be sent. Choose Quick help or ask your own question." : "Circle a larger area to select it.";
+      notice.textContent = region.points.length ? "Selection ready. Move its ink, or ask Tenet about only this area." : "Circle a larger area to select it.";
       paint();
     }
     surface.addEventListener("pointerup", finish, { signal });
     surface.addEventListener("pointercancel", finish, { signal });
+    surface.addEventListener("lostpointercapture", event => { if (moveGesture) finish(event); }, {signal});
     document.addEventListener("pointerdown", event => {
       if (!region || view.contains(event.target) || entry.contains(event.target) || dialog.contains(event.target)) return;
       close();
@@ -25617,13 +25153,14 @@ var tenetCanvasAI = null;
       close();
       if (!event.persisted) lifetime.abort();
     }, { signal });
-    tenetCanvasAI = { selectionActive:() => Boolean(region), ask, quick, close };
+    tenetCanvasAI = { selectionActive:() => Boolean(region), ask, quick, close, voiceContext };
   }
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", mount, { once: true });
   else mount();
 })();
 // Native iPad audio only. No microphone stream enters the webview or Gateway.
+var tenetVoice = null;
 (function initializeTenetVoice() {
   if (window.PENECHO_CONFIG?.tenetMode !== true || window.Capacitor?.getPlatform?.() !== "ios") return;
   const native = window.Capacitor?.Plugins?.TenetNative;
@@ -25633,20 +25170,79 @@ var tenetCanvasAI = null;
   let ui = null, capability = null, job = null, sequence = 0, guardTimer = 0;
   let phase = "idle", speaking = false, disposed = false;
 
+  function voicePopoverBounds(entry, viewport, layoutWidth, contentHeight = 320) {
+    if (!entry || !viewport || !Number.isFinite(layoutWidth) || layoutWidth <= 0 ||
+        !Number.isFinite(viewport.width) || viewport.width <= 0 ||
+        !Number.isFinite(viewport.height) || viewport.height <= 0) return null;
+    const offsetLeft = Number.isFinite(viewport.offsetLeft) ? Math.max(0, viewport.offsetLeft) : 0;
+    const offsetTop = Number.isFinite(viewport.offsetTop) ? Math.max(0, viewport.offsetTop) : 0;
+    const visibleWidth = Math.min(viewport.width, layoutWidth - offsetLeft);
+    if (visibleWidth <= 0) return null;
+    const edge = Math.min(12, visibleWidth / 4, viewport.height / 4);
+    const left = offsetLeft + edge, right = offsetLeft + visibleWidth - edge;
+    const top = offsetTop + edge, bottom = offsetTop + viewport.height - edge;
+    const width = Math.min(360, right - left);
+    const height = Math.min(520, bottom - top,
+      Number.isFinite(contentHeight) && contentHeight > 0 ? contentHeight : 320);
+    const clamp = (value, low, high) => Math.max(low, Math.min(value, high));
+    const below = clamp((Number.isFinite(entry.bottom) ? entry.bottom : top) + 8, top, bottom);
+    const above = clamp((Number.isFinite(entry.top) ? entry.top : top) - 8, top, bottom);
+    const useAbove = bottom - below < Math.min(height, 240) && above - top > bottom - below;
+    const popoverTop = useAbove ? Math.max(top, above - height) : below;
+    const popoverBottom = useAbove ? above : bottom;
+    const popoverRight = clamp(Number.isFinite(entry.right) ? entry.right : right, left + width, right);
+    return {
+      top: popoverTop,
+      right: Math.max(0, layoutWidth - popoverRight),
+      maxWidth: width,
+      availableHeight: Math.min(520, popoverBottom - popoverTop),
+      bottom: popoverBottom
+    };
+  }
+
+  function positionPopover() {
+    if (disposed || !ui?.dialog.open || typeof ui.entry.getBoundingClientRect !== "function" ||
+        typeof runtimeElementStyle !== "function") return;
+    const layoutWidth = document.documentElement?.clientWidth || window.innerWidth;
+    const viewport = window.visualViewport || {
+      width: layoutWidth, height: window.innerHeight || document.documentElement?.clientHeight,
+      offsetLeft: 0, offsetTop: 0
+    };
+    const bounds = voicePopoverBounds(ui.entry.getBoundingClientRect(), viewport, layoutWidth,
+      ui.dialog.scrollHeight + 2);
+    if (!bounds) return;
+    // The dialog is fixed-position: rects and visualViewport offsets share the
+    // layout viewport. CSS right is the inset from that viewport's right edge.
+    const style = runtimeElementStyle(ui.dialog);
+    style.setProperty("--tenet-voice-popover-top", `max(${bounds.top}px, env(safe-area-inset-top, 0px))`);
+    style.setProperty("--tenet-voice-popover-right", `max(${bounds.right}px, env(safe-area-inset-right, 0px))`);
+    style.setProperty("--tenet-voice-popover-available-height",
+      `max(0px, min(${bounds.availableHeight}px, calc(${bounds.bottom}px - var(--tenet-voice-popover-top) - env(safe-area-inset-bottom, 0px))))`);
+    style.setProperty("max-width",
+      `max(0px, calc(${bounds.maxWidth}px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)))`);
+  }
+
   function message(text) { if (ui) ui.status.textContent = text; }
   function current(value) {
     return Boolean(value && job === value && !disposed && !document.hidden &&
       value.page === state.snapshotLoadGeneration);
   }
+  function isOpenVoiceJob(value, sessionId) {
+    return current(value) && ui?.dialog.open === true && value.sessionId === sessionId;
+  }
+  function supportsSilenceAutoSubmit() {
+    return capability?.supportsSilenceAutoSubmit === true && capability.autoSubmitSilenceSeconds === 1.5;
+  }
   function paint() {
     if (!ui) return;
     const recording = ["starting", "listening"].includes(phase);
     ui.record.textContent = recording ? "Stop listening" : "Record again";
-    ui.record.disabled = !capability?.supported || ["starting", "finalizing", "sending"].includes(phase);
+    ui.record.disabled = !capability?.supported || Boolean(job?.submitting) || ["starting", "finalizing", "sending"].includes(phase);
     ui.input.readOnly = recording || phase === "finalizing" || phase === "sending";
-    ui.ask.disabled = !ui.input.value.trim() || ["starting", "finalizing", "sending"].includes(phase);
+    ui.ask.disabled = !ui.input.value.trim() || Boolean(job?.submitting) || ["starting", "finalizing", "sending"].includes(phase);
     ui.stop.hidden = !speaking;
     ui.entry.disabled = phase === "sending";
+    ui.entry.setAttribute("aria-expanded", String(ui.dialog.open));
   }
   function quiet() {
     speaking = false;
@@ -25656,6 +25252,7 @@ var tenetCanvasAI = null;
   function stopGuard() { clearInterval(guardTimer); guardTimer = 0; }
   function cancel() {
     const previous = job;
+    if (previous) { previous.autoSubmitArmed = false; previous.finalTranscript = null; }
     job = null;
     sequence++;
     phase = "idle";
@@ -25673,41 +25270,56 @@ var tenetCanvasAI = null;
     guardTimer = setInterval(() => { if (!current(value)) cancel(); }, 250);
   }
   async function record(value) {
-    if (!current(value) || !capability?.supported) return;
+    if (!isOpenVoiceJob(value, value?.sessionId) || !capability?.supported || value.submitting || phase !== "idle") return;
     quiet();
-    value.sessionId = crypto.randomUUID();
+    const recordingSessionId = crypto.randomUUID();
+    value.sessionId = recordingSessionId;
+    value.autoSubmitArmed = supportsSilenceAutoSubmit();
+    value.finalTranscript = null;
+    value.autoSubmittedSessionId = null;
     phase = "starting";
     ui.input.value = "";
     message("Starting on-device dictation...");
     paint();
     try {
-      await native.startVoiceRecognition({sessionId:value.sessionId, locale:capability.locale});
-      if (!current(value)) { await native.cancelVoiceRecognition({sessionId:value.sessionId}); return; }
-      phase = "listening";
-      message("Listening on this iPad. Say, for example, Help me start problem 12.");
+      await native.startVoiceRecognition({sessionId:recordingSessionId, locale:capability.locale});
+      if (!isOpenVoiceJob(value, recordingSessionId)) { await native.cancelVoiceRecognition({sessionId:recordingSessionId}); return; }
+      if (phase === "starting") {
+        phase = "listening";
+        message(supportsSilenceAutoSubmit()
+          ? "Listening on this iPad. Pause for 1.5 full seconds to send. Stop listening to review instead."
+          : "Listening on this iPad. Stop to review, or tap Ask Tenet to send.");
+      }
     } catch (error) {
-      if (!current(value)) return;
+      if (!isOpenVoiceJob(value, recordingSessionId)) return;
+      value.autoSubmitArmed = false;
       phase = "idle";
       message(error?.message || "On-device dictation is unavailable. You can type your question instead.");
     }
     paint();
   }
   async function finish(value) {
-    if (!current(value) || !["starting", "listening"].includes(phase)) return;
+    if (!isOpenVoiceJob(value, value?.sessionId)) return;
+    value.autoSubmitArmed = false;
+    if (!["starting", "listening"].includes(phase)) return;
+    const recordingSessionId = value.sessionId;
     phase = "finalizing";
     paint();
     try {
-      const result = await native.stopVoiceRecognition({sessionId:value.sessionId});
-      if (current(value) && typeof result?.text === "string") ui.input.value = result.text.slice(0, 1000);
+      const result = await native.stopVoiceRecognition({sessionId:recordingSessionId});
+      if (isOpenVoiceJob(value, recordingSessionId) && typeof result?.text === "string") ui.input.value = result.text.slice(0, 1000);
     } finally {
-      if (current(value)) { phase = "idle"; message("Review your question, or tap Ask Tenet."); paint(); }
+      if (isOpenVoiceJob(value, recordingSessionId)) { phase = "idle"; message("Review your question, or tap Ask Tenet."); paint(); }
     }
   }
   async function capture(value, text) {
     await tenetInkFlush();
     if (!current(value)) throw Error("The page changed. Start a new voice question.");
     const revision = state.userRevision, generation = state.recognitionGeneration;
-    const bounds = intersection(viewportRect(), {x:0,y:0,w:SIZE,h:SIZE});
+    const selection = value.selection;
+    if (selection && (selection.revision !== revision || selection.generation !== generation || selection.page !== state.snapshotLoadGeneration))
+      throw Error("The selected work changed. Circle it again before asking Tenet.");
+    const bounds = selection ? tenetRegionGeometry(selection.points) : intersection(viewportRect(), {x:0,y:0,w:SIZE,h:SIZE});
     if (!bounds) throw Error("Move back onto the page before asking Tenet.");
     await prepareVisibleWidgetSnapshots(bounds);
     if (!current(value) || state.userRevision !== revision || state.recognitionGeneration !== generation)
@@ -25715,21 +25327,26 @@ var tenetCanvasAI = null;
     const {x,y,w,h} = bounds;
     // A rectangular context selection requires no lasso gesture. It is explicitly
     // disclosed in the dialog and reuses the existing strict crop/question API.
-    const packed = buildTenetRegionImage([{x,y},{x:x+w,y},{x:x+w,y:y+h},{x,y:y+h}], text);
-    packed.visibleRect = {...bounds};
-    if (text) packed.questionScope = "visible-page";
+    const packed = buildTenetRegionImage(selection ? selection.points : [{x,y},{x:x+w,y},{x:x+w,y:y+h},{x,y:y+h}], text);
+    if (!selection) {
+      packed.visibleRect = {...bounds};
+      if (text) packed.questionScope = "visible-page";
+    }
     return {packed, revision, generation};
   }
   async function submit() {
     const value = job;
-    if (!current(value) || ["starting", "finalizing", "sending"].includes(phase)) return;
+    if (!isOpenVoiceJob(value, value?.sessionId) || value.submitting || ["starting", "finalizing", "sending"].includes(phase)) return;
+    const submissionSessionId = value.sessionId;
+    value.submitting = true;
+    value.autoSubmitArmed = false;
     try {
       await finish(value);
-      if (!current(value)) return;
+      if (!isOpenVoiceJob(value, submissionSessionId)) return;
       const text = ui.input.value.trim();
       if (!text || text.length > 1000) { message("Ask a question of up to 1,000 characters."); return; }
       phase = "sending";
-      message("Sending your question and the visible page through your district Gateway...");
+      message(value.selection ? "Sending your question and only the circled area through your district Gateway..." : "Sending your question and the visible page through your district Gateway...");
       paint();
       const {packed, revision, generation} = await capture(value, text);
       if (!current(value)) return;
@@ -25739,7 +25356,7 @@ var tenetCanvasAI = null;
       await tenetInkController?.resume(reason);
       if (!current(value)) return;
       supersedeActiveAI("voice-question");
-      await requestAI("answer", packed, {
+      await requestAI("hint", packed, {
         isolatedSelection:true, expectedRevision:revision, expectedGeneration:generation,
         voiceRequestId:value.id, isCurrent:() => current(value),
         onReply(reply) {
@@ -25755,22 +25372,82 @@ var tenetCanvasAI = null;
         tenetInkMessage(error?.message || "Voice question could not be sent.");
       }
     } finally {
+      value.submitting = false;
       if (current(value)) { phase = "idle"; paint(); if (!speaking && !ui.dialog.open) stopGuard(); }
     }
   }
-  async function open() {
+  function handleVoiceTranscript(event) {
+    const value = job;
+    if (!isOpenVoiceJob(value, event.sessionId) || !["starting","listening","finalizing"].includes(phase)) return;
+    if (typeof event.text === "string") {
+      ui.input.value = event.text.slice(0, 1000);
+      value.finalTranscript = event.isFinal === true && event.text.length <= 1000
+        ? {sessionId:event.sessionId, text:event.text} : null;
+    }
+    paint();
+  }
+  function handleVoiceState(event) {
+    const value = job;
+    if (!isOpenVoiceJob(value, event.sessionId) || value.submitting || phase === "sending"
+        || value.autoSubmittedSessionId === event.sessionId) return;
+    if (event.state === "finalizing" && ["starting","listening","finalizing"].includes(phase)) {
+      phase = "finalizing";
+      message("Finishing on-device transcription...");
+      paint();
+      return;
+    }
+    if (!["error","cancelled","stopped"].includes(event.state)) return;
+    const final = value.finalTranscript;
+    const autoSubmit = supportsSilenceAutoSubmit() && event.state === "stopped" && event.reason === "silence" && value.autoSubmitArmed
+      && ["starting","listening","finalizing"].includes(phase)
+      && final?.sessionId === event.sessionId && final.text.trim().length > 0;
+    value.autoSubmitArmed = false;
+    phase = "idle";
+    if (autoSubmit) {
+      value.autoSubmittedSessionId = event.sessionId;
+      ui.input.value = final.text;
+      message("Pause complete. Sending your question...");
+      // Only a native audio-silence terminal event may enter this path. There
+      // is deliberately no timer or transcript-update debounce in the webview.
+      void submit();
+    } else {
+      message(event.message || (event.reason === "no-speech"
+        ? "No question heard. Record again or type below."
+        : "Dictation stopped. Review your question and tap Ask Tenet."));
+    }
+    paint();
+  }
+  async function open(selection = null) {
     if (state.busy || state.pending || state.pendingWidget || state.drawing) {
       tenetInkMessage("Finish the current drawing or AI draft before starting a voice question."); return;
     }
+    let context;
+    try { context = selection || tenetCanvasAI?.voiceContext?.() || null; }
+    catch (error) { tenetInkMessage(error.message); return; }
     cancel();
     tenetCanvasAI?.close();
     clearTimeout(state.timer); state.timer = 0;
     document.activeElement?.blur();
-    const value = {id:++sequence, sessionId:crypto.randomUUID(), page:state.snapshotLoadGeneration};
+    const value = {id:++sequence, sessionId:crypto.randomUUID(), page:state.snapshotLoadGeneration, selection:context};
     job = value;
-    ui.dialog.showModal();
+    ui.heading.textContent = context ? "Talk about your selection" : "Talk to Tenet";
+    const autoSend = supportsSilenceAutoSubmit();
+    ui.timing.textContent = autoSend ? "Sends after 1.5 seconds of silence"
+      : "Manual send. Update the iPad app for silence sending.";
+    ui.privacy.textContent = autoSend
+      ? context
+        ? "Your transcript and only the circled pixels are sent to your district Gateway after 1.5 full seconds of silence. Audio stays on this iPad. Stop or cancel to prevent automatic sending."
+        : "Your transcript and the visible page are sent to your district Gateway after 1.5 full seconds of silence. Audio stays on this iPad. Off-screen work is not included. Stop or cancel to prevent automatic sending."
+      : context
+        ? "Tap Ask Tenet to send your transcript and only the circled pixels to your district Gateway. Audio stays on this iPad."
+        : "Tap Ask Tenet to send your transcript and visible page to your district Gateway. Audio stays on this iPad. Off-screen work is not included.";
+    ui.preview.alt = context ? "Circled area included with your question" : "Visible page included with your question";
+    ui.dialog.show();
+    positionPopover();
+    paint();
     watch(value);
-    message("Your question and the visible page are sent only when you tap Ask Tenet.");
+    message(autoSend ? "Speak, then pause for 1.5 full seconds to send. You can also type and tap Ask Tenet."
+      : "Record or type your question, then tap Ask Tenet to send.");
     try {
       await tenetInkController?.suspend(reason);
       if (!current(value)) { await tenetInkController?.resume(reason); return; }
@@ -25785,41 +25462,58 @@ var tenetCanvasAI = null;
     try { capability = await native.getVoiceCapabilities({locale:navigator.language}); }
     catch { return; } // Older TestFlight binaries have no voice bridge.
     if (disposed) return;
-    const toolbar = document.querySelector("[data-tenet-ink-toolbar], .toolbar");
-    if (!toolbar) return;
+    const viewport = document.querySelector("#viewport");
+    if (!viewport) return;
     const link = document.createElement("link"); link.rel = "stylesheet"; link.href = "/tenet-voice.css"; document.head.append(link);
     const group = document.createElement("div"); group.className = "tenet-voice-entry";
-    group.innerHTML = '<button type="button" data-voice="open" aria-haspopup="dialog">Talk to Tenet</button><button type="button" data-voice="stop" hidden>Stop voice</button>';
-    const dialog = document.createElement("dialog"); dialog.className = "tenet-voice-dialog";
+    group.innerHTML = '<button type="button" data-voice="open" aria-haspopup="dialog" aria-controls="tenetVoicePopover" aria-expanded="false">Talk to Tenet</button><button type="button" data-voice="stop" hidden>Stop voice</button>';
+    const dialog = document.createElement("dialog"); dialog.className = "tenet-voice-dialog tenet-voice-popover";
+    dialog.id = "tenetVoicePopover";
     dialog.setAttribute("aria-labelledby", "tenetVoiceTitle");
-    dialog.innerHTML = '<form><header><span>ON THIS IPAD</span><h2 id="tenetVoiceTitle">Talk to Tenet</h2><p>No circle needed. Try: Help me start problem 12.</p></header><p class="tenet-voice-privacy">Audio stays on this iPad. Ask Tenet sends your transcript and this visible page to your district Gateway. Off-screen work is not included.</p><img alt="Visible page included with your question"><label for="tenetVoiceQuestion">Your question</label><textarea id="tenetVoiceQuestion" maxlength="1000" rows="3" placeholder="Help me start problem 12"></textarea><p data-voice="status" role="status" aria-live="polite"></p><label class="tenet-voice-reply"><input type="checkbox" data-voice="reply"> Read Tenet\'s reply aloud <small>The written answer still appears on the canvas.</small></label><footer><button type="button" data-voice="cancel">Cancel</button><button type="button" data-voice="record">Record again</button><button type="submit" data-voice="ask">Ask Tenet</button></footer></form>';
-    document.body.append(dialog); toolbar.prepend(group);
+    dialog.innerHTML = '<form><header><h2 id="tenetVoiceTitle">Talk to Tenet</h2><button type="button" data-voice="cancel">Cancel</button></header><p class="tenet-voice-timing" data-voice="timing">Tap Ask Tenet to send</p><p class="tenet-voice-privacy">Audio stays on this iPad.</p><label for="tenetVoiceQuestion">Your question</label><textarea id="tenetVoiceQuestion" maxlength="1000" rows="2" placeholder="Help me start problem 12"></textarea><p data-voice="status" role="status" aria-live="polite"></p><details data-voice="details" class="tenet-voice-details"><summary>Page preview and voice settings</summary><img alt="Visible page included with your question"><label class="tenet-voice-reply"><input type="checkbox" data-voice="reply"> Read Tenet\'s reply aloud <small>The written answer still appears on the canvas.</small></label></details><footer><button type="button" data-voice="record">Record again</button><button type="submit" data-voice="ask">Ask Tenet</button></footer></form>';
+    group.append(dialog); viewport.append(group);
     const find = (root, name) => root.querySelector(`[data-voice="${name}"]`);
     ui = {group,dialog, entry:find(group,"open"),stop:find(group,"stop"),record:find(dialog,"record"),
       ask:find(dialog,"ask"),reply:find(dialog,"reply"),status:find(dialog,"status"),
-      input:dialog.querySelector("textarea"),preview:dialog.querySelector("img")};
+      input:dialog.querySelector("textarea"),preview:dialog.querySelector("img"),
+      heading:dialog.querySelector("h2"),privacy:dialog.querySelector(".tenet-voice-privacy"),timing:find(dialog,"timing")};
+    const voiceQuality = document.createElement("p");
+    voiceQuality.className = "tenet-voice-quality";
+    voiceQuality.textContent = capability.voiceName
+      ? `Voice: ${capability.voiceName} (${capability.voiceQuality || "standard"}). `
+      : "Using an installed iPad voice. ";
+    if (!capability.voiceName || capability.voiceNeedsDownload)
+      voiceQuality.textContent += "For a more natural voice, download an Enhanced or Premium voice in Settings > Accessibility > Read & Speak > Voices (Spoken Content on older iPads).";
+    find(dialog,"details").append(voiceQuality);
+    tenetVoice = {openSelection:selection => open(selection)};
     try { ui.reply.checked = localStorage.getItem(preference) === "true"; } catch {}
+    window.addEventListener("resize", positionPopover, {passive:true,signal});
+    window.addEventListener("scroll", positionPopover, {capture:true,passive:true,signal});
+    window.visualViewport?.addEventListener?.("resize", positionPopover, {passive:true,signal});
+    window.visualViewport?.addEventListener?.("scroll", positionPopover, {passive:true,signal});
+    ui.preview.addEventListener("load", positionPopover, {signal});
+    dialog.addEventListener("toggle", positionPopover, {capture:true,signal});
     ui.entry.addEventListener("click", () => { void open(); }, {signal});
     ui.stop.addEventListener("click", quiet, {signal});
     ui.record.addEventListener("click", () => { void (phase === "listening" ? finish(job) : record(job)).catch(error => message(error?.message || "Dictation stopped.")); }, {signal});
-    ui.input.addEventListener("input", paint, {signal});
+    ui.input.addEventListener("input", () => {
+      if (job) { job.autoSubmitArmed = false; job.finalTranscript = null; }
+      paint();
+    }, {signal});
     ui.reply.addEventListener("change", () => { try { localStorage.setItem(preference, String(ui.reply.checked)); } catch {} if (!ui.reply.checked) quiet(); }, {signal});
     dialog.querySelector("form").addEventListener("submit", event => { event.preventDefault(); void submit(); }, {signal});
     find(dialog,"cancel").addEventListener("click", cancel, {signal});
     dialog.addEventListener("cancel", event => { event.preventDefault(); cancel(); }, {signal});
     dialog.addEventListener("close", () => { if (!dialog.open && phase !== "sending" && job) cancel(); }, {signal});
+    document.addEventListener("pointerdown", event => {
+      if (dialog.open && !group.contains(event.target)) cancel();
+    }, {capture:true,signal});
+    document.addEventListener("keydown", event => {
+      if (dialog.open && event.key === "Escape") { event.preventDefault(); cancel(); }
+    }, {signal});
     for (const [name, handler] of [
-      ["voiceTranscript", event => {
-        if (!current(job) || event.sessionId !== job.sessionId || !["starting","listening","finalizing"].includes(phase)) return;
-        if (typeof event.text === "string") ui.input.value = event.text.slice(0, 1000);
-        paint();
-      }],
-      ["voiceState", event => {
-        if (!current(job) || event.sessionId !== job.sessionId || phase === "sending") return;
-        if (["error","cancelled","stopped"].includes(event.state) && phase !== "finalizing") {
-          phase = "idle"; message(event.message || "Dictation stopped. Review your question and tap Ask Tenet."); paint();
-        }
-      }],
+      ["voiceTranscript", handleVoiceTranscript],
+      ["voiceState", handleVoiceState],
       ["voicePlayback", event => {
         if (event.state === "speaking" && !current(job)) { quiet(); return; }
         speaking = event.state === "speaking"; paint();
@@ -25836,7 +25530,7 @@ var tenetCanvasAI = null;
   window.addEventListener("tenet:sign-out", cancel, {signal});
   window.addEventListener("pagehide", event => {
     cancel();
-    if (!event.persisted) { disposed = true; lifetime.abort(); for (const listener of listeners) void listener.remove(); }
+    if (!event.persisted) { disposed = true; tenetVoice = null; lifetime.abort(); for (const listener of listeners) void listener.remove(); }
   }, {signal});
   function launch() { void activate().catch(() => { cancel(); ui?.group.remove(); ui?.dialog.remove(); }); }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", launch, {once:true,signal});

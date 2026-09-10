@@ -83,6 +83,7 @@ private struct InkSurfaceSettings {
     let color: UIColor
     let width: CGFloat
     let toolRequestId: Int
+    let widthRequestId: Int
     let drawingData: String?
     let exclusions: [CGRect]
 
@@ -108,6 +109,14 @@ private struct InkSurfaceSettings {
             }
             toolRequestId = Int(requestId)
         } else { toolRequestId = 0 }
+        if let supplied = call.getValue("widthRequestId") {
+            let requestId = try inkNumber(supplied, "widthRequestId")
+            guard requestId.rounded(.towardZero) == requestId,
+                  abs(requestId) <= 9_007_199_254_740_991 else {
+                throw InkSurfaceError.invalid("widthRequestId (expected a safe integer)")
+            }
+            widthRequestId = Int(requestId)
+        } else { widthRequestId = 0 }
         guard frame.width >= 0, frame.height >= 0,
               frame.width <= 100_000, frame.height <= 100_000,
               abs(frame.minX) <= 1_000_000, abs(frame.minY) <= 1_000_000,
@@ -166,7 +175,7 @@ private struct InkSurfaceSettings {
     func sameTool(as other: InkSurfaceSettings?) -> Bool {
         guard let other else { return false }
         return tool == other.tool && colorHex == other.colorHex && width == other.width
-            && toolRequestId == other.toolRequestId
+            && toolRequestId == other.toolRequestId && widthRequestId == other.widthRequestId
     }
 
     var nativeTool: PKTool {
@@ -175,6 +184,146 @@ private struct InkSurfaceSettings {
         case "lasso": return PKLassoTool()
         default: return PKInkingTool(.pen, color: color, width: width)
         }
+    }
+}
+
+private struct InkRegionMove {
+    let points: [CGPoint]
+    let dx: CGFloat
+    let dy: CGFloat
+
+    init(_ call: CAPPluginCall) throws {
+        guard let supplied = call.getValue("points") as? [Any], (3...256).contains(supplied.count) else {
+            throw InkSurfaceError.invalid("points (expected 3 to 256 page points)")
+        }
+        var polygon: [CGPoint] = []
+        for item in supplied {
+            guard let item = item as? [String: Any] else { throw InkSurfaceError.invalid("points") }
+            let point = CGPoint(x: try inkNumber(item["x"], "points.x"),
+                                y: try inkNumber(item["y"], "points.y"))
+            guard (0...inkDocumentSize).contains(point.x), (0...inkDocumentSize).contains(point.y) else {
+                throw InkSurfaceError.invalid("points (outside the page)")
+            }
+            if polygon.last != point { polygon.append(point) }
+        }
+        if polygon.first == polygon.last { polygon.removeLast() }
+        guard polygon.count >= 3 else { throw InkSurfaceError.invalid("points (empty polygon)") }
+        var area: CGFloat = 0
+        for index in polygon.indices {
+            let next = polygon[(index + 1) % polygon.count]
+            area += polygon[index].x * next.y - next.x * polygon[index].y
+        }
+        guard abs(area) > 0.000001 else { throw InkSurfaceError.invalid("points (empty polygon)") }
+        for first in polygon.indices {
+            for second in (first + 1)..<polygon.count {
+                if second == first + 1 || (first == 0 && second == polygon.count - 1) { continue }
+                if Self.intersects(polygon[first], polygon[(first + 1) % polygon.count],
+                                   polygon[second], polygon[(second + 1) % polygon.count]) {
+                    throw InkSurfaceError.invalid("points (self-intersecting polygon)")
+                }
+            }
+        }
+        points = polygon
+        dx = try inkNumber(call.getValue("dx"), "dx")
+        dy = try inkNumber(call.getValue("dy"), "dy")
+        guard abs(dx) <= inkDocumentSize, abs(dy) <= inkDocumentSize else {
+            throw InkSurfaceError.invalid("move distance")
+        }
+    }
+
+    private static func cross(_ a: CGPoint, _ b: CGPoint, _ c: CGPoint) -> CGFloat {
+        (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
+    }
+
+    private static func onSegment(_ point: CGPoint, _ a: CGPoint, _ b: CGPoint) -> Bool {
+        abs(cross(a, b, point)) <= 0.000001
+            && point.x >= min(a.x, b.x) && point.x <= max(a.x, b.x)
+            && point.y >= min(a.y, b.y) && point.y <= max(a.y, b.y)
+    }
+
+    private static func intersects(_ a: CGPoint, _ b: CGPoint, _ c: CGPoint, _ d: CGPoint) -> Bool {
+        let abC = cross(a, b, c), abD = cross(a, b, d)
+        let cdA = cross(c, d, a), cdB = cross(c, d, b)
+        if ((abC > 0 && abD < 0) || (abC < 0 && abD > 0))
+            && ((cdA > 0 && cdB < 0) || (cdA < 0 && cdB > 0)) { return true }
+        return onSegment(c, a, b) || onSegment(d, a, b) || onSegment(a, c, d) || onSegment(b, c, d)
+    }
+
+    private func contains(_ point: CGPoint) -> Bool {
+        var inside = false
+        for index in points.indices {
+            let a = points[index], b = points[(index + 1) % points.count]
+            if Self.onSegment(point, a, b) { return true }
+            if (a.y > point.y) != (b.y > point.y),
+               point.x < a.x + (point.y - a.y) * (b.x - a.x) / (b.y - a.y) {
+                inside.toggle()
+            }
+        }
+        return inside
+    }
+
+    private static func crossesInterior(_ a: CGPoint, _ b: CGPoint, _ bounds: CGRect) -> Bool {
+        var low: CGFloat = 0, high: CGFloat = 1
+        for (start, delta, minimum, maximum) in [
+            (a.x, b.x - a.x, bounds.minX, bounds.maxX),
+            (a.y, b.y - a.y, bounds.minY, bounds.maxY),
+        ] {
+            if delta == 0 {
+                if start <= minimum || start >= maximum { return false }
+            } else {
+                let near = (minimum - start) / delta, far = (maximum - start) / delta
+                low = max(low, min(near, far))
+                high = min(high, max(near, far))
+                if low >= high { return false }
+            }
+        }
+        return low < high
+    }
+
+    private func encloses(_ bounds: CGRect) -> Bool {
+        guard Self.withinPage(bounds), !bounds.isEmpty else { return false }
+        let corners = [CGPoint(x: bounds.minX, y: bounds.minY), CGPoint(x: bounds.maxX, y: bounds.minY),
+                       CGPoint(x: bounds.maxX, y: bounds.maxY), CGPoint(x: bounds.minX, y: bounds.maxY)]
+        guard corners.allSatisfy({ contains($0) }) else { return false }
+        // Corner tests alone admit strokes across the notch of a concave polygon.
+        // No polygon edge may enter the full rendered stroke rectangle.
+        return !points.indices.contains { index in
+            Self.crossesInterior(points[index], points[(index + 1) % points.count], bounds)
+        }
+    }
+
+    private static func withinPage(_ bounds: CGRect) -> Bool {
+        !bounds.isNull && !bounds.isInfinite
+            && bounds.minX.isFinite && bounds.minY.isFinite && bounds.maxX.isFinite && bounds.maxY.isFinite
+            && bounds.minX >= 0 && bounds.minY >= 0
+            && bounds.maxX <= inkDocumentSize && bounds.maxY <= inkDocumentSize
+    }
+
+    func applying(to drawing: PKDrawing) throws -> (drawing: PKDrawing, moved: Int) {
+        var strokes = drawing.strokes
+        guard strokes.count <= 20_000, strokes.count * points.count <= 2_000_000 else {
+            throw InkSurfaceError.invalid("move region (drawing and polygon exceed the work limit)")
+        }
+        if dx == 0 && dy == 0 { return (drawing, 0) }
+        var moved = 0
+        for index in strokes.indices where encloses(strokes[index].renderBounds) {
+            var stroke = strokes[index]
+            var transform = stroke.transform
+            // Translation is in document coordinates, independent of the existing
+            // rotation/scale. Copying the stroke retains its path, ink, mask and seed.
+            transform.tx += dx
+            transform.ty += dy
+            guard [transform.a, transform.b, transform.c, transform.d, transform.tx, transform.ty].allSatisfy({ $0.isFinite }) else {
+                throw InkSurfaceError.invalid("stroke transform")
+            }
+            stroke.transform = transform
+            guard Self.withinPage(stroke.renderBounds) else {
+                throw InkSurfaceError.invalid("move destination (outside the page)")
+            }
+            strokes[index] = stroke
+            moved += 1
+        }
+        return (moved == 0 ? drawing : PKDrawing(strokes: strokes), moved)
     }
 }
 
@@ -584,9 +733,10 @@ final class TenetInkSurface: NSObject, PKCanvasViewDelegate, PKToolPickerObserve
                 reject(call, InkSurfaceError(code: "pencil_disabled", message: "PencilKit is disabled by managed configuration."))
                 return
             }
-            guard let command = call.getString("command"), ["undo", "redo", "clear"].contains(command) else {
+            guard let command = call.getString("command"), ["undo", "redo", "clear", "move-region"].contains(command) else {
                 reject(call, InkSurfaceError.invalid("command")); return
             }
+            if command == "move-region" { moveRegion(call); return }
             inputSuspended = true
             refreshPolicyAndVisibility()
             switch command {
@@ -608,6 +758,63 @@ final class TenetInkSurface: NSObject, PKCanvasViewDelegate, PKToolPickerObserve
         }
     }
 
+    private func moveRegion(_ call: CAPPluginCall) {
+        let move: InkRegionMove
+        do { move = try InkRegionMove(call) }
+        catch { reject(call, error); return }
+        inputSuspended = true
+        refreshPolicyAndVisibility()
+        observeDrawing()
+        let original = canvas.drawing
+        let expectedSession = sessionId
+        let expectedRevision = revision
+        let preceding = changeBaseline
+        renderQueue.async { [self] in
+            let result: Result<(drawing: PKDrawing, encoded: EncodedInk?, moved: Int), Error> = Result {
+                let candidate = try move.applying(to: original)
+                let encoded = candidate.moved == 0 ? nil : try EncodedInk.make(candidate.drawing, previous: preceding)
+                return (candidate.drawing, encoded, candidate.moved)
+            }
+            DispatchQueue.main.async { [self] in
+                observeDrawing()
+                guard sessionId == expectedSession, revision == expectedRevision,
+                      policy().enabled, !applicationSuspended else {
+                    reject(call, InkSurfaceError(code: "ink_surface_stale_session", message: "The page or ink changed before the move completed. Ink is retained."))
+                    return
+                }
+                switch result {
+                case .failure(let error): reject(call, error)
+                case .success(let candidate):
+                    guard let encoded = candidate.encoded, let session = sessionId else {
+                        snapshot(requireCurrent: true) { [self] snapshotResult in
+                            switch snapshotResult {
+                            case .failure(let error): reject(call, error)
+                            case .success(var value):
+                                value["moved"] = 0
+                                emitChanged(value)
+                                call.resolve(value)
+                                finish()
+                            }
+                        }
+                        return
+                    }
+                    // Decode/geometry/export work has succeeded before any mutation.
+                    // The native undo entry and JS before/after packet remain vector ink.
+                    undoableReplace(candidate.drawing, actionName: "Move Ink")
+                    latestValidDrawing = candidate.drawing
+                    cached = (session, revision, encoded)
+                    changeBaseline = encoded.strokes
+                    baselineRevision = revision
+                    var value = snapshotObject(encoded, session: session, revision: revision)
+                    value["moved"] = candidate.moved
+                    emitChanged(value)
+                    call.resolve(value)
+                    finish()
+                }
+            }
+        }
+    }
+
     private func replaceDrawing(_ drawing: PKDrawing, resetUndo: Bool) {
         applyingDrawing = true
         canvas.undoManager?.disableUndoRegistration()
@@ -620,10 +827,10 @@ final class TenetInkSurface: NSObject, PKCanvasViewDelegate, PKToolPickerObserve
         applyingDrawing = false
     }
 
-    private func undoableReplace(_ drawing: PKDrawing) {
+    private func undoableReplace(_ drawing: PKDrawing, actionName: String = "Clear Ink") {
         let previous = canvas.drawing
-        canvas.undoManager?.registerUndo(withTarget: self) { target in target.undoableReplace(previous) }
-        canvas.undoManager?.setActionName("Clear Ink")
+        canvas.undoManager?.registerUndo(withTarget: self) { target in target.undoableReplace(previous, actionName: actionName) }
+        canvas.undoManager?.setActionName(actionName)
         replaceDrawing(drawing, resetUndo: false)
         scheduleChange()
     }
@@ -631,6 +838,10 @@ final class TenetInkSurface: NSObject, PKCanvasViewDelegate, PKToolPickerObserve
     private func apply(_ next: InkSurfaceSettings, webView: WKWebView) {
         let changeTool = !next.sameTool(as: settings)
         let explicitToolRequest = next.toolRequestId != (settings?.toolRequestId ?? 0)
+        let changeWidth = next.width != settings?.width
+            || next.widthRequestId != (settings?.widthRequestId ?? 0)
+        let changeColor = next.colorHex != settings?.colorHex
+        let styleOnlyRequest = settings != nil && next.tool == settings?.tool && !explicitToolRequest
         settings = next
         self.webView = webView
         explicitlyHidden = false
@@ -678,7 +889,15 @@ final class TenetInkSurface: NSObject, PKCanvasViewDelegate, PKToolPickerObserve
         } else if let ink = canvas.tool as? PKInkingTool {
             matchesNativeTool = inkHexColor(ink.color) == next.colorHex && abs(ink.width - next.width) < 0.0001
         } else { matchesNativeTool = false }
-        if explicitToolRequest || (changeTool && !matchesNativeTool) {
+        if changeTool && styleOnlyRequest && !(canvas.tool is PKInkingTool) {
+            // A thickness/color edit must not exit a native lasso or eraser.
+            // Preserve the inking tool remembered for Pencil's previous-tool action.
+            if let ink = previousNativeTool as? PKInkingTool {
+                previousNativeTool = PKInkingTool(ink.inkType,
+                    color: changeColor ? next.color : ink.color,
+                    width: changeWidth ? next.width : ink.width)
+            }
+        } else if explicitToolRequest || (changeTool && !matchesNativeTool) {
             // A JS echo of inkSurfaceToolChanged must not turn an object eraser
             // into a pixel eraser, or a native pencil/marker into a ballpoint pen.
             // An incremented toolRequestId is an explicit web toolbar activation:
@@ -687,11 +906,18 @@ final class TenetInkSurface: NSObject, PKCanvasViewDelegate, PKToolPickerObserve
             if explicitToolRequest {
                 selected = next.nativeTool
             } else if next.tool == "pen", let ink = canvas.tool as? PKInkingTool {
-                selected = PKInkingTool(ink.inkType, color: next.color, width: next.width)
+                // Unchanged web values may be stale after a native palette choice.
+                // Modify only the requested component; keep native ink and opacity.
+                selected = PKInkingTool(ink.inkType,
+                    color: changeColor ? next.color : ink.color,
+                    width: changeWidth ? next.width : ink.width)
             } else { selected = next.nativeTool }
             applyingTool = true
             picker.selectedTool = selected
             synchronizePickerTool()
+            // The palette may normalize its width. New strokes must use the
+            // requested tool directly, without touching PKDrawing or undo history.
+            canvas.tool = selected
             applyingTool = false
         }
         refreshPolicyAndVisibility()
@@ -810,7 +1036,9 @@ final class TenetInkSurface: NSObject, PKCanvasViewDelegate, PKToolPickerObserve
         }
         let changed = signature != lastPickerSignature
         if changed { previousNativeTool = canvas.tool }
-        canvas.tool = selected
+        // Duplicate picker notifications must not overwrite an exact web width
+        // with the palette's normalized representation of that same selection.
+        if changed || applyingTool { canvas.tool = selected }
         lastPickerSignature = signature
         configureInputAndNavigation()
         if changed, !applyingTool, sessionId != nil { emit("inkSurfaceToolChanged", value) }

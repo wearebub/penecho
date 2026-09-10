@@ -46,7 +46,7 @@
     let drawing = null, preview = null, visible = false, lock = 0;
     let wire = Promise.resolve(), reception = Promise.resolve(), syncFrame = 0;
     let syncPending = false, syncAgain = false, lastConfiguration = "", restoreImage = null;
-    let nativeToolKey = "", nativeToolWidth = 4, receiveError = null, toolRequestId = 0;
+    let nativeToolKey = "", nativeToolWidth = 4, receiveError = null, toolRequestId = 0, widthRequestId = 0;
     let fingerDrawing = false, lastError = "", reportTimer = 0;
     const suspended = new Set(), listeners = [];
     const lifetime = new AbortController();
@@ -214,7 +214,7 @@
       const metrics = canvasViewportMetrics(), rect = view.getBoundingClientRect();
       const factor = rect.width / Math.max(1, metrics.width);
       const nativeTool = state.mode === "select" ? "lasso" : state.mode === "eraser" ? "eraser" : "pen";
-      const toolKey = `${sessionId}:${nativeTool}:${state.inkColor}:${state.pen}`;
+      const toolKey = `${sessionId}:${nativeTool}:${state.inkColor}:${state.pen}:${widthRequestId}`;
       if (toolKey !== nativeToolKey) {
         nativeToolKey = toolKey;
         nativeToolWidth = Math.min(1024, state.pen / Math.max(.03, state.scale));
@@ -222,7 +222,7 @@
       const shouldShow = engine === "pencilkit" && !lock && !suspended.size && !document.hidden
         && !state.viewMode && !snapshotLoadInProgress && ["pen", "eraser", "select"].includes(state.mode) && !modalOpen();
     const exclusions = [...document.querySelectorAll(
-      '.topbar, [data-tenet-ink-toolbar], footer, #tenetBadge, #tenetNotebookLauncher, .ai-embodiment, .canvas-navigation-lock, #canvasAgentPanel, #studioNavigator, .hand-object-toolbar, .selection-toolbar, #tenetNativeToast, .tenet-ink-comparison.tic-dock > *, [role="menu"], [role="listbox"]'
+      '.topbar, [data-tenet-ink-toolbar], footer, #tenetBadge, #tenetNotebookLauncher, #tenetNotebookCollapse, .tenet-voice-entry, .tenet-ai-entry, .ai-embodiment, .canvas-navigation-lock, #canvasAgentPanel, #studioNavigator, .hand-object-toolbar, .selection-toolbar, #tenetNativeToast, .tenet-ink-comparison.tic-dock > *, [role="menu"], [role="listbox"]'
       )].filter(onscreen).map(element => {
         const box = element.getBoundingClientRect();
         return { x:box.x, y:box.y, width:box.width, height:box.height };
@@ -230,7 +230,7 @@
       return { sessionId, frame:{ x:rect.x, y:rect.y, width:rect.width, height:rect.height },
         viewportWidth:window.innerWidth, panX:state.panX * factor, panY:state.panY * factor,
         scale:state.scale * factor, canvasSize:SIZE, visible:shouldShow, inputEnabled:shouldShow,
-        tool:nativeTool, color:state.inkColor, width:nativeToolWidth, toolRequestId,
+        tool:nativeTool, color:state.inkColor, width:nativeToolWidth, toolRequestId, widthRequestId,
         fingerDrawing:fingerDrawing && (window.TenetDrawingPreferences?.fingerDrawing() ?? true),
         navigationLocked:state.navigationLocked === true, exclusions };
     }
@@ -339,10 +339,52 @@
     }
     function resume(reason) { suspended.delete(String(reason)); scheduleSync(); }
 
+    async function moveRegion(points, dx, dy) {
+      if (engine !== "pencilkit" || !ready || stopped) throw Error("Native ink movement requires the active PencilKit engine.");
+      if (lock || active || state.drawing || snapshotLoadInProgress) throw Error("Finish the current action before moving ink.");
+      if (!Array.isArray(points) || points.length < 3 || points.length > 256
+          || !points.every(point => point && Number.isFinite(point.x) && Number.isFinite(point.y)
+            && point.x >= 0 && point.x <= SIZE && point.y >= 0 && point.y <= SIZE)
+          || !Number.isFinite(dx) || !Number.isFinite(dy) || Math.abs(dx) > SIZE || Math.abs(dy) > SIZE) {
+        throw Error("Use a bounded selection of 3 to 256 page points and a finite move distance.");
+      }
+      const polygon = points.map(point => ({ x:point.x, y:point.y }));
+      const targetSession = sessionId;
+      const requireCurrentPage = () => {
+        if (stopped || sessionId !== targetSession || engine !== "pencilkit" || snapshotLoadInProgress) {
+          throw Error("The page changed before ink could be moved. Try again on the current page.");
+        }
+      };
+      lock++;
+      emitStatus();
+      try {
+        await flush();
+        return await serial(async () => {
+          requireCurrentPage();
+          // Hide and flush the surface through its normal lifecycle while the
+          // move is pending. Only the returned PKDrawing packet changes history.
+          await synchronize();
+          requireCurrentPage();
+          const packet = await native.inkSurfaceCommand({
+            sessionId:targetSession, command:"move-region", points:polygon, dx, dy,
+          });
+          requireCurrentPage();
+          if (packet?.sessionId !== targetSession || !Number.isSafeInteger(packet.moved) || packet.moved < 0) {
+            throw Error("Native ink returned an invalid move result.");
+          }
+          await receive(packet);
+          await reception;
+          if (receiveError) throw receiveError;
+          requireCurrentPage();
+          return { moved:packet.moved };
+        });
+      } finally { lock--; scheduleSync(); emitStatus(); }
+    }
+
     tenetInkController = { available, snapshot:() => drawing,
       hasContent:() => Boolean(drawing?.strokeCount || pendingInk), draw, prepare, restore:install,
       flush, sync:scheduleSync, active:() => active || lock > 0, history, applyHistory:applyNativeHistory,
-      stageClear, boundHistory, suspend, resume };
+      stageClear, boundHistory, suspend, resume, moveRegion };
     window.TenetInk = { available, getStatus:status, setEngine, flush, suspend, resume,
       fingerDrawingAllowed:() => fingerDrawing };
 
@@ -405,9 +447,9 @@
     }
     const resizeObserver = new ResizeObserver(scheduleSync);
     resizeObserver.observe(view);
-    document.querySelectorAll('.topbar, [data-tenet-ink-toolbar], footer').forEach(element => resizeObserver.observe(element));
+    document.querySelectorAll('.topbar, [data-tenet-ink-toolbar], footer, .tenet-voice-entry, .tenet-ai-entry, #tenetNotebookCollapse').forEach(element => resizeObserver.observe(element));
     const mutations = new MutationObserver(scheduleSync);
-    mutations.observe(document.body, { subtree:true, attributes:true, attributeFilter:["hidden", "open", "class", "aria-hidden", "aria-expanded"] });
+    mutations.observe(document.body, { subtree:true, childList:true, attributes:true, attributeFilter:["hidden", "open", "class", "aria-hidden", "aria-expanded"] });
     window.addEventListener("resize", scheduleSync, { signal });
     window.visualViewport?.addEventListener("resize", scheduleSync, { signal });
     window.visualViewport?.addEventListener("scroll", scheduleSync, { passive: true, signal });
@@ -416,7 +458,12 @@
       scheduleSync();
       if (document.hidden && !active) void flush().catch(fail);
     }, { signal });
-    document.addEventListener("input", scheduleSync, { signal });
+    document.addEventListener("input", event => {
+      // Reselecting a preset must still reach PencilKit after a native palette
+      // width change. It is a width edit, not an activation of the web pen tool.
+      if (event.target?.id === "penSize") widthRequestId++;
+      scheduleSync();
+    }, { capture:true, signal });
     document.addEventListener("click", event => {
       if (!event.target?.closest?.("[data-mode]")) return;
       toolRequestId++;

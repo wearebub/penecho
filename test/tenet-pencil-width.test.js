@@ -12,7 +12,7 @@ test('PencilKit receives selected thickness and does not change it when zoom cha
     canvasViewportMetrics:()=>({width:1024}), view:{getBoundingClientRect:()=>({x:0,y:100,width:1024,height:668})},
     engine:'pencilkit', lock:0, suspended:new Set(), document:{hidden:false,querySelectorAll:()=>[]},
     snapshotLoadInProgress:false, modalOpen:()=>false, onscreen:()=>true, window:{innerWidth:1024},
-    SIZE:20000, toolRequestId:0, fingerDrawing:true,
+    SIZE:20000, toolRequestId:0, widthRequestId:0, fingerDrawing:true,
   });
   vm.runInContext(configuration, context);
   assert.equal(vm.runInContext('configuration().width',context),15);

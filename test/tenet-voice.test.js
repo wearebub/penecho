@@ -8,7 +8,7 @@ class Element extends EventTarget {
   constructor() { super(); this.value=""; this.hidden=false; this.open=false; this.checked=false; this.children=new Map(); }
   querySelector(key) { if(!this.children.has(key)) this.children.set(key,new Element()); return this.children.get(key); }
   setAttribute() {} removeAttribute(key) { delete this[key]; } append() {} prepend() {} remove() {} focus() {} blur() {}
-  showModal() { this.open=true; } close() { this.open=false; }
+  show() { this.open=true; } showModal() { this.open=true; } close() { this.open=false; }
 }
 function harness(overrides={}) {
   const events=new Map(), calls=[], timers=new Map(), storage=new Map();
@@ -30,6 +30,7 @@ function harness(overrides={}) {
     setInterval:fn=>{timers.set(++timer,fn);return timer;},clearInterval:id=>timers.delete(id),clearTimeout(){},
     tenetInkController:{async suspend(){calls.push(["suspend"]);},async resume(){calls.push(["resume"]);}},
     tenetInkFlush:async()=>{},tenetCanvasAI:{close(){}},tenetInkMessage:text=>calls.push(["message",text]),
+    tenetRegionGeometry:points=>({x:Math.min(...points.map(p=>p.x)),y:Math.min(...points.map(p=>p.y)),w:Math.max(...points.map(p=>p.x))-Math.min(...points.map(p=>p.x)),h:Math.max(...points.map(p=>p.y))-Math.min(...points.map(p=>p.y))}),
     aiPreparation:null,SIZE:20000,viewportRect:()=>({x:100,y:200,w:800,h:600}),intersection:(a)=>a,
     prepareVisibleWidgetSnapshots:async()=>{},
     buildTenetRegionImage:(points,text)=>({atlasImage:"data:image/png;base64,synthetic",selectionContext:{path:points},selectionQuestion:text}),
@@ -45,7 +46,7 @@ test("plain voice question needs no lasso and uses the disclosed visible-page cr
   h.events.get("voiceTranscript")({sessionId:h.api.job.sessionId,text:"Help me start problem 12",isFinal:false});
   await h.api.submit();
   const sent=h.calls.find(x=>x[0]==="request");
-  assert.equal(sent[1],"answer"); assert.equal(sent[2].selectionQuestion,"Help me start problem 12");
+  assert.equal(sent[1],"hint"); assert.equal(sent[2].selectionQuestion,"Help me start problem 12");
   assert.equal(sent[2].questionScope,"visible-page");
   assert.equal(sent[2].visibleRect.w,800);
   assert.deepEqual(JSON.parse(JSON.stringify(sent[2].selectionContext.path)),[{x:100,y:200},{x:900,y:200},{x:900,y:800},{x:100,y:800}]);
@@ -60,6 +61,23 @@ test("spoken reply is opt-in and leaves the existing visual request intact",asyn
   const speech=h.calls.find(x=>x[0]==="speak");assert.equal(speech[1].text,"Start by identifying the known values.");
   assert.equal(h.api.ui.stop.hidden,false);
   h.api.ui.stop.dispatchEvent(new Event("click"));assert.equal(h.api.ui.stop.hidden,true);
+});
+test("voice from a circle sends only the selected polygon, never the visible page",async()=>{
+  const h=harness();await h.api.activate();
+  const points=[{x:120,y:230},{x:240,y:240},{x:190,y:300}];
+  await h.api.open({points,revision:2,generation:3,page:1});
+  await h.api.submit();
+  const sent=h.calls.find(x=>x[0]==="request");
+  assert.deepEqual(JSON.parse(JSON.stringify(sent[2].selectionContext.path)),points);
+  assert.equal(sent[2].visibleRect,undefined);assert.equal(sent[2].questionScope,undefined);
+  assert.match(h.api.ui.privacy.textContent,/only the circled pixels/);
+});
+test("changed circled work cannot fall back to whole-page voice capture",async()=>{
+  const h=harness();await h.api.activate();
+  await h.api.open({points:[{x:120,y:230},{x:240,y:240},{x:190,y:300}],revision:2,generation:3,page:1});
+  h.state.userRevision++;await h.api.submit();
+  assert.equal(h.calls.some(x=>x[0]==="request"),false);
+  assert(h.calls.some(x=>x[0]==="message"&&/selected work changed/.test(x[1])));
 });
 test("unsupported on-device language offers typing without microphone or cloud fallback",async()=>{
   const h=harness({async getVoiceCapabilities(){return {supported:false,onDevice:false,locale:"xx",reason:"Type instead"};}});
@@ -102,4 +120,54 @@ test("web layer has no audio recorder, speech-service endpoint, or transcript pe
   const ai=fs.readFileSync(path.join(__dirname,"../src/client/app/ai-runtime.js"),"utf8");
   assert(ai.indexOf('commands.filter(command => command.tool === "write_text")')>ai.indexOf('const rawCommands ='));
   assert.match(ai,/requestOptions\.isCurrent && !requestOptions\.isCurrent\(\)/);
+});
+
+function autoSendHarness() {
+  return harness({async getVoiceCapabilities(){return {supported:true,onDevice:true,locale:"en-US",supportsSilenceAutoSubmit:true,autoSubmitSilenceSeconds:1.5};}});
+}
+const settle = () => new Promise(resolve=>setImmediate(resolve));
+
+test("native final transcript followed by 1.5-second silence auto-submits exactly one hint",async()=>{
+  const h=autoSendHarness();await h.api.activate();await h.api.open();
+  assert.match(h.api.ui.timing.textContent,/1.5 seconds of silence/);
+  const sessionId=h.api.job.sessionId;
+  h.events.get("voiceState")({sessionId,state:"finalizing"});
+  h.events.get("voiceTranscript")({sessionId,text:"Help me start problem 12",isFinal:true});
+  h.events.get("voiceState")({sessionId,state:"stopped",reason:"silence"});
+  h.events.get("voiceState")({sessionId,state:"stopped",reason:"silence"});
+  await settle();
+  const requests=h.calls.filter(c=>c[0]==="request");
+  assert.equal(requests.length,1);assert.equal(requests[0][1],"hint");
+  assert.equal(requests[0][2].selectionQuestion,"Help me start problem 12");
+  assert.equal(h.calls.filter(c=>c[0]==="stop").length,0);
+});
+
+test("no-speech, partial or empty transcripts, and non-silence stops never auto-send",async()=>{
+  for(const [text,isFinal,reason] of [["",true,"silence"],["partial",false,"silence"],["question",true,"no-speech"],["question",true,"manual"]]) {
+    const h=autoSendHarness();await h.api.activate();await h.api.open();const sessionId=h.api.job.sessionId;
+    h.events.get("voiceTranscript")({sessionId,text,isFinal});
+    h.events.get("voiceState")({sessionId,state:"stopped",reason});await settle();
+    assert.equal(h.calls.some(c=>c[0]==="request"),false);h.api.cancel();
+  }
+});
+
+test("older voice-capable binaries keep manual send even if given a silence event",async()=>{
+  const h=harness();await h.api.activate();await h.api.open();const sessionId=h.api.job.sessionId;
+  assert.match(h.api.ui.timing.textContent,/Manual send/);
+  h.events.get("voiceTranscript")({sessionId,text:"question",isFinal:true});
+  h.events.get("voiceState")({sessionId,state:"stopped",reason:"silence"});await settle();
+  assert.equal(h.calls.some(c=>c[0]==="request"),false);h.api.cancel();
+});
+
+test("cancel, page changes, manual review and transcript edits disarm silence submission",async()=>{
+  for(const action of ["cancel","page","review","edit"]) {
+    const h=autoSendHarness();await h.api.activate();await h.api.open();const sessionId=h.api.job.sessionId;
+    h.events.get("voiceTranscript")({sessionId,text:"question",isFinal:true});
+    if(action==="cancel")h.api.cancel();
+    if(action==="page")h.state.snapshotLoadGeneration++;
+    if(action==="review")await h.api.finish(h.api.job);
+    if(action==="edit")h.api.ui.input.dispatchEvent(new Event("input"));
+    h.events.get("voiceState")({sessionId,state:"stopped",reason:"silence"});await settle();
+    assert.equal(h.calls.some(c=>c[0]==="request"),false);h.api.cancel();
+  }
 });

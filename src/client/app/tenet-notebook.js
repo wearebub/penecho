@@ -4,6 +4,7 @@
   if (!window.PENECHO_CONFIG || window.PENECHO_CONFIG.tenetMode !== true) return;
 
   const NOTEBOOK_STORAGE_KEY = "tenet-notebook-v1";
+  const LAUNCHER_PREFERENCE_KEY = "tenet-notebook-launcher-v1";
   const AUTOSAVE_IDLE_MS = 1800;
   const AUTOSAVE_POLL_MS = 900;
   const SUBJECTS = Object.freeze([
@@ -25,8 +26,15 @@
   let lastRevisionChangeAt = Date.now();
   let autosaveInterval = null;
   let restoreFocusTarget = null;
+  let launcherCollapsed = readLauncherCollapsed();
+  let runtimeActive = false;
+  let focusFrame = null;
 
   let launcher;
+  let launcherDock;
+  let launcherToggle;
+  let headerPagesButton = null;
+  let headerPagesAttributes = null;
   let pageCount;
   let overlay;
   let panel;
@@ -47,6 +55,71 @@
   let pageList;
   let emptyState;
   let statusLine;
+
+  function readLauncherCollapsed(fallback = true) {
+    try {
+      return window.localStorage.getItem(LAUNCHER_PREFERENCE_KEY) !== "expanded";
+    } catch (_error) {
+      return fallback;
+    }
+  }
+
+  function setLauncherCollapsed(collapsed, persist = false) {
+    launcherCollapsed = collapsed === true;
+    launcherDock.dataset.collapsed = String(launcherCollapsed);
+    document.body.dataset.tenetNotebookLauncherCollapsed = String(launcherCollapsed);
+    launcherToggle.setAttribute("aria-expanded", String(!launcherCollapsed));
+    const label = launcherCollapsed ? "Expand Pages & files launcher" : "Collapse Pages & files launcher";
+    launcherToggle.setAttribute("aria-label", label);
+    launcherToggle.title = label;
+    launcherToggle.firstElementChild.textContent = launcherCollapsed ? ">" : "<";
+    if (persist) {
+      try {
+        window.localStorage.setItem(LAUNCHER_PREFERENCE_KEY, launcherCollapsed ? "collapsed" : "expanded");
+      } catch (_error) {
+        // Keep the preference for this page when storage is unavailable.
+      }
+    }
+  }
+
+  function handleLauncherPreferenceStorage(event) {
+    if (event.key === LAUNCHER_PREFERENCE_KEY || event.key === null) {
+      setLauncherCollapsed(readLauncherCollapsed(launcherCollapsed));
+    }
+  }
+
+  function handleHeaderPagesClick(event) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    openNotebook();
+  }
+
+  function bindHeaderPages() {
+    const button = document.querySelector("#historyBtn");
+    if (!button || headerPagesButton === button) return;
+    unbindHeaderPages();
+    headerPagesButton = button;
+    headerPagesAttributes = Object.fromEntries(
+      ["aria-controls", "aria-expanded", "aria-haspopup"].map((name) => [name, button.getAttribute(name)]),
+    );
+    button.setAttribute("aria-controls", "tenetNotebookOverlay");
+    button.setAttribute("aria-expanded", String(!overlay.hidden));
+    button.setAttribute("aria-haspopup", "dialog");
+    // The upstream bubble listener opens a different library. Tenet owns this
+    // destination only while its notebook runtime is active.
+    button.addEventListener("click", handleHeaderPagesClick, true);
+  }
+
+  function unbindHeaderPages() {
+    if (!headerPagesButton) return;
+    headerPagesButton.removeEventListener("click", handleHeaderPagesClick, true);
+    for (const [name, value] of Object.entries(headerPagesAttributes)) {
+      if (value === null) headerPagesButton.removeAttribute(name);
+      else headerPagesButton.setAttribute(name, value);
+    }
+    headerPagesButton = null;
+    headerPagesAttributes = null;
+  }
 
   function readMetadata() {
     const fallback = { version: 1, activeSubject: "all", pages: {} };
@@ -129,17 +202,32 @@
   }
 
   function buildShell() {
+    launcherDock = document.createElement("div");
+    launcherDock.id = "tenetNotebookLauncherDock";
+    launcherDock.className = "tenet-notebook-launcher-dock";
+    launcherDock.setAttribute("role", "group");
+    launcherDock.setAttribute("aria-label", "Pages & files");
     launcher = document.createElement("button");
     launcher.type = "button";
     launcher.id = "tenetNotebookLauncher";
     launcher.className = "tenet-notebook-launcher";
     launcher.setAttribute("aria-controls", "tenetNotebookOverlay");
     launcher.setAttribute("aria-expanded", "false");
+    launcher.setAttribute("aria-haspopup", "dialog");
+    launcher.setAttribute("aria-label", "Open Pages & files");
+    launcher.title = "Open Pages & files";
     launcher.innerHTML = `
       <span class="tenet-notebook-launcher-mark" aria-hidden="true"><i></i><i></i><i></i></span>
-      <span>Pages &amp; files</span>
+      <span class="tenet-notebook-launcher-label">Pages &amp; files</span>
       <span id="tenetNotebookPageCount" class="tenet-notebook-count">0</span>
     `;
+    launcherToggle = document.createElement("button");
+    launcherToggle.type = "button";
+    launcherToggle.id = "tenetNotebookLauncherToggle";
+    launcherToggle.className = "tenet-notebook-launcher-toggle";
+    launcherToggle.setAttribute("aria-controls", "tenetNotebookLauncher");
+    launcherToggle.innerHTML = '<span aria-hidden="true"></span>';
+    launcherDock.append(launcher, launcherToggle);
 
     overlay = document.createElement("div");
     overlay.id = "tenetNotebookOverlay";
@@ -267,7 +355,8 @@
       </aside>
     `;
 
-    document.body.append(launcher, overlay);
+    document.body.append(launcherDock, overlay);
+    setLauncherCollapsed(launcherCollapsed);
 
     pageCount = launcher.querySelector("#tenetNotebookPageCount");
     panel = overlay.querySelector(".tenet-notebook-panel");
@@ -446,6 +535,7 @@
   function renderNotebook(pages) {
     revokePreviewUrls();
     pageCount.textContent = String(pages.length);
+    launcher.setAttribute("aria-label", `Open Pages & files, ${pages.length} saved page${pages.length === 1 ? "" : "s"}`);
     renderSubjectTabs(pages);
     syncEditorForCurrentPage(pages);
     pageList.replaceChildren();
@@ -460,6 +550,7 @@
   }
 
   async function refreshPages(quiet = false) {
+    if (!runtimeActive) return;
     const sequence = ++refreshSequence;
     if (!quiet) setNotebookStatus("Loading local pages...", "working");
     try {
@@ -588,20 +679,28 @@
   }
 
   function openNotebook() {
+    if (!runtimeActive || !overlay.hidden) return;
     restoreFocusTarget = document.activeElement instanceof HTMLElement ? document.activeElement : launcher;
     overlay.hidden = false;
     launcher.setAttribute("aria-expanded", "true");
+    headerPagesButton?.setAttribute("aria-expanded", "true");
     document.body.classList.add("tenet-notebook-open");
     closeImageMenu();
     syncPaperChoice();
     void refreshPages();
-    window.requestAnimationFrame(() => closeButton.focus());
+    focusFrame = window.requestAnimationFrame(() => {
+      focusFrame = null;
+      if (runtimeActive && !overlay.hidden) closeButton.focus();
+    });
   }
 
   function closeNotebook() {
+    if (focusFrame !== null) window.cancelAnimationFrame(focusFrame);
+    focusFrame = null;
     if (overlay.hidden) return;
     overlay.hidden = true;
     launcher.setAttribute("aria-expanded", "false");
+    headerPagesButton?.setAttribute("aria-expanded", "false");
     document.body.classList.remove("tenet-notebook-open");
     closeImageMenu();
     if (restoreFocusTarget && restoreFocusTarget.isConnected) restoreFocusTarget.focus();
@@ -643,6 +742,7 @@
 
   function bindEvents() {
     launcher.addEventListener("click", openNotebook);
+    launcherToggle.addEventListener("click", () => setLauncherCollapsed(!launcherCollapsed, true));
     closeButton.addEventListener("click", closeNotebook);
     overlay.querySelector(".tenet-notebook-backdrop").addEventListener("click", closeNotebook);
     saveButton.addEventListener("click", () => void saveNotebookPage());
@@ -694,20 +794,44 @@
       renderNotebook(latestPages);
     });
 
+    startRuntime();
+    window.addEventListener("pagehide", handlePageHide);
+    window.addEventListener("pageshow", handlePageShow);
+  }
+
+  function startRuntime() {
+    if (runtimeActive) return;
+    runtimeActive = true;
+    bindHeaderPages();
     document.addEventListener("pointerdown", handleDocumentPointerDown);
     document.addEventListener("keydown", handleDocumentKeydown);
+    window.addEventListener("storage", handleLauncherPreferenceStorage);
     autosaveInterval = window.setInterval(monitorAutosave, AUTOSAVE_POLL_MS);
+  }
 
-    window.addEventListener(
-      "pagehide",
-      () => {
-        window.clearInterval(autosaveInterval);
-        document.removeEventListener("pointerdown", handleDocumentPointerDown);
-        document.removeEventListener("keydown", handleDocumentKeydown);
-        revokePreviewUrls();
-      },
-      { once: true },
-    );
+  function handlePageHide(event) {
+    runtimeActive = false;
+    refreshSequence += 1;
+    window.clearInterval(autosaveInterval);
+    autosaveInterval = null;
+    document.removeEventListener("pointerdown", handleDocumentPointerDown);
+    document.removeEventListener("keydown", handleDocumentKeydown);
+    window.removeEventListener("storage", handleLauncherPreferenceStorage);
+    restoreFocusTarget = null;
+    closeNotebook();
+    unbindHeaderPages();
+    revokePreviewUrls();
+    if (!event.persisted) {
+      window.removeEventListener("pagehide", handlePageHide);
+      window.removeEventListener("pageshow", handlePageShow);
+    }
+  }
+
+  function handlePageShow(event) {
+    if (!event.persisted) return;
+    setLauncherCollapsed(readLauncherCollapsed(launcherCollapsed));
+    startRuntime();
+    void refreshPages(true);
   }
 
   function installNotebook() {

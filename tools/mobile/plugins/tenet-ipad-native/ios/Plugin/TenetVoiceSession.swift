@@ -4,8 +4,89 @@ import Foundation
 import Speech
 import UIKit
 
-// All mutable state is confined to the main queue. The audio tap only appends
-// to Apple's on-device request; it never copies audio into a file or uploader.
+// The tap retains no audio: only bounded level/duration measurements are shared
+// through this lock. Session and UI state remain confined to the main queue.
+private final class TenetVoiceSilenceDetector {
+    static let requiredSilenceSeconds: TimeInterval = 1.5
+    private let lock = NSLock()
+    private var heardSpeech = false
+    private var silentSeconds: TimeInterval = 0
+    private var version: UInt64 = 0
+    private var announced = false
+    private var retired = false
+
+    var activityVersion: UInt64 {
+        lock.lock()
+        defer { lock.unlock() }
+        return version
+    }
+
+    func observe(_ buffer: AVAudioPCMBuffer) -> UInt64? {
+        let sample = Self.levels(buffer)
+        lock.lock()
+        defer { lock.unlock() }
+        guard !retired else { return nil }
+        guard let sample else {
+            silentSeconds = 0
+            announced = false
+            return nil
+        }
+        // Conservative activity thresholds: room noise can delay auto-submit,
+        // but transcript timing never starts or advances the silence interval.
+        if sample.rms >= 0.01 || sample.peak >= 0.04 {
+            heardSpeech = true
+            silentSeconds = 0
+            version &+= 1
+            announced = false
+            return nil
+        }
+        guard heardSpeech else { return nil }
+        silentSeconds += sample.seconds
+        guard silentSeconds >= Self.requiredSilenceSeconds, !announced else { return nil }
+        announced = true
+        return version
+    }
+
+    func claim(_ ticket: UInt64) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        // Sound resuming while the main queue is busy invalidates a queued stop.
+        guard !retired, heardSpeech, version == ticket,
+              silentSeconds >= Self.requiredSilenceSeconds else { return false }
+        retired = true
+        return true
+    }
+
+    func cancel() {
+        lock.lock()
+        defer { lock.unlock() }
+        retired = true
+        heardSpeech = false
+        silentSeconds = 0
+    }
+
+    private static func levels(_ buffer: AVAudioPCMBuffer) -> (rms: Float, peak: Float, seconds: TimeInterval)? {
+        let frames = Int(buffer.frameLength), channels = Int(buffer.format.channelCount)
+        let sampleRate = buffer.format.sampleRate
+        guard (1...8192).contains(frames), (1...8).contains(channels),
+              sampleRate.isFinite, sampleRate > 0, !buffer.format.isInterleaved,
+              let samples = buffer.floatChannelData else { return nil }
+        var energy: Double = 0
+        var peak: Float = 0
+        for channel in 0..<channels {
+            for frame in 0..<frames {
+                let sample = samples[channel][frame]
+                guard sample.isFinite else { return nil }
+                energy += Double(sample) * Double(sample)
+                peak = max(peak, abs(sample))
+            }
+        }
+        return (Float(sqrt(energy / Double(frames * channels))), peak, Double(frames) / sampleRate)
+    }
+}
+
+// The audio tap appends only to Apple's on-device request and the local meter;
+// it never copies microphone audio into a file, webview message, or uploader.
 final class TenetVoiceSession: NSObject, AVSpeechSynthesizerDelegate {
     private static let maximumRecordingSeconds: TimeInterval = 60
     private static let finalizationSeconds: TimeInterval = 2
@@ -17,6 +98,7 @@ final class TenetVoiceSession: NSObject, AVSpeechSynthesizerDelegate {
     private struct CompletedTranscript {
         let sessionId: String
         let text: String
+        let reason: String
         let authority: String
         let expiresAt: Date
     }
@@ -42,6 +124,10 @@ final class TenetVoiceSession: NSObject, AVSpeechSynthesizerDelegate {
     private var tappedInput: AVAudioInputNode?
     private var recordingDeadline: DispatchWorkItem?
     private var finalizationDeadline: DispatchWorkItem?
+    private var silenceDetector: TenetVoiceSilenceDetector?
+    private var hasFinalTranscript = false
+    private var finalTranscriptActivity: UInt64?
+    private var finalizationReason: String?
     private var ownsAudioSession = false
     private let synthesizer = AVSpeechSynthesizer()
     private var utterance: AVSpeechUtterance?
@@ -97,6 +183,40 @@ final class TenetVoiceSession: NSObject, AVSpeechSynthesizerDelegate {
         return normalized
     }
 
+    private static func voiceQualityRank(_ voice: AVSpeechSynthesisVoice) -> Int {
+        if #available(iOS 16.0, *), voice.quality == .premium { return 3 }
+        return voice.quality == .enhanced ? 2 : 1
+    }
+
+    private static func voiceQualityName(_ voice: AVSpeechSynthesisVoice) -> String {
+        switch voiceQualityRank(voice) {
+        case 3: return "premium"
+        case 2: return "enhanced"
+        default: return "default"
+        }
+    }
+
+    private static func preferredVoice(locale: String) -> AVSpeechSynthesisVoice? {
+        let requested = locale.lowercased()
+        guard let language = requested.split(separator: "-").first else { return nil }
+        // Enumerate installed system voices only. Never request a download or
+        // fall through to a third-party provider or a different language.
+        // https://developer.apple.com/documentation/avfaudio/avspeechsynthesisvoicequality
+        let voices = AVSpeechSynthesisVoice.speechVoices().filter { voice in
+            guard voice.identifier.hasPrefix("com.apple."),
+                  let candidate = normalizedLocale(voice.language)?.lowercased() else { return false }
+            return candidate.split(separator: "-").first == language
+        }
+        return voices.sorted { first, second in
+            let firstQuality = voiceQualityRank(first), secondQuality = voiceQualityRank(second)
+            if firstQuality != secondQuality { return firstQuality > secondQuality }
+            let firstExact = normalizedLocale(first.language)?.lowercased() == requested
+            let secondExact = normalizedLocale(second.language)?.lowercased() == requested
+            if firstExact != secondExact { return firstExact }
+            return first.identifier < second.identifier
+        }.first
+    }
+
     private static func validSessionId(_ value: String?) -> Bool {
         guard let value else { return false }
         return value.range(of: "^[A-Za-z0-9_-]{1,96}$", options: .regularExpression) != nil
@@ -121,12 +241,29 @@ final class TenetVoiceSession: NSObject, AVSpeechSynthesizerDelegate {
         var result: JSObject = [
             "supported": false, "onDevice": false,
             "locale": selected ?? Locale.current.identifier.replacingOccurrences(of: "_", with: "-"),
+            "voiceName": NSNull(), "voiceQuality": NSNull(), "voiceLocale": NSNull(),
+            "voiceNeedsDownload": false,
+            "autoSubmitSilenceSeconds": TenetVoiceSilenceDetector.requiredSilenceSeconds,
+            "supportsSilenceAutoSubmit": false,
         ]
         guard !closed, authority() != nil else {
             result["reason"] = "Sign in to your configured district to use voice."
             return result
         }
-        guard let selected, let candidate = SFSpeechRecognizer(locale: Locale(identifier: selected)) else {
+        guard let selected else {
+            result["reason"] = Self.typingFallback
+            return result
+        }
+        if let voice = Self.preferredVoice(locale: selected) {
+            result["voiceName"] = voice.name
+            result["voiceQuality"] = Self.voiceQualityName(voice)
+            result["voiceLocale"] = voice.language
+            // An optional quality upgrade, not a requirement to play a default voice.
+            result["voiceNeedsDownload"] = Self.voiceQualityRank(voice) < 2
+        } else {
+            result["voiceNeedsDownload"] = true
+        }
+        guard let candidate = SFSpeechRecognizer(locale: Locale(identifier: selected)) else {
             result["reason"] = Self.typingFallback
             return result
         }
@@ -142,6 +279,7 @@ final class TenetVoiceSession: NSObject, AVSpeechSynthesizerDelegate {
             return result
         }
         result["supported"] = true
+        result["supportsSilenceAutoSubmit"] = true
         return result
     }
 
@@ -255,6 +393,8 @@ final class TenetVoiceSession: NSObject, AVSpeechSynthesizerDelegate {
             request.shouldReportPartialResults = true
             request.taskHint = .dictation
             self.request = request
+            let silenceDetector = TenetVoiceSilenceDetector()
+            self.silenceDetector = silenceDetector
             let currentGeneration = generation
             recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
                 DispatchQueue.main.async {
@@ -263,10 +403,14 @@ final class TenetVoiceSession: NSObject, AVSpeechSynthesizerDelegate {
                     guard self.authorityMatches() else { self.cancelAll(); return }
                     if let result {
                         self.transcript = Self.boundedTranscript(result.bestTranscription.formattedString)
-                        if result.isFinal { self.completeRecording(); return }
-                        self.emitTranscript(isFinal: false)
+                        if result.isFinal {
+                            self.hasFinalTranscript = true
+                            self.finalTranscriptActivity = silenceDetector.activityVersion
+                            if self.phase == .finishing { self.completeRecording(); return }
+                        }
+                        self.emitTranscript(isFinal: result.isFinal)
                         if result.bestTranscription.formattedString.utf16.count >= Self.maximumTranscriptCharacters {
-                            self.beginFinalization()
+                            self.beginFinalization(reason: "text-limit")
                         }
                     }
                     if error != nil {
@@ -275,8 +419,22 @@ final class TenetVoiceSession: NSObject, AVSpeechSynthesizerDelegate {
                     }
                 }
             }
-            input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
+            input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
                 request.append(buffer)
+                guard let ticket = silenceDetector.observe(buffer) else { return }
+                DispatchQueue.main.async {
+                    guard let self, self.generation == currentGeneration, self.phase == .listening else { return }
+                    guard self.authorityMatches(), UIApplication.shared.applicationState == .active else {
+                        self.cancelAll()
+                        return
+                    }
+                    guard silenceDetector.claim(ticket) else { return }
+                    // If Apple's recognizer ended before the pause and more sound
+                    // followed, its final text may omit that speech. Require review.
+                    let reason = self.hasFinalTranscript && self.finalTranscriptActivity != ticket
+                        ? "recognizer" : "silence"
+                    self.beginFinalization(reason: reason)
+                }
             }
             tappedInput = input
             engine.prepare()
@@ -285,7 +443,7 @@ final class TenetVoiceSession: NSObject, AVSpeechSynthesizerDelegate {
             permissionDeadline = nil
             let deadline = DispatchWorkItem { [weak self] in
                 guard let self, self.generation == currentGeneration else { return }
-                self.beginFinalization()
+                self.beginFinalization(reason: "max-duration")
             }
             recordingDeadline = deadline
             DispatchQueue.main.asyncAfter(deadline: .now() + Self.maximumRecordingSeconds, execute: deadline)
@@ -299,6 +457,8 @@ final class TenetVoiceSession: NSObject, AVSpeechSynthesizerDelegate {
     }
 
     private func stopMicrophone() {
+        silenceDetector?.cancel()
+        silenceDetector = nil
         engine?.stop()
         if let tappedInput { tappedInput.removeTap(onBus: 0) }
         tappedInput = nil
@@ -316,7 +476,7 @@ final class TenetVoiceSession: NSObject, AVSpeechSynthesizerDelegate {
         }
         if let completed, completed.sessionId == requestedId,
            completed.expiresAt > Date(), authority() == completed.authority {
-            call.resolve(["text": completed.text])
+            call.resolve(["text": completed.text, "reason": completed.reason])
             self.completed = nil
             retireWatchdogIfIdle()
             return
@@ -343,10 +503,13 @@ final class TenetVoiceSession: NSObject, AVSpeechSynthesizerDelegate {
         beginFinalization()
     }
 
-    private func beginFinalization() {
+    private func beginFinalization(reason: String = "manual") {
         guard phase == .listening else { return }
         phase = .finishing
+        finalizationReason = reason
+        emitState("finalizing", reason: reason)
         stopMicrophone()
+        if hasFinalTranscript { completeRecording(); return }
         recognitionTask?.finish()
         let currentGeneration = generation
         let deadline = DispatchWorkItem { [weak self] in
@@ -362,28 +525,35 @@ final class TenetVoiceSession: NSObject, AVSpeechSynthesizerDelegate {
         emit("voiceTranscript", ["sessionId": sessionId, "text": transcript, "isFinal": isFinal])
     }
 
-    private func emitState(_ state: String, message: String? = nil) {
+    private func emitState(_ state: String, message: String? = nil, reason: String? = nil) {
         guard let sessionId else { return }
         var payload: JSObject = ["sessionId": sessionId, "state": state]
         if let message { payload["message"] = message }
+        if let reason { payload["reason"] = reason }
         emit("voiceState", payload)
     }
 
     private func completeRecording() {
         guard let sessionId, let expectedAuthority, authorityMatches() else { cancelAll(); return }
         let text = transcript
+        var completionReason = finalizationReason ?? "recognizer"
+        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            completionReason = "no-speech"
+        } else if completionReason == "silence" && !hasFinalTranscript {
+            completionReason = "finalization-timeout"
+        }
         let pending = stopCalls
         stopCalls.removeAll()
         emitTranscript(isFinal: true)
-        emitState("stopped")
+        emitState("stopped", reason: completionReason)
         cleanupRecognition()
         // Brief, memory-only handoff for recognizer auto-finalization before Stop.
         // Navigation, sign-out, cancellation, expiry and the next recording erase it.
         completed = CompletedTranscript(
-            sessionId: sessionId, text: text, authority: expectedAuthority,
+            sessionId: sessionId, text: text, reason: completionReason, authority: expectedAuthority,
             expiresAt: Date().addingTimeInterval(60)
         )
-        for call in pending { call.resolve(["text": text]) }
+        for call in pending { call.resolve(["text": text, "reason": completionReason]) }
     }
 
     private func fail(_ message: String) {
@@ -413,6 +583,9 @@ final class TenetVoiceSession: NSObject, AVSpeechSynthesizerDelegate {
         expectedAuthority = nil
         phase = nil
         transcript = ""
+        hasFinalTranscript = false
+        finalTranscriptActivity = nil
+        finalizationReason = nil
     }
 
     func cancelRecognition(sessionId requestedId: String? = nil) {
@@ -443,12 +616,7 @@ final class TenetVoiceSession: NSObject, AVSpeechSynthesizerDelegate {
             call.reject("Provide a reply of at most 4000 characters and a supported language.", "voice_reply_invalid")
             return
         }
-        // Use an available Apple system voice, never a third-party voice provider.
-        let voices = AVSpeechSynthesisVoice.speechVoices().filter {
-            $0.identifier.hasPrefix("com.apple.")
-                && $0.language.replacingOccurrences(of: "_", with: "-").lowercased() == locale.lowercased()
-        }
-        guard let voice = voices.first(where: { $0.quality == .default }) ?? voices.first else {
+        guard let voice = Self.preferredVoice(locale: locale) else {
             call.reject("An on-device voice for this language is unavailable. Read the text reply instead.", "voice_playback_unavailable")
             return
         }

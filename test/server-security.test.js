@@ -3112,7 +3112,7 @@ test("static page keeps strict styles while allowing the pinned MathJax CDN", ()
   assert.doesNotMatch(comparison,/createElement\(['"]style['"]\)/,"comparison styles must not depend on an inline-style CSP exception");
   assert.match(comparison,/style\.rel = 'stylesheet'/);
   assert.match(comparison,/style\.href = '\/tenet-ink-comparison\.css'/);
-  assert.match(comparisonCss,/\.tenet-ink-comparison[\s\S]*?min-height:44px/);
+  assert.match(comparisonCss,/\.tenet-ink-comparison[\s\S]*?min-height:\s*44px/);
   assert.match(ipadCss,/#tenetInkToast\s*\{[^}]*position:\s*fixed/);
   assert.doesNotMatch(app, /setAttribute\(\s*["']style["']/);
   assert.doesNotMatch(pageScale,/\.style\.|setAttribute\(\s*["']style["']/);
