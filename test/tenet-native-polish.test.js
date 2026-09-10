@@ -70,7 +70,7 @@ async function harness({ engine = "pencilkit" } = {}) {
   const controls = [
     element(".tenet-voice-entry", { x: 850, y: 20, width: 100, height: 44 }),
     element(".tenet-ai-entry", { x: 730, y: 20, width: 100, height: 44 }),
-    element("#tenetNotebookCollapse", { x: 20, y: 20, width: 44, height: 44 }),
+    element("#tenetNotebookLauncherDock", { x: 20, y: 20, width: 92, height: 48 }),
   ];
   const view = element("#view", { x: 0, y: 0, width: 1000, height: 700 });
   view.contains = target => target === view;

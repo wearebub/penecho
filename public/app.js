@@ -23397,7 +23397,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       const shouldShow = engine === "pencilkit" && !lock && !suspended.size && !document.hidden
         && !state.viewMode && !snapshotLoadInProgress && ["pen", "eraser", "select"].includes(state.mode) && !modalOpen();
     const exclusions = [...document.querySelectorAll(
-      '.topbar, [data-tenet-ink-toolbar], footer, #tenetBadge, #tenetNotebookLauncher, #tenetNotebookCollapse, .tenet-voice-entry, .tenet-ai-entry, .ai-embodiment, .canvas-navigation-lock, #canvasAgentPanel, #studioNavigator, .hand-object-toolbar, .selection-toolbar, #tenetNativeToast, .tenet-ink-comparison.tic-dock > *, [role="menu"], [role="listbox"]'
+      '.topbar, [data-tenet-ink-toolbar], footer, #tenetBadge, #tenetNotebookLauncherDock, .tenet-voice-entry, .tenet-ai-entry, .ai-embodiment, .canvas-navigation-lock, #canvasAgentPanel, #studioNavigator, .hand-object-toolbar, .selection-toolbar, #tenetNativeToast, .tenet-ink-comparison.tic-dock > *, [role="menu"], [role="listbox"]'
       )].filter(onscreen).map(element => {
         const box = element.getBoundingClientRect();
         return { x:box.x, y:box.y, width:box.width, height:box.height };
@@ -23622,7 +23622,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     }
     const resizeObserver = new ResizeObserver(scheduleSync);
     resizeObserver.observe(view);
-    document.querySelectorAll('.topbar, [data-tenet-ink-toolbar], footer, .tenet-voice-entry, .tenet-ai-entry, #tenetNotebookCollapse').forEach(element => resizeObserver.observe(element));
+    document.querySelectorAll('.topbar, [data-tenet-ink-toolbar], footer, .tenet-voice-entry, .tenet-ai-entry, #tenetNotebookLauncherDock').forEach(element => resizeObserver.observe(element));
     const mutations = new MutationObserver(scheduleSync);
     mutations.observe(document.body, { subtree:true, childList:true, attributes:true, attributeFilter:["hidden", "open", "class", "aria-hidden", "aria-expanded"] });
     window.addEventListener("resize", scheduleSync, { signal });
