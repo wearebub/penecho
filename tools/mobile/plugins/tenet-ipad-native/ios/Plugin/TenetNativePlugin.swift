@@ -603,7 +603,9 @@ public final class TenetNativePlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthenti
         let managed = !raw.isEmpty
         let requiresManaged = raw["requireManagedConfiguration"] as? Bool ?? false
         let pencilEnabled = raw["pencilKitEnabled"] as? Bool ?? true
-        let fingerEnabled = raw["fingerDrawingEnabled"] as? Bool ?? false
+        // Allow fingers and capacitive styli without requiring MDM enrollment.
+        // An explicit false or malformed managed value still disables touch ink.
+        let fingerEnabled = raw["fingerDrawingEnabled"].map { $0 as? Bool ?? false } ?? true
         var profile = raw["studentRuleProfile"] as? String
         if profile == nil && !requiresManaged { profile = "district" }
 

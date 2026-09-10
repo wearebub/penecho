@@ -67,11 +67,14 @@
     function studioNavigatorIsCompact() {
       return Boolean(studioNavigatorCompactMedia?.matches);
     }
-    function studioNavigatorIsStudio() {
-      return state.theme === "studio";
-    }
+  function studioNavigatorIsStudio() {
+    return state.theme === "studio";
+  }
+  function studioNavigatorPanelAllowed() {
+    return window.PENECHO_CONFIG?.tenetMode !== true && !document.body.classList.contains("tenet-whiteboard");
+  }
     function studioNavigatorIsOpen() {
-      return studioNavigatorIsStudio() && document.body.classList.contains("studio-navigator-open");
+    return studioNavigatorIsStudio() && studioNavigatorPanelAllowed() && document.body.classList.contains("studio-navigator-open");
     }
     function studioCanvasHasContent() {
       return Boolean(tiles.size || state.images.length || state.textBoxes.length || state.preservedSnapshotAnimations.length || (pluginEnabled("animation") && state.animations.length) || visibleWidgets().length);
@@ -159,7 +162,7 @@
       }
     }
     function updateStudioNavigatorA11y({ deferSurface = false } = {}) {
-      const active = studioNavigatorIsStudio(), open = active && studioNavigatorIsOpen(), unavailable = !active || !open || state.viewMode;
+    const active = studioNavigatorIsStudio() && studioNavigatorPanelAllowed(), open = active && studioNavigatorIsOpen(), unavailable = !active || !open || state.viewMode;
       studioNavigatorToggle.hidden = !active;
       studioNavigator.hidden = !active;
       if (!deferSurface) {
@@ -219,17 +222,18 @@
       studioNavigator.addEventListener("transitionend", studioNavigatorTransitionHandler);
       studioNavigatorOpenTimer = setTimeout(settle, STUDIO_NAVIGATOR_SETTLE_FALLBACK_MS);
     }
-    function setStudioNavigatorOpen(open, { restoreAgent = true } = {}) {
+  function setStudioNavigatorOpen(open, { restoreAgent = true } = {}) {
+    open = Boolean(open) && studioNavigatorPanelAllowed();
       studioNavigatorOpenPreference = Boolean(open);
       if (open) restoreCanvasChromeMaterial();
       document.body.classList.toggle("studio-navigator-open", studioNavigatorIsStudio() && studioNavigatorOpenPreference);
-      updateStudioNavigatorA11y({ deferSurface:studioNavigatorIsStudio() });
+    updateStudioNavigatorA11y({ deferSurface:studioNavigatorIsStudio() && studioNavigatorPanelAllowed() });
       if (!open && studioNavigator.contains(document.activeElement)) studioNavigatorToggle.focus({ preventScroll:true });
       if (open) suspendStudioAgentForNavigator();
       scheduleStudioNavigatorOpenWork(open, { restoreAgent });
     }
     function syncStudioNavigatorTheme(theme = state.theme) {
-      const active = theme === "studio", wasActive = document.body.classList.contains("studio-navigator-enabled");
+    const active = theme === "studio" && studioNavigatorPanelAllowed(), wasActive = document.body.classList.contains("studio-navigator-enabled");
       document.body.classList.toggle("studio-navigator-enabled", active);
       document.body.classList.toggle("studio-navigator-open", active && studioNavigatorOpenPreference);
       updateStudioNavigatorA11y();
@@ -753,7 +757,7 @@
       const bounds = view.getBoundingClientRect(),
         leftInset = event.clientX - bounds.left,
         rightInset = bounds.right - event.clientX;
-      if (leftInset >= 0 && leftInset <= STUDIO_EDGE_SWIPE_START_PX && !studioNavigatorIsOpen()) return "left";
+    if (studioNavigatorPanelAllowed() && leftInset >= 0 && leftInset <= STUDIO_EDGE_SWIPE_START_PX && !studioNavigatorIsOpen()) return "left";
       if (rightInset >= 0 && rightInset <= STUDIO_EDGE_SWIPE_START_PX && canvasAgentAvailable() && canvasAgentPanel.hidden && canvasAgentDockedPanel()) return "right";
       return "";
     }

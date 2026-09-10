@@ -105,8 +105,8 @@
     if (window.PENECHO_CONFIG?.tenetMode !== true) return false;
     const setting = window.PENECHO_CONFIG?.tenetFingerDraws;
     if (setting === false) return false;
-    if (setting === "phone") return phoneLikeScreen();
-    return true;
+    if (setting === "phone" && !phoneLikeScreen()) return false;
+    return window.TenetDrawingPreferences?.fingerDrawing() ?? true;
   };
   const pencilTouchGuardActive = () => state.drawing?.inputType === "pen" || performance.now() - lastPencilContactAt < TENET_PENCIL_TOUCH_GUARD_MS;
   const palmLikeTouch = (event) => {

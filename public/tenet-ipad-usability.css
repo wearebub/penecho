@@ -5,6 +5,223 @@
   --tenet-line: #d8d2c4;
 }
 
+/* Pages & files replaces the legacy navigator, not its title/save machinery. */
+body.tenet-whiteboard #studioNavigatorToggle,
+body.tenet-whiteboard #studioNavigator,
+body.tenet-whiteboard #studioNavigatorScrim,
+body.tenet-whiteboard .toolbar > .toolbar-leading-divider,
+body.tenet-whiteboard #penSizeValue {
+  display: none !important;
+}
+
+/* Labelled file actions must not inherit the upstream square icon width. */
+body.tenet-whiteboard .top-row {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+body.tenet-whiteboard #aiStatusArea {
+  flex: 1 1 160px;
+  min-width: 0;
+  overflow: hidden;
+}
+body.tenet-whiteboard #canvasFileActions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  width: auto;
+  margin-left: auto;
+}
+body.tenet-whiteboard #canvasFileActions .tenet-header-action {
+  flex: 0 0 auto;
+  width: auto !important;
+  min-height: 44px;
+}
+body.tenet-whiteboard #penSize {
+  width: 112px;
+  min-height: 44px;
+  touch-action: none;
+}
+body.tenet-whiteboard .tenet-tool-trigger,
+body.tenet-whiteboard .tenet-tool-dialog button,
+body.tenet-whiteboard .tenet-tool-dialog select {
+  box-sizing: border-box;
+  min-height: 44px;
+  border: 1px solid var(--tenet-line);
+  border-radius: 10px;
+  padding: 8px 12px;
+  color: var(--tenet-ink);
+  background: var(--tenet-paper);
+  font: 700 14px "Avenir Next", "Trebuchet MS", sans-serif;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+body.tenet-whiteboard .tenet-tool-trigger {
+  flex: 0 0 auto;
+  width: auto;
+  white-space: nowrap;
+}
+body.tenet-whiteboard #tenetInsertBtn {
+  margin-right: 8px;
+}
+body.tenet-whiteboard .tenet-tool-dialog {
+  box-sizing: border-box;
+  width: min(700px, calc(100vw - 32px));
+  max-height: calc(100dvh - 48px);
+  margin: auto;
+  padding: 22px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--tenet-line);
+  border-radius: 20px;
+  color: var(--tenet-ink);
+  background: linear-gradient(145deg, #fffefa, var(--tenet-paper));
+  box-shadow: 0 24px 80px #10243e33;
+  font-family: "Avenir Next", "Trebuchet MS", sans-serif;
+}
+body.tenet-whiteboard .tenet-tool-dialog::backdrop {
+  background: #10243e66;
+}
+body.tenet-whiteboard .tenet-tool-dialog-header,
+body.tenet-whiteboard .tenet-drawing-width-label,
+body.tenet-whiteboard .tenet-tool-color {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+body.tenet-whiteboard .tenet-tool-dialog-header h2 {
+  margin: 0;
+  font-size: 24px;
+  letter-spacing: -0.5px;
+}
+body.tenet-whiteboard .tenet-tool-dialog .tenet-tool-close {
+  color: #fff;
+  background: var(--tenet-ink);
+}
+body.tenet-whiteboard .tenet-tool-description {
+  color: #536174;
+  font-size: 14px;
+  line-height: 1.5;
+}
+body.tenet-whiteboard .tenet-tool-dialog h3 {
+  margin: 22px 0 12px;
+  font-size: 15px;
+}
+body.tenet-whiteboard .tenet-tool-color {
+  justify-content: flex-start;
+  font-size: 14px;
+  font-weight: 700;
+}
+body.tenet-whiteboard .tenet-tool-color input {
+  width: 56px;
+  height: 44px;
+  padding: 4px;
+  border: 1px solid var(--tenet-line);
+  border-radius: 8px;
+  background: #fff;
+}
+body.tenet-whiteboard .tenet-insert-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+body.tenet-whiteboard .tenet-insert-graphs {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+body.tenet-whiteboard .tenet-tool-dialog .tenet-insert-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  background: #fff;
+}
+body.tenet-whiteboard .tenet-insert-card canvas {
+  display: block;
+  width: 100%;
+  height: 80px;
+  object-fit: contain;
+  pointer-events: none;
+}
+body.tenet-whiteboard .tenet-insert-graphs canvas {
+  height: 150px;
+}
+body.tenet-whiteboard .tenet-insert-card small {
+  color: #536174;
+  font-size: 12px;
+  font-weight: 500;
+}
+body.tenet-whiteboard .tenet-tool-dialog button:hover:not(:disabled),
+body.tenet-whiteboard .tenet-tool-trigger:hover {
+  border-color: var(--tenet-copper);
+}
+body.tenet-whiteboard .tenet-tool-dialog :focus-visible,
+body.tenet-whiteboard .tenet-tool-trigger:focus-visible {
+  outline: 3px solid var(--tenet-copper);
+  outline-offset: 3px;
+}
+body.tenet-whiteboard .tenet-tool-dialog :disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+body.tenet-whiteboard .tenet-tool-error {
+  margin: 12px 0 0;
+  color: #923b2a;
+  font-size: 14px;
+}
+body.tenet-whiteboard .tenet-tool-error:empty {
+  display: none;
+}
+body.tenet-whiteboard #tenetDrawingDialog {
+  width: min(560px, calc(100vw - 32px));
+}
+body.tenet-whiteboard .tenet-drawing-width-label,
+body.tenet-whiteboard .tenet-drawing-mode-label {
+  margin: 22px 0 8px;
+  font-weight: 700;
+}
+body.tenet-whiteboard .tenet-drawing-width-label output {
+  min-width: 60px;
+  text-align: right;
+  color: var(--tenet-copper);
+}
+body.tenet-whiteboard #tenetDrawingWidth {
+  display: block;
+  width: 100%;
+  height: 52px;
+  accent-color: var(--tenet-ink);
+  touch-action: none;
+}
+body.tenet-whiteboard .tenet-width-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+body.tenet-whiteboard .tenet-width-presets [aria-pressed="true"] {
+  border-color: var(--tenet-copper);
+  background: #f2e6d5;
+}
+body.tenet-whiteboard .tenet-drawing-mode-label {
+  display: block;
+}
+body.tenet-whiteboard #tenetDrawingInput {
+  display: block;
+  width: 100%;
+  white-space: normal;
+}
+@media (max-width: 580px) {
+  body.tenet-whiteboard .tenet-tool-dialog {
+    padding: 16px;
+  }
+  body.tenet-whiteboard .tenet-insert-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  body.tenet-whiteboard .tenet-insert-graphs canvas {
+    height: 115px;
+  }
+}
+
 #tenetInkToast {
   position: fixed;
   z-index: 2147483647;

@@ -210,8 +210,8 @@
       }
       const shouldShow = engine === "pencilkit" && !lock && !suspended.size && !document.hidden
         && !state.viewMode && !snapshotLoadInProgress && ["pen", "eraser", "select"].includes(state.mode) && !modalOpen();
-      const exclusions = [...document.querySelectorAll(
-        '#tenetBadge, #tenetNotebookLauncher, .ai-embodiment, .canvas-navigation-lock, #canvasAgentPanel, #studioNavigator, .hand-object-toolbar, .selection-toolbar, #tenetNativeToast, .tenet-ink-comparison.tic-dock > *'
+    const exclusions = [...document.querySelectorAll(
+      '.topbar, [data-tenet-ink-toolbar], footer, #tenetBadge, #tenetNotebookLauncher, .ai-embodiment, .canvas-navigation-lock, #canvasAgentPanel, #studioNavigator, .hand-object-toolbar, .selection-toolbar, #tenetNativeToast, .tenet-ink-comparison.tic-dock > *, [role="menu"], [role="listbox"]'
       )].filter(onscreen).map(element => {
         const box = element.getBoundingClientRect();
         return { x:box.x, y:box.y, width:box.width, height:box.height };
@@ -219,7 +219,8 @@
       return { sessionId, frame:{ x:rect.x, y:rect.y, width:rect.width, height:rect.height },
         viewportWidth:window.innerWidth, panX:state.panX * factor, panY:state.panY * factor,
         scale:state.scale * factor, canvasSize:SIZE, visible:shouldShow, inputEnabled:shouldShow,
-        tool:nativeTool, color:state.inkColor, width:nativeToolWidth, toolRequestId, fingerDrawing,
+        tool:nativeTool, color:state.inkColor, width:nativeToolWidth, toolRequestId,
+        fingerDrawing:fingerDrawing && (window.TenetDrawingPreferences?.fingerDrawing() ?? true),
         navigationLocked:state.navigationLocked === true, exclusions };
     }
     async function synchronize() {
@@ -330,7 +331,8 @@
     tenetInkController = { available, snapshot:() => drawing, draw, prepare, restore:install,
       flush, sync:scheduleSync, active:() => active || lock > 0, history, applyHistory:applyNativeHistory,
       stageClear, boundHistory, suspend, resume };
-    window.TenetInk = { available, getStatus:status, setEngine, flush, suspend, resume };
+    window.TenetInk = { available, getStatus:status, setEngine, flush, suspend, resume,
+      fingerDrawingAllowed:() => fingerDrawing };
 
     async function mount() {
       if (!available) return;
@@ -385,10 +387,13 @@
     }
     const resizeObserver = new ResizeObserver(scheduleSync);
     resizeObserver.observe(view);
+    document.querySelectorAll('.topbar, [data-tenet-ink-toolbar], footer').forEach(element => resizeObserver.observe(element));
     const mutations = new MutationObserver(scheduleSync);
     mutations.observe(document.body, { subtree:true, attributes:true, attributeFilter:["hidden", "open", "class", "aria-hidden", "aria-expanded"] });
     window.addEventListener("resize", scheduleSync, { signal });
     window.visualViewport?.addEventListener("resize", scheduleSync, { signal });
+    window.visualViewport?.addEventListener("scroll", scheduleSync, { passive: true, signal });
+    document.addEventListener("scroll", scheduleSync, { capture: true, passive: true, signal });
     document.addEventListener("visibilitychange", () => {
       scheduleSync();
       if (document.hidden && !active) void flush().catch(fail);

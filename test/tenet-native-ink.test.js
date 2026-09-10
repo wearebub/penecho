@@ -8,7 +8,7 @@ const ROOT = path.resolve(__dirname, "..");
 const SOURCE = fs.readFileSync(path.join(ROOT, "src/client/app/tenet-native-ink.js"), "utf8");
 const PNG = "data:image/png;base64,cHJldmlldw==";
 
-async function harness({ enabled = true, nativeAvailable = true } = {}) {
+async function harness({ enabled = true, nativeAvailable = true, fingerDrawingEnabled = false } = {}) {
   const frames = new Map(), elements = new Map(), listeners = new Map(), calls = [];
   const win = new EventTarget(), doc = new EventTarget();
   let id = 0, counter = 0, draft = null, nativeSession = null, configureGate = null;
@@ -27,7 +27,7 @@ async function harness({ enabled = true, nativeAvailable = true } = {}) {
   const empty = () => ({ drawingData:Buffer.from("empty").toString("base64"), previewDataUrl:null, bounds:null, strokeCount:0 });
   records.set(empty().drawingData, empty());
   const native = {
-    getConfiguration:async () => ({ valid:true, pencilKitEnabled:enabled, fingerDrawingEnabled:false }),
+    getConfiguration:async () => ({ valid:true, pencilKitEnabled:enabled, fingerDrawingEnabled }),
     addListener:async (name, callback) => { listeners.set(name, callback); return { remove:async () => listeners.delete(name) }; },
     configureInkSurface:async options => {
       calls.push({ kind:"configure", ...options });
@@ -115,6 +115,38 @@ test("Web remains default; new native sessions omit empty drawingData and honor 
   const denied=await harness({enabled:false});
   await assert.rejects(denied.api.setEngine("pencilkit"),/disabled/);
   assert.equal(denied.calls.length,0);
+});
+
+test("top bars are excluded from Pencil hit testing without changing ink coordinates", async () => {
+  const h = await harness();
+  const header = { hidden:false, closest:() => null, getBoundingClientRect:() => ({ x:0, y:24, width:1280, height:96 }) };
+  h.doc.querySelectorAll = selector => selector.includes(".topbar") ? [header] : [];
+  await h.api.setEngine("pencilkit");
+  await h.settle();
+  const latest = h.calls.filter(call => call.kind === "configure").at(-1);
+  assert.deepEqual(JSON.parse(JSON.stringify(latest.exclusions)), [{ x:0, y:24, width:1280, height:96 }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(latest.frame)), { x:40, y:120, width:1200, height:800 });
+  assert.equal(latest.panY, 0);
+  assert.equal(latest.scale, .5);
+});
+
+test("finger preference can narrow native input but cannot override a managed refusal", async () => {
+  const allowed = await harness({ fingerDrawingEnabled:true });
+  assert.equal(allowed.api.fingerDrawingAllowed(), true);
+  allowed.win.TenetDrawingPreferences = { fingerDrawing:() => false };
+  allowed.controller.sync();
+  await allowed.settle();
+  assert.equal(allowed.calls.filter(call => call.kind === "configure").at(-1).fingerDrawing, false);
+  allowed.win.TenetDrawingPreferences = { fingerDrawing:() => true };
+  allowed.controller.sync();
+  await allowed.settle();
+  assert.equal(allowed.calls.filter(call => call.kind === "configure").at(-1).fingerDrawing, true);
+  const denied = await harness({ fingerDrawingEnabled:false });
+  denied.win.TenetDrawingPreferences = { fingerDrawing:() => true };
+  denied.controller.sync();
+  await denied.settle();
+  assert.equal(denied.api.fingerDrawingAllowed(), false);
+  assert.equal(denied.calls.filter(call => call.kind === "configure").at(-1).fingerDrawing, false);
 });
 
 test("switching retains vector archives, bounded preview and unrelated notebook metadata", async () => {

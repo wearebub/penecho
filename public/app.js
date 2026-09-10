@@ -21970,11 +21970,14 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     function studioNavigatorIsCompact() {
       return Boolean(studioNavigatorCompactMedia?.matches);
     }
-    function studioNavigatorIsStudio() {
-      return state.theme === "studio";
-    }
+  function studioNavigatorIsStudio() {
+    return state.theme === "studio";
+  }
+  function studioNavigatorPanelAllowed() {
+    return window.PENECHO_CONFIG?.tenetMode !== true && !document.body.classList.contains("tenet-whiteboard");
+  }
     function studioNavigatorIsOpen() {
-      return studioNavigatorIsStudio() && document.body.classList.contains("studio-navigator-open");
+    return studioNavigatorIsStudio() && studioNavigatorPanelAllowed() && document.body.classList.contains("studio-navigator-open");
     }
     function studioCanvasHasContent() {
       return Boolean(tiles.size || state.images.length || state.textBoxes.length || state.preservedSnapshotAnimations.length || (pluginEnabled("animation") && state.animations.length) || visibleWidgets().length);
@@ -22062,7 +22065,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       }
     }
     function updateStudioNavigatorA11y({ deferSurface = false } = {}) {
-      const active = studioNavigatorIsStudio(), open = active && studioNavigatorIsOpen(), unavailable = !active || !open || state.viewMode;
+    const active = studioNavigatorIsStudio() && studioNavigatorPanelAllowed(), open = active && studioNavigatorIsOpen(), unavailable = !active || !open || state.viewMode;
       studioNavigatorToggle.hidden = !active;
       studioNavigator.hidden = !active;
       if (!deferSurface) {
@@ -22122,17 +22125,18 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       studioNavigator.addEventListener("transitionend", studioNavigatorTransitionHandler);
       studioNavigatorOpenTimer = setTimeout(settle, STUDIO_NAVIGATOR_SETTLE_FALLBACK_MS);
     }
-    function setStudioNavigatorOpen(open, { restoreAgent = true } = {}) {
+  function setStudioNavigatorOpen(open, { restoreAgent = true } = {}) {
+    open = Boolean(open) && studioNavigatorPanelAllowed();
       studioNavigatorOpenPreference = Boolean(open);
       if (open) restoreCanvasChromeMaterial();
       document.body.classList.toggle("studio-navigator-open", studioNavigatorIsStudio() && studioNavigatorOpenPreference);
-      updateStudioNavigatorA11y({ deferSurface:studioNavigatorIsStudio() });
+    updateStudioNavigatorA11y({ deferSurface:studioNavigatorIsStudio() && studioNavigatorPanelAllowed() });
       if (!open && studioNavigator.contains(document.activeElement)) studioNavigatorToggle.focus({ preventScroll:true });
       if (open) suspendStudioAgentForNavigator();
       scheduleStudioNavigatorOpenWork(open, { restoreAgent });
     }
     function syncStudioNavigatorTheme(theme = state.theme) {
-      const active = theme === "studio", wasActive = document.body.classList.contains("studio-navigator-enabled");
+    const active = theme === "studio" && studioNavigatorPanelAllowed(), wasActive = document.body.classList.contains("studio-navigator-enabled");
       document.body.classList.toggle("studio-navigator-enabled", active);
       document.body.classList.toggle("studio-navigator-open", active && studioNavigatorOpenPreference);
       updateStudioNavigatorA11y();
@@ -22656,7 +22660,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       const bounds = view.getBoundingClientRect(),
         leftInset = event.clientX - bounds.left,
         rightInset = bounds.right - event.clientX;
-      if (leftInset >= 0 && leftInset <= STUDIO_EDGE_SWIPE_START_PX && !studioNavigatorIsOpen()) return "left";
+    if (studioNavigatorPanelAllowed() && leftInset >= 0 && leftInset <= STUDIO_EDGE_SWIPE_START_PX && !studioNavigatorIsOpen()) return "left";
       if (rightInset >= 0 && rightInset <= STUDIO_EDGE_SWIPE_START_PX && canvasAgentAvailable() && canvasAgentPanel.hidden && canvasAgentDockedPanel()) return "right";
       return "";
     }
@@ -23276,8 +23280,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       }
       const shouldShow = engine === "pencilkit" && !lock && !suspended.size && !document.hidden
         && !state.viewMode && !snapshotLoadInProgress && ["pen", "eraser", "select"].includes(state.mode) && !modalOpen();
-      const exclusions = [...document.querySelectorAll(
-        '#tenetBadge, #tenetNotebookLauncher, .ai-embodiment, .canvas-navigation-lock, #canvasAgentPanel, #studioNavigator, .hand-object-toolbar, .selection-toolbar, #tenetNativeToast, .tenet-ink-comparison.tic-dock > *'
+    const exclusions = [...document.querySelectorAll(
+      '.topbar, [data-tenet-ink-toolbar], footer, #tenetBadge, #tenetNotebookLauncher, .ai-embodiment, .canvas-navigation-lock, #canvasAgentPanel, #studioNavigator, .hand-object-toolbar, .selection-toolbar, #tenetNativeToast, .tenet-ink-comparison.tic-dock > *, [role="menu"], [role="listbox"]'
       )].filter(onscreen).map(element => {
         const box = element.getBoundingClientRect();
         return { x:box.x, y:box.y, width:box.width, height:box.height };
@@ -23285,7 +23289,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       return { sessionId, frame:{ x:rect.x, y:rect.y, width:rect.width, height:rect.height },
         viewportWidth:window.innerWidth, panX:state.panX * factor, panY:state.panY * factor,
         scale:state.scale * factor, canvasSize:SIZE, visible:shouldShow, inputEnabled:shouldShow,
-        tool:nativeTool, color:state.inkColor, width:nativeToolWidth, toolRequestId, fingerDrawing,
+        tool:nativeTool, color:state.inkColor, width:nativeToolWidth, toolRequestId,
+        fingerDrawing:fingerDrawing && (window.TenetDrawingPreferences?.fingerDrawing() ?? true),
         navigationLocked:state.navigationLocked === true, exclusions };
     }
     async function synchronize() {
@@ -23396,7 +23401,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     tenetInkController = { available, snapshot:() => drawing, draw, prepare, restore:install,
       flush, sync:scheduleSync, active:() => active || lock > 0, history, applyHistory:applyNativeHistory,
       stageClear, boundHistory, suspend, resume };
-    window.TenetInk = { available, getStatus:status, setEngine, flush, suspend, resume };
+    window.TenetInk = { available, getStatus:status, setEngine, flush, suspend, resume,
+      fingerDrawingAllowed:() => fingerDrawing };
 
     async function mount() {
       if (!available) return;
@@ -23451,10 +23457,13 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     }
     const resizeObserver = new ResizeObserver(scheduleSync);
     resizeObserver.observe(view);
+    document.querySelectorAll('.topbar, [data-tenet-ink-toolbar], footer').forEach(element => resizeObserver.observe(element));
     const mutations = new MutationObserver(scheduleSync);
     mutations.observe(document.body, { subtree:true, attributes:true, attributeFilter:["hidden", "open", "class", "aria-hidden", "aria-expanded"] });
     window.addEventListener("resize", scheduleSync, { signal });
     window.visualViewport?.addEventListener("resize", scheduleSync, { signal });
+    window.visualViewport?.addEventListener("scroll", scheduleSync, { passive: true, signal });
+    document.addEventListener("scroll", scheduleSync, { capture: true, passive: true, signal });
     document.addEventListener("visibilitychange", () => {
       scheduleSync();
       if (document.hidden && !active) void flush().catch(fail);
@@ -25279,6 +25288,407 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   let pencilImportActive = false;
   let pdfExportActive = false;
 
+  // Native ink must be flushed and suspended while web tool dialogs own input.
+  // Keep document operations on the existing image/history/persistence path.
+  function createTenetToolDialog(id, title, description, trigger) {
+    const dialog = document.createElement("dialog");
+    dialog.id = id;
+    dialog.className = "tenet-tool-dialog";
+    dialog.setAttribute("aria-labelledby", id + "-title");
+    dialog.setAttribute("aria-describedby", id + "-description");
+    dialog.setAttribute("aria-modal", "true");
+    const header = document.createElement("header");
+    header.className = "tenet-tool-dialog-header";
+    const heading = document.createElement("h2");
+    heading.id = id + "-title";
+    heading.textContent = title;
+    const closeButton = document.createElement("button");
+    closeButton.type = "button";
+    closeButton.className = "tenet-tool-close";
+    closeButton.textContent = "Done";
+    header.append(heading, closeButton);
+    const help = document.createElement("p");
+    help.id = id + "-description";
+    help.className = "tenet-tool-description";
+    help.textContent = description;
+    const body = document.createElement("div");
+    body.className = "tenet-tool-dialog-body";
+    dialog.append(header, help, body);
+    document.body.append(dialog);
+    trigger.setAttribute("aria-haspopup", "dialog");
+    trigger.setAttribute("aria-controls", id);
+
+    const lifetime = new AbortController();
+    const signal = lifetime.signal;
+    const reason = "tool-dialog:" + id;
+    let opening = false, suspended = false, busy = false;
+    const releaseInk = () => {
+      if (!suspended) return;
+      suspended = false;
+      window.TenetInk?.resume(reason);
+    };
+    const api = {
+      dialog, body, signal, beforeOpen: null,
+      close: () => { if (!busy && dialog.open) dialog.close(); },
+      setBusy: value => {
+        busy = value;
+        dialog.setAttribute("aria-busy", String(value));
+        dialog.querySelectorAll("button, input, select").forEach(control => { control.disabled = value; });
+      },
+    };
+    trigger.addEventListener("click", async () => {
+      if (opening || dialog.open || busy) return;
+      if (state.viewMode) {
+        showTenetMessage("Leave view mode before using drawing tools.");
+        return;
+      }
+      opening = true;
+      try {
+        suspended = true;
+        await window.TenetInk?.suspend(reason);
+        if (signal.aborted) return;
+        api.beforeOpen?.();
+        dialog.showModal();
+      } catch (error) {
+        showTenetMessage(error?.message || "Lift your Pencil and try again.", "error");
+      } finally {
+        opening = false;
+        if (!dialog.open) releaseInk();
+      }
+    }, { signal });
+    closeButton.addEventListener("click", api.close, { signal });
+    dialog.addEventListener("cancel", event => {
+      if (busy) event.preventDefault();
+    }, { signal });
+    // Do not let canvas shortcuts delete, undo, or finalize work behind a dialog.
+    dialog.addEventListener("keydown", event => event.stopPropagation(), { signal });
+    dialog.addEventListener("close", () => {
+      releaseInk();
+      if (!signal.aborted && document.visibilityState !== "hidden") trigger.focus({ preventScroll: true });
+    }, { signal });
+    window.addEventListener("pagehide", event => {
+      if (event.persisted) return;
+      lifetime.abort();
+      releaseInk();
+    }, { signal });
+    return api;
+  }
+
+  function drawTenetInsertArtwork(kind, color, maxDimension = 1024) {
+    const graph = kind === "graph-four" || kind === "graph-first";
+    const dimensions = {
+      rectangle: [720, 480], square: [512, 512], circle: [512, 512],
+      triangle: [600, 520], line: [720, 128], arrow: [720, 240],
+      "graph-four": [1024, 1024], "graph-first": [1024, 1024],
+    };
+    const size = dimensions[kind];
+    if (!size) throw new Error("Unknown shape.");
+    const [width, height] = size;
+    const ratio = Math.min(1, maxDimension / Math.max(width, height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(width * ratio);
+    canvas.height = Math.round(height * ratio);
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Drawing tools are unavailable on this device.");
+    context.scale(canvas.width / width, canvas.height / height);
+    context.strokeStyle = color;
+    context.lineWidth = 8;
+    context.lineCap = "round";
+    context.lineJoin = "round";
+    if (!graph) {
+      context.beginPath();
+      if (kind === "rectangle" || kind === "square") {
+        context.rect(32, 32, width - 64, height - 64);
+      } else if (kind === "circle") {
+        context.arc(width / 2, height / 2, width / 2 - 32, 0, Math.PI * 2);
+      } else if (kind === "triangle") {
+        context.moveTo(width / 2, 32);
+        context.lineTo(width - 32, height - 32);
+        context.lineTo(32, height - 32);
+        context.closePath();
+      } else {
+        context.moveTo(32, height / 2);
+        context.lineTo(width - 32, height / 2);
+        if (kind === "arrow") {
+          context.moveTo(width - 116, height / 2 - 68);
+          context.lineTo(width - 32, height / 2);
+          context.lineTo(width - 116, height / 2 + 68);
+        }
+      }
+      context.stroke();
+      return canvas;
+    }
+
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, width, height);
+    const first = kind === "graph-first";
+    const start = 100, end = 924, unit = (end - start) / 10;
+    const originX = first ? start : (start + end) / 2;
+    const originY = first ? end : (start + end) / 2;
+    context.strokeStyle = "#dce3e9";
+    context.lineWidth = 1.8;
+    context.beginPath();
+    for (let index = 0; index <= 10; index++) {
+      const point = start + index * unit;
+      context.moveTo(point, start);
+      context.lineTo(point, end);
+      context.moveTo(start, point);
+      context.lineTo(end, point);
+    }
+    context.stroke();
+    context.strokeStyle = color;
+    context.fillStyle = color;
+    context.lineWidth = 4;
+    context.beginPath();
+    context.moveTo(first ? originX : start - 22, originY);
+    context.lineTo(end + 22, originY);
+    context.moveTo(originX, first ? originY : end + 22);
+    context.lineTo(originX, start - 22);
+    const arrowhead = (x, y, dx, dy) => {
+      context.moveTo(x - dx * 16 - dy * 9, y - dy * 16 + dx * 9);
+      context.lineTo(x, y);
+      context.lineTo(x - dx * 16 + dy * 9, y - dy * 16 - dx * 9);
+    };
+    arrowhead(end + 22, originY, 1, 0);
+    arrowhead(originX, start - 22, 0, -1);
+    if (!first) {
+      arrowhead(start - 22, originY, -1, 0);
+      arrowhead(originX, end + 22, 0, 1);
+    }
+    context.stroke();
+    context.font = '500 24px "Avenir Next", "Trebuchet MS", sans-serif';
+    context.lineWidth = 2;
+    for (let index = 0; index <= 10; index++) {
+      const value = first ? index : index - 5;
+      if (value === 0) continue;
+      const x = start + index * unit, y = end - index * unit;
+      context.beginPath();
+      context.moveTo(x, originY - 7);
+      context.lineTo(x, originY + 7);
+      context.moveTo(originX - 7, y);
+      context.lineTo(originX + 7, y);
+      context.stroke();
+      context.textAlign = "center";
+      context.textBaseline = "top";
+      context.fillText(String(value), x, originY + 16);
+      context.textAlign = "right";
+      context.textBaseline = "middle";
+      context.fillText(String(value), originX - 16, y);
+    }
+    context.textAlign = "right";
+    context.textBaseline = "top";
+    context.fillText("0", originX - 14, originY + 14);
+    context.font = 'italic 600 32px "Avenir Next", "Trebuchet MS", sans-serif';
+    context.textAlign = "center";
+    context.textBaseline = "middle";
+    context.fillText("x", end + 60, originY);
+    context.fillText("y", originX, start - 60);
+    return canvas;
+  }
+
+  function installShapeTools() {
+    const toolbar = document.querySelector("[data-tenet-ink-toolbar]");
+    if (!toolbar || document.getElementById("tenetInsertBtn")) return;
+    const trigger = document.createElement("button");
+    trigger.type = "button";
+    trigger.id = "tenetInsertBtn";
+    trigger.className = "tenet-tool-trigger";
+    trigger.textContent = "+ Insert";
+    trigger.title = "Insert shapes and coordinate graphs";
+    toolbar.prepend(trigger);
+    const tools = createTenetToolDialog("tenetInsertDialog", "Shapes & graphs",
+      "Made on this device. Insert, move and resize with Hand, then choose Pen to write on top.", trigger);
+    const colorLabel = document.createElement("label");
+    colorLabel.className = "tenet-tool-color";
+    colorLabel.textContent = "Outline / axes color";
+    const color = document.createElement("input");
+    color.type = "color";
+    color.value = /^#[0-9a-f]{6}$/i.test(state.inkColor) ? state.inkColor : "#10243e";
+    colorLabel.append(color);
+    tools.body.append(colorLabel);
+    const options = [
+      ["rectangle", "Rectangle"], ["square", "Square"], ["circle", "Circle"],
+      ["triangle", "Triangle"], ["line", "Line"], ["arrow", "Arrow"],
+      ["graph-four", "Four quadrants", "-5 to 5 on both axes"],
+      ["graph-first", "First quadrant", "0 to 10 on both axes"],
+    ];
+    const errorMessage = document.createElement("p");
+    errorMessage.className = "tenet-tool-error";
+    errorMessage.setAttribute("role", "status");
+    const previews = [];
+    let inserting = false;
+    for (const [group, title] of [["shape", "Standard shapes"], ["graph", "Coordinate graphs"]]) {
+      const heading = document.createElement("h3");
+      heading.textContent = title;
+      const grid = document.createElement("div");
+      grid.className = "tenet-insert-grid" + (group === "graph" ? " tenet-insert-graphs" : "");
+      tools.body.append(heading, grid);
+      for (const [kind, label, caption] of options.filter(option => option[0].startsWith("graph-") === (group === "graph"))) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "tenet-insert-card";
+        button.setAttribute("aria-label", "Insert " + label.toLowerCase());
+        const preview = drawTenetInsertArtwork(kind, color.value, 220);
+        preview.setAttribute("aria-hidden", "true");
+        const name = document.createElement("strong");
+        name.textContent = label;
+        button.append(preview, name);
+        if (caption) {
+          const detail = document.createElement("small");
+          detail.textContent = caption;
+          button.append(detail);
+        }
+        grid.append(button);
+        previews.push({ button, kind });
+        button.addEventListener("click", async () => {
+          if (inserting) return;
+          inserting = true;
+          tools.setBusy(true);
+          errorMessage.textContent = "Adding " + label.toLowerCase() + "...";
+          const pageGeneration = state.snapshotLoadGeneration;
+          try {
+            const artwork = drawTenetInsertArtwork(kind, color.value);
+            const blob = await new Promise(resolve => artwork.toBlob(resolve, "image/png"));
+            if (tools.signal.aborted) return;
+            if (!blob) throw new Error("Could not create this shape. Try again.");
+            if (pageGeneration !== state.snapshotLoadGeneration) throw new Error("The page changed. Reopen Insert on the page you want.");
+            const file = new File([blob], "Tenet " + label + ".png", { type: "image/png" });
+            const item = await addImageFile(file);
+            if (tools.signal.aborted) return;
+            if (!item) throw new Error("Could not add this object. Finish any active image or AI operation and try again.");
+            tools.setBusy(false);
+            tools.close();
+            showTenetMessage(label + " added. Use its handles to resize, or choose Pen to write.");
+          } catch (error) {
+            errorMessage.textContent = error?.message || "Could not insert this object.";
+          } finally {
+            inserting = false;
+            tools.setBusy(false);
+          }
+        }, { signal: tools.signal });
+      }
+    }
+    tools.body.append(errorMessage);
+    color.addEventListener("input", () => {
+      for (const { button, kind } of previews) {
+        const preview = drawTenetInsertArtwork(kind, color.value, 220);
+        preview.setAttribute("aria-hidden", "true");
+        button.firstElementChild.replaceWith(preview);
+      }
+    }, { signal: tools.signal });
+    tools.beforeOpen = () => { errorMessage.textContent = ""; };
+  }
+
+  function installDrawingTools() {
+    const penSize = document.getElementById("penSize");
+    if (!penSize || document.getElementById("tenetDrawingOptionsBtn")) return;
+    const preferenceKey = "tenet.whiteboard.input-mode.v1";
+    let inputMode = "touch";
+    try {
+      const stored = localStorage.getItem(preferenceKey);
+      if (stored === "pencil" || stored === "touch") inputMode = stored;
+    } catch { /* Drawing still works when preference storage is unavailable. */ }
+    const deviceAllowsFinger = () => {
+      const setting = window.PENECHO_CONFIG?.tenetFingerDraws;
+      if (setting === false) return false;
+      if (setting === "phone") {
+        const side = Math.min(Number(window.screen?.width) || 0, Number(window.screen?.height) || 0);
+        return window.matchMedia("(pointer: coarse)").matches && side > 0 && side < 700;
+      }
+      return true;
+    };
+    window.TenetDrawingPreferences = Object.freeze({
+      fingerDrawing: () => deviceAllowsFinger() && inputMode === "touch",
+    });
+    const trigger = document.createElement("button");
+    trigger.type = "button";
+    trigger.id = "tenetDrawingOptionsBtn";
+    trigger.className = "tenet-tool-trigger";
+    trigger.title = "Line thickness and finger / stylus drawing";
+    (document.getElementById("penSizeValue") || penSize).after(trigger);
+    const tools = createTenetToolDialog("tenetDrawingDialog", "Drawing tools",
+      "Choose a line thickness and how you draw. Thickness changes apply to new strokes, not existing work.", trigger);
+    const label = document.createElement("label");
+    label.className = "tenet-drawing-width-label";
+    label.htmlFor = "tenetDrawingWidth";
+    label.textContent = "Line thickness";
+    const value = document.createElement("output");
+    value.htmlFor = "tenetDrawingWidth";
+    label.append(value);
+    const slider = document.createElement("input");
+    slider.type = "range";
+    slider.id = "tenetDrawingWidth";
+    slider.min = penSize.min || "1";
+    slider.max = penSize.max || "24";
+    slider.step = penSize.step || "1";
+    const presets = document.createElement("div");
+    presets.className = "tenet-width-presets";
+    const setWidth = width => {
+      penSize.value = String(width);
+      // Reuse the canvas width clamp, label update and native synchronization.
+      penSize.dispatchEvent(new Event("input", { bubbles: true }));
+    };
+    for (const [width, name] of [[2, "Fine"], [4, "Regular"], [8, "Bold"], [12, "Heavy"]]) {
+      if (width < Number(slider.min) || width > Number(slider.max)) continue;
+      const button = document.createElement("button");
+      button.type = "button";
+      button.dataset.width = String(width);
+      button.textContent = name + " " + width + " px";
+      button.addEventListener("click", () => setWidth(width), { signal: tools.signal });
+      presets.append(button);
+    }
+    const modeLabel = document.createElement("label");
+    modeLabel.className = "tenet-drawing-mode-label";
+    modeLabel.htmlFor = "tenetDrawingInput";
+    modeLabel.textContent = "Draw with";
+    const mode = document.createElement("select");
+    mode.id = "tenetDrawingInput";
+    for (const [id, text] of [
+      ["touch", "Finger / regular stylus + Apple Pencil"],
+      ["pencil", "Apple Pencil only"],
+    ]) {
+      const option = document.createElement("option");
+      option.value = id;
+      option.textContent = text;
+      mode.append(option);
+    }
+    const note = document.createElement("p");
+    note.className = "tenet-tool-description";
+    note.setAttribute("role", "status");
+    tools.body.append(label, slider, presets, modeLabel, mode, note);
+    const touchAllowed = () => deviceAllowsFinger()
+      && !(window.TenetInk?.getStatus?.().engine === "pencilkit" && window.TenetInk?.fingerDrawingAllowed?.() === false);
+    const updateWidth = () => {
+      slider.value = penSize.value;
+      value.textContent = penSize.value + " px";
+      trigger.textContent = "Pen: " + penSize.value + " px";
+      penSize.setAttribute("aria-valuetext", penSize.value + " pixels");
+      presets.querySelectorAll("button").forEach(button => {
+        button.setAttribute("aria-pressed", String(Number(button.dataset.width) === Number(penSize.value)));
+      });
+    };
+    const updateMode = () => {
+      const allowed = touchAllowed();
+      mode.disabled = !allowed;
+      mode.value = allowed ? inputMode : "pencil";
+      note.textContent = allowed
+        ? "Use Hand to move the page. A basic capacitive stylus works like a finger, without Apple Pencil pressure or tilt. Pencil-only mode avoids accidental finger marks."
+        : "Finger drawing is disabled by this device's configuration.";
+    };
+    slider.addEventListener("input", () => setWidth(slider.value), { signal: tools.signal });
+    penSize.addEventListener("input", updateWidth, { signal: tools.signal });
+    mode.addEventListener("change", () => {
+      if (!touchAllowed()) { updateMode(); return; }
+      inputMode = mode.value === "pencil" ? "pencil" : "touch";
+      updateMode();
+      try { localStorage.setItem(preferenceKey, inputMode); }
+      catch { note.textContent = "Input mode changed for this session. Device storage is unavailable."; }
+      mode.dispatchEvent(new Event("input", { bubbles: true }));
+    }, { signal: tools.signal });
+    tools.beforeOpen = () => { updateWidth(); updateMode(); };
+    updateWidth();
+  }
+
   function onReady(callback) {
     if (document.readyState === "loading") {
       document.addEventListener("DOMContentLoaded", callback, { once: true });
@@ -25598,6 +26008,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     configureBrand();
     hideStudentIrrelevantControls();
     configureHeaderActions();
+    installDrawingTools();
+    installShapeTools();
     configureTitleDismissal();
     hideLegacyPencilAction();
     installNativeActions();
@@ -25710,8 +26122,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     if (window.PENECHO_CONFIG?.tenetMode !== true) return false;
     const setting = window.PENECHO_CONFIG?.tenetFingerDraws;
     if (setting === false) return false;
-    if (setting === "phone") return phoneLikeScreen();
-    return true;
+    if (setting === "phone" && !phoneLikeScreen()) return false;
+    return window.TenetDrawingPreferences?.fingerDrawing() ?? true;
   };
   const pencilTouchGuardActive = () => state.drawing?.inputType === "pen" || performance.now() - lastPencilContactAt < TENET_PENCIL_TOUCH_GUARD_MS;
   const palmLikeTouch = (event) => {
