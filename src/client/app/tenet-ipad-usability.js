@@ -391,8 +391,10 @@
       mode.disabled = !allowed;
       mode.value = allowed ? inputMode : "pencil";
       note.textContent = allowed
-        ? "Use Hand to move the page. A basic capacitive stylus works like a finger, without Apple Pencil pressure or tilt. Pencil-only mode avoids accidental finger marks."
-        : "Finger drawing is disabled by this device's configuration.";
+        ? (inputMode === "pencil"
+          ? "In PencilKit, one finger scrolls the whole page while Apple Pencil draws. Pinch with two fingers to zoom. Hand also moves the page."
+          : "In PencilKit, one finger or a regular stylus draws; two fingers scroll or pinch to zoom. Choose Apple Pencil only for one-finger scrolling. A regular stylus has no Pencil pressure or tilt.")
+        : "Finger drawing is disabled by this device's configuration. In PencilKit, one finger scrolls the page; two fingers pinch to zoom.";
     };
     slider.addEventListener("input", () => setWidth(slider.value), { signal: tools.signal });
     penSize.addEventListener("input", updateWidth, { signal: tools.signal });

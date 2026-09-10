@@ -364,6 +364,10 @@ final class TenetInkSurface: NSObject, PKCanvasViewDelegate, PKToolPickerObserve
     private var changeRenderPending = false
     private var gestureSession: String?
     private var unitsPerCSS: CGFloat = 1
+    private var viewportOffset = CGPoint.zero
+    private var viewportZoom: CGFloat = 1
+    private var viewportConfigured = false
+    private var applyingViewport = false
 
     init(policy: @escaping () -> (enabled: Bool, finger: Bool), emit: @escaping (String, JSObject) -> Void) {
         self.policy = policy
@@ -637,8 +641,10 @@ final class TenetInkSurface: NSObject, PKCanvasViewDelegate, PKToolPickerObserve
                                    width: next.frame.width * unitsPerCSS, height: next.frame.height * unitsPerCSS)
             let intersection = requested.intersection(webView.bounds)
             let visibleFrame = intersection.isNull ? CGRect(origin: requested.origin, size: .zero) : intersection
-            UIView.performWithoutAnimation {
-                clip.frame = webView.convert(visibleFrame, to: parent)
+        UIView.performWithoutAnimation {
+            applyingViewport = true
+            defer { applyingViewport = false }
+            clip.frame = webView.convert(visibleFrame, to: parent)
                 clip.exclusions = next.exclusions.compactMap { css in
                     let native = CGRect(x: css.minX * unitsPerCSS, y: css.minY * unitsPerCSS,
                                         width: css.width * unitsPerCSS, height: css.height * unitsPerCSS)
@@ -649,8 +655,11 @@ final class TenetInkSurface: NSObject, PKCanvasViewDelegate, PKToolPickerObserve
                 let zoom = next.scale * unitsPerCSS
                 canvas.setZoomScale(zoom, animated: false)
                 canvas.contentSize = CGSize(width: inkDocumentSize * zoom, height: inkDocumentSize * zoom)
-                let offset = CGPoint(x: visibleFrame.minX - requested.minX - next.pan.x * unitsPerCSS,
-                                     y: visibleFrame.minY - requested.minY - next.pan.y * unitsPerCSS)
+            let offset = CGPoint(x: visibleFrame.minX - requested.minX - next.pan.x * unitsPerCSS,
+                                 y: visibleFrame.minY - requested.minY - next.pan.y * unitsPerCSS)
+            viewportZoom = zoom
+            viewportOffset = offset
+            viewportConfigured = true
                 // Permit positive pan and a page smaller than its viewport without
                 // UIScrollView clamping the JS transform back to a content edge.
                 canvas.contentInset = UIEdgeInsets(
@@ -701,7 +710,7 @@ final class TenetInkSurface: NSObject, PKCanvasViewDelegate, PKToolPickerObserve
         let visible = permission.enabled && !applicationSuspended && !explicitlyHidden
             && settings?.visible == true && settings?.inputEnabled == true
             && clip.superview != nil && !clip.bounds.isEmpty
-        canvas.drawingPolicy = permission.finger && settings?.fingerDrawing == true ? .anyInput : .pencilOnly
+        configureInputAndNavigation()
         let drawingEnabled = visible && !inputSuspended
         if canvas.drawingGestureRecognizer.isEnabled != drawingEnabled {
             canvas.drawingGestureRecognizer.isEnabled = drawingEnabled
@@ -721,6 +730,53 @@ final class TenetInkSurface: NSObject, PKCanvasViewDelegate, PKToolPickerObserve
                 DispatchQueue.main.async { [weak self] in self?.runNext() }
             }
         }
+        // Becoming first responder or showing the picker can reset recognizers.
+        configureInputAndNavigation()
+    }
+
+    private func configureInputAndNavigation() {
+        let fingerDraws = policy().finger && settings?.fingerDrawing == true
+        let drawingPolicy: PKCanvasViewDrawingPolicy = fingerDraws ? .anyInput : .pencilOnly
+        if canvas.drawingPolicy != drawingPolicy { canvas.drawingPolicy = drawingPolicy }
+        let drawingTouches = fingerDraws
+            ? [NSNumber(value: UITouch.TouchType.pencil.rawValue), NSNumber(value: UITouch.TouchType.direct.rawValue)]
+            : [NSNumber(value: UITouch.TouchType.pencil.rawValue)]
+        if canvas.drawingGestureRecognizer.allowedTouchTypes != drawingTouches {
+            canvas.drawingGestureRecognizer.allowedTouchTypes = drawingTouches
+        }
+        let navigationTouches = fingerDraws ? 2 : 1
+        if panGesture.minimumNumberOfTouches != navigationTouches {
+            panGesture.minimumNumberOfTouches = navigationTouches
+        }
+        // Only our recognizers may navigate, through inkSurfaceNavigation and
+        // the shared JS viewport. Native-only scroll moves ink off its objects.
+        if canvas.panGestureRecognizer.isEnabled { canvas.panGestureRecognizer.isEnabled = false }
+        if canvas.pinchGestureRecognizer?.isEnabled == true { canvas.pinchGestureRecognizer?.isEnabled = false }
+        restoreSharedViewport()
+    }
+
+    private func restoreSharedViewport() {
+        guard viewportConfigured, !applyingViewport else { return }
+        let zoomChanged = abs(canvas.zoomScale - viewportZoom) > 0.000001
+        let offsetChanged = abs(canvas.contentOffset.x - viewportOffset.x) > 0.000001
+            || abs(canvas.contentOffset.y - viewportOffset.y) > 0.000001
+        guard zoomChanged || offsetChanged else { return }
+        applyingViewport = true
+        defer { applyingViewport = false }
+        UIView.performWithoutAnimation {
+            if zoomChanged { canvas.setZoomScale(viewportZoom, animated: false) }
+            canvas.setContentOffset(viewportOffset, animated: false)
+        }
+    }
+
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        guard scrollView === canvas else { return }
+        restoreSharedViewport()
+    }
+
+    func scrollViewDidZoom(_ scrollView: UIScrollView) {
+        guard scrollView === canvas else { return }
+        restoreSharedViewport()
     }
 
     func toolPickerSelectedToolDidChange(_ toolPicker: PKToolPicker) {
@@ -756,8 +812,7 @@ final class TenetInkSurface: NSObject, PKCanvasViewDelegate, PKToolPickerObserve
         if changed { previousNativeTool = canvas.tool }
         canvas.tool = selected
         lastPickerSignature = signature
-        let permission = policy()
-        canvas.drawingPolicy = permission.finger && settings?.fingerDrawing == true ? .anyInput : .pencilOnly
+        configureInputAndNavigation()
         if changed, !applyingTool, sessionId != nil { emit("inkSurfaceToolChanged", value) }
     }
 

@@ -239,6 +239,17 @@ test("navigation uses viewport-relative centers and does not drift by the header
   assert.equal(h.state.panY,-400);
 });
 
+test("finger pan updates the shared viewport without changing its zoom", async () => {
+  const h = await harness();
+  const navigate = h.listeners.get("inkSurfaceNavigation");
+  const sessionId = h.currentSession();
+  navigate({ sessionId, centerX: 340, centerY: 420, scaleFactor: 1, dx: 35, dy: -90 });
+  navigate({ sessionId, centerX: 375, centerY: 330, scaleFactor: 1, dx: -10, dy: -20 });
+  assert.equal(h.state.scale, 0.5);
+  assert.equal(h.state.panX, 25);
+  assert.equal(h.state.panY, -110);
+});
+
 test("a viewport change during an in-flight bridge call is replayed", async () => {
   const h=await harness();
   let release;
