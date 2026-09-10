@@ -631,9 +631,11 @@ test("switching from Pen to Eraser finalizes a pending widget regardless of revi
       busy:false,
   };
   let accepted = 0,
+    nativeSyncs = 0,
     storedEraserMode = null;
   vm.runInNewContext(`(${setCanvasMode})("area-eraser")`, {
     state,
+    tenetInkController:{ sync:() => { nativeSyncs++; } },
     ERASER_MODE_STORAGE_KEY:"penecho-eraser-mode",
     localStorage:{
       setItem:(key, value) => {
@@ -665,6 +667,7 @@ test("switching from Pen to Eraser finalizes a pending widget regardless of revi
     requestInteractionLayerRender() {},
   });
   assert.equal(accepted, 1);
+  assert.equal(nativeSyncs, 1, "tool changes must also synchronize the native ink surface");
   assert.equal(state.mode, "area-eraser");
   assert.equal(storedEraserMode, "area-eraser");
   assert.equal(state.pendingWidget, null);
@@ -1870,7 +1873,16 @@ test("live widgets use native canvas chrome, state-aware iframe gestures, and th
     widgetHost = read("public/widget-host.js"),
     css = read("public/style.css"),
     resize = vm.runInNewContext(`(${functionSource(app, "resizeWidgetBox")})`, { SIZE:20000 }),
-    resizeHit = vm.runInNewContext(`(${functionSource(app, "widgetResizeHit")})`, { state:{scale:1} }),
+    resizeHit = vm.runInNewContext(`(() => {
+      ${["COARSE_WIDGET_EDGE_HIT_PX", "COARSE_WIDGET_CORNER_HIT_PX"].map(name => {
+        const declaration = app.match(new RegExp(`const ${name} = \\d+;`));
+        assert.ok(declaration, `missing resize constant ${name}`);
+        return declaration[0];
+      }).join("\n")}
+      ${functionSource(app, "usesTouchSizedCanvasTargets")}
+      ${functionSource(app, "widgetResizeHit")}
+      return widgetResizeHit;
+    })()`, { state:{scale:1} }),
     hostControlHit = vm.runInNewContext(`(${functionSource(widgetHost, "controlHit")})`, {
       widgetState:{selected:true,scaleX:1,scaleY:1},
       document:{documentElement:{clientWidth:1000,clientHeight:600}},
@@ -1942,6 +1954,13 @@ test("live widgets use native canvas chrome, state-aware iframe gestures, and th
   assert.equal(resizeHit(resizeBox, {x:390,y:390}, "mouse"), "resize");
   assert.equal(resizeHit(resizeBox, {x:200,y:300}, "mouse"), null);
   assert.equal(resizeHit(resizeBox, {x:414,y:250}, "touch"), "width");
+  for (const pointerType of ["touch", "pen"]) {
+    assert.equal(resizeHit(resizeBox, {x:429,y:250}, pointerType), "width");
+    assert.equal(resizeHit(resizeBox, {x:431,y:250}, pointerType), null);
+    assert.equal(resizeHit(resizeBox, {x:363,y:363}, pointerType), "resize");
+  }
+  assert.equal(resizeHit(resizeBox, {x:429,y:250}, "mouse"), null, "mouse targets must retain their precision");
+  assert.equal(resizeHit(resizeBox, {x:363,y:363}, "mouse"), null);
   assert.equal(hostControlHit(995, 50, "mouse"), "width");
   assert.equal(hostControlHit(50, 595, "mouse"), "height");
   assert.equal(hostControlHit(990, 590, "mouse"), "resize");
@@ -2846,7 +2865,9 @@ test("Save canvas exposes non-blocking progress and completion feedback", () => 
   assert.match(finalize, /for \(const editor of \[\.\.\.state\.textEditors\.values\(\)\]\) await confirmTextEditor\(editor\)/);
   assert.match(finalize, /state\.selection[\s\S]*?commitSelection\(\)/);
   assert.match(finalize, /finishAIDraftHandMode\(\)/);
-  assert.match(app, /async function saveSnapshot\(\{ overwriteId = null, name = null, location = state\.snapshotLocation \} = \{\}\) \{[\s\S]*?selectionAIBusy\(\)[\s\S]*?await finalizeCanvasForSnapshot\(\)[\s\S]*?if \(!tiles\.size/);
+  assert.match(app, /async function saveSnapshot\(\{ overwriteId = null, name = null, location = state\.snapshotLocation \} = \{\}\) \{[\s\S]*?selectionAIBusy\(\)[\s\S]*?await finalizeCanvasForSnapshot\(\)[\s\S]*?if \(!tenetInkBounds\(\) && !tiles\.size/);
+  assert.ok(finalize.indexOf("await tenetInkFlush()") >= 0, "saving must flush native ink");
+  assert.ok(finalize.indexOf("await tenetInkFlush()") < finalize.indexOf("acceptPendingWidget"), "native ink must settle before snapshot finalization");
   assert.match(app, /async function saveSnapshot\([\s\S]*?prepareVisibleWidgetSnapshots\(null, false\)/);
   assert.match(functionSource(app, "snapshotPreviewBlob"), /canvasBlob\(snapshotPreview\(\), "image\/webp", \.78\)[\s\S]*?fallback thumbnail[\s\S]*?data:image\/png;base64/);
   assert.match(app, /async function saveSnapshot\([\s\S]*?preview = location === "cloud" \? await cloudSnapshotPreviewBlob\(\) : await snapshotPreviewBlob\(\)/);
@@ -3068,15 +3089,18 @@ test("canvas history clearly separates device, server, and private cross-device 
   assert.match(functionSource(app, "openNewCanvasDialog"), /requestCanvasTransition\(\{ type:"new" \}\)/);
   assert.match(functionSource(app, "requestLoadSnapshot"), /requestCanvasTransition\(\{ type:"load", id, location \}\)/);
   assert.match(functionSource(app, "performCanvasTransition"), /transition\?\.type === "load"[\s\S]*?loadSnapshot\(transition\.id, transition\.location\)[\s\S]*?startBlankCanvas\(\)/);
-  const hasUnsavedChanges = ({ currentSnapshotId = null, currentCanvasSuggestedName = "", userRevision = 2, snapshotSavedRevision = 1, tileCount = 0, dirty = null } = {}) => vm.runInNewContext(`(${unsavedGuard})()`, {
+  const hasUnsavedChanges = ({ currentSnapshotId = null, currentCanvasSuggestedName = "", userRevision = 2, snapshotSavedRevision = 1, tileCount = 0, dirty = null, nativeBounds = null } = {}) => vm.runInNewContext(`(${unsavedGuard})()`, {
     state:{ currentSnapshotId, currentCanvasSuggestedName, userRevision, snapshotSavedRevision, dirty, images:[], textBoxes:[], preservedSnapshotAnimations:[], animations:[] },
     tiles:{ size:tileCount },
+    tenetInkBounds:() => nativeBounds,
     pluginEnabled:() => false,
     visibleWidgets:() => [],
   });
   assert.equal(hasUnsavedChanges({ currentSnapshotId:"saved-canvas" }), true, "clearing a saved canvas must remain dirty");
   assert.equal(hasUnsavedChanges(), false, "an empty never-saved canvas has nothing to lose");
   assert.equal(hasUnsavedChanges({ tileCount:1 }), true, "content on a never-saved canvas must be protected");
+  assert.equal(hasUnsavedChanges({ nativeBounds:{ x:10, y:20, w:30, h:40 } }), true, "a native-only page must not be discarded as empty");
+  assert.equal(hasUnsavedChanges({ currentSnapshotId:"native-page", userRevision:1, snapshotSavedRevision:1, nativeBounds:{ x:10, y:20, w:30, h:40 } }), false, "saved native content alone is not an unsaved change");
   assert.equal(hasUnsavedChanges({ currentSnapshotId:"saved-canvas", userRevision:1, snapshotSavedRevision:1, tileCount:1, dirty:{ x:0, y:0, w:1, h:1 } }), false, "AI attention state alone is not an unsaved snapshot revision");
   assert.equal(hasUnsavedChanges({ currentSnapshotId:"saved-canvas", currentCanvasSuggestedName:"Suggested title", userRevision:1, snapshotSavedRevision:1 }), true, "an unsaved suggested name must remain protected");
   assert.ok(css.includes("grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));"));

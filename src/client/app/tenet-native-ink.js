@@ -9,7 +9,6 @@
       toast.id = "tenetInkToast";
       toast.setAttribute("role", "status");
       toast.setAttribute("aria-live", "polite");
-      toast.style.cssText = "position:fixed;z-index:2147483647;left:50%;top:calc(env(safe-area-inset-top,0px) + 110px);transform:translateX(-50%);max-width:min(560px,85vw);padding:14px 20px;border:1px solid #d6cfc1;border-radius:16px;background:#fffaf1;color:#172a3a;box-shadow:0 8px 28px #172a3a22;pointer-events:none;";
       document.body.append(toast);
     }
     toast.textContent = String(message);

@@ -27,8 +27,13 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  full_ci:
+    name: Required client CI
+    uses: ./.github/workflows/ci.yml
+
   compile:
     name: Compile iPad app
+    needs: full_ci
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v6

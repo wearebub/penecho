@@ -3599,15 +3599,24 @@ test("PenEcho Agent validates capture delivery and browser target errors without
   assert.match(functionSource(source,"canvasAgentAssertToolKeys"),/canvas_read:\["objectId","artifactId","resource","startLine","endLine"\]/);
   assert.match(functionSource(source,"canvasAgentAssertToolKeys"),/canvas_capture:\["target","objectId","region","quality","coordinates","deliverToUser"\]/);
   const browserCaptureSource=functionSource(source,"canvasAgentCapture");
+  const captureSteps=[];
+  let inkFlushFailure=null;
   assert.match(browserCaptureSource,/prepareVisibleWidgetSnapshots\(region,false,signal\)/);
   assert.match(browserCaptureSource,/snapshotVersion<widget\.contentVersion[\s\S]*?WIDGET_CAPTURE_UNAVAILABLE/);
   const unavailableCapture=vm.runInNewContext(`(${browserCaptureSource.replace(/^function /,"async function ")})`,{
+    tenetInkFlush:async()=>{
+      captureSteps.push("flush");
+      if(inkFlushFailure)throw inkFlushFailure;
+    },
     CANVAS_AGENT_DETAIL_CAPTURE_POLICY:{maxLongEdge:1600,maxPixels:1600*1600},
     CANVAS_AGENT_LAYOUT_CAPTURE_POLICY:{maxLongEdge:1600,maxPixels:1600*1600},
     canvasAgentObject:()=>({kind:"widget"}),
     canvasAgentTargetRegion:()=>({x:0,y:0,w:100,h:100}),
     document:{createElement:()=>({getContext:()=>({})})},
-    prepareVisibleWidgetSnapshots:async()=>({total:1,captured:0,missing:1}),
+    prepareVisibleWidgetSnapshots:async()=>{
+      captureSteps.push("capture");
+      return {total:1,captured:0,missing:1};
+    },
     capturableWidgets:()=>[{id:"widget-unready",snapshotImage:null,snapshotVersion:-1,contentVersion:0}],
     canvasAgentToolError:(code,message,details)=>Object.assign(new Error(message),{code,details}),
   });
@@ -3615,6 +3624,10 @@ test("PenEcho Agent validates capture delivery and browser target errors without
     unavailableCapture({target:"object",objectId:"widget-unready",quality:"detail"},{}),
     error=>error.code==="WIDGET_CAPTURE_UNAVAILABLE"&&error.details.objectIds[0]==="widget-unready",
   );
+  assert.deepEqual(captureSteps,["flush","capture"],"native ink must settle before capture starts");
+  inkFlushFailure=new Error("Native ink is still active");
+  await assert.rejects(unavailableCapture({target:"object",objectId:"widget-unready",quality:"detail"},{}),error=>error===inkFlushFailure);
+  assert.deepEqual(captureSteps,["flush","capture","flush"],"a rejected native flush must prevent capture, not fall through");
 
   const runtime=read("src/server/canvas-agent/runtime.mjs");
   assert.match(runtime,/deliverToUser:\{ type:'boolean', default:false \}/);

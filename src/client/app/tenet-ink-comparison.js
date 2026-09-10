@@ -727,73 +727,10 @@
   }
 
   function createUI() {
-    const style = document.createElement('style');
+    const style = document.createElement('link');
     style.id = PREFIX + '-styles';
-    style.textContent = `
-      .tenet-ink-comparison { --tic-navy:#183447; --tic-paper:#fffaf1; --tic-line:#c6bcae;
-        --tic-warm:#e8ac78; --tic-muted:#4c5c63; color:var(--tic-navy); font:15px/1.5 Georgia,serif;
-        box-sizing:border-box; color-scheme:light; }
-      .tenet-ink-comparison *, .tenet-ink-comparison *::before, .tenet-ink-comparison *::after { box-sizing:border-box; }
-      .tenet-ink-comparison [hidden], .tenet-ink-comparison[hidden] { display:none !important; }
-      .tenet-ink-comparison button, .tenet-ink-comparison select, .tenet-ink-comparison input {
-        min-height:44px; min-width:44px; max-width:100%; border:1px solid var(--tic-line); border-radius:9px;
-        padding:9px 13px; color:var(--tic-navy); background:#fffdf8; font:inherit; font-size:16px; }
-      .tenet-ink-comparison button { cursor:pointer; touch-action:manipulation; font-weight:700; }
-      .tenet-ink-comparison button:disabled, .tenet-ink-comparison select:disabled,
-      .tenet-ink-comparison input:disabled { opacity:.55; cursor:default; }
-      .tenet-ink-comparison :focus-visible { outline:3px solid #99602e; outline-offset:3px; }
-      .tenet-ink-comparison .tic-primary { background:var(--tic-navy); color:#fffaf1; border-color:var(--tic-navy); }
-      .tenet-ink-comparison.tic-toolbar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; padding:4px; }
-      .tenet-ink-comparison.tic-floating-toolbar { position:fixed; top:calc(10px + env(safe-area-inset-top,0px));
-        right:calc(10px + env(safe-area-inset-right,0px)); z-index:10000; max-width:calc(100vw - 20px);
-        background:var(--tic-paper); border:1px solid var(--tic-line); border-radius:13px; box-shadow:0 6px 22px #18344720; }
-      .tenet-ink-comparison.tic-dialog { width:min(940px,calc(100vw - 24px)); max-height:calc(100vh - 32px);
-        max-height:calc(100dvh - 32px); margin:auto; padding:0; border:1px solid var(--tic-line); border-radius:18px;
-        background:linear-gradient(125deg,#fffaf1,#f4eadd); box-shadow:0 24px 90px #10283850; overflow:hidden; }
-      .tenet-ink-comparison.tic-dialog:not([open]) { display:none; }
-      .tenet-ink-comparison.tic-dialog[open] { display:flex; flex-direction:column; position:fixed; inset:0; z-index:10003; }
-      .tenet-ink-comparison.tic-dialog::backdrop { background:#112c40a6; }
-      .tenet-ink-comparison.tic-backdrop { position:fixed; inset:0; z-index:10002; background:#112c40a6; touch-action:none; }
-      .tenet-ink-comparison .tic-header { display:flex; gap:18px; align-items:center; justify-content:space-between;
-        flex-shrink:0; padding:20px 24px; border-bottom:1px solid var(--tic-line); }
-      .tenet-ink-comparison h2, .tenet-ink-comparison h3, .tenet-ink-comparison p { margin:0 0 12px; }
-      .tenet-ink-comparison h2 { font-size:clamp(24px,4vw,34px); line-height:1.15; margin:0; }
-      .tenet-ink-comparison h3 { font-size:21px; }
-      .tenet-ink-comparison .tic-eyebrow { font:700 11px/1.4 Verdana,sans-serif; letter-spacing:.13em; margin-bottom:6px; }
-      .tenet-ink-comparison .tic-body { padding:22px 24px; overflow:auto; overscroll-behavior:contain; min-height:0; }
-      .tenet-ink-comparison .tic-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; margin:16px 0; }
-      .tenet-ink-comparison label { display:flex; flex-direction:column; gap:6px; font-weight:700; }
-      .tenet-ink-comparison .tic-note { color:var(--tic-muted); font-size:14px; }
-      .tenet-ink-comparison .tic-callout { padding:14px 16px; background:#f6e3cc; border-left:4px solid #a16b3c; border-radius:6px; }
-      .tenet-ink-comparison .tic-actions { display:flex; flex-wrap:wrap; gap:10px; margin:16px 0; align-items:center; }
-      .tenet-ink-comparison ol { margin:12px 0 18px; padding-left:24px; }
-      .tenet-ink-comparison li { margin:8px 0; }
-      .tenet-ink-comparison section { margin-top:24px; padding-top:20px; border-top:1px solid var(--tic-line); }
-      .tenet-ink-comparison fieldset { padding:0; margin:0; border:0; min-width:0; }
-      .tenet-ink-comparison .tic-table-scroll { overflow:auto; border:1px solid var(--tic-line); border-radius:9px; }
-      .tenet-ink-comparison table { width:100%; border-collapse:collapse; background:#fffcf7; font-size:13px; }
-      .tenet-ink-comparison th, .tenet-ink-comparison td { padding:10px 12px; text-align:left; vertical-align:top;
-        border-bottom:1px solid #dfd7cb; min-width:92px; }
-      .tenet-ink-comparison thead { background:#e9e0d2; }
-      .tenet-ink-comparison caption { text-align:left; padding:10px 12px; font-weight:700; }
-      .tenet-ink-comparison .tic-message { padding:12px 15px; margin:10px 0; background:#fffaf1;
-        border:1px solid var(--tic-line); border-radius:9px; overflow-wrap:anywhere; }
-      .tenet-ink-comparison [role="alert"] { border-color:#944821; }
-      .tenet-ink-comparison.tic-dock { position:fixed; bottom:calc(10px + env(safe-area-inset-bottom,0px));
-        left:calc(10px + env(safe-area-inset-left,0px)); right:calc(10px + env(safe-area-inset-right,0px));
-        z-index:10001; pointer-events:none; display:grid; gap:8px; justify-items:start; }
-      .tenet-ink-comparison.tic-dock > * { pointer-events:auto; max-width:min(760px,100%); }
-      .tenet-ink-comparison .tic-trial-bar { display:flex; flex-wrap:wrap; gap:12px; align-items:center; padding:10px 14px;
-        background:var(--tic-navy); color:#fffaf1; border-radius:12px; box-shadow:0 4px 20px #18344730; }
-      .tenet-ink-comparison .tic-trial-bar span { flex:1 1 240px; }
-      .tenet-ink-comparison.tic-dock .tic-message { margin:0; box-shadow:0 4px 18px #18344720; }
-      @media(max-width:600px) {
-        .tenet-ink-comparison .tic-grid { grid-template-columns:1fr; gap:12px; }
-        .tenet-ink-comparison .tic-header, .tenet-ink-comparison .tic-body { padding:16px; }
-        .tenet-ink-comparison.tic-dialog { width:calc(100vw - 16px); max-height:calc(100dvh - 16px); }
-        .tenet-ink-comparison.tic-toolbar { gap:6px; }
-      }
-    `;
+    style.rel = 'stylesheet';
+    style.href = '/tenet-ink-comparison.css';
     const toolbar = document.createElement('div');
     toolbar.id = PREFIX + '-toolbar';
     toolbar.className = PREFIX + ' tic-toolbar tic-floating-toolbar';

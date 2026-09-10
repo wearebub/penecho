@@ -477,8 +477,15 @@ test("CLI discovery prefers managed executables and deduplicates their system al
     const managed = provider === "claude" ? path.join(home, ".local", "bin", provider) : path.join(stateDir, "tools", provider, "bin", provider),
       system = path.join(systemBin, provider), aliasDirectory = path.join(directory, `${provider}-alias`), alias = path.join(aliasDirectory, provider);
     for (const file of [managed, system]) { fs.mkdirSync(path.dirname(file), { recursive:true }); fs.writeFileSync(file, "test", { mode:0o700 }); }
-    fs.mkdirSync(aliasDirectory, { recursive:true });
-    fs.symlinkSync(managed, alias);
+    if (process.platform === "win32") {
+      // Directory junctions exercise the same realpath deduplication without
+      // requiring Windows Developer Mode or elevated file-symlink privileges.
+      fs.symlinkSync(path.dirname(managed), aliasDirectory, "junction");
+    } else {
+      fs.mkdirSync(aliasDirectory, { recursive:true });
+      fs.symlinkSync(managed, alias);
+    }
+    assert.equal(fs.realpathSync(alias), fs.realpathSync(managed));
     const candidates = cliCandidates(`${provider}-cli`, { env:{ PATH:[aliasDirectory, systemBin].join(path.delimiter) }, home, stateDir, platform:"linux" });
     assert.deepEqual(candidates.map(candidate => candidate.executable), [managed, system]);
     assert.deepEqual(candidates.map(candidate => candidate.source), ["managed", "system"]);
