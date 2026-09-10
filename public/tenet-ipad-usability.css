@@ -60,7 +60,9 @@ body.tenet-whiteboard #tenetInsertDialog .tenet-insert-card { min-width: 0; padd
 body.tenet-whiteboard #tenetInsertDialog .tenet-insert-card canvas { height: 36px; }
 body.tenet-whiteboard #tenetInsertDialog [hidden] { display: none !important; }
 body.tenet-whiteboard .tenet-shape-search { box-sizing: border-box; width: 100%; min-height: 44px; padding: 8px; font-size: 16px; border: 1px solid var(--tenet-line); border-radius: 8px; }
-.tenet-resize-layer { position: absolute; inset: 0; z-index: 42; pointer-events: none; }
+/* Keep resize hit areas below object chrome (z-index: 4). On short AI drafts,
+   the top resize handle overlaps the move button and must not steal its drag. */
+.tenet-resize-layer { position: absolute; inset: 0; z-index: 3; pointer-events: none; }
 .tenet-resize-layer[hidden] { display: none; }
 .tenet-resize-handle { position: absolute; width: 44px; height: 44px; padding: 0; border: 0; background: transparent; transform: translate(-50%, -50%); pointer-events: auto; touch-action: none; }
 .tenet-resize-handle::after { content: ""; position: absolute; inset: 16px; border: 2px solid #235975; border-radius: 3px; background: #fff; box-shadow: 0 1px 4px #10243e30; }
@@ -404,6 +406,13 @@ html.tenet-native-ios body.tenet-whiteboard footer {
 html.tenet-native-ios body.tenet-whiteboard button,
 html.tenet-native-ios body.tenet-whiteboard [role="button"] {
   touch-action: manipulation;
+}
+
+/* Drag surfaces need the pointer stream; ordinary buttons keep tap behavior. */
+html.tenet-native-ios body.tenet-whiteboard .object-chrome-button.move,
+html.tenet-native-ios body.tenet-whiteboard .object-chrome-button.object-toolbar-surface,
+html.tenet-native-ios body.tenet-whiteboard .tenet-resize-handle {
+  touch-action: none;
 }
 
 html.tenet-native-ios body.tenet-whiteboard .object-chrome-button,
