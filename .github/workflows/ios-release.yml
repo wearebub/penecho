@@ -183,3 +183,22 @@ jobs:
         run: |
           IPA="$(find release/mobile -maxdepth 1 -type f -name '*.ipa' -print -quit)"
           xcrun altool --upload-app --type ios --file "$IPA" --apiKey "$APPLE_API_KEY_ID" --apiIssuer "$APPLE_API_ISSUER"
+
+  archive_release:
+    name: Archive immutable iPad release
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22.x
+      - name: Preserve the exact signed IPA and source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/publish-tenet-release.mjs ios

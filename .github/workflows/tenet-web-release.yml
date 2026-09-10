@@ -1,0 +1,47 @@
+name: Tenet Whiteboard web release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: New hosted-client version, for example 1.2.2
+        required: true
+        type: string
+      ipad_release:
+        description: Published iPad release to pair with this client
+        required: true
+        default: tenet-ipad-v1.2.0-build.18
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tenet-whiteboard-web-release
+  cancel-in-progress: false
+
+jobs:
+  full_ci:
+    name: Required client CI
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    name: Archive immutable hosted client
+    needs: full_ci
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22.x
+      - name: Publish release artifacts without deploying
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_IPAD_TAG: ${{ inputs.ipad_release }}
+        run: node scripts/publish-tenet-release.mjs web
