@@ -1,0 +1,33 @@
+{
+  "sourceCommit": "2864251e589633759a0fb1f7df03a0071940bba6",
+  "annotatedTag": "493ebd1b2020059766bc0cc33477824394863613",
+  "immutable": true,
+  "verifiedAt": "2026-09-11T16:51:05.5815573Z",
+  "tag": "tenet-web-v1.7.2",
+  "assets": [
+    {
+      "name": "release.json",
+      "githubDigest": "sha256:fbb1c27cb670377d525b126bcb68ab695cad212100049431ee4f34814f8b4108",
+      "sha256": "fbb1c27cb670377d525b126bcb68ab695cad212100049431ee4f34814f8b4108",
+      "bytes": 5634
+    },
+    {
+      "name": "SHA256SUMS",
+      "githubDigest": "sha256:dc1883041390bab60f8ee2fc5bc3b90b6430c1da2a39733871c8ad2b3ba9c517",
+      "sha256": "dc1883041390bab60f8ee2fc5bc3b90b6430c1da2a39733871c8ad2b3ba9c517",
+      "bytes": 274
+    },
+    {
+      "name": "tenet-web-v1.7.2-source.zip",
+      "githubDigest": "sha256:f943d129c4cb6608b8caa73d397c3035fcfe52a77c51913811b5552b4c362f82",
+      "sha256": "f943d129c4cb6608b8caa73d397c3035fcfe52a77c51913811b5552b4c362f82",
+      "bytes": 5178506
+    },
+    {
+      "name": "Tenet-Whiteboard-runtime-1.7.2.tar",
+      "githubDigest": "sha256:eab2b97c7520de2c37f00f25c32e53e225b0ab0f7f2751f97f45b0111f805f27",
+      "sha256": "eab2b97c7520de2c37f00f25c32e53e225b0ab0f7f2751f97f45b0111f805f27",
+      "bytes": 3676160
+    }
+  ]
+}

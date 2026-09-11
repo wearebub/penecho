@@ -1,0 +1,33 @@
+{
+  "immutable": true,
+  "sourceCommit": "2864251e589633759a0fb1f7df03a0071940bba6",
+  "assets": [
+    {
+      "sha256": "fed662dc71dbc0125bf3154129f3a6c682cc8a86034de854ad84aad4204e903b",
+      "bytes": 907,
+      "name": "release.json",
+      "githubDigest": "sha256:fed662dc71dbc0125bf3154129f3a6c682cc8a86034de854ad84aad4204e903b"
+    },
+    {
+      "sha256": "f3381f11ac93a6e94766a8f9d8e9bf050643eeba423828494828fc99c3df7c13",
+      "bytes": 285,
+      "name": "SHA256SUMS",
+      "githubDigest": "sha256:f3381f11ac93a6e94766a8f9d8e9bf050643eeba423828494828fc99c3df7c13"
+    },
+    {
+      "sha256": "fcf816eff46441d21f037f69f5963df41e5647b14b2ebfd30613be81e7cf2a6f",
+      "bytes": 5187706,
+      "name": "tenet-ipad-v1.7.2-build.44-source.zip",
+      "githubDigest": "sha256:fcf816eff46441d21f037f69f5963df41e5647b14b2ebfd30613be81e7cf2a6f"
+    },
+    {
+      "sha256": "340a5edd97b78de00b01c261f3d5b295e602d52817cae8f24e74222d9647e3fc",
+      "bytes": 1641208,
+      "name": "Tenet-Whiteboard-1.7.2-build.44.ipa",
+      "githubDigest": "sha256:340a5edd97b78de00b01c261f3d5b295e602d52817cae8f24e74222d9647e3fc"
+    }
+  ],
+  "verifiedAt": "2026-09-11T16:56:22.2197382Z",
+  "annotatedTag": "9d77367aa065ff733c9c5228ae7aa54a201de419",
+  "tag": "tenet-ipad-v1.7.2-build.44"
+}
