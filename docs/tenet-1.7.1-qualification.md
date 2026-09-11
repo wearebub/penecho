@@ -29,3 +29,7 @@ District routing, authentication, student rules, Socratic prompts, selected-crop
 ## Release status
 
 Prepared for authorized testing and publication. Exact source commit, immutable release tags, workflow results, hosted runtime hashes, and rollback records are recorded separately under `docs/releases/` after publication.
+
+## Publication evidence
+
+Source b9fb0ee7f1bf0db0ed996912c3e64788fd14666e passed local checks and hosted Node 22/24 CI. Hosted 1.7.1 installed at 2026-09-11T15:12:54.615Z; iPad 1.7.1 build 41 uploaded successfully at 2026-09-11T15:13:32Z. Immutable artifacts, independent hash checks, exact workflow results, and guarded hosted rollback instructions are recorded under docs/releases/tenet-web-v1.7.1 and docs/releases/tenet-ipad-v1.7.1-build.41. No physical-iPad acceptance or Apple-processing completion is claimed.

@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "version": "1.7.1",
+  "build": "41",
+  "bundleId": "ai.truemade.tenet.whiteboard",
+  "sourceCommit": "b9fb0ee7f1bf0db0ed996912c3e64788fd14666e",
+  "tag": "tenet-ipad-v1.7.1-build.41",
+  "workflow": "https://github.com/wearebub/penecho/actions/runs/34613958395",
+  "workflowConclusion": "success",
+  "testFlightUpload": {
+    "completedAt": "2026-09-11T15:13:32Z",
+    "conclusion": "success",
+    "name": "Upload to TestFlight",
+    "number": 14,
+    "startedAt": "2026-09-11T15:12:17Z",
+    "status": "completed"
+  },
+  "ipaSha256": "79a412e40f17bb42b1b053ca34d8991413904a414a96dd74ee90f4b0a97ac984",
+  "immutable": true,
+  "annotatedTag": "47200fa9490a601a4260e49cd4672712a814c701",
+  "appleProcessing": "not verified",
+  "physicalDeviceAcceptance": "not verified",
+  "previousNativeRelease": "tenet-ipad-v1.7.0-build.40",
+  "pairedHostedRelease": "tenet-web-v1.7.1"
+}
