@@ -344,3 +344,53 @@ test("cancel, page changes, manual review and transcript edits disarm silence su
     assert.equal(h.calls.some(c=>c[0]==="request"),false);h.api.cancel();
   }
 });
+
+test("a declined first lasso auto-submit keeps the transcript and selected scope for retry",async()=>{
+  const h=autoSendHarness();await h.api.activate();
+  const points=[{x:120,y:230},{x:240,y:240},{x:190,y:300}];
+  await h.api.open({points,revision:2,generation:3,page:1});
+  const request=h.context.requestAI;
+  h.context.requestAI=async()=>{};
+  const sessionId=h.api.job.sessionId;
+  h.events.get("voiceState")({sessionId,state:"stopped",reason:"silence",text:"Help with this part",isFinal:true});
+  await settle();
+  assert.equal(h.api.ui.dialog.open,true);
+  assert.equal(h.api.ui.input.value,"Help with this part");
+  assert.equal(h.api.ui.ask.disabled,false);
+  assert.match(h.api.ui.status.textContent,/not completed|could not|was not/i);
+  assert.deepEqual(JSON.parse(JSON.stringify(h.api.job.selection.points)),points);
+  h.context.requestAI=request;await h.api.submit();
+  const sent=h.calls.find(call=>call[0]==="request");assert(sent);
+  assert.equal(sent[1],"hint");assert.equal(sent[2].selectionQuestion,"Help with this part");
+  assert.deepEqual(JSON.parse(JSON.stringify(sent[2].selectionContext.path)),points);
+  assert.equal(sent[2].visibleRect,undefined);
+  assert.equal(h.api.ui.dialog.open,false);assert.equal(h.api.ui.input.value,"");
+});
+
+test("voice retains its question until a validated reply, rather than request startup",async()=>{
+  const h=harness();await h.api.activate();await h.api.open();
+  let reply,resolveRequest;
+  h.context.requestAI=async(_action,_packed,options)=>{
+    reply=options.onReply;
+    await new Promise(resolve=>{resolveRequest=resolve;});
+  };
+  const sending=h.api.submit();await settle();
+  assert.equal(h.api.ui.dialog.open,true);
+  assert.equal(h.api.ui.input.value,"Help me start problem 12");
+  reply("Start with the given values.");
+  assert.equal(h.api.ui.dialog.open,false);assert.equal(h.api.ui.input.value,"");
+  resolveRequest();await sending;
+});
+
+test("cancel during a queued voice request cannot restore or speak its late response",async()=>{
+  const h=harness();await h.api.activate();await h.api.open();h.api.ui.reply.checked=true;
+  let reply,resolveRequest;
+  h.context.requestAI=async(_action,_packed,options)=>{
+    reply=options.onReply;
+    await new Promise(resolve=>{resolveRequest=resolve;});
+  };
+  const sending=h.api.submit();await settle();h.api.cancel();
+  reply("Obsolete response");resolveRequest();await sending;
+  assert.equal(h.api.job,null);assert.equal(h.api.ui.dialog.open,false);
+  assert.equal(h.api.ui.input.value,"");assert.equal(h.calls.some(call=>call[0]==="speak"),false);
+});

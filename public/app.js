@@ -25549,6 +25549,7 @@ var tenetVoice = null;
     const submissionSessionId = value.sessionId;
     value.submitting = true;
     value.autoSubmitArmed = false;
+    let responseReceived = false;
     try {
       await finish(value);
       if (!isOpenVoiceJob(value, submissionSessionId)) return;
@@ -25560,22 +25561,29 @@ var tenetVoice = null;
       const {packed, revision, generation} = await capture(value, text);
       if (!current(value)) return;
       if (packed.questionOnly) tenetInkMessage("Blank page: sending only your question, without an image.");
-      ui.dialog.close();
-      ui.preview.removeAttribute("src");
-      ui.input.value = "";
-      await tenetInkController?.resume(reason);
-      if (!current(value)) return;
+      // requestAI can finish without a reply when a capture guard, cancellation,
+      // or Gateway error stops it. Keep the transcript, exact selection, and
+      // native ink suspension until a validated response actually arrives.
       supersedeActiveAI("voice-question");
       await requestAI("hint", packed, {
         isolatedSelection:true, expectedRevision:revision, expectedGeneration:generation,
         voiceRequestId:value.id, isCurrent:() => current(value),
         onReply(reply) {
-          if (!current(value) || !ui.reply.checked || !reply.trim()) return;
+          if (!current(value) || responseReceived) return;
+          responseReceived = true;
+          ui.dialog.close();
+          ui.preview.removeAttribute("src");
+          ui.input.value = "";
+          void tenetInkController?.resume(reason);
+          paint();
+          if (!ui.reply.checked || !reply.trim()) return;
           void native.speakVoice({text:reply, locale:capability.locale}).catch(() => {
             if (current(value)) tenetInkMessage("The answer is on the canvas. Spoken playback is unavailable.");
           });
         },
       });
+      if (current(value) && !responseReceived)
+        throw Error("Your question was not completed. It is still here so you can review it and try again.");
     } catch (error) {
       if (current(value)) {
         message(error?.message || "Voice question could not be sent. Please try again.");
