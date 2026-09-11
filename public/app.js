@@ -23473,9 +23473,14 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       )) {
         if (!onscreen(element)) continue;
         const box = element.getBoundingClientRect();
-        const x = Math.max(rect.x, box.x), y = Math.max(rect.y, box.y);
-        const width = Math.min(rect.x + rect.width, box.x + box.width) - x;
-        const height = Math.min(rect.y + rect.height, box.y + box.height) - y;
+        if (box.x + box.width <= rect.x || box.y + box.height <= rect.y
+          || box.x >= rect.x + rect.width || box.y >= rect.y + rect.height) continue;
+        // Include the entire border and a small finger/Pencil margin, rather
+        // than letting native ink take the edge of a web-owned control.
+        const padding = 4;
+        const x = Math.max(rect.x, box.x - padding), y = Math.max(rect.y, box.y - padding);
+        const width = Math.min(rect.x + rect.width, box.x + box.width + padding) - x;
+        const height = Math.min(rect.y + rect.height, box.y + box.height + padding) - y;
         if (![x, y, width, height].every(Number.isFinite) || width <= 0 || height <= 0) continue;
         const hole = { x, y, width, height };
         if (exclusions.some(existing => containsRect(existing, hole))) continue;
@@ -23706,10 +23711,29 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       } catch (error) { ready = false; fail(error); emitStatus(); }
     }
     const resizeObserver = new ResizeObserver(scheduleSync);
-    resizeObserver.observe(view);
-    document.querySelectorAll('.topbar, [data-tenet-ink-toolbar], footer, .tenet-voice-entry, .tenet-ai-entry, #tenetNotebookLauncherDock').forEach(element => resizeObserver.observe(element));
-    const mutations = new MutationObserver(scheduleSync);
+    const observedLayout = new Set();
+    function observeControlLayout() {
+      const targets = new Set([view, ...document.querySelectorAll(
+        '.topbar, [data-tenet-ink-toolbar], footer, .tenet-voice-entry, .tenet-ai-entry, .tenet-ai-region-controls, .ai-embodiment, #tenetNotebookLauncherDock, dialog[open]'
+      )]);
+      for (const element of observedLayout) if (!targets.has(element)) {
+        resizeObserver.unobserve(element);
+        observedLayout.delete(element);
+      }
+      for (const element of targets) if (!observedLayout.has(element)) {
+        resizeObserver.observe(element);
+        observedLayout.add(element);
+      }
+    }
+    observeControlLayout();
+    const mutations = new MutationObserver(() => { observeControlLayout(); scheduleSync(); });
     mutations.observe(document.body, { subtree:true, childList:true, attributes:true, attributeFilter:["hidden", "open", "class", "aria-hidden", "aria-expanded"] });
+    // CSS and font completion can move controls without a DOM mutation. In
+    // particular, voice mounts after its asynchronous native capability check.
+    document.addEventListener("load", event => {
+      if (event.target?.tagName === "LINK") { observeControlLayout(); scheduleSync(); }
+    }, { capture:true, signal });
+    document.fonts?.addEventListener?.("loadingdone", scheduleSync, { signal });
     window.addEventListener("resize", scheduleSync, { signal });
     window.visualViewport?.addEventListener("resize", scheduleSync, { signal });
     window.visualViewport?.addEventListener("scroll", scheduleSync, { passive: true, signal });
@@ -23750,6 +23774,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       if (syncFrame) cancelAnimationFrame(syncFrame);
       clearTimeout(reportTimer);
       resizeObserver.disconnect();
+      observedLayout.clear();
       mutations.disconnect();
       lifetime.abort();
       for (const listener of listeners) void listener.remove();
@@ -25315,7 +25340,8 @@ var tenetVoice = null;
     if (!bounds) return;
     // The dialog is fixed-position: rects and visualViewport offsets share the
     // layout viewport. CSS right is the inset from that viewport's right edge.
-    const style = runtimeElementStyle(ui.dialog);
+    const style = runtimeElementStyle(ui.dialog, "tenet-voice-popover");
+    if (!style) return;
     style.setProperty("--tenet-voice-popover-top", `max(${bounds.top}px, env(safe-area-inset-top, 0px))`);
     style.setProperty("--tenet-voice-popover-right", `max(${bounds.right}px, env(safe-area-inset-right, 0px))`);
     style.setProperty("--tenet-voice-popover-available-height",
@@ -25325,6 +25351,37 @@ var tenetVoice = null;
   }
 
   function message(text) { if (ui) ui.status.textContent = text; }
+  async function boundedVoiceCall(operation, milliseconds, failureMessage) {
+    let timer;
+    try {
+      return await Promise.race([operation, new Promise((resolve, reject) => {
+        timer = setTimeout(() => reject(Error(failureMessage)), milliseconds);
+      })]);
+    } finally { clearTimeout(timer); }
+  }
+  function listening(value) {
+    if (!isOpenVoiceJob(value, value?.sessionId) || phase !== "starting") return;
+    phase = "listening";
+    message(supportsSilenceAutoSubmit()
+      ? capability?.autoSubmitTrigger === "transcript-inactivity"
+        ? "Listening on this iPad. Sends 1.5 seconds after the last new transcribed word. Stop listening to review instead."
+        : "Listening on this iPad. Pause for 1.5 full seconds to send. Stop listening to review instead."
+      : "Listening on this iPad. Stop to review, or tap Ask Tenet to send.");
+    paint();
+  }
+  function cancelRecordingAttempt(value) {
+    if (!isOpenVoiceJob(value, value?.sessionId)) return;
+    const previousId = value.sessionId;
+    // Retire the attempt before issuing asynchronous cancellation. Its late
+    // capability/start/stop callbacks must not restart capture or change UI.
+    value.sessionId = crypto.randomUUID();
+    value.autoSubmitArmed = false;
+    value.finalTranscript = null;
+    phase = "idle";
+    void native.cancelVoiceRecognition({sessionId:previousId}).catch(() => {});
+    message("Recording stopped. Tap Record again, or type your question.");
+    paint();
+  }
   function current(value) {
     return Boolean(value && job === value && !disposed && !document.hidden &&
       value.page === state.snapshotLoadGeneration);
@@ -25355,10 +25412,12 @@ var tenetVoice = null;
   function paint() {
     if (!ui) return;
     const recording = ["starting", "listening"].includes(phase);
-    ui.record.textContent = recording ? "Stop listening" : "Record again";
+    ui.record.textContent = phase === "starting" ? "Cancel starting"
+      : phase === "finalizing" ? "Cancel finishing"
+      : recording ? "Stop listening" : "Record again";
     // Readiness/permissions can change after launch. A retry must reach native
     // capability checks rather than remain disabled by an old snapshot.
-    ui.record.disabled = !listenersReady || !job || Boolean(job?.submitting) || ["starting", "finalizing", "sending"].includes(phase);
+    ui.record.disabled = !listenersReady || !job || Boolean(job?.submitting) || phase === "sending";
     ui.input.readOnly = recording || phase === "finalizing" || phase === "sending";
     ui.ask.disabled = !ui.input.value.trim() || Boolean(job?.submitting) || ["starting", "finalizing", "sending"].includes(phase);
     ui.stop.hidden = !speaking;
@@ -25379,7 +25438,8 @@ var tenetVoice = null;
     sequence++;
     phase = "idle";
     stopGuard();
-    void native.cancelVoiceRecognition(previous ? {sessionId:previous.sessionId} : {}).catch(() => {});
+    // Never enqueue an unscoped cancellation that could arrive after a new start.
+    if (previous) void native.cancelVoiceRecognition({sessionId:previous.sessionId}).catch(() => {});
     quiet();
     if (previous && (state.activeAI?.voiceRequestId === previous.id || aiPreparation?.voiceRequestId === previous.id))
       supersedeActiveAI("voice-cancelled");
@@ -25404,8 +25464,9 @@ var tenetVoice = null;
     message("Starting on-device dictation...");
     paint();
     try {
-      const refreshed = await native.getVoiceCapabilities({locale:navigator.language});
-      if (!isOpenVoiceJob(value, recordingSessionId)) return;
+      const refreshed = await boundedVoiceCall(native.getVoiceCapabilities({locale:navigator.language}), 10000,
+        "Microphone readiness timed out. Tap Record again to retry, or type your question.");
+      if (!isOpenVoiceJob(value, recordingSessionId) || phase !== "starting") return;
       capability = refreshed;
       disclose(value);
       if (!capability?.supported) {
@@ -25416,19 +25477,21 @@ var tenetVoice = null;
         return;
       }
       value.autoSubmitArmed = supportsSilenceAutoSubmit();
-      await native.startVoiceRecognition({sessionId:recordingSessionId, locale:capability.locale});
+      const permissionsGranted = capability.microphonePermission === "granted" && capability.speechPermission === "authorized";
+      const result = await boundedVoiceCall(native.startVoiceRecognition({sessionId:recordingSessionId, locale:capability.locale}),
+        permissionsGranted ? 15000 : 95000,
+        "The microphone did not start. Tap Record again to retry, or type your question.");
       if (!isOpenVoiceJob(value, recordingSessionId)) { await native.cancelVoiceRecognition({sessionId:recordingSessionId}); return; }
       if (phase === "starting") {
-        phase = "listening";
-        message(supportsSilenceAutoSubmit()
-          ? capability?.autoSubmitTrigger === "transcript-inactivity"
-            ? "Listening on this iPad. Sends 1.5 seconds after the last new transcribed word. Stop listening to review instead."
-            : "Listening on this iPad. Pause for 1.5 full seconds to send. Stop listening to review instead."
-          : "Listening on this iPad. Stop to review, or tap Ask Tenet to send.");
+        if (capability.confirmsAudioInput === true && (result?.state !== "listening" || result.audioInput !== true))
+          throw Error("The iPad did not confirm microphone input. Tap Record again to retry.");
+        listening(value);
       }
     } catch (error) {
       if (!isOpenVoiceJob(value, recordingSessionId)) return;
       value.autoSubmitArmed = false;
+      value.sessionId = crypto.randomUUID();
+      void native.cancelVoiceRecognition({sessionId:recordingSessionId}).catch(() => {});
       phase = "idle";
       message(error?.message || "On-device dictation is unavailable. You can type your question instead.");
     }
@@ -25442,8 +25505,18 @@ var tenetVoice = null;
     phase = "finalizing";
     paint();
     try {
-      const result = await native.stopVoiceRecognition({sessionId:recordingSessionId});
+      const result = await boundedVoiceCall(native.stopVoiceRecognition({sessionId:recordingSessionId}), 6000,
+        "Transcription did not finish. Your text is retained; record again or send it manually.");
       if (isOpenVoiceJob(value, recordingSessionId) && typeof result?.text === "string") ui.input.value = result.text.slice(0, 1000);
+    } catch (error) {
+      if (isOpenVoiceJob(value, recordingSessionId)) {
+        value.sessionId = crypto.randomUUID();
+        phase = "idle";
+        void native.cancelVoiceRecognition({sessionId:recordingSessionId}).catch(() => {});
+        message(error?.message || "Dictation stopped. Record again or type your question.");
+        paint();
+      }
+      throw error;
     } finally {
       if (isOpenVoiceJob(value, recordingSessionId)) { phase = "idle"; message("Review your question, or tap Ask Tenet."); paint(); }
     }
@@ -25527,6 +25600,7 @@ var tenetVoice = null;
     const value = job;
     if (!isOpenVoiceJob(value, event.sessionId) || value.submitting || phase === "sending"
         || value.autoSubmittedSessionId === event.sessionId) return;
+    if (event.state === "listening") { listening(value); return; }
     if (event.state === "finalizing" && ["starting","listening","finalizing"].includes(phase)) {
       phase = "finalizing";
       message("Finishing on-device transcription...");
@@ -25579,9 +25653,13 @@ var tenetVoice = null;
     disclose(value);
     ui.previewStatus.textContent = "Preparing the page preview...";
     ui.dialog.show();
-    positionPopover();
     paint();
     watch(value);
+    // Opening Talk and pressing Record again use the same recorder. Optional
+    // layout must not throw before that recorder or its controls can start.
+    const recording = record(value);
+    try { positionPopover(); }
+    catch { ui.previewStatus.textContent = "Popup layout unavailable. You can still dictate or type your question."; }
     // Preview generation can wait for native ink or widget snapshots. It is
     // optional UI work, not a microphone prerequisite; submit still performs
     // the authoritative, revision-checked capture before anything is sent.
@@ -25598,10 +25676,10 @@ var tenetVoice = null;
           ui.previewStatus.textContent = "Preview unavailable. Tenet will retry the same page or selected area before sending.";
       }
     })();
-    await record(value);
+    await recording;
   }
   async function activate() {
-    try { capability = await native.getVoiceCapabilities({locale:navigator.language}); }
+    try { capability = await boundedVoiceCall(native.getVoiceCapabilities({locale:navigator.language}), 10000, "Microphone controls are unavailable."); }
     catch { return; } // Older TestFlight binaries have no voice bridge.
     if (disposed) return;
     const viewport = document.querySelector("#viewport");
@@ -25641,7 +25719,10 @@ var tenetVoice = null;
     dialog.addEventListener("toggle", positionPopover, {capture:true,signal});
     ui.entry.addEventListener("click", () => { void open(); }, {signal});
     ui.stop.addEventListener("click", quiet, {signal});
-    ui.record.addEventListener("click", () => { void (phase === "listening" ? finish(job) : record(job)).catch(error => message(error?.message || "Dictation stopped.")); }, {signal});
+    ui.record.addEventListener("click", () => {
+      if (["starting", "finalizing"].includes(phase)) { cancelRecordingAttempt(job); return; }
+      void (phase === "listening" ? finish(job) : record(job)).catch(error => message(error?.message || "Dictation stopped."));
+    }, {signal});
     ui.input.addEventListener("input", () => {
       if (job) { job.autoSubmitArmed = false; job.finalTranscript = null; }
       paint();
@@ -26308,6 +26389,194 @@ var tenetVoice = null;
     }
   }
 
+  function installCompactIpadChrome() {
+    if (!isNativeIos() || document.getElementById("tenetPageMenuButton")) return;
+    const host = document.getElementById("canvasFileActions");
+    const toolbar = document.querySelector("[data-tenet-ink-toolbar]");
+    if (!host || !toolbar) return;
+    const lifetime = new AbortController(), signal = lifetime.signal;
+    const reason = "tenet-page-menu";
+    const icon = paths => {
+      const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      svg.setAttribute("viewBox", "0 0 24 24");
+      svg.setAttribute("aria-hidden", "true");
+      for (const d of paths) {
+        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        path.setAttribute("d", d); svg.append(path);
+      }
+      return svg;
+    };
+    document.body.classList.add("tenet-compact-chrome");
+    toolbar.id ||= "tenetDrawingControls";
+    const toolsButton = document.createElement("button");
+    toolsButton.id = "tenetDrawingToolsToggle";
+    toolsButton.type = "button";
+    toolsButton.className = "tenet-chrome-toggle";
+    toolsButton.setAttribute("aria-controls", toolbar.id);
+    toolsButton.append(icon(["M4 7h16M4 17h16", "M8 4v6M16 14v6"]), document.createTextNode("Tools"));
+    const expandTools = expanded => {
+      if (!expanded && toolbar.contains(document.activeElement)) toolsButton.focus({ preventScroll: true });
+      toolbar.hidden = !expanded;
+      document.body.dataset.tenetToolsExpanded = String(expanded);
+      toolsButton.setAttribute("aria-expanded", String(expanded));
+      toolsButton.setAttribute("aria-label", expanded ? "Hide drawing tools" : "Show drawing tools");
+      toolsButton.title = expanded ? "Hide drawing tools" : "Show drawing tools";
+      tenetInkController?.sync?.();
+    };
+    toolsButton.addEventListener("click", () => expandTools(toolbar.hidden), { signal });
+
+    const trigger = document.createElement("button");
+    trigger.id = "tenetPageMenuButton";
+    trigger.type = "button";
+    trigger.className = "tenet-chrome-toggle tenet-page-menu-toggle";
+    trigger.title = "Notebook menu";
+    trigger.setAttribute("aria-label", "Notebook menu: new, open, export PDF, and pages");
+    trigger.setAttribute("aria-haspopup", "dialog");
+    trigger.setAttribute("aria-controls", "tenetPageMenu");
+    trigger.setAttribute("aria-expanded", "false");
+    trigger.append(icon(["M5 6h14M5 12h14M5 18h14"]));
+    const menu = document.createElement("dialog");
+    menu.id = "tenetPageMenu";
+    menu.className = "tenet-page-menu";
+    menu.setAttribute("aria-labelledby", "tenetPageMenuTitle");
+    const heading = document.createElement("header");
+    const title = document.createElement("h2");
+    title.id = "tenetPageMenuTitle"; title.textContent = "Your notebook";
+    const closeButton = document.createElement("button");
+    closeButton.type = "button"; closeButton.className = "tenet-page-menu-close";
+    closeButton.setAttribute("aria-label", "Close notebook menu");
+    closeButton.append(icon(["M6 6l12 12M18 6 6 18"]));
+    heading.append(title, closeButton);
+    const actions = document.createElement("div");
+    actions.className = "tenet-page-menu-actions";
+    const specifications = [
+      ["newCanvasBtn", "New page", ["M6 3h8l4 4v14H6Z", "M14 3v4h4M9 14h6M12 11v6"]],
+      ["tenetOpenDocumentBtn", "Open document", ["M3 7h7l2 2h9l-3 11H3Z", "M3 7V4h7l2 3h8v2"]],
+      ["exportPngBtn", "Export PDF", ["M12 3v12M7 10l5 5 5-5", "M5 15v5h14v-5"]],
+      ["historyBtn", "Pages & files", ["M5 3h14v18H5Z", "M9 3v18M12 8h4M12 12h4"]],
+    ];
+    for (const [id, label, paths] of specifications) {
+      const button = document.getElementById(id);
+      if (!button) continue;
+      button.classList.add("tenet-page-menu-action");
+      button.replaceChildren(icon(paths), document.createTextNode(label));
+      // Move the actual controls, not copies: their native import/export and
+      // notebook handlers, disabled state, and element identities stay intact.
+      actions.append(button);
+    }
+    const scopeSection = document.createElement("section");
+    scopeSection.className = "tenet-menu-tutor-scope";
+    scopeSection.hidden = true;
+    const scopeTitle = document.createElement("h3"); scopeTitle.textContent = "Tutor view";
+    const scopeControl = document.createElement("div"); scopeControl.className = "tenet-menu-scope-control";
+    const scopeHelp = document.createElement("p");
+    scopeHelp.id = "tenetTutorViewHelp";
+    scopeHelp.textContent = "Choose recent writing for your latest step, or the visible page for more context. Circled questions keep their selected area.";
+    scopeSection.append(scopeTitle, scopeControl, scopeHelp);
+    menu.append(heading, actions, scopeSection);
+    host.append(toolsButton, trigger);
+    document.body.append(menu);
+
+    let opening = false, suspended = false, epoch = 0;
+    const releaseInk = () => {
+      if (!suspended) return;
+      suspended = false;
+      void window.TenetInk?.resume(reason);
+    };
+    const positionMenu = () => {
+      const bounds = trigger.getBoundingClientRect();
+      const width = document.documentElement.clientWidth || window.innerWidth;
+      const visual = window.visualViewport;
+      const rightEdge = (visual?.offsetLeft || 0) + (visual?.width || width);
+      const bottom = (visual?.offsetTop || 0) + (visual?.height || window.innerHeight);
+      const top = Math.max(12 + (visual?.offsetTop || 0), Math.min(bounds.bottom + 10, bottom - 120));
+      const style = runtimeElementStyle(menu, "tenet-page-menu");
+      if (!style) return;
+      style.setProperty("--tenet-page-menu-top", top + "px");
+      style.setProperty("--tenet-page-menu-right", Math.max(12, width - Math.min(bounds.right, rightEdge - 12)) + "px");
+      style.setProperty("--tenet-page-menu-height", Math.max(80, bottom - top - 12) + "px");
+    };
+    const safelyPositionMenu = () => { try { positionMenu(); } catch { /* CSS provides a safe fallback position. */ } };
+    trigger.addEventListener("click", async () => {
+      if (opening || menu.open) return;
+      const attempt = ++epoch;
+      opening = true; suspended = true;
+      trigger.setAttribute("aria-busy", "true");
+      try {
+        await window.TenetInk?.suspend(reason);
+        if (signal.aborted || attempt !== epoch || document.hidden) return;
+        safelyPositionMenu();
+        menu.showModal();
+        trigger.setAttribute("aria-expanded", "true");
+      } catch (error) {
+        showTenetMessage(error?.message || "Lift your Pencil and try the notebook menu again.", "error");
+      } finally {
+        opening = false;
+        trigger.removeAttribute("aria-busy");
+        if (!menu.open) releaseInk();
+      }
+    }, { signal });
+    closeButton.addEventListener("click", () => menu.close(), { signal });
+    actions.addEventListener("click", event => {
+      const button = event.target.closest?.("button.tenet-page-menu-action");
+      if (button && !button.disabled && menu.open) menu.close();
+    }, { capture: true, signal });
+    menu.addEventListener("pointerdown", event => {
+      if (event.target !== menu) return;
+      const box = menu.getBoundingClientRect();
+      if (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom) {
+        event.preventDefault(); menu.close();
+      }
+    }, { signal });
+    menu.addEventListener("keydown", event => event.stopPropagation(), { signal });
+    menu.addEventListener("close", () => {
+      trigger.setAttribute("aria-expanded", "false");
+      releaseInk();
+      if (!signal.aborted && !document.hidden && !document.querySelector("dialog[open]")) trigger.focus({ preventScroll: true });
+    }, { signal });
+    window.addEventListener("resize", () => { if (menu.open) safelyPositionMenu(); }, { signal });
+    window.visualViewport?.addEventListener("resize", () => { if (menu.open) safelyPositionMenu(); }, { signal });
+    window.visualViewport?.addEventListener("scroll", () => { if (menu.open) safelyPositionMenu(); }, { signal });
+
+    // The native scope control arrives asynchronously. Relocate the existing
+    // selector without rewriting its value or registering another AI pathway.
+    let scopeAttached = false;
+    const attachTutorScope = () => {
+      if (scopeAttached || signal.aborted) return;
+      const select = [...document.querySelectorAll("select")].find(control => {
+        const labels = [...control.options].map(option => option.label || option.textContent || "");
+        return labels.some(label => /recent\s+writing/i.test(label)) && labels.some(label => /visible\s+page/i.test(label));
+      });
+      if (!select) return;
+      const label = select.closest("label");
+      const element = label && label.querySelectorAll("select,input,button").length === 1 ? label : select;
+      if (!label) select.setAttribute("aria-label", "Tutor view");
+      const describedBy = new Set((select.getAttribute("aria-describedby") || "").split(/\s+/).filter(Boolean));
+      describedBy.add(scopeHelp.id); select.setAttribute("aria-describedby", [...describedBy].join(" "));
+      scopeControl.append(element);
+      scopeSection.hidden = false;
+      scopeAttached = true;
+      scopeObserver.disconnect();
+    };
+    const scopeObserver = new MutationObserver(attachTutorScope);
+    scopeObserver.observe(document.body, { childList: true, subtree: true });
+    attachTutorScope();
+    window.addEventListener("tenet:ink-status", attachTutorScope, { signal });
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) return;
+      epoch++;
+      if (menu.open) menu.close();
+      releaseInk();
+    }, { signal });
+    window.addEventListener("pagehide", event => {
+      epoch++;
+      if (menu.open) menu.close();
+      releaseInk();
+      if (!event.persisted) { scopeObserver.disconnect(); lifetime.abort(); }
+    }, { signal });
+    expandTools(false);
+  }
+
   function installCanvasChromeLayout() {
     const viewport = document.getElementById("viewport");
     if (!viewport) return;
@@ -26560,6 +26829,7 @@ var tenetVoice = null;
     configureHeaderActions();
     installDrawingTools();
     installShapeTools();
+    installCompactIpadChrome();
     installCanvasChromeLayout();
     configureTitleDismissal();
     hideLegacyPencilAction();

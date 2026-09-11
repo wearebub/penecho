@@ -521,3 +521,102 @@ html.tenet-native-ios body.tenet-whiteboard .tenet-brand-source {
     transition: none;
   }
 }
+
+/* Compact iPad notebook chrome. The native PencilKit palette is unchanged. */
+body.tenet-compact-chrome {
+  --tenet-chrome-ink: #182a40;
+  --tenet-chrome-accent: var(--studio-accent, #4f46e5);
+  --tenet-chrome-border: #e3e2de;
+  --tenet-chrome-paper: #fffefa;
+}
+body.tenet-compact-chrome[data-tenet-tools-expanded="false"] { --studio-toolbar-height: 0px; }
+body.tenet-compact-chrome [data-tenet-ink-toolbar][hidden] { display: none !important; }
+body.tenet-compact-chrome .topbar { background: var(--tenet-chrome-paper); }
+body.tenet-compact-chrome #canvasFileActions {
+  display: inline-flex; align-items: center; flex: 0 0 auto; gap: 8px;
+  padding-inline: 8px 0; border-inline-start: 0;
+}
+body.tenet-compact-chrome .tenet-chrome-toggle {
+  width: auto;
+  box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;
+  flex: 0 0 auto; gap: 8px; min-height: 46px; min-width: 46px; padding: 10px 15px;
+  border: 1px solid var(--tenet-chrome-border); border-radius: 14px;
+  background: #fff; color: var(--tenet-chrome-ink);
+  font: 650 13px "Avenir Next", Avenir, sans-serif; line-height: 1.2;
+  cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+  box-shadow: 0 1px 3px #182a4008;
+}
+body.tenet-compact-chrome .tenet-chrome-toggle svg,
+body.tenet-compact-chrome #tenetPageMenu svg {
+  display: block; width: 22px; height: 22px; flex: 0 0 22px;
+  fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round;
+  stroke-linejoin: round; pointer-events: none;
+}
+body.tenet-compact-chrome #tenetPageMenuButton {
+  width: 46px; padding: 0; border-radius: 50%;
+  border-color: var(--tenet-chrome-accent); color: var(--tenet-chrome-accent);
+}
+body.tenet-compact-chrome .tenet-chrome-toggle[aria-expanded="true"] {
+  color: var(--tenet-chrome-accent); border-color: var(--tenet-chrome-accent); background: #f3f2ff;
+}
+body.tenet-compact-chrome .tenet-chrome-toggle:focus-visible,
+body.tenet-compact-chrome #tenetPageMenu button:focus-visible,
+body.tenet-compact-chrome #tenetPageMenu select:focus-visible {
+  outline: 3px solid var(--tenet-chrome-accent); outline-offset: 3px;
+}
+body.tenet-compact-chrome #tenetPageMenu {
+  box-sizing: border-box; position: fixed; inset: auto;
+  top: var(--tenet-page-menu-top, calc(env(safe-area-inset-top, 0px) + 68px));
+  right: max(var(--tenet-page-menu-right, 12px), env(safe-area-inset-right, 0px));
+  width: 300px; max-width: calc(100vw - 24px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px));
+  max-height: min(var(--tenet-page-menu-height, 80dvh), calc(100dvh - 24px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)));
+  margin: 0; padding: 10px; overflow: auto; overscroll-behavior: contain;
+  border: 1px solid var(--tenet-chrome-border); border-radius: 22px;
+  background: var(--tenet-chrome-paper); color: var(--tenet-chrome-ink);
+  box-shadow: 0 22px 70px #182a4021, 0 4px 14px #182a400c;
+  font-family: "Avenir Next", Avenir, sans-serif;
+}
+body.tenet-compact-chrome #tenetPageMenu:not([open]) { display: none !important; }
+body.tenet-compact-chrome #tenetPageMenu[open] { animation: tenet-chrome-reveal 150ms ease-out; }
+body.tenet-compact-chrome #tenetPageMenu::backdrop { background: #182a400a; }
+body.tenet-compact-chrome #tenetPageMenu > header {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 0 2px 6px 12px; background: transparent;
+}
+body.tenet-compact-chrome #tenetPageMenuTitle { margin: 0; font-size: 14px; font-weight: 750; letter-spacing: -.02em; }
+body.tenet-compact-chrome #tenetPageMenu .tenet-page-menu-close {
+  display: grid; place-items: center; width: 44px; height: 44px; min-height: 44px;
+  padding: 0; border: 0; border-radius: 12px; background: transparent; color: #77818d;
+  touch-action: manipulation; cursor: pointer;
+}
+body.tenet-compact-chrome #tenetPageMenu .tenet-page-menu-actions { display: grid; gap: 3px; }
+body.tenet-compact-chrome #tenetPageMenu .tenet-page-menu-action {
+  box-sizing: border-box; display: flex; align-items: center; justify-content: flex-start;
+  gap: 13px; width: 100%; max-width: none; min-height: 52px; height: auto; margin: 0;
+  padding: 12px 14px; border: 0; border-radius: 12px;
+  background: transparent; color: var(--tenet-chrome-ink); text-align: left;
+  font: 600 14px "Avenir Next", Avenir, sans-serif; line-height: 1.4;
+  white-space: normal; box-shadow: none; cursor: pointer; touch-action: manipulation;
+}
+body.tenet-compact-chrome #tenetPageMenu .tenet-page-menu-action svg { color: var(--tenet-chrome-accent); }
+body.tenet-compact-chrome #tenetPageMenu button:hover:not(:disabled) { background: #f0efed; }
+body.tenet-compact-chrome #tenetPageMenu button:disabled { opacity: .45; cursor: default; }
+body.tenet-compact-chrome #tenetPageMenu .tenet-menu-tutor-scope { margin: 10px 4px 0; padding: 15px 8px 8px; border-top: 1px solid var(--tenet-chrome-border); }
+body.tenet-compact-chrome #tenetPageMenu .tenet-menu-tutor-scope[hidden] { display: none !important; }
+body.tenet-compact-chrome #tenetPageMenu .tenet-menu-tutor-scope h3 { margin: 0 0 10px; color: #697383; font-size: 11px; font-weight: 750; letter-spacing: .09em; text-transform: uppercase; }
+body.tenet-compact-chrome #tenetPageMenu .tenet-menu-scope-control > label { position: static !important; display: grid; gap: 6px; width: auto; margin: 0; color: var(--tenet-chrome-ink); font-size: 12px; }
+body.tenet-compact-chrome #tenetPageMenu .tenet-menu-scope-control select {
+  box-sizing: border-box; position: static !important; width: 100%; max-width: 100%; min-height: 44px;
+  padding: 9px 11px; border: 1px solid #d9dae2; border-radius: 10px; background: #fff;
+  color: var(--tenet-chrome-ink); font: 600 13px "Avenir Next", Avenir, sans-serif; touch-action: manipulation;
+}
+body.tenet-compact-chrome #tenetTutorViewHelp { margin: 10px 0 0; color: #697383; font-size: 12px; line-height: 1.55; }
+body.tenet-compact-chrome [data-tenet-ink-toolbar]:not([hidden]) { animation: tenet-chrome-reveal 150ms ease-out; }
+@keyframes tenet-chrome-reveal { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) {
+  body.tenet-compact-chrome #tenetPageMenu[open], body.tenet-compact-chrome [data-tenet-ink-toolbar]:not([hidden]) { animation: none; }
+}
+@media (max-width: 680px) {
+  body.tenet-compact-chrome #canvasFileActions { gap: 5px; padding-inline-start: 4px; }
+  body.tenet-compact-chrome #tenetDrawingToolsToggle { padding: 10px; gap: 5px; }
+}

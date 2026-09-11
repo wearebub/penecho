@@ -51,7 +51,7 @@ async function harness({ enabled = true, nativeAvailable = true, fingerDrawingEn
   const context = vm.createContext({ window:win, document:doc, view, state, inkCtx,
     crypto:{ randomUUID:() => `session-${++id}` }, SIZE:20000, MAX_HISTORY:30,
     Event, CustomEvent, AbortController, snapshotLoadInProgress:false, performance,
-    ResizeObserver:class { observe(){} disconnect(){} },
+    ResizeObserver:class { observe(){} unobserve(){} disconnect(){} },
     MutationObserver:class { observe(){} disconnect(){} },
     Image:class { naturalWidth=500; naturalHeight=200; set src(value){ queueMicrotask(() => this.onload?.()); } },
     getComputedStyle:() => ({ display:"block", visibility:"visible" }),
@@ -130,7 +130,7 @@ test("top bars exclude only overlapping surface area without changing ink coordi
   h.controller.sync();
   await h.settle();
   latest = h.calls.filter(call => call.kind === "configure").at(-1);
-  assert.deepEqual(JSON.parse(JSON.stringify(latest.exclusions)), [{ x:40, y:120, width:1200, height:32 }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(latest.exclusions)), [{ x:40, y:120, width:1200, height:36 }], "overlapping UI includes its four-pixel touch margin");
   assert.deepEqual(JSON.parse(JSON.stringify(latest.frame)), { x:40, y:120, width:1200, height:800 });
   assert.equal(latest.panY, 0);
   assert.equal(latest.scale, .5);

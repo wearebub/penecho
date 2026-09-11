@@ -52,7 +52,8 @@ var tenetVoice = null;
     if (!bounds) return;
     // The dialog is fixed-position: rects and visualViewport offsets share the
     // layout viewport. CSS right is the inset from that viewport's right edge.
-    const style = runtimeElementStyle(ui.dialog);
+    const style = runtimeElementStyle(ui.dialog, "tenet-voice-popover");
+    if (!style) return;
     style.setProperty("--tenet-voice-popover-top", `max(${bounds.top}px, env(safe-area-inset-top, 0px))`);
     style.setProperty("--tenet-voice-popover-right", `max(${bounds.right}px, env(safe-area-inset-right, 0px))`);
     style.setProperty("--tenet-voice-popover-available-height",
@@ -62,6 +63,37 @@ var tenetVoice = null;
   }
 
   function message(text) { if (ui) ui.status.textContent = text; }
+  async function boundedVoiceCall(operation, milliseconds, failureMessage) {
+    let timer;
+    try {
+      return await Promise.race([operation, new Promise((resolve, reject) => {
+        timer = setTimeout(() => reject(Error(failureMessage)), milliseconds);
+      })]);
+    } finally { clearTimeout(timer); }
+  }
+  function listening(value) {
+    if (!isOpenVoiceJob(value, value?.sessionId) || phase !== "starting") return;
+    phase = "listening";
+    message(supportsSilenceAutoSubmit()
+      ? capability?.autoSubmitTrigger === "transcript-inactivity"
+        ? "Listening on this iPad. Sends 1.5 seconds after the last new transcribed word. Stop listening to review instead."
+        : "Listening on this iPad. Pause for 1.5 full seconds to send. Stop listening to review instead."
+      : "Listening on this iPad. Stop to review, or tap Ask Tenet to send.");
+    paint();
+  }
+  function cancelRecordingAttempt(value) {
+    if (!isOpenVoiceJob(value, value?.sessionId)) return;
+    const previousId = value.sessionId;
+    // Retire the attempt before issuing asynchronous cancellation. Its late
+    // capability/start/stop callbacks must not restart capture or change UI.
+    value.sessionId = crypto.randomUUID();
+    value.autoSubmitArmed = false;
+    value.finalTranscript = null;
+    phase = "idle";
+    void native.cancelVoiceRecognition({sessionId:previousId}).catch(() => {});
+    message("Recording stopped. Tap Record again, or type your question.");
+    paint();
+  }
   function current(value) {
     return Boolean(value && job === value && !disposed && !document.hidden &&
       value.page === state.snapshotLoadGeneration);
@@ -92,10 +124,12 @@ var tenetVoice = null;
   function paint() {
     if (!ui) return;
     const recording = ["starting", "listening"].includes(phase);
-    ui.record.textContent = recording ? "Stop listening" : "Record again";
+    ui.record.textContent = phase === "starting" ? "Cancel starting"
+      : phase === "finalizing" ? "Cancel finishing"
+      : recording ? "Stop listening" : "Record again";
     // Readiness/permissions can change after launch. A retry must reach native
     // capability checks rather than remain disabled by an old snapshot.
-    ui.record.disabled = !listenersReady || !job || Boolean(job?.submitting) || ["starting", "finalizing", "sending"].includes(phase);
+    ui.record.disabled = !listenersReady || !job || Boolean(job?.submitting) || phase === "sending";
     ui.input.readOnly = recording || phase === "finalizing" || phase === "sending";
     ui.ask.disabled = !ui.input.value.trim() || Boolean(job?.submitting) || ["starting", "finalizing", "sending"].includes(phase);
     ui.stop.hidden = !speaking;
@@ -116,7 +150,8 @@ var tenetVoice = null;
     sequence++;
     phase = "idle";
     stopGuard();
-    void native.cancelVoiceRecognition(previous ? {sessionId:previous.sessionId} : {}).catch(() => {});
+    // Never enqueue an unscoped cancellation that could arrive after a new start.
+    if (previous) void native.cancelVoiceRecognition({sessionId:previous.sessionId}).catch(() => {});
     quiet();
     if (previous && (state.activeAI?.voiceRequestId === previous.id || aiPreparation?.voiceRequestId === previous.id))
       supersedeActiveAI("voice-cancelled");
@@ -141,8 +176,9 @@ var tenetVoice = null;
     message("Starting on-device dictation...");
     paint();
     try {
-      const refreshed = await native.getVoiceCapabilities({locale:navigator.language});
-      if (!isOpenVoiceJob(value, recordingSessionId)) return;
+      const refreshed = await boundedVoiceCall(native.getVoiceCapabilities({locale:navigator.language}), 10000,
+        "Microphone readiness timed out. Tap Record again to retry, or type your question.");
+      if (!isOpenVoiceJob(value, recordingSessionId) || phase !== "starting") return;
       capability = refreshed;
       disclose(value);
       if (!capability?.supported) {
@@ -153,19 +189,21 @@ var tenetVoice = null;
         return;
       }
       value.autoSubmitArmed = supportsSilenceAutoSubmit();
-      await native.startVoiceRecognition({sessionId:recordingSessionId, locale:capability.locale});
+      const permissionsGranted = capability.microphonePermission === "granted" && capability.speechPermission === "authorized";
+      const result = await boundedVoiceCall(native.startVoiceRecognition({sessionId:recordingSessionId, locale:capability.locale}),
+        permissionsGranted ? 15000 : 95000,
+        "The microphone did not start. Tap Record again to retry, or type your question.");
       if (!isOpenVoiceJob(value, recordingSessionId)) { await native.cancelVoiceRecognition({sessionId:recordingSessionId}); return; }
       if (phase === "starting") {
-        phase = "listening";
-        message(supportsSilenceAutoSubmit()
-          ? capability?.autoSubmitTrigger === "transcript-inactivity"
-            ? "Listening on this iPad. Sends 1.5 seconds after the last new transcribed word. Stop listening to review instead."
-            : "Listening on this iPad. Pause for 1.5 full seconds to send. Stop listening to review instead."
-          : "Listening on this iPad. Stop to review, or tap Ask Tenet to send.");
+        if (capability.confirmsAudioInput === true && (result?.state !== "listening" || result.audioInput !== true))
+          throw Error("The iPad did not confirm microphone input. Tap Record again to retry.");
+        listening(value);
       }
     } catch (error) {
       if (!isOpenVoiceJob(value, recordingSessionId)) return;
       value.autoSubmitArmed = false;
+      value.sessionId = crypto.randomUUID();
+      void native.cancelVoiceRecognition({sessionId:recordingSessionId}).catch(() => {});
       phase = "idle";
       message(error?.message || "On-device dictation is unavailable. You can type your question instead.");
     }
@@ -179,8 +217,18 @@ var tenetVoice = null;
     phase = "finalizing";
     paint();
     try {
-      const result = await native.stopVoiceRecognition({sessionId:recordingSessionId});
+      const result = await boundedVoiceCall(native.stopVoiceRecognition({sessionId:recordingSessionId}), 6000,
+        "Transcription did not finish. Your text is retained; record again or send it manually.");
       if (isOpenVoiceJob(value, recordingSessionId) && typeof result?.text === "string") ui.input.value = result.text.slice(0, 1000);
+    } catch (error) {
+      if (isOpenVoiceJob(value, recordingSessionId)) {
+        value.sessionId = crypto.randomUUID();
+        phase = "idle";
+        void native.cancelVoiceRecognition({sessionId:recordingSessionId}).catch(() => {});
+        message(error?.message || "Dictation stopped. Record again or type your question.");
+        paint();
+      }
+      throw error;
     } finally {
       if (isOpenVoiceJob(value, recordingSessionId)) { phase = "idle"; message("Review your question, or tap Ask Tenet."); paint(); }
     }
@@ -264,6 +312,7 @@ var tenetVoice = null;
     const value = job;
     if (!isOpenVoiceJob(value, event.sessionId) || value.submitting || phase === "sending"
         || value.autoSubmittedSessionId === event.sessionId) return;
+    if (event.state === "listening") { listening(value); return; }
     if (event.state === "finalizing" && ["starting","listening","finalizing"].includes(phase)) {
       phase = "finalizing";
       message("Finishing on-device transcription...");
@@ -316,9 +365,13 @@ var tenetVoice = null;
     disclose(value);
     ui.previewStatus.textContent = "Preparing the page preview...";
     ui.dialog.show();
-    positionPopover();
     paint();
     watch(value);
+    // Opening Talk and pressing Record again use the same recorder. Optional
+    // layout must not throw before that recorder or its controls can start.
+    const recording = record(value);
+    try { positionPopover(); }
+    catch { ui.previewStatus.textContent = "Popup layout unavailable. You can still dictate or type your question."; }
     // Preview generation can wait for native ink or widget snapshots. It is
     // optional UI work, not a microphone prerequisite; submit still performs
     // the authoritative, revision-checked capture before anything is sent.
@@ -335,10 +388,10 @@ var tenetVoice = null;
           ui.previewStatus.textContent = "Preview unavailable. Tenet will retry the same page or selected area before sending.";
       }
     })();
-    await record(value);
+    await recording;
   }
   async function activate() {
-    try { capability = await native.getVoiceCapabilities({locale:navigator.language}); }
+    try { capability = await boundedVoiceCall(native.getVoiceCapabilities({locale:navigator.language}), 10000, "Microphone controls are unavailable."); }
     catch { return; } // Older TestFlight binaries have no voice bridge.
     if (disposed) return;
     const viewport = document.querySelector("#viewport");
@@ -378,7 +431,10 @@ var tenetVoice = null;
     dialog.addEventListener("toggle", positionPopover, {capture:true,signal});
     ui.entry.addEventListener("click", () => { void open(); }, {signal});
     ui.stop.addEventListener("click", quiet, {signal});
-    ui.record.addEventListener("click", () => { void (phase === "listening" ? finish(job) : record(job)).catch(error => message(error?.message || "Dictation stopped.")); }, {signal});
+    ui.record.addEventListener("click", () => {
+      if (["starting", "finalizing"].includes(phase)) { cancelRecordingAttempt(job); return; }
+      void (phase === "listening" ? finish(job) : record(job)).catch(error => message(error?.message || "Dictation stopped."));
+    }, {signal});
     ui.input.addEventListener("input", () => {
       if (job) { job.autoSubmitArmed = false; job.finalTranscript = null; }
       paint();

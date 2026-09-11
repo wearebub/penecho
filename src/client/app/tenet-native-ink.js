@@ -232,9 +232,14 @@
       )) {
         if (!onscreen(element)) continue;
         const box = element.getBoundingClientRect();
-        const x = Math.max(rect.x, box.x), y = Math.max(rect.y, box.y);
-        const width = Math.min(rect.x + rect.width, box.x + box.width) - x;
-        const height = Math.min(rect.y + rect.height, box.y + box.height) - y;
+        if (box.x + box.width <= rect.x || box.y + box.height <= rect.y
+          || box.x >= rect.x + rect.width || box.y >= rect.y + rect.height) continue;
+        // Include the entire border and a small finger/Pencil margin, rather
+        // than letting native ink take the edge of a web-owned control.
+        const padding = 4;
+        const x = Math.max(rect.x, box.x - padding), y = Math.max(rect.y, box.y - padding);
+        const width = Math.min(rect.x + rect.width, box.x + box.width + padding) - x;
+        const height = Math.min(rect.y + rect.height, box.y + box.height + padding) - y;
         if (![x, y, width, height].every(Number.isFinite) || width <= 0 || height <= 0) continue;
         const hole = { x, y, width, height };
         if (exclusions.some(existing => containsRect(existing, hole))) continue;
@@ -465,10 +470,29 @@
       } catch (error) { ready = false; fail(error); emitStatus(); }
     }
     const resizeObserver = new ResizeObserver(scheduleSync);
-    resizeObserver.observe(view);
-    document.querySelectorAll('.topbar, [data-tenet-ink-toolbar], footer, .tenet-voice-entry, .tenet-ai-entry, #tenetNotebookLauncherDock').forEach(element => resizeObserver.observe(element));
-    const mutations = new MutationObserver(scheduleSync);
+    const observedLayout = new Set();
+    function observeControlLayout() {
+      const targets = new Set([view, ...document.querySelectorAll(
+        '.topbar, [data-tenet-ink-toolbar], footer, .tenet-voice-entry, .tenet-ai-entry, .tenet-ai-region-controls, .ai-embodiment, #tenetNotebookLauncherDock, dialog[open]'
+      )]);
+      for (const element of observedLayout) if (!targets.has(element)) {
+        resizeObserver.unobserve(element);
+        observedLayout.delete(element);
+      }
+      for (const element of targets) if (!observedLayout.has(element)) {
+        resizeObserver.observe(element);
+        observedLayout.add(element);
+      }
+    }
+    observeControlLayout();
+    const mutations = new MutationObserver(() => { observeControlLayout(); scheduleSync(); });
     mutations.observe(document.body, { subtree:true, childList:true, attributes:true, attributeFilter:["hidden", "open", "class", "aria-hidden", "aria-expanded"] });
+    // CSS and font completion can move controls without a DOM mutation. In
+    // particular, voice mounts after its asynchronous native capability check.
+    document.addEventListener("load", event => {
+      if (event.target?.tagName === "LINK") { observeControlLayout(); scheduleSync(); }
+    }, { capture:true, signal });
+    document.fonts?.addEventListener?.("loadingdone", scheduleSync, { signal });
     window.addEventListener("resize", scheduleSync, { signal });
     window.visualViewport?.addEventListener("resize", scheduleSync, { signal });
     window.visualViewport?.addEventListener("scroll", scheduleSync, { passive: true, signal });
@@ -509,6 +533,7 @@
       if (syncFrame) cancelAnimationFrame(syncFrame);
       clearTimeout(reportTimer);
       resizeObserver.disconnect();
+      observedLayout.clear();
       mutations.disconnect();
       lifetime.abort();
       for (const listener of listeners) void listener.remove();

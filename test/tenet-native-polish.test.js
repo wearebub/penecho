@@ -132,6 +132,7 @@ async function harness({ engine = "pencilkit" } = {}) {
     ResizeObserver: class {
       constructor(callback) { this.callback = callback; this.elements = []; observers.resize = this; }
       observe(node) { this.elements.push(node); }
+      unobserve(node) { this.elements = this.elements.filter(element => element !== node); }
       disconnect() {}
     },
     MutationObserver: class {
@@ -226,7 +227,9 @@ test("JS behavior: passive zoom preserves native width; an explicit repeated pre
 test("JS behavior: visible Talk, AI, and notebook-collapse controls exclude native hit testing", async () => {
   const h = await harness();
   for (const control of h.controls) {
-    assert.ok(h.configuration().exclusions.some(rect => JSON.stringify(rect) === JSON.stringify(control.getBoundingClientRect())));
+    const box = control.getBoundingClientRect();
+    assert.ok(h.configuration().exclusions.some(rect => rect.x === box.x - 4 && rect.y === box.y - 4
+      && rect.width === box.width + 8 && rect.height === box.height + 8));
     assert.ok(h.observers.resize.elements.includes(control));
   }
   assert.equal(h.observers.mutation.options.childList, true);
@@ -235,6 +238,18 @@ test("JS behavior: visible Talk, AI, and notebook-collapse controls exclude nati
   h.observers.mutation.callback();
   await h.drain();
   assert.equal(h.configuration().exclusions.length, 2);
+});
+
+test("JS behavior: controls added after startup are observed and CSS resize updates full native holes", async () => {
+  const h = await harness();
+  const late = element(".tenet-voice-entry", {x:850,y:120,width:52,height:20});
+  h.controls.push(late); h.observers.mutation.callback(); await h.drain();
+  assert(h.observers.resize.elements.includes(late));
+  late.getBoundingClientRect = () => ({x:850,y:120,width:52,height:52});
+  h.observers.resize.callback(); await h.drain();
+  assert(h.configuration().exclusions.some(box => box.x===846 && box.y===116 && box.width===60 && box.height===60));
+  h.controls.splice(h.controls.indexOf(late),1); h.observers.mutation.callback(); await h.drain();
+  assert.equal(h.observers.resize.elements.includes(late),false);
 });
 
 test("JS behavior: invalid move coordinates and oversized polygons reject before transport", async () => {

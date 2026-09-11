@@ -15,7 +15,20 @@ final class TenetVoiceSession: NSObject, AVSpeechSynthesizerDelegate {
     private static let maximumUtteranceCharacters = 4_000
     private static let typingFallback = "On-device voice is unavailable. You can still type your question."
 
-    private enum Phase { case permissions, listening, finishing }
+    private enum Phase { case permissions, starting, listening, finishing }
+    // Only a readiness flag crosses the audio/main queues, never an audio buffer.
+    private final class InputReadiness {
+        private let lock = NSLock()
+        private var reported = false
+        func claim() -> Bool {
+            // Never wait on a lock in the audio callback.
+            guard lock.try() else { return false }
+            defer { lock.unlock() }
+            guard !reported else { return false }
+            reported = true
+            return true
+        }
+    }
     private struct CompletedTranscript {
         let sessionId: String
         let text: String
@@ -185,6 +198,9 @@ final class TenetVoiceSession: NSObject, AVSpeechSynthesizerDelegate {
             "autoSubmitSilenceSeconds": Self.transcriptPauseSeconds,
             "supportsSilenceAutoSubmit": false,
             "autoSubmitTrigger": "transcript-inactivity",
+            "confirmsAudioInput": true,
+            "speechPermission": SFSpeechRecognizer.authorizationStatus() == .authorized ? "authorized" : "not-authorized",
+            "microphonePermission": AVAudioSession.sharedInstance().recordPermission == .granted ? "granted" : "not-granted",
         ]
         guard !closed, authority() != nil else {
             result["reason"] = "Sign in to your configured district to use voice."
@@ -333,11 +349,12 @@ final class TenetVoiceSession: NSObject, AVSpeechSynthesizerDelegate {
             request.shouldReportPartialResults = true
             request.taskHint = .dictation
             self.request = request
+            phase = .starting
             let currentGeneration = generation
             recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
                 DispatchQueue.main.async {
                     guard let self, self.generation == currentGeneration,
-                          self.phase == .listening || self.phase == .finishing else { return }
+                          self.phase == .starting || self.phase == .listening || self.phase == .finishing else { return }
                     guard self.authorityMatches(), UIApplication.shared.applicationState == .active else {
                         self.cancelAll()
                         return
@@ -360,27 +377,47 @@ final class TenetVoiceSession: NSObject, AVSpeechSynthesizerDelegate {
                     }
                 }
             }
-            input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
+            let readiness = InputReadiness()
+            input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
                 request.append(buffer)
+                if buffer.frameLength > 0 && readiness.claim() {
+                    DispatchQueue.main.async { [weak self] in
+                        self?.confirmMicrophoneInput(generation: currentGeneration)
+                    }
+                }
             }
             tappedInput = input
             engine.prepare()
             try engine.start()
-            phase = .listening
             permissionDeadline = nil
             let deadline = DispatchWorkItem { [weak self] in
-                guard let self, self.generation == currentGeneration else { return }
-                self.beginFinalization(reason: "max-duration")
+                guard let self, self.generation == currentGeneration, self.phase == .starting else { return }
+                self.fail("The microphone did not deliver audio. Check the iPad audio input, then tap Record again. You can still type your question.")
             }
             recordingDeadline = deadline
-            DispatchQueue.main.asyncAfter(deadline: .now() + Self.maximumRecordingSeconds, execute: deadline)
-            let pending = startCall
-            startCall = nil
-            pending?.resolve()
-            emitState("listening")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: deadline)
         } catch {
             fail(Self.typingFallback)
         }
+    }
+
+    private func confirmMicrophoneInput(generation expectedGeneration: UUID) {
+        guard generation == expectedGeneration, phase == .starting else { return }
+        guard authorityMatches(), UIApplication.shared.applicationState == .active,
+              engine?.isRunning == true else { cancelAll(); return }
+        recordingDeadline?.cancel()
+        phase = .listening
+        let deadline = DispatchWorkItem { [weak self] in
+            guard let self, self.generation == expectedGeneration else { return }
+            self.beginFinalization(reason: "max-duration")
+        }
+        recordingDeadline = deadline
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.maximumRecordingSeconds, execute: deadline)
+        let pending = startCall
+        startCall = nil
+        pending?.resolve(["state": "listening", "audioInput": true])
+        emitState("listening")
+        updateTranscriptPause()
     }
 
     private func updateTranscriptPause() {
@@ -449,7 +486,7 @@ final class TenetVoiceSession: NSObject, AVSpeechSynthesizerDelegate {
             call.reject("The signed-in session changed.", "voice_session_unavailable")
             return
         }
-        if phase == .permissions {
+        if phase == .permissions || phase == .starting {
             cancelRecognition(sessionId: requestedId)
             call.resolve(["text": ""])
             return

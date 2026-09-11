@@ -2,10 +2,10 @@
 .tenet-voice-entry button { width:124px; max-width:100%; white-space:normal; }
 .tenet-voice-entry button, .tenet-voice-dialog button { min-height:44px; padding:8px 13px; border:1px solid #c2cbc8; border-radius:11px; background:#fffdf7; color:#173d4d; font:700 13px "Avenir Next",Avenir,sans-serif; touch-action:manipulation; }
 .tenet-voice-entry [data-voice="open"], .tenet-voice-dialog [data-voice="ask"] { color:#fffdf7; background:#173d4d; border-color:#173d4d; }
-.tenet-voice-entry > [data-voice="open"] { display:grid; place-items:center; width:52px; height:52px; padding:0; border-radius:16px; box-shadow:0 4px 14px #173d4d26; }
+.tenet-voice-entry > [data-voice="open"] { box-sizing:border-box; display:grid; place-items:center; flex:0 0 52px; width:52px; min-width:52px; height:52px; min-height:52px; padding:0; border:2px solid var(--studio-accent,#4f46e5); border-radius:50%; background:#fff; color:var(--studio-accent,#4f46e5); touch-action:manipulation; pointer-events:auto; box-shadow:0 2px 7px #172a3a1a; }
 .tenet-voice-entry > [data-voice="open"] svg { width:27px; height:27px; pointer-events:none; }
-.tenet-voice-entry > [data-voice="open"][aria-expanded="true"] { background:#215d50; border-color:#215d50; box-shadow:0 0 0 3px #d7e9df; }
-.tenet-voice-entry > [data-voice="open"]:focus-visible { outline:3px solid #2f6fbb; outline-offset:3px; }
+.tenet-voice-entry > [data-voice="open"][aria-expanded="true"] { background:#fff; border-color:var(--studio-accent,#4f46e5); box-shadow:0 0 0 3px var(--studio-accent-soft,#e7e8fb); }
+.tenet-voice-entry > [data-voice="open"]:focus-visible { outline:3px solid var(--studio-accent,#4f46e5); outline-offset:3px; }
 .tenet-voice-entry [data-voice-phase="listening"] .tenet-mic-wave { transform-box:fill-box; transform-origin:center; animation:tenet-mic-listening .85s ease-in-out infinite alternate; }
 .tenet-voice-entry [data-voice-phase="listening"] .tenet-mic-wave:last-child { animation-delay:-.4s; }
 @keyframes tenet-mic-listening { from { transform:scaleY(.45); opacity:.6; } to { transform:scaleY(1); opacity:1; } }

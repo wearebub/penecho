@@ -623,6 +623,194 @@
     }
   }
 
+  function installCompactIpadChrome() {
+    if (!isNativeIos() || document.getElementById("tenetPageMenuButton")) return;
+    const host = document.getElementById("canvasFileActions");
+    const toolbar = document.querySelector("[data-tenet-ink-toolbar]");
+    if (!host || !toolbar) return;
+    const lifetime = new AbortController(), signal = lifetime.signal;
+    const reason = "tenet-page-menu";
+    const icon = paths => {
+      const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      svg.setAttribute("viewBox", "0 0 24 24");
+      svg.setAttribute("aria-hidden", "true");
+      for (const d of paths) {
+        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        path.setAttribute("d", d); svg.append(path);
+      }
+      return svg;
+    };
+    document.body.classList.add("tenet-compact-chrome");
+    toolbar.id ||= "tenetDrawingControls";
+    const toolsButton = document.createElement("button");
+    toolsButton.id = "tenetDrawingToolsToggle";
+    toolsButton.type = "button";
+    toolsButton.className = "tenet-chrome-toggle";
+    toolsButton.setAttribute("aria-controls", toolbar.id);
+    toolsButton.append(icon(["M4 7h16M4 17h16", "M8 4v6M16 14v6"]), document.createTextNode("Tools"));
+    const expandTools = expanded => {
+      if (!expanded && toolbar.contains(document.activeElement)) toolsButton.focus({ preventScroll: true });
+      toolbar.hidden = !expanded;
+      document.body.dataset.tenetToolsExpanded = String(expanded);
+      toolsButton.setAttribute("aria-expanded", String(expanded));
+      toolsButton.setAttribute("aria-label", expanded ? "Hide drawing tools" : "Show drawing tools");
+      toolsButton.title = expanded ? "Hide drawing tools" : "Show drawing tools";
+      tenetInkController?.sync?.();
+    };
+    toolsButton.addEventListener("click", () => expandTools(toolbar.hidden), { signal });
+
+    const trigger = document.createElement("button");
+    trigger.id = "tenetPageMenuButton";
+    trigger.type = "button";
+    trigger.className = "tenet-chrome-toggle tenet-page-menu-toggle";
+    trigger.title = "Notebook menu";
+    trigger.setAttribute("aria-label", "Notebook menu: new, open, export PDF, and pages");
+    trigger.setAttribute("aria-haspopup", "dialog");
+    trigger.setAttribute("aria-controls", "tenetPageMenu");
+    trigger.setAttribute("aria-expanded", "false");
+    trigger.append(icon(["M5 6h14M5 12h14M5 18h14"]));
+    const menu = document.createElement("dialog");
+    menu.id = "tenetPageMenu";
+    menu.className = "tenet-page-menu";
+    menu.setAttribute("aria-labelledby", "tenetPageMenuTitle");
+    const heading = document.createElement("header");
+    const title = document.createElement("h2");
+    title.id = "tenetPageMenuTitle"; title.textContent = "Your notebook";
+    const closeButton = document.createElement("button");
+    closeButton.type = "button"; closeButton.className = "tenet-page-menu-close";
+    closeButton.setAttribute("aria-label", "Close notebook menu");
+    closeButton.append(icon(["M6 6l12 12M18 6 6 18"]));
+    heading.append(title, closeButton);
+    const actions = document.createElement("div");
+    actions.className = "tenet-page-menu-actions";
+    const specifications = [
+      ["newCanvasBtn", "New page", ["M6 3h8l4 4v14H6Z", "M14 3v4h4M9 14h6M12 11v6"]],
+      ["tenetOpenDocumentBtn", "Open document", ["M3 7h7l2 2h9l-3 11H3Z", "M3 7V4h7l2 3h8v2"]],
+      ["exportPngBtn", "Export PDF", ["M12 3v12M7 10l5 5 5-5", "M5 15v5h14v-5"]],
+      ["historyBtn", "Pages & files", ["M5 3h14v18H5Z", "M9 3v18M12 8h4M12 12h4"]],
+    ];
+    for (const [id, label, paths] of specifications) {
+      const button = document.getElementById(id);
+      if (!button) continue;
+      button.classList.add("tenet-page-menu-action");
+      button.replaceChildren(icon(paths), document.createTextNode(label));
+      // Move the actual controls, not copies: their native import/export and
+      // notebook handlers, disabled state, and element identities stay intact.
+      actions.append(button);
+    }
+    const scopeSection = document.createElement("section");
+    scopeSection.className = "tenet-menu-tutor-scope";
+    scopeSection.hidden = true;
+    const scopeTitle = document.createElement("h3"); scopeTitle.textContent = "Tutor view";
+    const scopeControl = document.createElement("div"); scopeControl.className = "tenet-menu-scope-control";
+    const scopeHelp = document.createElement("p");
+    scopeHelp.id = "tenetTutorViewHelp";
+    scopeHelp.textContent = "Choose recent writing for your latest step, or the visible page for more context. Circled questions keep their selected area.";
+    scopeSection.append(scopeTitle, scopeControl, scopeHelp);
+    menu.append(heading, actions, scopeSection);
+    host.append(toolsButton, trigger);
+    document.body.append(menu);
+
+    let opening = false, suspended = false, epoch = 0;
+    const releaseInk = () => {
+      if (!suspended) return;
+      suspended = false;
+      void window.TenetInk?.resume(reason);
+    };
+    const positionMenu = () => {
+      const bounds = trigger.getBoundingClientRect();
+      const width = document.documentElement.clientWidth || window.innerWidth;
+      const visual = window.visualViewport;
+      const rightEdge = (visual?.offsetLeft || 0) + (visual?.width || width);
+      const bottom = (visual?.offsetTop || 0) + (visual?.height || window.innerHeight);
+      const top = Math.max(12 + (visual?.offsetTop || 0), Math.min(bounds.bottom + 10, bottom - 120));
+      const style = runtimeElementStyle(menu, "tenet-page-menu");
+      if (!style) return;
+      style.setProperty("--tenet-page-menu-top", top + "px");
+      style.setProperty("--tenet-page-menu-right", Math.max(12, width - Math.min(bounds.right, rightEdge - 12)) + "px");
+      style.setProperty("--tenet-page-menu-height", Math.max(80, bottom - top - 12) + "px");
+    };
+    const safelyPositionMenu = () => { try { positionMenu(); } catch { /* CSS provides a safe fallback position. */ } };
+    trigger.addEventListener("click", async () => {
+      if (opening || menu.open) return;
+      const attempt = ++epoch;
+      opening = true; suspended = true;
+      trigger.setAttribute("aria-busy", "true");
+      try {
+        await window.TenetInk?.suspend(reason);
+        if (signal.aborted || attempt !== epoch || document.hidden) return;
+        safelyPositionMenu();
+        menu.showModal();
+        trigger.setAttribute("aria-expanded", "true");
+      } catch (error) {
+        showTenetMessage(error?.message || "Lift your Pencil and try the notebook menu again.", "error");
+      } finally {
+        opening = false;
+        trigger.removeAttribute("aria-busy");
+        if (!menu.open) releaseInk();
+      }
+    }, { signal });
+    closeButton.addEventListener("click", () => menu.close(), { signal });
+    actions.addEventListener("click", event => {
+      const button = event.target.closest?.("button.tenet-page-menu-action");
+      if (button && !button.disabled && menu.open) menu.close();
+    }, { capture: true, signal });
+    menu.addEventListener("pointerdown", event => {
+      if (event.target !== menu) return;
+      const box = menu.getBoundingClientRect();
+      if (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom) {
+        event.preventDefault(); menu.close();
+      }
+    }, { signal });
+    menu.addEventListener("keydown", event => event.stopPropagation(), { signal });
+    menu.addEventListener("close", () => {
+      trigger.setAttribute("aria-expanded", "false");
+      releaseInk();
+      if (!signal.aborted && !document.hidden && !document.querySelector("dialog[open]")) trigger.focus({ preventScroll: true });
+    }, { signal });
+    window.addEventListener("resize", () => { if (menu.open) safelyPositionMenu(); }, { signal });
+    window.visualViewport?.addEventListener("resize", () => { if (menu.open) safelyPositionMenu(); }, { signal });
+    window.visualViewport?.addEventListener("scroll", () => { if (menu.open) safelyPositionMenu(); }, { signal });
+
+    // The native scope control arrives asynchronously. Relocate the existing
+    // selector without rewriting its value or registering another AI pathway.
+    let scopeAttached = false;
+    const attachTutorScope = () => {
+      if (scopeAttached || signal.aborted) return;
+      const select = [...document.querySelectorAll("select")].find(control => {
+        const labels = [...control.options].map(option => option.label || option.textContent || "");
+        return labels.some(label => /recent\s+writing/i.test(label)) && labels.some(label => /visible\s+page/i.test(label));
+      });
+      if (!select) return;
+      const label = select.closest("label");
+      const element = label && label.querySelectorAll("select,input,button").length === 1 ? label : select;
+      if (!label) select.setAttribute("aria-label", "Tutor view");
+      const describedBy = new Set((select.getAttribute("aria-describedby") || "").split(/\s+/).filter(Boolean));
+      describedBy.add(scopeHelp.id); select.setAttribute("aria-describedby", [...describedBy].join(" "));
+      scopeControl.append(element);
+      scopeSection.hidden = false;
+      scopeAttached = true;
+      scopeObserver.disconnect();
+    };
+    const scopeObserver = new MutationObserver(attachTutorScope);
+    scopeObserver.observe(document.body, { childList: true, subtree: true });
+    attachTutorScope();
+    window.addEventListener("tenet:ink-status", attachTutorScope, { signal });
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) return;
+      epoch++;
+      if (menu.open) menu.close();
+      releaseInk();
+    }, { signal });
+    window.addEventListener("pagehide", event => {
+      epoch++;
+      if (menu.open) menu.close();
+      releaseInk();
+      if (!event.persisted) { scopeObserver.disconnect(); lifetime.abort(); }
+    }, { signal });
+    expandTools(false);
+  }
+
   function installCanvasChromeLayout() {
     const viewport = document.getElementById("viewport");
     if (!viewport) return;
@@ -875,6 +1063,7 @@
     configureHeaderActions();
     installDrawingTools();
     installShapeTools();
+    installCompactIpadChrome();
     installCanvasChromeLayout();
     configureTitleDismissal();
     hideLegacyPencilAction();

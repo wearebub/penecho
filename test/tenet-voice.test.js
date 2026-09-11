@@ -11,7 +11,7 @@ class Element extends EventTarget {
   show() { this.open=true; } showModal() { this.open=true; } close() { this.open=false; }
 }
 function harness(overrides={}) {
-  const events=new Map(), calls=[], timers=new Map(), storage=new Map();
+  const events=new Map(), calls=[], timers=new Map(), timeouts=new Map(), storage=new Map();
   let timer=0;
   const native={
     async getVoiceCapabilities(){return {supported:true,onDevice:true,locale:"en-US"};},
@@ -27,7 +27,8 @@ function harness(overrides={}) {
   const state={snapshotLoadGeneration:1,userRevision:2,recognitionGeneration:3};
   const context=vm.createContext({window,document,state,AbortController,crypto:require("node:crypto").webcrypto,navigator:{language:"en-US"},
     localStorage:{getItem:key=>storage.get(key),setItem:(key,value)=>storage.set(key,value)},
-    setInterval:fn=>{timers.set(++timer,fn);return timer;},clearInterval:id=>timers.delete(id),clearTimeout(){},
+    setInterval:fn=>{timers.set(++timer,fn);return timer;},clearInterval:id=>timers.delete(id),
+    setTimeout:(fn,ms)=>{timeouts.set(++timer,{fn,ms});return timer;},clearTimeout:id=>timeouts.delete(id),
     tenetInkController:{async suspend(){calls.push(["suspend"]);},async resume(){calls.push(["resume"]);}},
     tenetInkFlush:async()=>{},tenetCanvasAI:{close(){}},tenetInkMessage:text=>calls.push(["message",text]),
     tenetRegionGeometry:points=>({x:Math.min(...points.map(p=>p.x)),y:Math.min(...points.map(p=>p.y)),w:Math.max(...points.map(p=>p.x))-Math.min(...points.map(p=>p.x)),h:Math.max(...points.map(p=>p.y))-Math.min(...points.map(p=>p.y))}),
@@ -38,7 +39,7 @@ function harness(overrides={}) {
     requestAI:async(action,packed,options)=>{calls.push(["request",action,packed,options]);if(options.isCurrent())options.onReply("Start by identifying the known values.");},
   });
   new vm.Script(instrumented).runInContext(context);
-  return {api:context.voiceTest,context,state,native,events,calls,timers,storage,document,window};
+  return {api:context.voiceTest,context,state,native,events,calls,timers,timeouts,storage,document,window};
 }
 test("plain voice question needs no lasso and uses the disclosed visible-page crop",async()=>{
   const h=harness(); await h.api.activate(); await h.api.open();
@@ -139,6 +140,80 @@ function autoSendHarness() {
   return harness({async getVoiceCapabilities(){return {supported:true,onDevice:true,locale:"en-US",supportsSilenceAutoSubmit:true,autoSubmitSilenceSeconds:1.5};}});
 }
 const settle = () => new Promise(resolve=>setImmediate(resolve));
+
+function enablePopoverLayout(h, mode = "valid") {
+  const keys = [];
+  h.document.documentElement = {clientWidth:1024,clientHeight:768};
+  h.window.innerWidth = 1024; h.window.innerHeight = 768;
+  h.api.ui.entry.getBoundingClientRect = () => ({left:940,right:992,top:130,bottom:182,width:52,height:52});
+  h.api.ui.dialog.scrollHeight = 330;
+  h.context.runtimeElementStyle = (_element,key) => {
+    keys.push(key);
+    if (mode === "throw") throw Error("Stylesheet unavailable");
+    return key && mode !== "missing" ? {setProperty(){}} : null;
+  };
+  return keys;
+}
+
+test("microphone entry starts the same recorder as Record again with real popup layout enabled",async()=>{
+  const h=harness(); await h.api.activate();
+  const keys=enablePopoverLayout(h);
+  h.api.ui.entry.dispatchEvent(new Event("click")); await settle();
+  assert(keys.includes("tenet-voice-popover"));
+  assert.equal(h.api.phase,"listening"); assert.equal(h.api.ui.record.disabled,false);
+  const first=h.calls.filter(call=>call[0]==="start"); assert.equal(first.length,1);
+  await h.api.finish(h.api.job);
+  h.api.ui.input.value="Typed question"; h.api.ui.input.dispatchEvent(new Event("input"));
+  h.api.ui.record.dispatchEvent(new Event("click")); await settle();
+  const starts=h.calls.filter(call=>call[0]==="start"); assert.equal(starts.length,2);
+  assert.equal(starts[0][1].locale,starts[1][1].locale);
+  assert.notEqual(starts[0][1].sessionId,starts[1][1].sessionId);
+  assert.equal(h.api.phase,"listening"); h.api.cancel(); assert.equal(h.timeouts.size,0);
+});
+
+test("missing or failed popup styling cannot block microphone automatic startup",async()=>{
+  for(const mode of ["missing","throw"]) {
+    const h=harness(); await h.api.activate(); enablePopoverLayout(h,mode);
+    h.api.ui.entry.dispatchEvent(new Event("click")); await settle();
+    assert.equal(h.api.phase,"listening"); assert.equal(h.api.ui.record.disabled,false);
+    assert.equal(h.calls.filter(call=>call[0]==="start").length,1); h.api.cancel();
+  }
+});
+
+test("an audio-confirming native bridge cannot claim listening without input confirmation",async()=>{
+  const h=harness({
+    async getVoiceCapabilities(){return {supported:true,onDevice:true,locale:"en-US",confirmsAudioInput:true,microphonePermission:"granted",speechPermission:"authorized"};},
+    async startVoiceRecognition(){return {state:"listening",audioInput:false};},
+  });
+  await h.api.activate(); await h.api.open();
+  assert.equal(h.api.phase,"idle"); assert.equal(h.api.ui.record.disabled,false);
+  assert(h.calls.some(call=>call[0]==="cancel")); assert.equal(h.timeouts.size,0); h.api.cancel();
+});
+
+test("pending startup is cancellable and late native resolution cannot restart it",async()=>{
+  let resolveStart;
+  const h=harness({startVoiceRecognition:()=>new Promise(resolve=>{resolveStart=resolve;})});
+  await h.api.activate(); const opening=h.api.open(); await settle();
+  const retired=h.api.job.sessionId;
+  assert.equal(h.api.phase,"starting"); assert.equal(h.api.ui.record.disabled,false);
+  h.api.ui.record.dispatchEvent(new Event("click"));
+  assert.equal(h.api.phase,"idle"); assert.notEqual(h.api.job.sessionId,retired);
+  resolveStart(); await opening;
+  assert.equal(h.api.phase,"idle"); assert.equal(h.calls.some(call=>call[0]==="request"),false);
+  assert(h.calls.some(call=>call[0]==="cancel" && call[1].sessionId===retired)); h.api.cancel();
+});
+
+test("a stalled startup times out and exposes retry without submitting or reopening",async()=>{
+  const h=harness({
+    async getVoiceCapabilities(){return {supported:true,onDevice:true,locale:"en-US",microphonePermission:"granted",speechPermission:"authorized"};},
+    startVoiceRecognition:()=>new Promise(()=>{}),
+  });
+  await h.api.activate(); const opening=h.api.open(); await settle();
+  const deadline=[...h.timeouts.values()].find(timer=>timer.ms===15000); assert(deadline);
+  deadline.fn(); await opening;
+  assert.equal(h.api.phase,"idle"); assert.equal(h.api.ui.record.disabled,false);
+  assert.equal(h.calls.some(call=>call[0]==="request"),false); assert.equal(h.timeouts.size,0); h.api.cancel();
+});
 
 test("Talk starts recording without waiting for ink suspension or page preview",async()=>{
   for(const blocked of ["suspend","preview"]) {

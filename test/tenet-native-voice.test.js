@@ -34,10 +34,24 @@ test("microphone audio has both Apple on-device gates and no cloud, file, or log
   assert.match(capture, /guard let recognizer, recognizer\.supportsOnDeviceRecognition, recognizer\.isAvailable/);
   assert.match(capture, /request\.requiresOnDeviceRecognition = true/);
   assert.ok(capture.indexOf("request.requiresOnDeviceRecognition = true") < capture.indexOf("recognizer.recognitionTask(with: request)"));
-  assert.match(capture, /input\.installTap\(onBus: 0, bufferSize: 1024, format: format\) \{ buffer, _ in\s*request\.append\(buffer\)\s*\}/);
+  assert.match(capture, /input\.installTap\(onBus: 0, bufferSize: 1024, format: format\) \{ \[weak self\] buffer, _ in\s*request\.append\(buffer\)/);
   assert.doesNotMatch(voice, /TenetVoiceSilenceDetector|floatChannelData|silentSeconds|finalTranscriptActivity/);
   assert.doesNotMatch(voice, /requiresOnDeviceRecognition\s*=\s*false|SFSpeechURLRecognitionRequest|URLSession|URLRequest|AVAudioFile|AVAudioRecorder|FileManager|UserDefaults|\.write\(|print\(|NSLog|Logger\(/);
   assert.doesNotMatch(voice, /error\.localizedDescription/);
+});
+
+test("native start resolves only after a nonempty audio buffer and has a bounded no-input failure", () => {
+  const capture = section(voice,"private func beginRecording()","private func updateTranscriptPause()");
+  assert.match(capture,/phase = \.starting/);
+  assert.match(capture,/buffer\.frameLength > 0/);
+  assert.match(capture,/confirmMicrophoneInput\(generation: currentGeneration\)/);
+  assert.match(capture,/\.now\(\) \+ 5/);
+  const confirmed = section(voice,"private func confirmMicrophoneInput(","private func updateTranscriptPause()");
+  assert.match(confirmed,/generation == expectedGeneration, phase == \.starting/);
+  assert.match(confirmed,/engine\?\.isRunning == true/);
+  assert.match(confirmed,/"state": "listening", "audioInput": true/);
+  assert.match(confirmed,/recordingDeadline\?\.cancel\(\)/);
+  assert.match(voice,/"confirmsAudioInput": true/);
 });
 
 test("capabilities do not prompt and permission callbacks cannot resurrect a cancelled generation", () => {
@@ -159,7 +173,7 @@ test("manual stop, cancellation and cleanup revoke pending automatic transcript 
   assert.match(stopMic, /request\?\.endAudio\(\)/);
   const stop = section(voice, "func stop(_ call:", "private func beginFinalization(reason:");
   assert.match(stop, /guard sessionId == requestedId, phase != nil/);
-  assert.match(stop, /if phase == \.permissions \{\s*cancelRecognition\(sessionId: requestedId\)/);
+  assert.match(stop, /if phase == \.permissions \|\| phase == \.starting \{\s*cancelRecognition\(sessionId: requestedId\)/);
   assert.match(stop, /if phase == \.finishing \{ finalizationReason = "manual" \}\s*beginFinalization\(\)/);
   const cleanup = section(voice, "private func cleanupRecognition()", "func cancelRecognition(");
   assert.match(cleanup, /stopMicrophone\(\)/);
