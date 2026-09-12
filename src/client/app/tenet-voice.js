@@ -121,6 +121,14 @@ var tenetVoice = null;
         : "Tap Ask Tenet to send your transcript and visible page to your district Gateway. Audio stays on this iPad. Off-screen work is not included.";
     ui.preview.alt = context ? "Circled area included with your question" : "Visible page included with your question";
   }
+  function refreshVoiceQuality() {
+    if (!ui?.voiceQuality) return;
+    ui.voiceQuality.textContent = capability?.voiceName
+      ? `Voice: ${capability.voiceName} (${capability.voiceQuality || "standard"}). `
+      : "Using an installed iPad voice. ";
+    if (!capability?.voiceName || capability.voiceNeedsDownload)
+      ui.voiceQuality.textContent += "For a more natural voice, download an Enhanced or Premium voice in Settings > Accessibility > Read & Speak > Voices (Spoken Content on older iPads).";
+  }
   function paint() {
     if (!ui) return;
     const recording = ["starting", "listening"].includes(phase);
@@ -172,7 +180,8 @@ var tenetVoice = null;
     value.finalTranscript = null;
     value.autoSubmittedSessionId = null;
     phase = "starting";
-    ui.input.value = "";
+    // Keep the current question until new words actually replace it. A failed
+    // permission/start retry must not erase a completed or typed question.
     message("Starting on-device dictation...");
     paint();
     try {
@@ -181,6 +190,7 @@ var tenetVoice = null;
       if (!isOpenVoiceJob(value, recordingSessionId) || phase !== "starting") return;
       capability = refreshed;
       disclose(value);
+      refreshVoiceQuality();
       if (!capability?.supported) {
         phase = "idle";
         message(capability?.reason || "On-device dictation is unavailable. Check microphone and speech permissions, then tap Record again.");
@@ -217,9 +227,9 @@ var tenetVoice = null;
     phase = "finalizing";
     paint();
     try {
-      const result = await boundedVoiceCall(native.stopVoiceRecognition({sessionId:recordingSessionId}), 6000,
+      const result = await boundedVoiceCall(native.stopVoiceRecognition({sessionId:recordingSessionId}), 8000,
         "Transcription did not finish. Your text is retained; record again or send it manually.");
-      if (isOpenVoiceJob(value, recordingSessionId) && typeof result?.text === "string") ui.input.value = result.text.slice(0, 1000);
+      if (isOpenVoiceJob(value, recordingSessionId) && typeof result?.text === "string" && result.text.trim()) ui.input.value = result.text.slice(0, 1000);
     } catch (error) {
       if (isOpenVoiceJob(value, recordingSessionId)) {
         value.sessionId = crypto.randomUUID();
@@ -283,6 +293,7 @@ var tenetVoice = null;
         onReply(reply) {
           if (!current(value) || responseReceived) return;
           responseReceived = true;
+          value.replyReceived = true;
           ui.dialog.close();
           ui.preview.removeAttribute("src");
           ui.input.value = "";
@@ -310,7 +321,7 @@ var tenetVoice = null;
     const value = job;
     if (!isOpenVoiceJob(value, event.sessionId) || !["starting","listening","finalizing"].includes(phase)) return;
     if (typeof event.text === "string") {
-      ui.input.value = event.text.slice(0, 1000);
+      if (event.text.trim()) ui.input.value = event.text.slice(0, 1000);
       value.finalTranscript = event.isFinal === true && event.text.length <= 1000
         ? {sessionId:event.sessionId, text:event.text} : null;
     }
@@ -327,7 +338,11 @@ var tenetVoice = null;
       paint();
       return;
     }
-    if (!["error","cancelled","stopped"].includes(event.state)) return;
+    if (!["error","cancelled","stopped"].includes(event.state) || !["starting","listening","finalizing"].includes(phase)) return;
+    // Even a non-final timeout/error can carry newer reviewable words than the
+    // last partial callback. Preserve them, but never auto-send partial text.
+    if (typeof event.text === "string" && event.text.length <= 1000 && event.text.trim())
+      ui.input.value = event.text;
     // New native builds deliver final text with the terminal event. Do not
     // depend on ordering between two distinct Capacitor notifications, and do
     // not fall back to older text if an explicit terminal payload is invalid.
@@ -351,12 +366,15 @@ var tenetVoice = null;
       void submit();
     } else {
       message(event.message || (event.reason === "no-speech"
-        ? "No question heard. Record again or type below."
+        ? ui.input.value.trim() ? "No new words were heard. Your existing question is still here; review it and tap Ask Tenet." : "No question heard. Record again or type below."
         : "Dictation stopped. Review your question and tap Ask Tenet."));
     }
     paint();
   }
   async function open(selection = null) {
+    // A second tap on the microphone is not permission to discard a question
+    // or restart its recording. Replacement is explicit through Record again.
+    if (!selection && current(job) && ui?.dialog.open) return;
     if (!listenersReady) { tenetInkMessage("Connecting the microphone controls. Please try again in a moment."); return; }
     if (state.busy || state.pending || state.pendingWidget || state.drawing) {
       tenetInkMessage("Finish the current drawing or AI draft before starting a voice question."); return;
@@ -423,11 +441,8 @@ var tenetVoice = null;
     find(dialog,"details").append(ui.previewStatus);
     const voiceQuality = document.createElement("p");
     voiceQuality.className = "tenet-voice-quality";
-    voiceQuality.textContent = capability.voiceName
-      ? `Voice: ${capability.voiceName} (${capability.voiceQuality || "standard"}). `
-      : "Using an installed iPad voice. ";
-    if (!capability.voiceName || capability.voiceNeedsDownload)
-      voiceQuality.textContent += "For a more natural voice, download an Enhanced or Premium voice in Settings > Accessibility > Read & Speak > Voices (Spoken Content on older iPads).";
+    ui.voiceQuality = voiceQuality;
+    refreshVoiceQuality();
     find(dialog,"details").append(voiceQuality);
     tenetVoice = {openSelection:selection => open(selection)};
     try { ui.reply.checked = localStorage.getItem(preference) === "true"; } catch {}
@@ -451,7 +466,7 @@ var tenetVoice = null;
     dialog.querySelector("form").addEventListener("submit", event => { event.preventDefault(); void submit(); }, {signal});
     find(dialog,"cancel").addEventListener("click", cancel, {signal});
     dialog.addEventListener("cancel", event => { event.preventDefault(); cancel(); }, {signal});
-    dialog.addEventListener("close", () => { if (!dialog.open && phase !== "sending" && job) cancel(); }, {signal});
+    dialog.addEventListener("close", () => { if (!dialog.open && phase !== "sending" && job && !job.replyReceived) cancel(); }, {signal});
     document.addEventListener("pointerdown", event => {
       if (dialog.open && !group.contains(event.target)) cancel();
     }, {capture:true,signal});

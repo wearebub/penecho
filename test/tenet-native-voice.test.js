@@ -73,7 +73,7 @@ test("capabilities do not prompt and permission callbacks cannot resurrect a can
 
 test("recording, UTF-16 text, finalization and transient handoff are bounded", () => {
   assert.match(voice, /maximumRecordingSeconds: TimeInterval = 60/);
-  assert.match(voice, /finalizationSeconds: TimeInterval = 2/);
+  assert.match(voice, /finalizationSeconds: TimeInterval = 5/);
   assert.match(voice, /maximumTranscriptCharacters = 1_000/);
   assert.match(voice, /maximumUtteranceCharacters = 4_000/);
   assert.match(voice, /guard units \+ size <= maximumTranscriptCharacters/);
@@ -224,4 +224,30 @@ test("generated iPad privacy descriptions disclose transcript-pause auto-send wi
   }
   assert.match(info, /only transcribed text from your speech/);
   assert.doesNotMatch(info, /UIBackgroundModes|NSUserTrackingUsageDescription/);
+});
+
+
+test("audio session teardown follows recognition cleanup, not microphone stop", () => {
+  const stop = section(voice, "private func stopMicrophone()", "func stop(_ call:");
+  assert.match(stop, /request\?\.endAudio\(\)/);
+  assert.doesNotMatch(stop, /deactivateAudioIfIdle\(|setActive\(false/);
+  const cleanup = section(voice, "private func cleanupRecognition()", "func cancelRecognition(");
+  assert.ok(cleanup.indexOf("deactivateAudioIfIdle()") > cleanup.indexOf("recognitionTask?.cancel()"));
+  assert.ok(cleanup.indexOf("deactivateAudioIfIdle()") > cleanup.indexOf("phase = nil"));
+});
+
+test("recognizer close errors retain final results and keep an unfinished result deadline-bound", () => {
+  const capture = section(voice, "private func beginRecording()", "private func confirmMicrophoneInput(");
+  assert.match(capture, /if error != nil[\s\S]*if self\.hasFinalTranscript[\s\S]*self\.completeRecording\(\)[\s\S]*self\.updateTranscriptPause\(\)/);
+  assert.match(capture, /if self\.phase == \.finishing \{ return \}/);
+  const fail = section(voice, "private func fail(", "private func cleanupRecognition()");
+  assert.match(fail, /authorityMatches\(\) && UIApplication\.shared\.applicationState == \.active/);
+  assert.match(fail, /emitState\("error", message: message, text: retainedText, isFinal: false\)/);
+  assert.ok(fail.indexOf("emitState(") < fail.indexOf("cleanupRecognition()"));
+});
+
+test("web Stop leaves bridge headroom after the bounded native final-result wait", () => {
+  const client = fs.readFileSync(path.join(root,"src/client/app/tenet-voice.js"),"utf8");
+  assert.match(voice, /finalizationSeconds: TimeInterval = 5/);
+  assert.match(client, /native\.stopVoiceRecognition\(\{sessionId:recordingSessionId\}\), 8000/);
 });

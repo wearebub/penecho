@@ -176,11 +176,10 @@
       arrowhead(originX, end + 22, 0, 1);
     }
     context.stroke();
-    context.font = '500 24px "Avenir Next", "Trebuchet MS", sans-serif';
+    // Students choose the scale: keep ticks, but do not prelabel their values.
     context.lineWidth = 2;
     for (let index = 0; index <= 10; index++) {
-      const value = first ? index : index - 5;
-      if (value === 0) continue;
+      if (index === (first ? 0 : 5)) continue;
       const x = start + index * unit, y = end - index * unit;
       context.beginPath();
       context.moveTo(x, originY - 7);
@@ -188,16 +187,9 @@
       context.moveTo(originX - 7, y);
       context.lineTo(originX + 7, y);
       context.stroke();
-      context.textAlign = "center";
-      context.textBaseline = "top";
-      context.fillText(String(value), x, originY + 16);
-      context.textAlign = "right";
-      context.textBaseline = "middle";
-      context.fillText(String(value), originX - 16, y);
+
     }
-    context.textAlign = "right";
-    context.textBaseline = "top";
-    context.fillText("0", originX - 14, originY + 14);
+
     context.font = 'italic 600 32px "Avenir Next", "Trebuchet MS", sans-serif';
     context.textAlign = "center";
     context.textBaseline = "middle";

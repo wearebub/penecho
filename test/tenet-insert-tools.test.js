@@ -40,17 +40,17 @@ for (const kind of ["rectangle", "square", "circle", "triangle", "line", "arrow"
   });
 }
 
-test("first-quadrant and four-quadrant graphs have the correct signed axes", () => {
-  for (const [kind, minimum, maximum] of [["graph-first", 0, 10], ["graph-four", -5, 5]]) {
+test("first-quadrant and four-quadrant graphs keep unnumbered axes in the correct positions", () => {
+  for (const [kind, originX, originY] of [["graph-first", 100, 924], ["graph-four", 512, 512]]) {
     const { result, calls } = render(kind);
     assert.equal(result.width, 1024);
     assert.equal(result.height, 1024);
     assert(calls.some(call => call[0] === "fillRect"));
     const labels = calls.filter(call => call[0] === "fillText").map(call => call[1]);
-    assert(labels.includes("x") && labels.includes("y") && labels.includes("0"));
-    const numbers = labels.filter(label => /^-?\d+$/.test(label)).map(Number);
-    assert.equal(Math.min(...numbers), minimum);
-    assert.equal(Math.max(...numbers), maximum);
+    assert.deepEqual(labels, ["x", "y"]);
+    assert(calls.some(call => call[0] === "lineTo" && call[1] === 946 && call[2] === originY));
+    assert(calls.some(call => call[0] === "lineTo" && call[1] === originX && call[2] === 78));
+    assert(calls.some(call => call[0] === "moveTo" && call[1] === (kind === "graph-first" ? 100 : 78) && call[2] === originY));
   }
 });
 

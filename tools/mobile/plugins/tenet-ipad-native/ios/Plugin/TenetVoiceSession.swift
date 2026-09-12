@@ -9,7 +9,7 @@ import UIKit
 // state and its deadline are confined to the main queue.
 final class TenetVoiceSession: NSObject, AVSpeechSynthesizerDelegate {
     private static let maximumRecordingSeconds: TimeInterval = 60
-    private static let finalizationSeconds: TimeInterval = 2
+    private static let finalizationSeconds: TimeInterval = 5
     private static let transcriptPauseSeconds: TimeInterval = 1.5
     private static let maximumTranscriptCharacters = 1_000
     private static let maximumUtteranceCharacters = 4_000
@@ -372,6 +372,15 @@ final class TenetVoiceSession: NSObject, AVSpeechSynthesizerDelegate {
                         }
                     }
                     if error != nil {
+                        // A final result may be followed by a task-close error.
+                        // Preserve its existing pause timer instead of erasing
+                        // a completed question. Finishing remains deadline-bound.
+                        if self.hasFinalTranscript {
+                            if self.phase == .finishing { self.completeRecording() }
+                            else { self.updateTranscriptPause() }
+                            return
+                        }
+                        if self.phase == .finishing { return }
                         // Do not expose OS diagnostics: they may contain speech or engine state.
                         self.fail(Self.typingFallback)
                     }
@@ -462,7 +471,8 @@ final class TenetVoiceSession: NSObject, AVSpeechSynthesizerDelegate {
         recordingDeadline?.cancel()
         recordingDeadline = nil
         request?.endAudio()
-        deactivateAudioIfIdle()
+        // Keep the audio session until recognition cleanup. Deactivation while
+        // Apple's final result is pending can interrupt that same finalization.
     }
 
     func stop(_ call: CAPPluginCall) {
@@ -571,7 +581,9 @@ final class TenetVoiceSession: NSObject, AVSpeechSynthesizerDelegate {
     }
 
     private func fail(_ message: String) {
-        emitState("error", message: message)
+        let retainedText = authorityMatches() && UIApplication.shared.applicationState == .active ? transcript : ""
+        if !retainedText.isEmpty { emitTranscript(isFinal: false) }
+        emitState("error", message: message, text: retainedText, isFinal: false)
         startCall?.reject(message, "voice_unavailable")
         startCall = nil
         for call in stopCalls { call.reject(message, "voice_unavailable") }
@@ -600,6 +612,7 @@ final class TenetVoiceSession: NSObject, AVSpeechSynthesizerDelegate {
         hasFinalTranscript = false
         transcriptWords = ""
         finalizationReason = nil
+        deactivateAudioIfIdle()
     }
 
     func cancelRecognition(sessionId requestedId: String? = nil) {

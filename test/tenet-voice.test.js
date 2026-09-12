@@ -394,3 +394,80 @@ test("cancel during a queued voice request cannot restore or speak its late resp
   assert.equal(h.api.job,null);assert.equal(h.api.ui.dialog.open,false);
   assert.equal(h.api.ui.input.value,"");assert.equal(h.calls.some(call=>call[0]==="speak"),false);
 });
+
+
+test("terminal timeout or recognition error keeps the newest question for manual send",async()=>{
+  for(const terminal of [
+    {state:"stopped",reason:"finalization-timeout",message:"Review retained text"},
+    {state:"error",message:"Recognition stopped"},
+  ]) {
+    const h=autoSendHarness();await h.api.activate();await h.api.open();
+    const sessionId=h.api.job.sessionId;
+    h.events.get("voiceTranscript")({sessionId,text:"Help",isFinal:false});
+    h.events.get("voiceState")({...terminal,sessionId,text:"Help me start problem twelve",isFinal:false});
+    await settle();
+    assert.equal(h.calls.some(c=>c[0]==="request"),false);
+    assert.equal(h.api.ui.input.value,"Help me start problem twelve");
+    assert.equal(h.api.ui.ask.disabled,false);
+    await h.api.submit();
+    assert.equal(h.calls.find(c=>c[0]==="request")[2].selectionQuestion,"Help me start problem twelve");
+  }
+});
+
+test("Record again preserves the question when startup fails or no new words arrive",async()=>{
+  for(const failure of ["startup","no-speech"]) {
+    const h=autoSendHarness();await h.api.activate();await h.api.open();await h.api.finish(h.api.job);
+    h.api.ui.input.value="Keep this complete question";
+    if(failure==="startup")h.native.startVoiceRecognition=async()=>{throw Error("Input unavailable");};
+    h.api.ui.record.dispatchEvent(new Event("click"));await settle();
+    if(failure==="no-speech") {
+      const sessionId=h.api.job.sessionId;
+      h.events.get("voiceTranscript")({sessionId,text:"",isFinal:false});
+      h.events.get("voiceState")({sessionId,state:"stopped",reason:"no-speech",text:"",isFinal:false});
+    }
+    assert.equal(h.api.ui.input.value,"Keep this complete question");
+    assert.equal(h.api.ui.ask.disabled,false);
+    assert.equal(h.calls.some(c=>c[0]==="request"),false);h.api.cancel();
+  }
+});
+
+test("tapping the microphone twice cannot restart recording or discard its transcript",async()=>{
+  const h=autoSendHarness();await h.api.activate();await h.api.open();
+  const sessionId=h.api.job.sessionId;
+  h.events.get("voiceTranscript")({sessionId,text:"My question",isFinal:false});
+  h.api.ui.entry.dispatchEvent(new Event("click"));await settle();
+  assert.equal(h.api.job.sessionId,sessionId);
+  assert.equal(h.api.ui.input.value,"My question");
+  assert.equal(h.calls.filter(c=>c[0]==="start").length,1);h.api.cancel();
+});
+
+test("late terminal events cannot overwrite a question being manually reviewed",async()=>{
+  const h=autoSendHarness();await h.api.activate();await h.api.open();
+  const sessionId=h.api.job.sessionId;
+  h.events.get("voiceState")({sessionId,state:"stopped",reason:"finalization-timeout",text:"Review this",isFinal:false});
+  h.api.ui.input.value="My corrected question";
+  h.api.ui.input.dispatchEvent(new Event("input"));
+  h.events.get("voiceState")({sessionId,state:"stopped",reason:"silence",text:"Late obsolete words",isFinal:true});
+  await settle();assert.equal(h.api.ui.input.value,"My corrected question");
+  assert.equal(h.calls.some(c=>c[0]==="request"),false);h.api.cancel();
+});
+
+test("a queued successful dialog close does not cancel spoken playback",async()=>{
+  const h=harness();await h.api.activate();await h.api.open();h.api.ui.reply.checked=true;
+  await h.api.submit();const job=h.api.job;
+  const cancellations=h.calls.filter(c=>c[0]==="cancel").length;
+  assert.equal(h.api.ui.stop.hidden,false);
+  h.api.ui.dialog.dispatchEvent(new Event("close"));
+  assert.equal(h.api.job,job);
+  assert.equal(h.api.ui.stop.hidden,false);
+  assert.equal(h.calls.filter(c=>c[0]==="cancel").length,cancellations);h.api.cancel();
+});
+
+test("voice quality display refreshes after another voice is installed",async()=>{
+  let improved=false;
+  const h=harness({async getVoiceCapabilities(){return {supported:true,onDevice:true,locale:"en-US",voiceName:improved?"Better voice":"Compact voice",voiceQuality:improved?"premium":"default",voiceNeedsDownload:!improved};}});
+  await h.api.activate();assert.match(h.api.ui.voiceQuality.textContent,/Compact voice/);
+  improved=true;await h.api.open();
+  assert.match(h.api.ui.voiceQuality.textContent,/Better voice \(premium\)/);
+  assert.doesNotMatch(h.api.ui.voiceQuality.textContent,/download an/);h.api.cancel();
+});
