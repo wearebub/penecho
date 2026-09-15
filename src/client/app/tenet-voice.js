@@ -8,6 +8,49 @@ var tenetVoice = null;
   const lifetime = new AbortController(), signal = lifetime.signal, listeners = [];
   let ui = null, capability = null, job = null, sequence = 0, guardTimer = 0;
   let phase = "idle", speaking = false, disposed = false, listenersReady = false;
+  // Fixed labels only: never render/log NSError details or microphone contents.
+  const voiceStopMessages = Object.freeze({
+    "app-inactive":"Dictation stopped because Tenet became inactive. Return to Tenet and tap Record again.",
+    "app-background":"Dictation stopped because Tenet went into the background. Tap Record again when ready.",
+    "audio-interruption":"Another iPad audio activity interrupted dictation. Tap Record again when it finishes.",
+    "audio-route-changed":"The audio device disconnected or changed. Check your microphone or headphones, then tap Record again.",
+    "authority-changed":"Your signed-in district session changed. Sign in again before using voice.",
+    "speech-permission-denied":"Speech permission is disabled. Enable it in Settings or type your question.",
+    "microphone-permission-denied":"Microphone permission is disabled. Enable it in Settings or type your question.",
+    "permission-timeout":"Voice permission was not completed in time. Tap Record again or type your question.",
+    "recognizer-unavailable":"On-device speech recognition is unavailable. Tap Record again later or type your question.",
+    "recognizer-failed":"On-device speech recognition stopped. Nothing was sent automatically. Any transcribed text is retained for review.",
+    "audio-start-failed":"The iPad audio input could not start. Check your microphone or headphones, then tap Record again.",
+    "audio-input-unavailable":"No usable microphone input is available. Check your audio device or type your question.",
+    "audio-input-timeout":"The microphone did not deliver audio. Check your audio input, then tap Record again.",
+    "audio-input-unconfirmed":"The iPad did not confirm microphone input. Tap Record again or type your question.",
+    "audio-engine-stopped":"Audio input stopped before dictation could start. Check your audio device, then tap Record again.",
+    "capability-timeout":"Microphone readiness timed out. Tap Record again or type your question.",
+    "start-timeout":"The microphone did not start in time. Tap Record again or type your question.",
+    "stop-timeout":"Transcription did not finish in time. Your text is retained; review it and send manually.",
+    "no-speech":"No new words were transcribed. Nothing was sent. Review any existing text, record again or type your question.",
+    "finalization-timeout":"The iPad did not finalize the transcript. Nothing was sent automatically. Review the text and send manually.",
+    "max-duration":"The recording time limit was reached. Review your question before sending.",
+    "text-limit":"The transcript length limit was reached. Review your question before sending.",
+    "manual":"Dictation stopped. Review your question, or tap Ask Tenet.",
+    "recognizer":"Dictation ended. Review your question, or tap Ask Tenet.",
+    "transcript-pause":"Dictation paused without a usable final transcript. Review your question before sending.",
+    "silence":"Dictation paused. Review your question before sending.",
+    "cancelled":"Recording was cancelled. Tap Record again or type your question.",
+    "shutdown":"Voice controls closed. Reopen Tenet before recording again.",
+    "voice-unavailable":"Voice stopped before it could complete. Tap Record again or type your question.",
+  });
+  function voiceStopCode(code, fallback = "voice-unavailable") {
+    if (typeof code === "string" && Object.prototype.hasOwnProperty.call(voiceStopMessages, code)) return code;
+    const legacyCodes = {voice_cancelled:"cancelled",voice_on_device_unavailable:"recognizer-unavailable",
+      voice_session_unavailable:"authority-changed"};
+    return typeof code === "string" && Object.prototype.hasOwnProperty.call(legacyCodes, code)
+      ? legacyCodes[code] : fallback;
+  }
+  function voiceStopMessage(code) {
+    const safeCode = voiceStopCode(code);
+    return `${voiceStopMessages[safeCode]} [${safeCode}]`;
+  }
 
   function voicePopoverBounds(entry, viewport, layoutWidth, contentHeight = 320) {
     if (!entry || !viewport || !Number.isFinite(layoutWidth) || layoutWidth <= 0 ||
@@ -63,11 +106,11 @@ var tenetVoice = null;
   }
 
   function message(text) { if (ui) ui.status.textContent = text; }
-  async function boundedVoiceCall(operation, milliseconds, failureMessage) {
+  async function boundedVoiceCall(operation, milliseconds, failureMessage, failureReason = "voice-unavailable") {
     let timer;
     try {
       return await Promise.race([operation, new Promise((resolve, reject) => {
-        timer = setTimeout(() => reject(Error(failureMessage)), milliseconds);
+        timer = setTimeout(() => reject(Object.assign(Error(failureMessage), {voiceReason:voiceStopCode(failureReason)})), milliseconds);
       })]);
     } finally { clearTimeout(timer); }
   }
@@ -179,6 +222,7 @@ var tenetVoice = null;
     value.autoSubmitArmed = false;
     value.finalTranscript = null;
     value.autoSubmittedSessionId = null;
+    value.stopReason = null;
     phase = "starting";
     // Keep the current question until new words actually replace it. A failed
     // permission/start retry must not erase a completed or typed question.
@@ -186,14 +230,14 @@ var tenetVoice = null;
     paint();
     try {
       const refreshed = await boundedVoiceCall(native.getVoiceCapabilities({locale:navigator.language}), 10000,
-        "Microphone readiness timed out. Tap Record again to retry, or type your question.");
+        "Microphone readiness timed out. Tap Record again to retry, or type your question.", "capability-timeout");
       if (!isOpenVoiceJob(value, recordingSessionId) || phase !== "starting") return;
       capability = refreshed;
       disclose(value);
       refreshVoiceQuality();
       if (!capability?.supported) {
         phase = "idle";
-        message(capability?.reason || "On-device dictation is unavailable. Check microphone and speech permissions, then tap Record again.");
+        message(`${capability?.reason || "On-device dictation is unavailable. Check microphone and speech permissions, then tap Record again."} [voice-unavailable]`);
         ui.input.focus();
         paint();
         return;
@@ -202,11 +246,11 @@ var tenetVoice = null;
       const permissionsGranted = capability.microphonePermission === "granted" && capability.speechPermission === "authorized";
       const result = await boundedVoiceCall(native.startVoiceRecognition({sessionId:recordingSessionId, locale:capability.locale}),
         permissionsGranted ? 15000 : 95000,
-        "The microphone did not start. Tap Record again to retry, or type your question.");
+        "The microphone did not start. Tap Record again to retry, or type your question.", "start-timeout");
       if (!isOpenVoiceJob(value, recordingSessionId)) { await native.cancelVoiceRecognition({sessionId:recordingSessionId}); return; }
       if (phase === "starting") {
         if (capability.confirmsAudioInput === true && (result?.state !== "listening" || result.audioInput !== true))
-          throw Error("The iPad did not confirm microphone input. Tap Record again to retry.");
+          throw Object.assign(Error("The iPad did not confirm microphone input. Tap Record again to retry."), {voiceReason:"audio-input-unconfirmed"});
         listening(value);
       }
     } catch (error) {
@@ -215,7 +259,7 @@ var tenetVoice = null;
       value.sessionId = crypto.randomUUID();
       void native.cancelVoiceRecognition({sessionId:recordingSessionId}).catch(() => {});
       phase = "idle";
-      message(error?.message || "On-device dictation is unavailable. You can type your question instead.");
+      message(voiceStopMessage(value.stopReason || error?.voiceReason || error?.code));
     }
     paint();
   }
@@ -228,14 +272,14 @@ var tenetVoice = null;
     paint();
     try {
       const result = await boundedVoiceCall(native.stopVoiceRecognition({sessionId:recordingSessionId}), 8000,
-        "Transcription did not finish. Your text is retained; record again or send it manually.");
+        "Transcription did not finish. Your text is retained; record again or send it manually.", "stop-timeout");
       if (isOpenVoiceJob(value, recordingSessionId) && typeof result?.text === "string" && result.text.trim()) ui.input.value = result.text.slice(0, 1000);
     } catch (error) {
       if (isOpenVoiceJob(value, recordingSessionId)) {
         value.sessionId = crypto.randomUUID();
         phase = "idle";
         void native.cancelVoiceRecognition({sessionId:recordingSessionId}).catch(() => {});
-        message(error?.message || "Dictation stopped. Record again or type your question.");
+        message(voiceStopMessage(value.stopReason || error?.voiceReason || error?.code));
         paint();
       }
       throw error;
@@ -339,6 +383,10 @@ var tenetVoice = null;
       return;
     }
     if (!["error","cancelled","stopped"].includes(event.state) || !["starting","listening","finalizing"].includes(phase)) return;
+    // Retain the closed reason if the pending start promise rejects after this
+    // event. That rejection must not replace a specific stop with a generic one.
+    value.stopReason = voiceStopCode(event.reason,
+      event.state === "cancelled" ? "cancelled" : event.state === "stopped" ? "recognizer" : "voice-unavailable");
     // Even a non-final timeout/error can carry newer reviewable words than the
     // last partial callback. Preserve them, but never auto-send partial text.
     if (typeof event.text === "string" && event.text.length <= 1000 && event.text.trim())
@@ -365,9 +413,7 @@ var tenetVoice = null;
       // enter this path. Native owns finalization and the inactivity timer.
       void submit();
     } else {
-      message(event.message || (event.reason === "no-speech"
-        ? ui.input.value.trim() ? "No new words were heard. Your existing question is still here; review it and tap Ask Tenet." : "No question heard. Record again or type below."
-        : "Dictation stopped. Review your question and tap Ask Tenet."));
+      message(voiceStopMessage(value.stopReason));
     }
     paint();
   }
@@ -456,7 +502,7 @@ var tenetVoice = null;
     ui.stop.addEventListener("click", quiet, {signal});
     ui.record.addEventListener("click", () => {
       if (["starting", "finalizing"].includes(phase)) { cancelRecordingAttempt(job); return; }
-      void (phase === "listening" ? finish(job) : record(job)).catch(error => message(error?.message || "Dictation stopped."));
+      void (phase === "listening" ? finish(job) : record(job)).catch(error => message(voiceStopMessage(error?.voiceReason || error?.code)));
     }, {signal});
     ui.input.addEventListener("input", () => {
       if (job) { job.autoSubmitArmed = false; job.finalTranscript = null; }
@@ -468,7 +514,17 @@ var tenetVoice = null;
     dialog.addEventListener("cancel", event => { event.preventDefault(); cancel(); }, {signal});
     dialog.addEventListener("close", () => { if (!dialog.open && phase !== "sending" && job && !job.replyReceived) cancel(); }, {signal});
     document.addEventListener("pointerdown", event => {
-      if (dialog.open && !group.contains(event.target)) cancel();
+      if (!dialog.open || group.contains(event.target)) return;
+      // Canvas/palm contact is not an explicit instruction to discard a live
+      // voice question. Keep its controls visible; Cancel/Escape, Stop, actual
+      // backgrounding, auth loss and page changes still retire capture normally.
+      if (["starting","listening","finalizing"].includes(phase)) {
+        message(phase === "starting" ? "Starting dictation. Use Cancel starting or Cancel to stop."
+          : phase === "finalizing" ? "Finishing dictation. Use Cancel finishing or Cancel to stop."
+          : "Still listening. Use Stop listening to review, or Cancel to discard this question.");
+        return;
+      }
+      cancel();
     }, {capture:true,signal});
     document.addEventListener("keydown", event => {
       if (dialog.open && event.key === "Escape") { event.preventDefault(); cancel(); }

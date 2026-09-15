@@ -392,6 +392,9 @@
         applyAiProgress(run,{phase:"slow",requestId:run.requestId||null,timeoutSeconds:Math.ceil(requestTimeoutMs/1000)});
     },slowNoticeDelay);
     const timeout = createActivityAwareAbortTimeout(controller,requestTimeoutMs);
+    const processCapture = window.TenetProcessCapture?.aiRequested({ action, automatic, revision,
+      captureCurrentViewport, packed, typedInput });
+    let processOutcome = "completed";
     try {
       const res = await fetch("/api/ai/command", {
           signal: controller.signal,
@@ -463,6 +466,7 @@
         }
         setStatusKey("deferred");
         debug("ai-deferred", { ...meta, reason: "user-revision-changed" });
+        processOutcome = "deferred-revision-changed";
         return;
       }
       if (state.images.length + commands.filter((command) => ["plot_function", "draw_image"].includes(command.tool)).length > MAX_VISIBLE_IMAGES) {
@@ -471,6 +475,7 @@
       }
       // Only validated, current, authenticated responses can be read aloud.
       // This optional observer does not change draft acceptance or canvas tools.
+      window.TenetProcessCapture?.aiResponse(processCapture, { commands, requestId:data.requestId });
       if (typeof requestOptions.onReply === "function") {
         const text = commands.filter(command => command.tool === "write_text")
           .map(command => command.text).join("\n\n").slice(0, 4000);
@@ -523,11 +528,15 @@
         else if (data.message) setStatus(data.message);
         else setStatusKey("aiDone");
       } else {
+        processOutcome = "no-visible-commands";
         if (widgetLimitReached) setStatusKey("widgetLimitReached");
         else if (typeof data.message === "string" && data.message.trim()) setStatus(data.message.trim());
         else setStatusKey("aiNoVisibleResponse");
       }
     } catch (e) {
+      processOutcome = run.superseded || e.message === AI_SUPERSEDED ? "superseded" : e.message === AI_REJECTED ? "draft-rejected"
+        : e.message === AI_CANCELLED ? "cancelled" : state.userRevision !== revision ? "deferred-revision-changed"
+        : e.name === "AbortError" ? "timed-out" : "request-or-render-failed";
       if (run.superseded) {
         debug("ai-deferred", { requestId: state.lastRequestId, reason: "request-superseded" });
       } else if (e.message === AI_REJECTED) {
@@ -580,6 +589,7 @@
         });
       }
     } finally {
+      window.TenetProcessCapture?.aiFinished(processCapture, processOutcome);
       timeout.clear();
       clearTimeout(run.slowNoticeTimer);
       if (state.activeAI === run) {

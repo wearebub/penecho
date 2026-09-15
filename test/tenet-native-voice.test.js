@@ -103,16 +103,17 @@ test("background, interruption, navigation and teardown retire microphone and pl
   assert.match(voice, /phase == \.permissions && self\.permissionPromptOutstanding/);
   const interruption = section(voice, "forName: AVAudioSession.interruptionNotification", "forName: AVAudioSession.routeChangeNotification");
   assert.match(interruption, /AVAudioSessionInterruptionTypeKey/);
-  assert.match(interruption, /if type == AVAudioSession\.InterruptionType\.began\.rawValue \{ self\?\.cancelAll\(\) \}/);
+  assert.match(interruption, /if type == AVAudioSession\.InterruptionType\.began\.rawValue \{ self\?\.cancelAll\(reason: \.audioInterruption\) \}/);
   assert.match(plugin, /webView\.observe\(\\\.isLoading/);
   assert.match(plugin, /webView\.observe\(\\\.url/);
   assert.doesNotMatch(plugin, /navigationDelegate\s*=/);
-  assert.match(voice, /func cancelAll\(\) \{\s*cancelRecognition\(\)\s*stopSpeaking\(\)/);
+  assert.match(voice, /func cancelAll\(\) \{\s*cancelAll\(reason: \.cancelled\)/);
+  assert.match(voice, /private func cancelAll\(reason: StopReason\) \{\s*cancelRecognition\(sessionId: nil, reason: reason\)\s*stopSpeaking\(\)/);
   const shutdown = section(voice, "func shutdown()");
   assert.match(shutdown, /NotificationCenter\.default\.removeObserver/);
   assert.match(shutdown, /watchdog\?\.invalidate\(\)/);
   assert.match(shutdown, /synthesizer\.delegate = nil/);
-  assert.match(shutdown, /cancelRecognition\(\)/);
+  assert.match(shutdown, /cancelRecognition\(sessionId: nil, reason: \.shutdown\)/);
   assert.match(plugin, /voiceSession\?\.shutdown\(\)/);
 });
 
@@ -152,7 +153,9 @@ test("transcript inactivity normalizes bounded words and ignores repeated or pun
   assert.match(pause, /guard words != transcriptWords else \{ return \}\s*cancelTranscriptPause\(\)\s*transcriptWords = words/);
   assert.match(pause, /self\.generation == currentGeneration, self\.phase == \.listening/);
   assert.match(pause, /self\.transcriptPauseToken == token, self\.transcriptWords == words/);
-  assert.match(pause, /guard self\.authorityMatches\(\), UIApplication\.shared\.applicationState == \.active/);
+  assert.match(pause, /guard self\.authorityMatches\(\) else \{ self\.cancelAll\(reason: \.authorityChanged\); return \}/);
+  assert.match(pause, /guard UIApplication\.shared\.applicationState == \.active else \{ self\.cancelAll\(reason: \.appInactive\); return \}/);
+  assert.ok(pause.indexOf("guard UIApplication.shared.applicationState") < pause.indexOf('self.beginFinalization(reason: "transcript-pause")'));
   assert.match(pause, /beginFinalization\(reason: "transcript-pause"\)/);
   assert.match(pause, /asyncAfter\(deadline: \.now\(\) \+ Self\.transcriptPauseSeconds, execute: deadline\)/);
   assert.doesNotMatch(pause, /Date\(|Timer\(|buffer|sampleRate|rms|peak/);
@@ -186,13 +189,17 @@ test("transcript-pause terminal payload requires real final nonempty text or a b
   const finish = section(voice, "private func beginFinalization(reason:", "private func emitTranscript(");
   assert.match(finish, /reason: String = "manual"/);
   assert.match(finish, /guard phase == \.listening/);
-  assert.match(finish, /guard authorityMatches\(\), UIApplication\.shared\.applicationState == \.active/);
+  assert.match(finish, /guard authorityMatches\(\) else \{ cancelAll\(reason: \.authorityChanged\); return \}/);
+  assert.match(finish, /guard UIApplication\.shared\.applicationState == \.active else \{ cancelAll\(reason: \.appInactive\); return \}/);
+  assert.ok(finish.indexOf("guard UIApplication.shared.applicationState") < finish.indexOf("phase = .finishing"));
   assert.match(finish, /finalizationReason = reason/);
   assert.match(finish, /emitState\("finalizing", reason: reason\)/);
   assert.match(finish, /if hasFinalTranscript \{ completeRecording\(\); return \}/);
   assert.match(finish, /self\.generation == currentGeneration, self\.phase == \.finishing/);
   const complete = section(voice, "private func completeRecording()", "private func fail(");
-  assert.match(complete, /authorityMatches\(\),\s*UIApplication\.shared\.applicationState == \.active/);
+  assert.match(complete, /guard let sessionId, let expectedAuthority, authorityMatches\(\) else \{ cancelAll\(reason: \.authorityChanged\); return \}/);
+  assert.match(complete, /guard UIApplication\.shared\.applicationState == \.active else \{ cancelAll\(reason: \.appInactive\); return \}/);
+  assert.ok(complete.indexOf("guard UIApplication.shared.applicationState") < complete.indexOf("emitTranscript("));
   assert.match(complete, /let hasWords = !Self\.normalizedWords\(text\)\.isEmpty/);
   assert.match(complete, /if !hasWords \{\s*completionReason = "no-speech"/);
   assert.match(complete, /else if !hasFinalTranscript \{\s*completionReason = "finalization-timeout"/);
@@ -242,7 +249,7 @@ test("recognizer close errors retain final results and keep an unfinished result
   assert.match(capture, /if self\.phase == \.finishing \{ return \}/);
   const fail = section(voice, "private func fail(", "private func cleanupRecognition()");
   assert.match(fail, /authorityMatches\(\) && UIApplication\.shared\.applicationState == \.active/);
-  assert.match(fail, /emitState\("error", message: message, text: retainedText, isFinal: false\)/);
+  assert.match(fail, /emitState\("error", message: message, reason: reason\.rawValue, text: retainedText, isFinal: false\)/);
   assert.ok(fail.indexOf("emitState(") < fail.indexOf("cleanupRecognition()"));
 });
 
@@ -250,4 +257,27 @@ test("web Stop leaves bridge headroom after the bounded native final-result wait
   const client = fs.readFileSync(path.join(root,"src/client/app/tenet-voice.js"),"utf8");
   assert.match(voice, /finalizationSeconds: TimeInterval = 5/);
   assert.match(client, /native\.stopVoiceRecognition\(\{sessionId:recordingSessionId\}\), 8000/);
+});
+
+test("native terminal diagnostics are closed codes and preserve teardown and stale-session boundaries", () => {
+  const reasons = section(voice, "private enum StopReason: String", "private final class InputReadiness");
+  const codes = [...reasons.matchAll(/case\s+(\w+)(?:\s*=\s*"([^"]+)")?/g)].map(match => match[2] || match[1]);
+  assert.deepEqual(codes.sort(), [
+    "app-inactive","app-background","audio-interruption","audio-route-changed","authority-changed",
+    "speech-permission-denied","microphone-permission-denied","permission-timeout",
+    "recognizer-unavailable","recognizer-failed","audio-start-failed","audio-input-unavailable",
+    "audio-input-timeout","audio-engine-stopped","cancelled","shutdown",
+  ].sort());
+  const fail = section(voice, "private func fail(", "private func cleanupRecognition()");
+  assert.match(fail, /reason: StopReason/);
+  assert.match(fail, /startCall\?\.reject\(message, reason\.rawValue\)/);
+  assert.match(fail, /for call in stopCalls \{ call\.reject\(message, reason\.rawValue\) \}/);
+  assert.ok(fail.indexOf('emitState("error"') < fail.indexOf("cleanupRecognition()"));
+  const cancel = section(voice, "private func cancelRecognition(sessionId requestedId: String?, reason: StopReason)", "func speak(_ call:");
+  assert.match(cancel, /if let requestedId, requestedId != sessionId/);
+  assert.match(cancel, /emitState\("cancelled", reason: reason\.rawValue\)/);
+  assert.match(cancel, /startCall\?\.reject\("Voice recording was cancelled\.", reason\.rawValue\)/);
+  assert.ok(cancel.indexOf("requestedId != sessionId") < cancel.indexOf('emitState("cancelled"'));
+  assert.match(cancel, /completed = nil\s*cleanupRecognition\(\)\s*retireWatchdogIfIdle\(\)/);
+  assert.doesNotMatch(voice, /error\.localizedDescription|NSError\([^\n]*userInfo|print\(|NSLog|Logger\(/);
 });

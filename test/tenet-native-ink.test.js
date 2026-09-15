@@ -6,7 +6,15 @@ const vm = require("node:vm");
 const test = require("node:test");
 const ROOT = path.resolve(__dirname, "..");
 const SOURCE = fs.readFileSync(path.join(ROOT, "src/client/app/tenet-native-ink.js"), "utf8");
+const PERSISTENCE_SOURCE = fs.readFileSync(path.join(ROOT, "src/client/app/persistence.js"), "utf8");
 const PNG = "data:image/png;base64,cHJldmlldw==";
+
+function exportFunctionSource() {
+  const start = PERSISTENCE_SOURCE.indexOf("async function renderExportCanvas(");
+  const end = PERSISTENCE_SOURCE.indexOf("  function exportFilename()", start);
+  assert.ok(start >= 0 && end > start, "the complete export renderer must be identifiable");
+  return PERSISTENCE_SOURCE.slice(start, end).trim();
+}
 
 async function harness({ enabled = true, nativeAvailable = true, fingerDrawingEnabled = false } = {}) {
   const frames = new Map(), elements = new Map(), listeners = new Map(), calls = [];
@@ -304,11 +312,62 @@ test("a viewport change during an in-flight bridge call is replayed", async () =
   assert.equal(h.calls.filter(c=>c.kind==="configure").at(-1).panX,40);
 });
 
+test("export waits for native ink and refuses stale or failed captures before rendering", async () => {
+  const run = (flush, { region = null, snapshots = async () => {} } = {}) => {
+    const calls = [];
+    const context = vm.createContext({
+      tenetInkFlush:() => { calls.push("flush"); return flush(); },
+      exportRegion:() => { calls.push("region"); return region; },
+      prepareVisibleWidgetSnapshots:async (...args) => { calls.push("widgets"); assert.deepEqual(args, [null, false, null, true]); await snapshots(); },
+    });
+    vm.runInContext(`${exportFunctionSource()}\nglobalThis.render=renderExportCanvas;`, context);
+    return { calls, render:context.render };
+  };
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  const pending = run(() => gate);
+  const result = pending.render();
+  await Promise.resolve();
+  assert.deepEqual(pending.calls, ["flush"], "export must await the native flush before even measuring content");
+  release();
+  assert.equal(await result, null);
+  assert.deepEqual(pending.calls, ["flush", "region"]);
+
+  const staleBefore = run(async () => {});
+  await assert.rejects(staleBefore.render({ isCurrent:() => false }), /checkpoint changed before rendering/);
+  assert.deepEqual(staleBefore.calls, [], "a stale checkpoint must not begin native capture");
+
+  let current = true, finishFlush;
+  const staleAfter = run(() => new Promise(resolve => { finishFlush = resolve; }));
+  const staleResult = staleAfter.render({ isCurrent:() => current });
+  current = false; finishFlush();
+  await assert.rejects(staleResult, /checkpoint changed before rendering/);
+  assert.deepEqual(staleAfter.calls, ["flush"], "page retirement during flush must prevent region/image capture");
+
+  const failure = Error("synthetic native flush failure");
+  const failed = run(async () => { throw failure; });
+  await assert.rejects(failed.render(), error => error === failure);
+  assert.deepEqual(failed.calls, ["flush"], "flush errors must propagate without producing an empty or partial image");
+
+  let snapshotCurrent = true;
+  const staleWidgets = run(async () => {}, {
+    region:{ x:0, y:0, w:100, h:100 },
+    snapshots:async () => { snapshotCurrent = false; },
+  });
+  await assert.rejects(staleWidgets.render({ isCurrent:() => snapshotCurrent }), /checkpoint changed before rendering/);
+  assert.deepEqual(staleWidgets.calls, ["flush", "region", "widgets"], "widget snapshots stay after native flush and before the final capture-authority check");
+});
+
 test("the real client includes the importer inside the canvas closure and flushes capture paths", () => {
   const read=file=>fs.readFileSync(path.join(ROOT,file),"utf8");
   const builder=read("scripts/build-client.js");
   assert.ok(builder.indexOf('"src/client/app/tenet-ipad-usability.js"')<builder.indexOf('"src/client/app/ui-bootstrap.js"'));
-  assert.match(read("src/client/app/persistence.js"),/async function renderExportCanvas\(\) \{\s*await tenetInkFlush\(\)/);
+  const exportSource = exportFunctionSource();
+  assert.match(exportSource, /^async function renderExportCanvas\(captureOptions = null\) \{/);
+  const regionIndex = exportSource.indexOf("const region = exportRegion();");
+  assert.ok(regionIndex > 0, "export must retain its content-region boundary");
+  assert.match(exportSource.slice(0, regionIndex), /requireCaptureCurrent\(\);\s*await tenetInkFlush\(\);\s*requireCaptureCurrent\(\);\s*$/,
+    "capture authority must be checked immediately before and after the awaited native flush, before measuring/rendering content");
   assert.match(read("src/client/app/canvas-agent-runtime.js"),/async function canvasAgentCapture\(args,options\) \{\s*await tenetInkFlush\(\)/);
   const aiRuntime = read("src/client/app/ai-runtime.js");
   const requestStart = aiRuntime.indexOf("async function requestAI(");

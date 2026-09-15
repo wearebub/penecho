@@ -642,12 +642,20 @@
       bottom = Math.ceil(ink.y + ink.h) + TILE;
     return { x, y, w: right - x, h: bottom - y };
   }
-  async function renderExportCanvas() {
+  async function renderExportCanvas(captureOptions = null) {
+    const requireCaptureCurrent = () => {
+      if (captureOptions?.isCurrent && !captureOptions.isCurrent()) throw Error("Work-history checkpoint changed before rendering.");
+    };
+    requireCaptureCurrent();
     await tenetInkFlush();
+    requireCaptureCurrent();
     const region = exportRegion();
     if (!region) return null;
     await prepareVisibleWidgetSnapshots(null, false, null, true);
-    const scale = Math.min(CANVAS_DOWNLOAD_RESOLUTION_SCALE, EXPORT_MAX_DIMENSION / region.w, EXPORT_MAX_DIMENSION / region.h, Math.sqrt(EXPORT_MAX_PIXELS / (region.w * region.h))),
+    requireCaptureCurrent();
+    const maxDimension = Math.min(EXPORT_MAX_DIMENSION, captureOptions?.maxDimension || EXPORT_MAX_DIMENSION),
+      maxPixels = Math.min(EXPORT_MAX_PIXELS, captureOptions?.maxPixels || EXPORT_MAX_PIXELS),
+      scale = Math.min(CANVAS_DOWNLOAD_RESOLUTION_SCALE, maxDimension / region.w, maxDimension / region.h, Math.sqrt(maxPixels / (region.w * region.h))),
       canvas = offscreen(Math.max(1, Math.ceil(region.w * scale)), Math.max(1, Math.ceil(region.h * scale))),
       context = canvas.getContext("2d");
     const captureTime = performance.now();
@@ -959,6 +967,7 @@
   // the complete artifact instead of its publishing-time pan/zoom.
   async function viewCommunityCanvasArtifact(artifact) {
     if (window.PENECHO_CONFIG?.runtime !== "viewer") throw Error("Read-only Canvas viewing is unavailable in this runtime.");
+    window.TenetProcessCapture?.boundary("community-view-transition");
     const parsed = await readSnapshotBundle(artifact),
       { item, tileEntries } = parsed,
       loadGeneration = ++state.snapshotLoadGeneration,
@@ -1195,6 +1204,8 @@
       storedRevisionId = saved.revisionId;
     } else await saveDeviceSnapshot(item, tileEntries, overwriteId);
     nameInput.value = "";
+    if (storedId !== state.currentSnapshotId || location !== state.currentSnapshotLocation)
+      window.TenetProcessCapture?.boundary("saved-page-identity-changed");
     state.currentSnapshotId = storedId;
     state.currentSnapshotName = snapshotName(item);
     state.currentSnapshotHasExplicitName = Boolean(String(item.name||"").trim());
@@ -1317,6 +1328,7 @@
   }
   async function loadSnapshot(id, location = state.snapshotLocation) {
     if (snapshotLoadInProgress) return false;
+    window.TenetProcessCapture?.boundary("snapshot-load-transition");
     await tenetInkFlush();
     await tenetInkController?.suspend("snapshot-load");
     const loadGeneration=++state.snapshotLoadGeneration,
@@ -1579,6 +1591,7 @@
     if (!busy) updateNewCanvasDialog();
   }
   function startBlankCanvas() {
+    window.TenetProcessCapture?.boundary("new-page-transition");
     tenetInkController?.restore(null);
     const dialog = document.querySelector("#newCanvasDialog");
     if (state.selection) cancelSelection(true);
@@ -2958,6 +2971,7 @@
     tenetInkController?.boundHistory();
     state.future = [];
     window.PenEchoStudioNavigator?.updateDocument?.();
+    window.TenetProcessCapture?.commit(entry);
     return entry;
   }
   function saveUserCanvasChange() {
@@ -2985,6 +2999,7 @@
     requestAnimationLayerRender();
     render();
     window.PenEchoStudioNavigator?.updateDocument?.();
+    if (!tenetInkController?.available) window.TenetProcessCapture?.history(entry, side);
   }
   function undo() {
     if (tenetInkController?.available) { void tenetInkController.history("before"); return; }

@@ -6,8 +6,10 @@ const path = require("node:path");
 
 const ROOT = path.resolve(__dirname, "..");
 const TARGET = path.join(ROOT, "public", "app.js");
+const VIEWER_TARGET = path.join(ROOT, "public", "tenet-history-viewer.js");
 const SOURCES = [
   "src/client/app/client-activity.js",
+  "src/client/app/tenet-process-journal.js",
   "src/client/app/core.js",
   "src/client/app/canvas-runtime.js",
   "src/client/app/visual-explainer.js",
@@ -23,6 +25,8 @@ const SOURCES = [
   "src/client/app/tenet-voice.js",
   "src/client/app/tenet-ipad-usability.js",
   "src/client/app/tenet-object-resize.js",
+  "src/client/app/tenet-process-capture.js",
+  "src/client/app/tenet-process-ui.js",
   "src/client/app/ui-bootstrap.js",
   "src/client/app/tenet-branding.js",
   "src/client/app/tenet-native-bridge.js",
@@ -36,15 +40,21 @@ function compiledSource() {
 
 function main(argv = process.argv.slice(2)) {
   const source = compiledSource();
+  const viewer = `${BANNER}\nwindow.PENECHO_CONFIG = {tenetMode:true,tenetAssignmentPreview:true,tenetHistoryViewerOnly:true};\n${["tenet-process-journal.js", "tenet-process-ui.js"].map(file => fs.readFileSync(path.join(ROOT, "src/client/app", file), "utf8").trimEnd()).join("\n")}\n`;
   if (argv.includes("--check")) {
     const current = fs.existsSync(TARGET) ? fs.readFileSync(TARGET, "utf8") : "";
     if (current !== source) {
       console.error("public/app.js is stale. Run `npm run build:client`.");
       return 1;
     }
+    if (!fs.existsSync(VIEWER_TARGET) || fs.readFileSync(VIEWER_TARGET, "utf8") !== viewer) {
+      console.error("public/tenet-history-viewer.js is stale. Run `npm run build:client`.");
+      return 1;
+    }
     return 0;
   }
   fs.writeFileSync(TARGET, source);
+  fs.writeFileSync(VIEWER_TARGET, viewer);
   console.log(`Built ${path.relative(ROOT, TARGET)} from ${SOURCES.length} source files.`);
   return 0;
 }

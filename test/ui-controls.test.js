@@ -2023,7 +2023,11 @@ test("live widgets use native canvas chrome, state-aware iframe gestures, and th
   assert.match(prepareSnapshots, /bestEffort = true[\s\S]*?if \(bestEffort\) await Promise\.race[\s\S]*?else await request/);
   assert.match(functionSource(app, "widgetBounds"), /capturableWidgets\(region\)/);
   assert.match(functionSource(app, "drawWidgetsToContext"), /capturableWidgets\(region\)/);
-  assert.match(functionSource(app, "renderExportCanvas"), /prepareVisibleWidgetSnapshots\(null, false, null, true\)[\s\S]*?scale = Math\.min\(CANVAS_DOWNLOAD_RESOLUTION_SCALE, EXPORT_MAX_DIMENSION \/ region\.w[\s\S]*?Math\.sqrt\(EXPORT_MAX_PIXELS \/ \(region\.w \* region\.h\)\)/);
+  const boundedExport = functionSource(app, "renderExportCanvas");
+  assert.match(boundedExport, /captureOptions = null/);
+  assert.match(boundedExport, /maxDimension = Math\.min\(EXPORT_MAX_DIMENSION, captureOptions\?\.maxDimension \|\| EXPORT_MAX_DIMENSION\)/);
+  assert.match(boundedExport, /maxPixels = Math\.min\(EXPORT_MAX_PIXELS, captureOptions\?\.maxPixels \|\| EXPORT_MAX_PIXELS\)/);
+  assert.match(boundedExport, /prepareVisibleWidgetSnapshots\(null, false, null, true\)[\s\S]*?scale = Math\.min\(CANVAS_DOWNLOAD_RESOLUTION_SCALE, maxDimension \/ region\.w, maxDimension \/ region\.h, Math\.sqrt\(maxPixels \/ \(region\.w \* region\.h\)\)\)/);
   assert.match(acceptPendingWidget, /!options\.allowRevisionMismatch && widget\.revision !== state\.userRevision[\s\S]*?rejectPendingWidget\(AI_CANCELLED\)/);
   assert.match(acceptPendingWidget, /if \(replacement\) \{[\s\S]*?unmountWidget\(widget\)[\s\S]*?\} else \{[\s\S]*?state\.widgets\.push\(widget\)[\s\S]*?widget\.shell\.classList\.remove\("pending"\)[\s\S]*?sendWidgetHostState\(widget/);
   assert.doesNotMatch(prepareSnapshots, /snapshotVersion === widget\.contentVersion/);
@@ -3847,7 +3851,7 @@ test("the canvas fills the available browser viewport consistently across themes
   assert.match(css, /@media \(max-width:\s*620px\)\s*\{[\s\S]*?#viewport\s*\{\s*min-height:\s*380px;\s*\}/);
 });
 
-test("PNG export crops to all ink with one tile of padding at 1.5x browser-local download resolution", () => {
+test("PNG export crops to all ink with one tile of padding at 1.5x browser-local download resolution", async () => {
   const html = read("public/index.html"), app = read("public/app.js"), ink = functionSource(app, "exportInkBounds"), region = functionSource(app, "exportRegion"), render = functionSource(app, "renderExportCanvas"), run = functionSource(app, "exportCanvasPng");
   assert.match(ink, /inkBox\(tileCanvas/);
   assert.doesNotMatch(ink, /visibleInkBounds/);
@@ -3857,7 +3861,10 @@ test("PNG export crops to all ink with one tile of padding at 1.5x browser-local
   assert.match(app, /CANVAS_DOWNLOAD_RESOLUTION_SCALE = 1\.5,[\s\S]*?EXPORT_MAX_DIMENSION = 16384,[\s\S]*?EXPORT_MAX_PIXELS = 64 \* 1024 \* 1024/);
   assert.doesNotMatch(app, /EXPORT_TARGET_SCALE|function exportPixelScale/);
   assert.match(render, /prepareVisibleWidgetSnapshots\(null, false, null, true\)/);
-  assert.match(render, /scale = Math\.min\(CANVAS_DOWNLOAD_RESOLUTION_SCALE, EXPORT_MAX_DIMENSION \/ region\.w, EXPORT_MAX_DIMENSION \/ region\.h, Math\.sqrt\(EXPORT_MAX_PIXELS \/ \(region\.w \* region\.h\)\)\)/);
+  assert.match(render, /captureOptions = null/);
+  assert.match(render, /maxDimension = Math\.min\(EXPORT_MAX_DIMENSION, captureOptions\?\.maxDimension \|\| EXPORT_MAX_DIMENSION\)/);
+  assert.match(render, /maxPixels = Math\.min\(EXPORT_MAX_PIXELS, captureOptions\?\.maxPixels \|\| EXPORT_MAX_PIXELS\)/);
+  assert.match(render, /scale = Math\.min\(CANVAS_DOWNLOAD_RESOLUTION_SCALE, maxDimension \/ region\.w, maxDimension \/ region\.h, Math\.sqrt\(maxPixels \/ \(region\.w \* region\.h\)\)\)/);
   assert.match(render, /offscreen\(Math\.max\(1, Math\.ceil\(region\.w \* scale\)\), Math\.max\(1, Math\.ceil\(region\.h \* scale\)\)\)/);
   assert.match(render, /imageSmoothingEnabled = true[\s\S]*?imageSmoothingQuality = "high"/);
   assert.match(render, /setTransform\(scale, 0, 0, scale, -region\.x \* scale, -region\.y \* scale\)/);
@@ -3871,6 +3878,37 @@ test("PNG export crops to all ink with one tile of padding at 1.5x browser-local
   assert.match(run, /link\.download = exportFilename\(\)/);
   assert.match(app, /querySelector\("#exportPngBtn"\)\.onclick = exportCanvasPng/);
   assert.match(html, /id="exportPngBtn"[^>]*data-i18n-aria="exportPng"/);
+  // Exercise the production renderer with allocation-free drawing stubs. New
+  // checkpoint options may lower limits, never increase ordinary export limits.
+  let currentRegion = { x:0, y:0, w:400, h:200 }, flushes = 0, paints = 0;
+  const drawingContext = { save() {}, restore() {}, setTransform() {}, fillRect() {}, drawImage() {} };
+  const renderWithOptions = vm.runInNewContext(`(async ${render})`, {
+    CANVAS_DOWNLOAD_RESOLUTION_SCALE:1.5, EXPORT_MAX_DIMENSION:16384, EXPORT_MAX_PIXELS:64 * 1024 * 1024,
+    tenetInkFlush:async () => { flushes++; }, exportRegion:() => currentRegion,
+    prepareVisibleWidgetSnapshots:async () => {}, performance:{ now:() => 0 },
+    offscreen(width, height) { paints++; return { width, height, getContext:() => drawingContext }; },
+    state:{ paint:{ paper:'#fff' }, gridVisible:false, selection:null }, tiles:new Map(),
+    drawAnimationsToContext() {}, drawWidgetsToContext() {}, drawImagesToContext() {}, drawTextBoxesToContext() {}, drawSharpOverlays() {},
+  });
+  for (const [captureOptions, regionSize, expected] of [
+    [undefined, [400,200], [600,300]],
+    [null, [400,200], [600,300]],
+    [{}, [16384,16384], [8192,8192]],
+    [undefined, [50000,1000], [16384,328]],
+    [{ maxDimension:2048, maxPixels:4 * 1024 * 1024 }, [4096,4096], [2048,2048]],
+    [{ maxDimension:1e9, maxPixels:1e12 }, [16384,16384], [8192,8192]],
+    [{ maxDimension:16384, maxPixels:1024 }, [4096,4096], [32,32]],
+  ]) {
+    currentRegion = { x:0, y:0, w:regionSize[0], h:regionSize[1] };
+    const canvas = await renderWithOptions(captureOptions);
+    assert.deepEqual([canvas.width, canvas.height], expected);
+    assert.ok(canvas.width <= 16384 && canvas.height <= 16384);
+    assert.ok(canvas.width * canvas.height <= 64 * 1024 * 1024);
+  }
+  const previousFlushes = flushes, previousPaints = paints;
+  await assert.rejects(renderWithOptions({ isCurrent:() => false, maxDimension:2048, maxPixels:4 * 1024 * 1024 }), /checkpoint changed/);
+  assert.equal(flushes, previousFlushes, 'A stale checkpoint must not flush another page');
+  assert.equal(paints, previousPaints, 'A stale checkpoint must not paint another page');
 });
 
 test("Auto AI exposes a persisted zero-to-ten-second delay control", () => {

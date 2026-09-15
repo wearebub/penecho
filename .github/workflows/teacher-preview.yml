@@ -1,0 +1,48 @@
+name: Tenet teacher preview
+
+on:
+  push:
+    branches: [codex/tenet-ipad]
+    paths: [.github/workflows/teacher-preview.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tenet-teacher-preview-pages
+  cancel-in-progress: false
+
+jobs:
+  full_ci:
+    name: Required client CI
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    name: Publish read-only teacher preview
+    needs: full_ci
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/configure-pages@v5
+      - name: Stage only the public viewer
+        shell: bash
+        run: |
+          mkdir -p release/teacher-preview
+          cp public/tenet-history-viewer.html release/teacher-preview/index.html
+          cp public/tenet-history-viewer.js release/teacher-preview/tenet-history-viewer.js
+          printf '{"sourceCommit":"%s","kind":"synthetic-and-local-file-preview"}\n' "$GITHUB_SHA" > release/teacher-preview/release.json
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: release/teacher-preview
+      - name: Deploy public viewer
+        id: deployment
+        uses: actions/deploy-pages@v5

@@ -16,6 +16,26 @@ final class TenetVoiceSession: NSObject, AVSpeechSynthesizerDelegate {
     private static let typingFallback = "On-device voice is unavailable. You can still type your question."
 
     private enum Phase { case permissions, starting, listening, finishing }
+    // Closed, content-free terminal reasons. Never send NSError descriptions,
+    // recognizer internals, microphone samples or route/device identifiers.
+    private enum StopReason: String {
+        case appInactive = "app-inactive"
+        case appBackground = "app-background"
+        case audioInterruption = "audio-interruption"
+        case audioRouteChanged = "audio-route-changed"
+        case authorityChanged = "authority-changed"
+        case speechPermissionDenied = "speech-permission-denied"
+        case microphonePermissionDenied = "microphone-permission-denied"
+        case permissionTimeout = "permission-timeout"
+        case recognizerUnavailable = "recognizer-unavailable"
+        case recognizerFailed = "recognizer-failed"
+        case audioStartFailed = "audio-start-failed"
+        case audioInputUnavailable = "audio-input-unavailable"
+        case audioInputTimeout = "audio-input-timeout"
+        case audioEngineStopped = "audio-engine-stopped"
+        case cancelled
+        case shutdown
+    }
     // Only a readiness flag crosses the audio/main queues, never an audio buffer.
     private final class InputReadiness {
         private let lock = NSLock()
@@ -84,23 +104,23 @@ final class TenetVoiceSession: NSObject, AVSpeechSynthesizerDelegate {
             if self.phase == .permissions && self.permissionPromptOutstanding {
                 self.stopSpeaking()
             } else {
-                self.cancelAll()
+                self.cancelAll(reason: .appInactive)
             }
         }
-        observe(UIApplication.didEnterBackgroundNotification) { [weak self] in self?.cancelAll() }
+        observe(UIApplication.didEnterBackgroundNotification) { [weak self] in self?.cancelAll(reason: .appBackground) }
         observe(UIApplication.didBecomeActiveNotification) { [weak self] in self?.advancePermissions() }
         observers.append(NotificationCenter.default.addObserver(
             forName: AVAudioSession.interruptionNotification, object: nil, queue: .main
         ) { [weak self] notification in
             let type = (notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? NSNumber)?.uintValue
-            if type == AVAudioSession.InterruptionType.began.rawValue { self?.cancelAll() }
+            if type == AVAudioSession.InterruptionType.began.rawValue { self?.cancelAll(reason: .audioInterruption) }
         })
         observers.append(NotificationCenter.default.addObserver(
             forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main
         ) { [weak self] notification in
             let reason = (notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? NSNumber)?.uintValue
             if reason == AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue {
-                self?.cancelAll()
+                self?.cancelAll(reason: .audioRouteChanged)
             }
         })
     }
@@ -279,7 +299,7 @@ final class TenetVoiceSession: NSObject, AVSpeechSynthesizerDelegate {
 
     private func advancePermissions() {
         guard !closed, phase == .permissions, !permissionPromptOutstanding else { return }
-        guard authorityMatches() else { cancelAll(); return }
+        guard authorityMatches() else { cancelAll(reason: .authorityChanged); return }
         guard UIApplication.shared.applicationState == .active else { return }
         let currentGeneration = generation
         switch SFSpeechRecognizer.authorizationStatus() {
@@ -292,7 +312,7 @@ final class TenetVoiceSession: NSObject, AVSpeechSynthesizerDelegate {
                     guard let self, self.generation == currentGeneration, self.phase == .permissions else { return }
                     self.permissionPromptOutstanding = false
                     guard status == .authorized else {
-                        self.fail("Speech permission was not granted. You can still type your question.")
+                        self.fail("Speech permission was not granted. You can still type your question.", reason: .speechPermissionDenied)
                         return
                     }
                     self.advancePermissions()
@@ -300,7 +320,7 @@ final class TenetVoiceSession: NSObject, AVSpeechSynthesizerDelegate {
             }
             return
         default:
-            fail("Speech permission is disabled. You can still type your question.")
+            fail("Speech permission is disabled. You can still type your question.", reason: .speechPermissionDenied)
             return
         }
         switch AVAudioSession.sharedInstance().recordPermission {
@@ -313,21 +333,22 @@ final class TenetVoiceSession: NSObject, AVSpeechSynthesizerDelegate {
                     guard let self, self.generation == currentGeneration, self.phase == .permissions else { return }
                     self.permissionPromptOutstanding = false
                     guard granted else {
-                        self.fail("Microphone permission was not granted. You can still type your question.")
+                        self.fail("Microphone permission was not granted. You can still type your question.", reason: .microphonePermissionDenied)
                         return
                     }
                     self.advancePermissions()
                 }
             }
         default:
-            fail("Microphone permission is disabled. You can still type your question.")
+            fail("Microphone permission is disabled. You can still type your question.", reason: .microphonePermissionDenied)
         }
     }
 
     private func beginRecording() {
-        guard authorityMatches(), UIApplication.shared.applicationState == .active else { cancelAll(); return }
+        guard authorityMatches() else { cancelAll(reason: .authorityChanged); return }
+        guard UIApplication.shared.applicationState == .active else { cancelAll(reason: .appInactive); return }
         guard let recognizer, recognizer.supportsOnDeviceRecognition, recognizer.isAvailable else {
-            fail(Self.typingFallback)
+            fail(Self.typingFallback, reason: .recognizerUnavailable)
             return
         }
         do {
@@ -340,7 +361,7 @@ final class TenetVoiceSession: NSObject, AVSpeechSynthesizerDelegate {
             let input = engine.inputNode
             let format = input.outputFormat(forBus: 0)
             guard format.sampleRate.isFinite, format.sampleRate > 0, format.channelCount > 0 else {
-                fail("No microphone is available. You can still type your question.")
+                fail("No microphone is available. You can still type your question.", reason: .audioInputUnavailable)
                 return
             }
             let request = SFSpeechAudioBufferRecognitionRequest()
@@ -355,10 +376,8 @@ final class TenetVoiceSession: NSObject, AVSpeechSynthesizerDelegate {
                 DispatchQueue.main.async {
                     guard let self, self.generation == currentGeneration,
                           self.phase == .starting || self.phase == .listening || self.phase == .finishing else { return }
-                    guard self.authorityMatches(), UIApplication.shared.applicationState == .active else {
-                        self.cancelAll()
-                        return
-                    }
+                    guard self.authorityMatches() else { self.cancelAll(reason: .authorityChanged); return }
+                    guard UIApplication.shared.applicationState == .active else { self.cancelAll(reason: .appInactive); return }
                     if let result {
                         self.transcript = Self.boundedTranscript(result.bestTranscription.formattedString)
                         // Finality belongs to this exact result, not an older callback.
@@ -382,7 +401,7 @@ final class TenetVoiceSession: NSObject, AVSpeechSynthesizerDelegate {
                         }
                         if self.phase == .finishing { return }
                         // Do not expose OS diagnostics: they may contain speech or engine state.
-                        self.fail(Self.typingFallback)
+                        self.fail(Self.typingFallback, reason: self.recognizer?.isAvailable == false ? .recognizerUnavailable : .recognizerFailed)
                     }
                 }
             }
@@ -401,19 +420,23 @@ final class TenetVoiceSession: NSObject, AVSpeechSynthesizerDelegate {
             permissionDeadline = nil
             let deadline = DispatchWorkItem { [weak self] in
                 guard let self, self.generation == currentGeneration, self.phase == .starting else { return }
-                self.fail("The microphone did not deliver audio. Check the iPad audio input, then tap Record again. You can still type your question.")
+                self.fail("The microphone did not deliver audio. Check the iPad audio input, then tap Record again. You can still type your question.", reason: .audioInputTimeout)
             }
             recordingDeadline = deadline
             DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: deadline)
         } catch {
-            fail(Self.typingFallback)
+            fail(Self.typingFallback, reason: .audioStartFailed)
         }
     }
 
     private func confirmMicrophoneInput(generation expectedGeneration: UUID) {
         guard generation == expectedGeneration, phase == .starting else { return }
-        guard authorityMatches(), UIApplication.shared.applicationState == .active,
-              engine?.isRunning == true else { cancelAll(); return }
+        guard authorityMatches() else { cancelAll(reason: .authorityChanged); return }
+        guard UIApplication.shared.applicationState == .active else { cancelAll(reason: .appInactive); return }
+        guard engine?.isRunning == true else {
+            fail("Audio input stopped before dictation could start. Tap Record again or type your question.", reason: .audioEngineStopped)
+            return
+        }
         recordingDeadline?.cancel()
         phase = .listening
         let deadline = DispatchWorkItem { [weak self] in
@@ -445,10 +468,8 @@ final class TenetVoiceSession: NSObject, AVSpeechSynthesizerDelegate {
         let deadline = DispatchWorkItem { [weak self] in
             guard let self, self.generation == currentGeneration, self.phase == .listening,
                   self.transcriptPauseToken == token, self.transcriptWords == words else { return }
-            guard self.authorityMatches(), UIApplication.shared.applicationState == .active else {
-                self.cancelAll()
-                return
-            }
+            guard self.authorityMatches() else { self.cancelAll(reason: .authorityChanged); return }
+            guard UIApplication.shared.applicationState == .active else { self.cancelAll(reason: .appInactive); return }
             self.beginFinalization(reason: "transcript-pause")
         }
         transcriptPauseDeadline = deadline
@@ -492,7 +513,7 @@ final class TenetVoiceSession: NSObject, AVSpeechSynthesizerDelegate {
             return
         }
         guard authorityMatches() else {
-            cancelAll()
+            cancelAll(reason: .authorityChanged)
             call.reject("The signed-in session changed.", "voice_session_unavailable")
             return
         }
@@ -513,7 +534,8 @@ final class TenetVoiceSession: NSObject, AVSpeechSynthesizerDelegate {
 
     private func beginFinalization(reason: String = "manual") {
         guard phase == .listening else { return }
-        guard authorityMatches(), UIApplication.shared.applicationState == .active else { cancelAll(); return }
+        guard authorityMatches() else { cancelAll(reason: .authorityChanged); return }
+        guard UIApplication.shared.applicationState == .active else { cancelAll(reason: .appInactive); return }
         phase = .finishing
         finalizationReason = reason
         emitState("finalizing", reason: reason)
@@ -548,8 +570,8 @@ final class TenetVoiceSession: NSObject, AVSpeechSynthesizerDelegate {
     }
 
     private func completeRecording() {
-        guard let sessionId, let expectedAuthority, authorityMatches(),
-              UIApplication.shared.applicationState == .active else { cancelAll(); return }
+        guard let sessionId, let expectedAuthority, authorityMatches() else { cancelAll(reason: .authorityChanged); return }
+        guard UIApplication.shared.applicationState == .active else { cancelAll(reason: .appInactive); return }
         let text = transcript
         let hasWords = !Self.normalizedWords(text).isEmpty
         var completionReason = finalizationReason ?? "recognizer"
@@ -580,13 +602,13 @@ final class TenetVoiceSession: NSObject, AVSpeechSynthesizerDelegate {
         for call in pending { call.resolve(["text": text, "reason": completionReason]) }
     }
 
-    private func fail(_ message: String) {
+    private func fail(_ message: String, reason: StopReason) {
         let retainedText = authorityMatches() && UIApplication.shared.applicationState == .active ? transcript : ""
         if !retainedText.isEmpty { emitTranscript(isFinal: false) }
-        emitState("error", message: message, text: retainedText, isFinal: false)
-        startCall?.reject(message, "voice_unavailable")
+        emitState("error", message: message, reason: reason.rawValue, text: retainedText, isFinal: false)
+        startCall?.reject(message, reason.rawValue)
         startCall = nil
-        for call in stopCalls { call.reject(message, "voice_unavailable") }
+        for call in stopCalls { call.reject(message, reason.rawValue) }
         stopCalls.removeAll()
         completed = nil
         cleanupRecognition()
@@ -616,16 +638,20 @@ final class TenetVoiceSession: NSObject, AVSpeechSynthesizerDelegate {
     }
 
     func cancelRecognition(sessionId requestedId: String? = nil) {
+        cancelRecognition(sessionId: requestedId, reason: .cancelled)
+    }
+
+    private func cancelRecognition(sessionId requestedId: String?, reason: StopReason) {
         // A delayed cancel for an old page must not cancel a newer recording.
         if let requestedId, requestedId != sessionId {
             if completed?.sessionId == requestedId { completed = nil }
             retireWatchdogIfIdle()
             return
         }
-        emitState("cancelled")
-        startCall?.reject("Voice recording was cancelled.", "voice_cancelled")
+        emitState("cancelled", reason: reason.rawValue)
+        startCall?.reject("Voice recording was cancelled.", reason.rawValue)
         startCall = nil
-        for call in stopCalls { call.reject("Voice recording was cancelled.", "voice_cancelled") }
+        for call in stopCalls { call.reject("Voice recording was cancelled.", reason.rawValue) }
         stopCalls.removeAll()
         completed = nil
         cleanupRecognition()
@@ -727,8 +753,8 @@ final class TenetVoiceSession: NSObject, AVSpeechSynthesizerDelegate {
     }
 
     private func tick() {
-        if phase != nil && !authorityMatches() { cancelAll(); return }
-        if let permissionDeadline, permissionDeadline <= Date() { fail("Voice permission timed out. Tap Talk to try again.") }
+        if phase != nil && !authorityMatches() { cancelAll(reason: .authorityChanged); return }
+        if let permissionDeadline, permissionDeadline <= Date() { fail("Voice permission timed out. Tap Talk to try again.", reason: .permissionTimeout) }
         if let completed, completed.expiresAt <= Date() || authority() != completed.authority { self.completed = nil }
         if let utterance {
             if playbackStopRequested {
@@ -748,7 +774,11 @@ final class TenetVoiceSession: NSObject, AVSpeechSynthesizerDelegate {
     }
 
     func cancelAll() {
-        cancelRecognition()
+        cancelAll(reason: .cancelled)
+    }
+
+    private func cancelAll(reason: StopReason) {
+        cancelRecognition(sessionId: nil, reason: reason)
         stopSpeaking()
     }
 
@@ -764,7 +794,7 @@ final class TenetVoiceSession: NSObject, AVSpeechSynthesizerDelegate {
         utterance = nil
         playbackAuthority = nil
         playbackDeadline = nil
-        cancelRecognition()
+        cancelRecognition(sessionId: nil, reason: .shutdown)
         deactivateAudioIfIdle()
     }
 }

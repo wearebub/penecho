@@ -2,11 +2,12 @@
 const test = require("node:test"), assert = require("node:assert/strict");
 const fs = require("node:fs"), vm = require("node:vm"), path = require("node:path");
 const source = fs.readFileSync(path.join(__dirname,"../src/client/app/tenet-voice.js"),"utf8");
-const instrumented = source.replace("  function launch()", "  globalThis.voiceTest = {activate,open,submit,cancel,finish,capture, current, get ui(){return ui}, get job(){return job}, get phase(){return phase}};\n  function launch()");
+const instrumented = source.replace("  function launch()", "  globalThis.voiceTest = {activate,open,submit,cancel,finish,capture,current,voiceStopCode,voiceStopMessage,get ui(){return ui},get job(){return job},get phase(){return phase}};\n  function launch()");
 assert.notEqual(instrumented, source);
 class Element extends EventTarget {
   constructor() { super(); this.value=""; this.hidden=false; this.open=false; this.checked=false; this.children=new Map(); }
   querySelector(key) { if(!this.children.has(key)) this.children.set(key,new Element()); return this.children.get(key); }
+  contains(node) { return this === node || [...this.children.values()].some(child=>child.contains(node)); }
   setAttribute() {} removeAttribute(key) { delete this[key]; } append() {} prepend() {} remove() {} focus() {} blur() {}
   show() { this.open=true; } showModal() { this.open=true; } close() { this.open=false; }
 }
@@ -470,4 +471,140 @@ test("voice quality display refreshes after another voice is installed",async()=
   improved=true;await h.api.open();
   assert.match(h.api.ui.voiceQuality.textContent,/Better voice \(premium\)/);
   assert.doesNotMatch(h.api.ui.voiceQuality.textContent,/download an/);h.api.cancel();
+});
+
+function outsidePointer(h, pointerType="touch") {
+  const event=new Event("pointerdown");
+  Object.defineProperty(event,"pointerType",{value:pointerType});
+  h.document.dispatchEvent(event);
+}
+
+test("voice code lookup accepts only owned string keys without coercing unknown or inherited values",()=>{
+  const h=harness(),{voiceStopCode,voiceStopMessage}=h.api;
+  for(const [code,expected] of [
+    ["audio-interruption","audio-interruption"],["recognizer-failed","recognizer-failed"],
+    ["voice_cancelled","cancelled"],["voice_on_device_unavailable","recognizer-unavailable"],
+    ["voice_session_unavailable","authority-changed"],
+  ])assert.equal(voiceStopCode(code),expected);
+  const uncoercible={ [Symbol.toPrimitive](){throw Error("Unknown codes must not be coerced");} };
+  for(const code of ["__proto__","constructor","toString","hasOwnProperty","valueOf","__defineGetter__",
+    "unknown",null,undefined,0,true,[],{},new String("voice_cancelled"),Symbol("voice_cancelled"),uncoercible]){
+    assert.equal(voiceStopCode(code),"voice-unavailable");
+    assert.equal(voiceStopCode(code,"recognizer"),"recognizer");
+    assert.equal(voiceStopMessage(code),voiceStopMessage("voice-unavailable"));
+  }
+});
+
+test("startup error labels never render raw diagnostics or inherit legacy object keys",async()=>{
+  for(const [code,expected] of [["__proto__","voice-unavailable"],["toString","voice-unavailable"],
+    ["voice_cancelled","cancelled"],["audio-input-unavailable","audio-input-unavailable"],
+    [null,"voice-unavailable"]]){
+    const raw="SYNTHETIC_PRIVATE_OS_DIAGNOSTIC";
+    const h=harness({async startVoiceRecognition(){throw Object.assign(Error(raw),{code});}});
+    await h.api.activate();await h.api.open();
+    assert.equal(h.api.phase,"idle");assert.equal(h.api.ui.dialog.open,true);
+    assert.equal(h.api.ui.status.textContent,h.api.voiceStopMessage(expected));
+    assert.equal(h.api.ui.input.value,"");assert.equal(h.calls.some(call=>call[0]==="request"),false);
+    assert.doesNotMatch(h.api.ui.status.textContent,new RegExp(raw));
+    assert.equal(JSON.stringify(h.calls).includes(raw),false);assert.equal(h.storage.size,0);h.api.cancel();
+  }
+});
+
+test("unknown terminal reasons retain reviewable text without exposing diagnostics or auto-sending",async()=>{
+  for(const reason of ["__proto__","constructor",null,{toString(){throw Error("Do not coerce reasons");}}]){
+    const h=autoSendHarness();await h.api.activate();await h.api.open();
+    h.events.get("voiceState")({sessionId:h.api.job.sessionId,state:"error",reason,
+      message:"SYNTHETIC_PRIVATE_OS_DIAGNOSTIC",text:"Review these words",isFinal:false});
+    await settle();assert.equal(h.api.phase,"idle");assert.equal(h.api.ui.input.value,"Review these words");
+    assert.equal(h.api.ui.status.textContent,h.api.voiceStopMessage("voice-unavailable"));
+    assert.equal(h.calls.some(call=>call[0]==="request"),false);assert.equal(h.storage.size,0);h.api.cancel();
+  }
+});
+
+test("terminal and start-rejection delivery orders preserve the specific closed failure reason",async()=>{
+  for(const order of ["terminal-first","rejection-first"]){
+    let rejectStart;
+    const h=autoSendHarness();
+    h.native.startVoiceRecognition=()=>new Promise((resolve,reject)=>{rejectStart=reject;});
+    await h.api.activate();const opening=h.api.open();await settle();const sessionId=h.api.job.sessionId;
+    const terminal={sessionId,state:"error",reason:"audio-engine-stopped",text:"",isFinal:false};
+    if(order==="terminal-first")h.events.get("voiceState")(terminal);
+    rejectStart(Object.assign(Error("SYNTHETIC_PRIVATE_OS_DIAGNOSTIC"),
+      {code:order==="terminal-first"?"voice_unavailable":"audio-engine-stopped"}));
+    await opening;
+    if(order==="rejection-first")h.events.get("voiceState")(terminal);
+    assert.equal(h.api.phase,"idle");assert.equal(h.api.ui.status.textContent,h.api.voiceStopMessage("audio-engine-stopped"));
+    assert.equal(h.api.ui.input.value,"");assert.equal(h.calls.some(call=>call[0]==="request"),false);
+    assert.equal(h.timeouts.size,0);h.api.cancel();
+  }
+});
+
+test("outside touch, Pencil and mouse contact preserve starting, listening and finalizing dictation",async()=>{
+  for(const phase of ["starting","listening","finalizing"]){
+    let releaseStart;
+    const h=autoSendHarness();
+    if(phase==="starting")h.native.startVoiceRecognition=()=>new Promise(resolve=>{releaseStart=resolve;});
+    await h.api.activate();const opening=h.api.open();await settle();
+    if(phase!=="starting")await opening;
+    const job=h.api.job,sessionId=job.sessionId;
+    if(phase!=="starting")h.events.get("voiceTranscript")({sessionId,text:"Keep my question",isFinal:false});
+    if(phase==="finalizing")h.events.get("voiceState")({sessionId,state:"finalizing",reason:"transcript-pause"});
+    const previousCalls=h.calls.length,expectedText=h.api.ui.input.value;
+    assert.equal(h.api.phase,phase);
+    for(const pointerType of ["touch","pen","mouse"]){
+      outsidePointer(h,pointerType);
+      assert.equal(h.api.job,job);assert.equal(h.api.job.sessionId,sessionId);assert.equal(h.api.phase,phase);
+      assert.equal(h.api.ui.dialog.open,true);assert.equal(h.api.ui.input.value,expectedText);
+      assert.equal(h.api.ui.input.readOnly,true);assert.match(h.api.ui.status.textContent,/Use .*Cancel/);
+    }
+    assert.deepEqual(h.calls.slice(previousCalls).filter(call=>["start","stop","cancel","request"].includes(call[0])),[]);
+    h.api.cancel();if(releaseStart){releaseStart();await opening;}
+    assert.equal(h.api.job,null);assert.equal(h.timeouts.size,0);
+  }
+});
+
+test("outside protection keeps explicit Stop review and idle outside dismissal intact",async()=>{
+  const h=autoSendHarness();await h.api.activate();await h.api.open();const sessionId=h.api.job.sessionId;
+  h.events.get("voiceTranscript")({sessionId,text:"Keep this question",isFinal:false});outsidePointer(h);
+  h.api.ui.record.dispatchEvent(new Event("click"));await settle();
+  assert.equal(h.api.phase,"idle");assert.equal(h.api.ui.dialog.open,true);
+  assert.equal(h.api.ui.input.value,"Help me start problem 12");assert.equal(h.api.ui.input.readOnly,false);
+  assert.equal(h.api.job.autoSubmitArmed,false);assert.equal(h.calls.filter(call=>call[0]==="stop").length,1);
+  h.events.get("voiceState")({sessionId,state:"stopped",reason:"silence",text:"Late final",isFinal:true});
+  await settle();assert.equal(h.calls.some(call=>call[0]==="request"),false);
+  outsidePointer(h);assert.equal(h.api.job,null);assert.equal(h.api.ui.dialog.open,false);
+  assert.equal(h.api.ui.input.value,"");assert.equal(h.timers.size,0);
+});
+
+test("outside protection never defeats explicit cancellation, background, sign-out or page retirement",async()=>{
+  for(const action of ["cancel","escape","background","sign-out","page"]){
+    const h=autoSendHarness();await h.api.activate();await h.api.open();const sessionId=h.api.job.sessionId;
+    h.events.get("voiceTranscript")({sessionId,text:"Private question",isFinal:false});outsidePointer(h);
+    if(action==="cancel")h.api.ui.dialog.querySelector('[data-voice="cancel"]').dispatchEvent(new Event("click"));
+    if(action==="escape"){
+      const event=new Event("keydown",{cancelable:true});Object.defineProperty(event,"key",{value:"Escape"});
+      h.document.dispatchEvent(event);assert.equal(event.defaultPrevented,true);
+    }
+    if(action==="background"){h.document.hidden=true;h.document.dispatchEvent(new Event("visibilitychange"));}
+    if(action==="sign-out")h.window.dispatchEvent(new Event("tenet:sign-out"));
+    if(action==="page"){h.state.snapshotLoadGeneration++;for(const tick of [...h.timers.values()])tick();}
+    h.events.get("voiceState")({sessionId,state:"stopped",reason:"silence",text:"Stale final",isFinal:true});await settle();
+    assert.equal(h.api.job,null);assert.equal(h.api.ui.dialog.open,false);assert.equal(h.api.ui.input.value,"");
+    assert.equal(h.timers.size,0);assert.equal(h.calls.some(call=>call[0]==="request"),false);
+    assert(h.calls.some(call=>call[0]==="cancel"&&call[1].sessionId===sessionId));
+    assert(h.calls.some(call=>call[0]==="quiet"));
+  }
+});
+
+test("outside contact does not loosen empty, partial or true-final-only word-pause submission",async()=>{
+  for(const [text,isFinal,expected] of [["",true,0],["Unfinished question",false,0],["Help me begin",true,1]]){
+    const h=harness({async getVoiceCapabilities(){return {supported:true,onDevice:true,locale:"en-US",
+      supportsSilenceAutoSubmit:true,autoSubmitSilenceSeconds:1.5,autoSubmitTrigger:"transcript-inactivity"};}});
+    await h.api.activate();await h.api.open();const sessionId=h.api.job.sessionId;outsidePointer(h,"pen");
+    h.events.get("voiceState")({sessionId,state:"stopped",reason:"transcript-pause",text,isFinal});await settle();
+    const sent=h.calls.filter(call=>call[0]==="request");assert.equal(sent.length,expected);
+    if(expected){assert.equal(sent[0][1],"hint");assert.equal(sent[0][2].selectionQuestion,text);}
+    else{assert.equal(h.api.ui.dialog.open,true);assert.equal(h.api.ui.input.value,text);}
+    h.api.cancel();
+  }
 });

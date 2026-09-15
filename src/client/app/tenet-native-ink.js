@@ -190,6 +190,7 @@
           }
           state.autoEligible ||= drawing.strokeCount > 0;
           canvasAgentDidCommitUserCanvasChange(entry);
+          window.TenetProcessCapture?.nativeRevision({ revision, strokeCount:drawing.strokeCount, changedBounds:changed });
           if (!active && state.autoEligible) schedule();
         }
         state.currentSnapshotManifestExtensions = tenetInkManifestExtensions();
@@ -344,6 +345,7 @@
         source.pop();
         destination.push(entry);
         state.userRevision++;
+        window.TenetProcessCapture?.history(entry, side);
       } catch (error) { fail(error); }
       finally { restoreImage = null; lock--; scheduleSync(); emitStatus(); }
     }
