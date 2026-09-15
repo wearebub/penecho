@@ -69,3 +69,36 @@ sanitizing, or converting a PDF may remove/rewrite attachments; the viewer
 requires the original Tenet export. Anyone holding the PDF can read its attached
 student work and recorded AI inputs. Export and visible PDF disclose this.
 Local observations and checksums are not proof of identity or authorship.
+
+## Verified publication: 2026-09-15
+
+- Immutable source: `6729802e81ae55d296d54d7d0ced0ee72d9b8357`.
+- Release: https://github.com/wearebub/penecho/releases/tag/tenet-web-v1.12.0
+- Release archive workflow: https://github.com/wearebub/penecho/actions/runs/35036249890
+- Teacher viewer workflow: https://github.com/wearebub/penecho/actions/runs/35036252550
+- Public viewer: https://wearebub.github.io/penecho/ ; all three served viewer
+  files and the deployment source receipt match the immutable manifest.
+- Hosted runtime installed at `2026-09-15T23:37:17.462Z` for both
+  `district.connect.truemadeai.com` and `spanish.connect.truemadeai.com`.
+- Forty runtime files qualified; exactly seven client files changed. All served
+  public assets on both instances matched expected hashes and retained no-store.
+  Both external authentication boundaries still return 302 for unsigned users.
+- Service PIDs unchanged: Whiteboard 192062, mobile auth 78226, Caddy 54100.
+  Installed dependency lock and demo policy hashes remained unchanged.
+- Runtime archive SHA-256:
+  `6d7953400db454681a7c5752a8996692cee1fae91182a0e39d341525139da2fa`.
+- Manifest SHA-256:
+  `2a6c96b2ba1966e63f9c955b4062d8c4d564232efc22fad28731047e16145acf`.
+- Rollback backup: `/opt/tenet-demo/backups/whiteboard-1.12.0-6729802`.
+  Qualified rollback command on the VM, only with release rollback approval:
+  `sudo node /opt/tenet-demo/backups/whiteboard-1.12.0-6729802/deploy-runtime.mjs rollback`.
+- Receipts: `tenet-whiteboard-1.12.0-deployment.json`,
+  `tenet-whiteboard-1.12.0-viewer.json`, and `tenet-whiteboard-1.12.0-pdf.json`.
+
+This remains a hosted-client release paired with iPad 1.11.0 (51), not a new
+TestFlight submission. Fully close/reopen the app to request the updated bundle.
+Physical-device uptake and district LMS attachment preservation are not claimed.
+
+Unsigned hosted iPad Simulator compile and artifact packaging also passed:
+https://github.com/wearebub/penecho/actions/runs/35036251650 . Signed-build and
+TestFlight jobs were intentionally not requested for this client-only release.
