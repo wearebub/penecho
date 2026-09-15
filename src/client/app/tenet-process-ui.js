@@ -2,49 +2,19 @@
 (function installTenetProcessUI() {
   "use strict";
   if (window.PENECHO_CONFIG?.tenetMode !== true) return;
-  const journal = window.TenetProcessJournal;
-  const previewEnabled = window.PENECHO_CONFIG?.tenetAssignmentPreview === true && Boolean(journal);
-  const viewerOnly = window.PENECHO_CONFIG?.tenetHistoryViewerOnly === true;
-  const capture = () => window.TenetProcessCapture;
+  const standalone = window.PENECHO_CONFIG?.tenetHistoryViewerOnly === true;
+  const journal = !standalone && window.PENECHO_CONFIG?.tenetAssignmentPreview === true ? window.TenetProcessJournal : null;
+  const viewerOnly = !journal;
+  const capture = () => viewerOnly ? null : window.TenetProcessCapture;
   let selected = null, events = [], assetSource = journal, imported = false, sample = false;
   let exportFile = null, imageUrl = null, generation = 0, playing = false, playTimer = null;
   let sessionEpoch = 0, selectionEpoch = 0, playbackEpoch = 0, busyOwner = 0;
-  const launcherCSS = '.tenet-process-launch{display:inline-flex;align-items:center;gap:6px;min-height:44px;box-sizing:border-box;margin-inline-start:8px;padding:7px 11px;border:1px solid #d6d3ca;border-radius:9px;background:#f7f3e9;color:#172638;font:600 13px "Avenir Next","Trebuchet MS",sans-serif;text-decoration:none;flex-shrink:0;cursor:pointer;touch-action:manipulation}.tenet-process-launch svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}.tenet-process-launch-floating{position:fixed;top:calc(8px + env(safe-area-inset-top));right:12px;z-index:40}';
   const control = document.createElement("button");
   control.type = "button"; control.className = "tenet-process-launch";
   control.setAttribute("aria-haspopup", "dialog");
   control.setAttribute("aria-label", "Teacher preview: assignment playback");
   control.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m2 8 10-5 10 5-10 5-10-5Zm4 3v6c4 3 8 3 12 0v-6M22 8v9"/></svg><span>Teacher preview</span>';
-  // Keep ordinary sessions inside the app without exposing shared-profile
-  // histories. The child viewer permits only synthetic samples or chosen files.
-  if (!previewEnabled) {
-    control.setAttribute("aria-controls", "tenetProcessDialog");
-    control.setAttribute("aria-label", "Teacher preview: synthetic sample or local file");
-    control.title = "Sample and local-file preview only. Not a connected classroom.";
-    const entry = document.querySelector("#saveCanvasBtn");
-    if (entry) entry.insertAdjacentElement("afterend", control);
-    else { control.className += " tenet-process-launch-floating"; document.body.append(control); }
-    const shell = document.createElement("dialog");
-    shell.id = "tenetProcessDialog"; shell.className = "tenet-process-dialog tenet-process-embedded";
-    shell.setAttribute("aria-labelledby", "tenetProcessEmbeddedTitle");
-    shell.innerHTML = '<header><div><strong id="tenetProcessEmbeddedTitle">Teacher preview</strong><p>Sample and local-file playback. Not a connected classroom.</p></div><button type="button" data-action="close" aria-label="Close teacher preview and return to canvas">Back to canvas</button></header><iframe title="Tenet assignment playback: sample or local file" referrerpolicy="no-referrer"></iframe>';
-    const embeddedStyle = document.createElement("style");
-    embeddedStyle.textContent = '.tenet-process-embedded{box-sizing:border-box;width:min(1240px,98vw);height:calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom));max-height:calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom));padding:0;border:1px solid #dad6ca;border-radius:16px;background:#f8f6ee;color:#172638;overflow:hidden;box-shadow:0 20px 70px #10223340;font-family:"Avenir Next","Trebuchet MS",sans-serif}.tenet-process-embedded[open]{display:flex;flex-direction:column}.tenet-process-embedded::backdrop{background:#17263870;backdrop-filter:blur(5px)}.tenet-process-embedded>header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;flex:none;border-bottom:1px solid #dfdfd5;background:#f8f6ee}.tenet-process-embedded strong{font-size:16px}.tenet-process-embedded p{font-size:11px;color:#69766d;margin:4px 0 0}.tenet-process-embedded button{min-height:44px;min-width:44px;padding:9px 13px;border:1px solid #cbd5cf;border-radius:9px;background:#fffdf7;color:#172638;font:600 13px "Avenir Next","Trebuchet MS",sans-serif;cursor:pointer;touch-action:manipulation}.tenet-process-embedded button:focus-visible{outline:3px solid #488777;outline-offset:2px}.tenet-process-embedded>iframe{display:block;flex:1;min-height:0;width:100%;border:0;background:#f8f6ee}@media(max-width:520px){.tenet-process-embedded>header{padding:10px;gap:8px}.tenet-process-embedded strong{font-size:14px}.tenet-process-embedded p{max-width:190px}}';
-    embeddedStyle.textContent += launcherCSS;
-    document.head.append(embeddedStyle); document.body.append(shell);
-    const frame = shell.querySelector("iframe");
-    const unload = () => { frame.src = "about:blank"; };
-    control.addEventListener("click", () => {
-      if (shell.open) return;
-      shell.showModal();
-      frame.src = "./tenet-history-viewer.html";
-    });
-    shell.querySelector('[data-action="close"]').addEventListener("click", () => shell.close());
-    shell.addEventListener("close", unload);
-    window.addEventListener("tenet:sign-out", () => { shell.close(); unload(); });
-    window.addEventListener("pagehide", () => { shell.close(); unload(); });
-    return;
-  }
+  // One same-document modal preserves scratch work and obeys frame-ancestors.
   const dialog = document.createElement("dialog");
   dialog.className = "tenet-process-dialog";
   dialog.id = "tenetProcessDialog";
@@ -90,33 +60,12 @@
         </div>
       </section>
     </div><footer class="tenet-process-source">Built on PenEcho. <a href="https://github.com/wearebub/penecho/tree/codex/tenet-ipad" target="_blank" rel="noopener noreferrer">Tenet fork source</a> / <a href="https://github.com/wearebub/penecho/blob/codex/tenet-ipad/LICENSE" target="_blank" rel="noopener noreferrer">AGPL-3.0</a></footer>`;
-  const style = document.createElement("style");
-  style.textContent = `
-    .tenet-process-launch{display:inline-flex;align-items:center;gap:6px;min-height:44px;margin-inline-start:8px;padding:7px 11px;border:1px solid #d6d3ca;border-radius:9px;background:#f7f3e9;color:#172638;font:600 13px "Avenir Next","Trebuchet MS",sans-serif;cursor:pointer;touch-action:manipulation;flex-shrink:0}
-    .tenet-process-launch svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
-    .tenet-process-launch[data-recording=true]{border-color:#1c816d;background:#eaf4ef}
-    .tenet-process-dialog{box-sizing:border-box;width:min(1120px,96vw);max-height:calc(100dvh - 48px - env(safe-area-inset-top));padding:24px;border:1px solid #dad6ca;border-radius:20px;background:linear-gradient(145deg,#fffefb,#f5f2e9);color:#172638;font-family:"Avenir Next","Trebuchet MS",sans-serif;box-shadow:0 20px 70px #10223340;overflow:auto}
-    .tenet-process-dialog::backdrop{background:#17263860;backdrop-filter:blur(5px)}
-    .tenet-process-source{margin-top:22px;padding-top:14px;border-top:1px solid #dddcd1;font-size:11px;color:#68716f}.tenet-process-source a{color:#315c50;text-underline-offset:3px}
-    .tenet-process-dialog [hidden]{display:none!important}.tenet-process-heading,.tenet-process-record-heading,.tenet-process-library-heading{display:flex;align-items:center;justify-content:space-between;gap:14px}
-    .tenet-process-heading small{font-size:11px;letter-spacing:.15em;color:#9b552f;font-weight:800}.tenet-process-heading h2{font-size:27px;letter-spacing:-.7px;margin:5px 0 0}.tenet-process-dialog h3{margin:0 0 10px;font-size:16px}
-    .tenet-process-dialog button{min-height:42px;border:1px solid #d2d5d5;border-radius:9px;padding:8px 12px;background:#fffdfa;color:#172638;font:600 13px "Avenir Next","Trebuchet MS",sans-serif;cursor:pointer;touch-action:manipulation}
-    .tenet-process-dialog button:disabled{opacity:.5;cursor:default}.tenet-process-dialog button:focus-visible,.tenet-process-dialog input:focus-visible{outline:3px solid #5a98c1;outline-offset:2px}
-    .tenet-process-dialog .tenet-process-primary{background:#172638;color:white;width:100%;border-color:#172638}.tenet-process-dialog .tenet-process-danger{color:#9a3434}
-    .tenet-process-disclosure{font-size:12px;line-height:1.6;max-width:920px;color:#68716f}.tenet-process-status{padding:10px 13px;border-radius:9px;background:#eaf0ed;font-size:13px;min-height:18px}.tenet-process-status[data-error=true]{background:#fae8e2;color:#90331f}
-    .tenet-process-layout{display:grid;grid-template-columns:265px minmax(0,1fr);gap:24px}.tenet-process-sidebar{border-right:1px solid #e0ddd4;padding-right:20px}.tenet-process-sidebar label{display:grid;gap:5px;font-size:12px;font-weight:600;margin-bottom:12px}
-    .tenet-process-sidebar input:not([type=checkbox]){box-sizing:border-box;width:100%;padding:11px;border:1px solid #d6d6d0;border-radius:8px;background:#fff;font:14px "Avenir Next","Trebuchet MS",sans-serif;color:#172638}
-    .tenet-process-sidebar .tenet-process-consent{display:flex;align-items:flex-start;gap:8px;font-size:11px;line-height:1.55;font-weight:400}.tenet-process-consent input{margin-top:4px;flex:none;accent-color:#287868}
-    .tenet-process-demo{padding:16px;margin-bottom:12px;border:1px solid #d8e3da;border-radius:12px;background:linear-gradient(135deg,#e9f1e9,#fbf7e9)}.tenet-process-demo small{color:#6c7355;font-size:10px;font-weight:800;letter-spacing:.14em}.tenet-process-demo h3{margin-top:9px}.tenet-process-demo p{font-size:12px;line-height:1.6;color:#556560}.tenet-process-record-options{margin-top:22px}.tenet-process-dialog summary{cursor:pointer;padding:11px 0;min-height:22px;font-size:13px;font-weight:700}.tenet-process-record-options form{padding-top:12px}
-    .tenet-process-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin:15px 0}.tenet-process-metrics div{display:grid;gap:4px;padding:12px;border:1px solid #dddcd1;border-radius:10px;background:#fffefa}.tenet-process-metrics strong{font-size:22px;color:#246454}.tenet-process-metrics span{font-size:10px;color:#626d69}.tenet-process-observation{padding:15px;border:1px solid #dddcd1;border-radius:12px;background:#fffefa;overflow-wrap:anywhere}.tenet-process-observation>small{font-size:10px;letter-spacing:.1em;color:#846442}.tenet-process-observation h3{margin-top:8px}.tenet-process-observation p{font-size:12px;line-height:1.6;white-space:pre-wrap}.tenet-process-conversation{border-top:1px solid #e1e3d9;margin-top:14px}.tenet-process-conversation h4{font-size:10px;text-transform:uppercase;letter-spacing:.08em;margin:15px 0 6px;color:#66796e}.tenet-process-conversation [data-value=response]{padding:11px;background:#edf3ec;border-left:3px solid #488777;border-radius:0 8px 8px 0}.tenet-process-preview{position:relative}
-    .tenet-process-library-heading{margin-top:28px}.tenet-process-library-heading h3{margin:0}.tenet-process-list{display:grid;gap:8px;margin:12px 0 18px;max-height:300px;overflow:auto}.tenet-process-list button{text-align:left;display:grid;gap:4px}.tenet-process-list small{font-size:11px;font-weight:400;color:#697478}.tenet-process-list button[aria-current=true]{border-color:#527f88;background:#edf4f0}
-    .tenet-process-work{min-width:0}.tenet-process-empty{min-height:340px;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;background:radial-gradient(ellipse at center,#f2eee0,transparent 72%);padding:20px}.tenet-process-empty span{font-size:10px;letter-spacing:.18em;color:#9b552f}.tenet-process-empty h3{font-size:24px;margin:14px 0}.tenet-process-empty p{max-width:360px;color:#68716f;line-height:1.6;font-size:14px}
-    .tenet-process-record-heading h3{margin:0;font-size:21px}.tenet-process-record-heading p{font-size:12px;color:#68716f;margin:7px 0}.tenet-process-badge{padding:6px 9px;border-radius:20px;background:#e6eee8;font-size:11px;font-weight:700;white-space:nowrap}.tenet-process-coverage{font-size:12px;line-height:1.5;color:#805530}
-    .tenet-process-actions{display:flex;flex-wrap:wrap;gap:7px;margin:12px 0}.tenet-process-preview{min-height:230px;height:32vh;max-height:390px;display:flex;align-items:center;justify-content:center;border:1px solid #dddcd5;border-radius:12px;background:repeating-linear-gradient(0deg,#fff,#fff 23px,#f3f2ee 24px);overflow:hidden}.tenet-process-preview img{max-width:100%;max-height:100%;object-fit:contain}.tenet-process-preview p{padding:20px;text-align:center;color:#737c81;font-size:13px}
-    .tenet-process-playback{display:flex;align-items:center;gap:12px;margin-top:12px}.tenet-process-playback input{flex:1;min-width:50px;accent-color:#267b6b}.tenet-process-playback output{font-size:12px;min-width:48px;text-align:right}.tenet-process-caption{font-size:11px;line-height:1.5;color:#68716f}.tenet-process-detail{display:grid;grid-template-columns:minmax(130px,1fr) minmax(0,1.35fr);gap:12px}.tenet-process-events{max-height:210px;overflow:auto;display:flex;flex-direction:column;gap:5px}.tenet-process-events button{text-align:left;min-height:38px;font-size:11px}.tenet-process-events button[aria-current=true]{background:#eaf2ef;border-color:#4c8274}.tenet-process-detail pre{white-space:pre-wrap;overflow:auto;margin:0;padding:12px;max-height:185px;border-radius:9px;background:#eeeae0;font:11px/1.6 ui-monospace,monospace;overflow-wrap:anywhere}
-    @media(max-width:720px){.tenet-process-dialog{padding:16px}.tenet-process-layout{grid-template-columns:1fr}.tenet-process-sidebar{border-right:0;border-bottom:1px solid #e0ddd4;padding:0 0 18px}.tenet-process-heading h2{font-size:22px}.tenet-process-list{max-height:150px}.tenet-process-detail{grid-template-columns:1fr}.tenet-process-launch span{display:none}.tenet-process-launch{min-width:42px;justify-content:center}.tenet-process-preview{height:30vh}}`;
-  style.textContent += launcherCSS;
-  document.head.append(style); document.body.append(dialog);
+  if (!document.querySelector("#tenetProcessStyles")) {
+    const style = document.createElement("link");
+    style.id = "tenetProcessStyles"; style.rel = "stylesheet"; style.href = "./tenet-process.css";
+    document.head.append(style);
+  }
+  document.body.append(dialog);
   const anchor = document.querySelector("#saveCanvasBtn");
   if (anchor) anchor.insertAdjacentElement("afterend", control);
   else { control.className += " tenet-process-launch-floating"; document.body.append(control); }
@@ -224,6 +173,7 @@
     finally { if (owner === busyOwner) { dialog.dataset.busy = "false"; dialog.removeAttribute("aria-busy"); } }
   }
   function paintActions() {
+    dialog.querySelector(".tenet-process-actions").hidden = viewerOnly;
     const ownsActive = selected && capture()?.activeId() === selected.id;
     const recording = selected?.status === "recording";
     find("checkpoint").hidden = imported || !ownsActive || !recording;
@@ -291,6 +241,7 @@
     paintActions(); await renderEvent(Math.max(0, events.length - 1));
   }
   async function selectAttempt(id) {
+    if (viewerOnly) return;
     const token = ++selectionEpoch, session = sessionEpoch;
     stopPlaying(); generation++; clearPrepared(); clearImage();
     const attempt = await journal.readAttempt(id), nextEvents = attempt ? await journal.listEvents(id) : [];
@@ -307,7 +258,7 @@
     playTimer = setTimeout(() => void tick(index + 1, token), 1000);
   }
   async function prepareExport() {
-    if (!selected || imported) return;
+    if (viewerOnly || !selected || imported) return;
     const id = selected.id, session = sessionEpoch;
     stopPlaying();
     message("Finishing the local journal and preparing an archive...");
@@ -331,6 +282,7 @@
   find("close").addEventListener("click", () => dialog.close());
   function retireView() { stopPlaying(); generation++; sessionEpoch++; selectionEpoch++; busyOwner++; dialog.dataset.busy = "false"; dialog.removeAttribute("aria-busy"); clearImage(); }
   dialog.addEventListener("close", retireView);
+  if (!viewerOnly) {
   dialog.querySelector("form").addEventListener("submit", event => {
     event.preventDefault();
     void perform(async () => {
@@ -378,6 +330,7 @@
     await journal.deleteAttempt(selected.id); if (session !== sessionEpoch || !dialog.open) return;
     selected = null; events = []; clearPrepared(); clearImage(); await paintRecord(); await refreshLibrary(); message("Local history removed. Your original canvas is unchanged.");
   }));
+  }
   find("play").addEventListener("click", () => {
     if (playing) { stopPlaying(); return; }
     if (!events.length || !dialog.open || dialog.dataset.busy === "true") return;
@@ -393,7 +346,9 @@
     const token = ++selectionEpoch, session = sessionEpoch;
     stopPlaying(); generation++; clearImage(); clearPrepared();
     message("Opening and checking archive consistency...");
-    const bundle = await journal.readArchive(file);
+    const archive = window.TenetProcessJournal;
+    if (typeof archive?.readArchive !== "function") throw Error("The read-only archive reader is unavailable in this build. The synthetic sample still works; recording has not been enabled.");
+    const bundle = await archive.readArchive(file);
     if (token !== selectionEpoch || session !== sessionEpoch || !dialog.open) return;
     selected = bundle.attempt; events = bundle.events; imported = true; sample = false; assetSource = bundle;
     await paintRecord(); if (session === sessionEpoch && dialog.open) message("Archive opened read-only. Internal consistency checked; identity and independent authorship are not verified.");
@@ -411,11 +366,12 @@
     if (session === sessionEpoch && dialog.open) message("Synthetic example ready. Press Play history to follow the work and observed AI help. Your canvas is unchanged.");
   }));
   window.addEventListener("tenet:process-status", event => {
+    if (viewerOnly) return;
     control.dataset.recording = String(Boolean(capture()?.isRecording()));
     if (event.detail?.error) message(String(event.detail.error), true);
   });
   window.addEventListener("tenet:sign-out", () => { dialog.close(); retireView(); selected = null; events = []; assetSource = journal; imported = false; sample = false; clearPrepared(); value("detail").textContent = ""; value("question").textContent = ""; value("response").textContent = ""; dialog.querySelector(".tenet-process-list").replaceChildren(); dialog.querySelector(".tenet-process-events").replaceChildren(); void paintRecord(); });
   document.addEventListener("visibilitychange", () => { if (document.hidden) stopPlaying(); });
   window.addEventListener("pagehide", () => { retireView(); clearPrepared(); });
-  if (viewerOnly) control.click();
+  if (standalone) control.click();
 })();

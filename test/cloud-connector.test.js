@@ -1085,7 +1085,8 @@ test("a legacy Cloud hello without acknowledgement support keeps the relay conne
   }
 });
 
-test("relay heartbeat acknowledgements refresh the silence watchdog and missing acknowledgements reconnect", async () => {
+test("relay heartbeat acknowledgements refresh the silence watchdog and missing acknowledgements reconnect", { timeout:10000 }, async (t) => {
+  const { once } = require("node:events");
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "penecho-cloud-heartbeat-test-"));
   const server = new WebSocketServer({ host:"127.0.0.1", port:0 });
   await new Promise((resolve) => server.once("listening", resolve));
@@ -1107,8 +1108,14 @@ test("relay heartbeat acknowledgements refresh the silence watchdog and missing 
       deviceName:"Heartbeat device",
       enabled:true,
     });
+    // Keep real WebSocket I/O, but do not race an 80 ms watchdog against
+    // wall-clock sleeps when other test processes are competing for the CPU.
+    // TestContext restores these timers after this test, including failures.
+    t.mock.timers.enable({ apis:["setTimeout", "setInterval"] });
     connector.start();
     const remoteSocket = await accepted;
+    const localSocket = connector.socket;
+    const helloReceived = once(localSocket, "message");
     remoteSocket.send(JSON.stringify({
       type:"hello",
       protocol:1,
@@ -1116,16 +1123,36 @@ test("relay heartbeat acknowledgements refresh the silence watchdog and missing 
       heartbeatSeconds:60,
       heartbeatTimeoutSeconds:150,
     }));
-    await eventually(() => connector.status().connected, "relay did not become connected after hello");
-    await new Promise((resolve) => setTimeout(resolve, 40));
+    const [hello] = await helloReceived;
+    assert.equal(JSON.parse(hello.toString("utf8")).type, "hello");
+    assert.equal(connector.status().connected, true, "relay must authenticate through the real hello handler");
+    const originalDeadline = connector.heartbeatDeadlineTimer;
+    assert.ok(originalDeadline);
+    assert.equal(connector.activeHeartbeatTimeoutMs, 80);
+
+    t.mock.timers.tick(40);
+    const acknowledgementReceived = once(localSocket, "message");
     remoteSocket.send(JSON.stringify({ type:"heartbeat_ack" }));
-    await new Promise((resolve) => setTimeout(resolve, 55));
+    const [acknowledgement] = await acknowledgementReceived;
+    assert.equal(JSON.parse(acknowledgement.toString("utf8")).type, "heartbeat_ack");
+    assert.notEqual(connector.heartbeatDeadlineTimer, originalDeadline, "processing the ACK must replace the original watchdog");
+
+    t.mock.timers.tick(55); // t=95: past the original t=80 deadline, before the refreshed t=120 deadline.
     assert.equal(connector.status().connected, true, "the acknowledgement should refresh the watchdog");
-    await eventually(() => connector.status().state === "waiting", "a silent relay did not enter reconnect backoff", 500);
+    assert.equal(events.some((entry) => entry.event === "heartbeat-timeout"), false);
+    t.mock.timers.tick(24); // t=119: no early expiry of the refreshed deadline.
+    assert.equal(connector.status().connected, true);
+    const closed = once(localSocket, "close");
+    t.mock.timers.tick(1); // t=120: no further ACK, so the real watchdog must terminate the socket.
+    await closed;
+    assert.equal(connector.status().state, "waiting", "a silent relay must enter reconnect backoff after socket closure");
+    assert.equal(connector.status().connected, false);
+    assert.ok(connector.reconnectTimer, "a missed ACK must schedule a reconnect, not merely label the connection offline");
     assert.match(connector.status().lastError, /heartbeat acknowledgement timed out/i);
-    assert.ok(events.some((entry) => entry.event === "heartbeat-timeout" && entry.timeoutMs === 80));
+    assert.equal(events.filter((entry) => entry.event === "heartbeat-timeout" && entry.timeoutMs === 80).length, 1);
   } finally {
     connector?.close();
+    for (const socket of server.clients) socket.terminate();
     await new Promise((resolve) => server.close(resolve));
     fs.rmSync(stateDir, { recursive:true, force:true });
   }

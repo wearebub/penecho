@@ -13,7 +13,7 @@ const VERSION = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 const TAG = /^tenet-(?:web-v\d+\.\d+\.\d+|ipad-v\d+\.\d+\.\d+-build\.[1-9]\d*)$/;
 const WEB_PATHS = [
   'public/app.js', 'public/index.html', 'public/summon.js', 'public/tenet-ink-comparison.css',
-  'public/tenet-history-viewer.html', 'public/tenet-history-viewer.js',
+  'public/tenet-history-viewer.html', 'public/tenet-history-viewer.js', 'public/tenet-process.css',
   'public/tenet-ipad-usability.css', 'public/tenet-notebook.css',
   'public/tenet-selection-tools.css', 'public/tenet-voice.css', 'scripts/build-client.js', 'src/client',
 ];

@@ -8,6 +8,8 @@ const test = require("node:test");
 
 const filename = path.join(__dirname, "../src/client/app/tenet-process-ui.js");
 const source = fs.readFileSync(filename, "utf8");
+const processCSS = fs.readFileSync(path.join(__dirname, "../public/tenet-process.css"), "utf8");
+const viewerHTML = fs.readFileSync(path.join(__dirname, "../public/tenet-history-viewer.html"), "utf8");
 
 // Small behavioral DOM harness: real callback dispatch, range clamping and
 // controllable async work/timers, with no browser package or network dependency.
@@ -91,8 +93,8 @@ function bundle(title = "Fixture assignment", count = 3, getAsset) {
 function boot(options = {}) {
   const doc = new Events(); doc.head = new Element("head", doc); doc.body = new Element("body", doc); doc.hidden = false;
   const anchor = new Element("button", doc); anchor.id = "saveCanvasBtn"; doc.body.append(anchor);
-  doc.querySelector = selector => doc.body.querySelector(selector);
-  doc.querySelectorAll = selector => doc.body.querySelectorAll(selector);
+  doc.querySelector = selector => doc.head.querySelector(selector) || doc.body.querySelector(selector);
+  doc.querySelectorAll = selector => [...doc.head.querySelectorAll(selector), ...doc.body.querySelectorAll(selector)];
   const calls = {list:0, begin:0, canvases:0, read:0, archive:0};
   doc.createElement = tag => {
     const node = new Element(tag, doc);
@@ -113,7 +115,7 @@ function boot(options = {}) {
   };
   const capture = {activeId:() => null, isRecording:() => false, begin:async () => { calls.begin++; return {id:"new", status:"recording"}; }};
   const win = new Events(); win.PENECHO_CONFIG = {tenetMode:true, tenetAssignmentPreview:true, tenetHistoryViewerOnly:true, ...options.config};
-  win.confirm = () => true; win.TenetProcessJournal = options.noJournal ? undefined : journal; win.TenetProcessCapture = capture;
+  win.confirm = () => true; win.TenetProcessJournal = options.noJournal ? undefined : options.readOnlyJournal ? Object.freeze({readArchive:journal.readArchive}) : journal; win.TenetProcessCapture = capture;
   const timers = new Map(); let timerId = 0, urlId = 0; const urls = new Map(), revoked = [];
   const context = vm.createContext({window:win, document:doc, Blob, File, navigator:{}, URL:{createObjectURL:blob => { const url = "blob:fixture-" + (++urlId); urls.set(url, blob); return url; }, revokeObjectURL:url => { urls.delete(url); revoked.push(url); }}, setTimeout:(callback, ms) => { const id = ++timerId; timers.set(id, {callback, ms}); return id; }, clearTimeout:id => timers.delete(id)});
   new vm.Script(source, {filename}).runInContext(context);
@@ -143,39 +145,69 @@ test("launcher styling uses CSS classes rather than strict-CSP-blocked style att
     assert.match(ui.launch.className, /tenet-process-launch/);
     assert.equal(ui.launch.style.cssText, "");
     assert.equal(ui.launch.querySelector("svg").style.cssText, "");
-    assert.match(ui.doc.head.textContent, /\.tenet-process-launch\{[^}]*min-height:44px/);
+    assert.equal(ui.doc.head.querySelector("#tenetProcessStyles").rel, "stylesheet");
+    assert.equal(ui.doc.head.querySelector("#tenetProcessStyles").href, "./tenet-process.css");
+    assert.match(processCSS, /\.tenet-process-launch\{[^}]*min-height:44px/);
   }
 });
 
-test("ordinary Tenet sessions embed a sample/local-file viewer without navigating or reading histories", async () => {
-  for (const options of [{config:{tenetAssignmentPreview:false, tenetHistoryViewerOnly:false}}, {noJournal:true}]) {
+test("all process UI uses same-origin external styles and no frames under the unchanged host CSP", () => {
+  assert.doesNotMatch(source, /createElement\(["']style["']\)|<style\b|<iframe\b|createElement\(["']iframe["']\)/i);
+  assert.doesNotMatch(viewerHTML, /<style\b|\sstyle=|<iframe\b/i);
+  assert.match(viewerHTML, /<link id="tenetProcessStyles" rel="stylesheet" href="\.\/tenet-process\.css"/);
+  assert.match(viewerHTML, /<body class="tenet-history-standalone">/);
+  assert.doesNotMatch(processCSS, /@import|url\(\s*["']?https?:/i);
+  assert.match(viewerHTML, /Tenet fork source/); assert.match(viewerHTML, /AGPL-3\.0/);
+});
+
+test("ordinary Tenet sessions open an inline read-only viewer without navigating or reading histories", async () => {
+  for (const options of [{readOnlyJournal:true, config:{tenetAssignmentPreview:undefined, tenetHistoryViewerOnly:false}}, {noJournal:true, config:{tenetHistoryViewerOnly:false}}]) {
     const ui = boot(options); await settle();
     const scratch = {unsaved:true, strokes:[1, 2, 3]}; ui.win.scratch = scratch;
     ui.win.location = Object.freeze({href:"https://district.example/whiteboard"});
     ui.win.open = () => assert.fail("Teacher preview must not open Safari or a new tab");
-    const frame = ui.dialog.querySelector("iframe");
+    assert.equal(ui.dialog.querySelector("iframe"), null);
     assert.equal(ui.dialog.open, false); assert.equal(ui.launch.tagName, "button");
     assert.equal(ui.launch.getAttribute("aria-controls"), "tenetProcessDialog");
-    assert.equal(frame.src, undefined, "Do not load the child viewer before explicit open");
     ui.launch.click(); await settle();
-    assert.equal(ui.dialog.open, true); assert.equal(frame.src, "./tenet-history-viewer.html");
+    assert.equal(ui.dialog.open, true);
+    assert.equal(ui.dialog.querySelector(".tenet-process-record-options").hidden, true);
+    assert.equal(ui.dialog.querySelector(".tenet-process-list").hidden, true);
+    await ui.click("sample"); assert.equal(ui.value("badge").textContent, "SYNTHETIC EXAMPLE");
     assert.equal(ui.win.location.href, "https://district.example/whiteboard");
     ui.action("close").click(); await settle();
-    assert.equal(ui.dialog.open, false); assert.equal(frame.src, "about:blank");
+    assert.equal(ui.dialog.open, false); assert.equal(ui.urls.size, 0);
     assert.strictEqual(ui.win.scratch, scratch); assert.deepEqual(scratch.strokes, [1, 2, 3]);
-    ui.launch.click(); await settle(); assert.equal(frame.src, "./tenet-history-viewer.html");
-    assert.match(ui.launch.getAttribute("aria-label"), /synthetic sample or local file/);
+    ui.launch.click(); await settle(); assert.equal(ui.dialog.open, true);
+    assert.match(ui.launch.getAttribute("aria-label"), /Teacher preview/);
     assert.equal(ui.calls.list, 0); assert.equal(ui.calls.begin, 0);
   }
 });
 
-test("embedded fallback unloads on native dialog dismissal, sign-out and pagehide", async () => {
+test("ordinary inline viewer retires images and replay on dismissal, sign-out and pagehide", async () => {
   const ui = boot({config:{tenetAssignmentPreview:false, tenetHistoryViewerOnly:false}});
-  const frame = ui.dialog.querySelector("iframe");
-  ui.launch.click(); ui.dialog.close(); await settle(); assert.equal(frame.src, "about:blank");
-  ui.launch.click(); ui.win.fire("tenet:sign-out"); await settle(); assert.equal(ui.dialog.open, false); assert.equal(frame.src, "about:blank");
-  ui.launch.click(); ui.win.fire("pagehide"); await settle(); assert.equal(ui.dialog.open, false); assert.equal(frame.src, "about:blank");
+  ui.launch.click(); await ui.click("sample"); await ui.click("play"); ui.dialog.close(); await settle(); assert.equal(ui.urls.size, 0); assert.equal(ui.timers.size, 0);
+  ui.launch.click(); await settle(); ui.win.fire("tenet:sign-out"); await settle(); assert.equal(ui.dialog.open, false); assert.equal(ui.urls.size, 0);
+  ui.launch.click(); await ui.click("sample"); ui.win.fire("pagehide"); await settle(); assert.equal(ui.urls.size, 0); assert.equal(ui.timers.size, 0);
   assert.equal(ui.calls.list, 0); assert.equal(ui.calls.begin, 0);
+});
+
+test("default-off pure archive API supports local imports without capture or journal enumeration", async () => {
+  const ui = boot({readOnlyJournal:true, config:{tenetAssignmentPreview:undefined, tenetHistoryViewerOnly:false}});
+  ui.launch.click(); await ui.import();
+  assert.equal(ui.calls.archive, 1); assert.equal(ui.calls.list, 0); assert.equal(ui.calls.read, 0); assert.equal(ui.calls.begin, 0);
+  assert.equal(ui.value("title").textContent, "Fixture assignment");
+  assert.equal(ui.value("badge").textContent, "IMPORTED / UNVERIFIED");
+  assert.equal(ui.dialog.querySelector(".tenet-process-actions").hidden, true);
+  const form = ui.dialog.querySelector("form"); form.elements.title.value = "Must not record"; form.elements.consent.checked = true; form.fire("submit");
+  ui.action("checkpoint").click(); ui.action("pause").click(); ui.action("freeze").click(); await settle();
+  assert.equal(ui.calls.begin, 0); assert.equal(ui.calls.list, 0);
+});
+
+test("missing read-only archive API fails clearly without enabling capture or blocking the sample", async () => {
+  const ui = boot({noJournal:true, config:{tenetHistoryViewerOnly:false}}); ui.launch.click(); await ui.import();
+  assert.match(ui.dialog.querySelector(".tenet-process-status").textContent, /read-only archive reader is unavailable/);
+  assert.equal(ui.calls.begin, 0); await ui.click("sample"); assert.equal(ui.value("badge").textContent, "SYNTHETIC EXAMPLE");
 });
 
 test("standalone preview never enumerates shared-profile history and exposes no recording form", async () => {

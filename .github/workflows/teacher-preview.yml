@@ -39,6 +39,7 @@ jobs:
           mkdir -p release/teacher-preview
           cp public/tenet-history-viewer.html release/teacher-preview/index.html
           cp public/tenet-history-viewer.js release/teacher-preview/tenet-history-viewer.js
+          cp public/tenet-process.css release/teacher-preview/tenet-process.css
           printf '{"sourceCommit":"%s","kind":"synthetic-and-local-file-preview"}\n' "$GITHUB_SHA" > release/teacher-preview/release.json
       - uses: actions/upload-pages-artifact@v3
         with:

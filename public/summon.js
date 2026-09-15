@@ -225,7 +225,7 @@
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
     for (let step = 0; step < length; step++) {
-      const index = (head - length + step + points.length) % points.length,
+      const index = ((head - length + step) % points.length + points.length) % points.length,
         next = (index + 1) % points.length,
         strength = Math.sin((step + 1) / (length + 1) * Math.PI);
       ctx.globalAlpha = fade * (0.12 + strength * 0.82);

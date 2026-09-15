@@ -1,14 +1,15 @@
 // Durable local assignment history. No server authorization or network transport.
 (function installTenetProcessJournal(global) {
   "use strict";
-  if (global.PENECHO_CONFIG?.tenetMode !== true || global.PENECHO_CONFIG?.tenetAssignmentPreview !== true) return;
+  if (global.PENECHO_CONFIG?.tenetMode !== true) return;
+  const captureEnabled = global.PENECHO_CONFIG?.tenetAssignmentPreview === true;
   const VERSION = 1;
   const MAX_EVENTS = 5000, MAX_ATTEMPT = 64 * 1024 * 1024;
   const MAX_PROFILE = 256 * 1024 * 1024, MAX_APPEND = 32 * 1024 * 1024;
   const MAX_ARCHIVE = 92 * 1024 * 1024;
   const TYPES = new Set(["image/png", "image/jpeg", "application/json", "application/octet-stream", "text/plain"]);
   const encoder = new TextEncoder();
-  const writer = global.crypto.randomUUID();
+  const writer = captureEnabled ? global.crypto.randomUUID() : null;
   let database;
 
   function request(value) {
@@ -263,6 +264,11 @@
     return { attempt: publicAttempt(bundle.attempt), events: bundle.events,
       getAsset: async (_id, digest) => { if (!decoded.has(digest)) throw Error("Missing archive attachment."); return decoded.get(digest); } };
   }
-  global.TenetProcessJournal = Object.freeze({ createAttempt, append, readAttempt, listAttempts, listEvents, getAsset,
-    pauseAttempt, resumeAttempt, markIncomplete, recoverAttempt, freezeAttempt, deleteAttempt, exportAttempt, readArchive });
+  // The ordinary Tenet demo can inspect a user-selected archive without opting
+  // into capture. This reader returns only archive-local assets, never IndexedDB
+  // access. Keep every storage/list/mutation capability behind the preview flag.
+  global.TenetProcessJournal = Object.freeze(captureEnabled
+    ? { createAttempt, append, readAttempt, listAttempts, listEvents, getAsset,
+      pauseAttempt, resumeAttempt, markIncomplete, recoverAttempt, freezeAttempt, deleteAttempt, exportAttempt, readArchive }
+    : { readArchive });
 })(window);

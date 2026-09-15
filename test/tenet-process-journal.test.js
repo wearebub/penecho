@@ -146,12 +146,52 @@ async function frozenFixture() {
 }
 const options = { timeout:4000 };
 
-test('journal is default-off and installs no storage outside both explicit feature flags', options, () => {
-  for (const config of [{}, { tenetMode:true }, { tenetMode:true, tenetAssignmentPreview:false },
-    { tenetMode:false, tenetAssignmentPreview:true }, { tenetMode:true, tenetAssignmentPreview:'true' }]) {
+test('journal installs no API outside explicit Tenet mode', options, () => {
+  for (const config of [{}, { tenetMode:false, tenetAssignmentPreview:true }, { tenetMode:'true', tenetAssignmentPreview:true }]) {
     const h = harness(memoryIndexedDB(), config);
     assert.equal(h.api, undefined); assert.equal(h.indexedDB.opens, 0);
   }
+});
+
+test('ordinary Tenet mode exposes only the frozen archive reader with every storage capability default-off', options, () => {
+  for (const config of [{ tenetMode:true }, { tenetMode:true, tenetAssignmentPreview:false },
+    { tenetMode:true, tenetAssignmentPreview:'true' }, { tenetMode:true, tenetAssignmentPreview:1 }]) {
+    const h = harness(memoryIndexedDB(), config);
+    assert.deepEqual(Object.keys(h.api), ['readArchive']);
+    assert.equal(Object.isFrozen(h.api), true);
+    for (const name of ['createAttempt', 'append', 'readAttempt', 'listAttempts', 'listEvents', 'getAsset',
+      'pauseAttempt', 'resumeAttempt', 'markIncomplete', 'recoverAttempt', 'freezeAttempt', 'deleteAttempt', 'exportAttempt'])
+      assert.equal(h.api[name], undefined, name + ' must remain inaccessible outside capture preview');
+    assert.equal(h.indexedDB.opens, 0);
+  }
+});
+
+test('default-off archive playback validates hashes and serves only archive-local assets without opening IndexedDB', options, async () => {
+  const fixture = await frozenFixture(), reader = harness(memoryIndexedDB(), { tenetMode:true });
+  const archive = await reader.api.readArchive(fixture.archive);
+  assert.equal(archive.attempt.id, fixture.attempt.id);
+  assert.equal(archive.events[1].hash, fixture.second.hash);
+  assert.equal(await (await archive.getAsset(fixture.attempt.id, fixture.first.assets[0].hash)).text(), await fixture.blob.text());
+  await assert.rejects(archive.getAsset(fixture.attempt.id, '0'.repeat(64)), /Missing archive attachment/);
+  const tampered = clone(fixture.bundle);
+  tampered.events[0].details.label = 'tampered';
+  await assert.rejects(reader.api.readArchive(archiveBlob(tampered)), /checksum/);
+  assert.equal(reader.indexedDB.opens, 0);
+  assert.deepEqual(Object.keys(reader.api), ['readArchive']);
+});
+
+test('archive-only Tenet runtime works with no IndexedDB implementation and retains the import detail cap', options, async () => {
+  const fixture = await frozenFixture(), reader = harness(null, { tenetMode:true, tenetAssignmentPreview:false });
+  const archive = await reader.api.readArchive(fixture.archive);
+  assert.equal(archive.events.length, 2);
+  const bundle = clone(fixture.bundle);
+  bundle.events[1].details = { text:'x'.repeat(12 * 1024) };
+  const { hash:_oldHash, ...unsigned } = bundle.events[1];
+  bundle.events[1].hash = digest(canonical(unsigned));
+  bundle.attempt.lastHash = bundle.events[1].hash;
+  bundle.attempt.receipt.lastEventHash = bundle.events[1].hash;
+  await assert.rejects(reader.api.readArchive(archiveBlob(bundle)), /details.*large/);
+  await assert.rejects(reader.api.readArchive(archiveBlob({})), /Unsupported/);
 });
 
 test('attempts are unconfigured local observations, never local assignment-policy authority', options, async () => {

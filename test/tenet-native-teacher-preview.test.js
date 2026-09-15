@@ -9,7 +9,7 @@ const uiSource = read("../src/client/app/tenet-process-ui.js");
 const nativeSource = read("../tools/mobile/plugins/tenet-ipad-native/ios/Plugin/TenetInkSurface.swift");
 const plain = value => JSON.parse(JSON.stringify(value));
 
-async function harness({ embedded = false } = {}) {
+async function harness({ readOnly = false } = {}) {
   const frames = new Map(), listeners = new Map(), observers = new Set(), calls = [];
   const window = new EventTarget(), document = new EventTarget();
   let nextId = 0, revision = 0, sessionId = null;
@@ -47,6 +47,10 @@ async function harness({ embedded = false } = {}) {
     append(...children) {
       for (const child of children) { child.parentElement = this; this.children.push(child); }
       mutate(this, "childList");
+    }
+    replaceChildren(...children) {
+      for (const child of this.children) child.parentElement = null;
+      this.children = []; this.append(...children);
     }
     contains(element) { return this === element || this.children.some(child => child.contains(element)); }
     matches(selector) {
@@ -100,17 +104,19 @@ async function harness({ embedded = false } = {}) {
   control.className = "tenet-process-launch";
   const dialog = new Element("dialog", { x:100, y:190, width:1020, height:670 });
   dialog.id = "tenetProcessDialog";
-  dialog.className = "tenet-process-dialog" + (embedded ? " tenet-process-embedded" : "");
+  dialog.className = "tenet-process-dialog";
   const close = new Element("button", { x:1020, y:210, width:80, height:44 });
   close.setAttribute("data-action", "close");
   const play = new Element("button", { x:460, y:790, width:110, height:44 });
   play.setAttribute("data-action", "play");
   const slider = new Element("input", { x:590, y:790, width:400, height:44 });
   slider.setAttribute("type", "range");
-  const frame = new Element("iframe", { x:110, y:270, width:1000, height:580 });
-  frame.src = "about:blank";
-  if (embedded) dialog.append(close, frame);
-  else dialog.append(close, play, slider);
+  const library = new Element("nav"), timeline = new Element("nav");
+  library.className = "tenet-process-list"; timeline.className = "tenet-process-events";
+  const values = ["detail", "question", "response"].map(name => {
+    const element = new Element("p"); element.setAttribute("data-value", name); return element;
+  });
+  dialog.append(close, play, slider, library, timeline, ...values);
   document.body.append(view, control, dialog);
   const state = { currentSnapshotManifestExtensions:{ keep:"notebook-metadata" }, scale:.5, panX:25, panY:35,
     pen:4, inkColor:"#172638", mode:"pen", userRevision:0, history:[], future:[],
@@ -123,7 +129,17 @@ async function harness({ embedded = false } = {}) {
     flushInkSurface:async options => { calls.push({ kind:"flush", ...options }); return { ...draft, sessionId, revision }; },
   };
   window.Capacitor = { getPlatform:() => "ios", Plugins:{ TenetNative:native } };
-  window.PENECHO_CONFIG = { tenetMode:true }; window.innerWidth = 1280;
+  window.PENECHO_CONFIG = { tenetMode:true, tenetAssignmentPreview:!readOnly }; window.innerWidth = 1280;
+  const access = { journal:0, list:0, capture:0, begin:0 };
+  const lifecycle = { clearImage:0, clearPrepared:0 };
+  Object.defineProperty(window, "TenetProcessJournal", { get() {
+    access.journal++;
+    return { listAttempts:async () => { access.list++; return []; } };
+  } });
+  Object.defineProperty(window, "TenetProcessCapture", { get() {
+    access.capture++;
+    return { activeId:() => null, isRecording:() => false, nativeRevision:() => {}, begin:() => { access.begin++; throw Error("Preview must not start capture"); } };
+  } });
   const noop = () => {};
   const context = vm.createContext({ window, document, view, state, SIZE:20000, MAX_HISTORY:30,
     inkCtx:{ drawImage:noop }, crypto:{ randomUUID:() => `preview-ink-${++nextId}` },
@@ -148,27 +164,39 @@ async function harness({ embedded = false } = {}) {
       const w = Math.min(a.x + a.w, b.x + b.w) - x, h = Math.min(a.y + a.h, b.y + b.h) - y;
       return w > 0 && h > 0 ? { x, y, w, h } : null;
     },
-    unionLocalBounds:(a, b) => a || b, previewControl:control, previewDialog:dialog,
+    unionLocalBounds:(a, b) => a || b, previewControl:control, previewDialog:dialog, previewLifecycle:lifecycle,
   });
   vm.runInContext(`${inkSource}\nglobalThis.controller = tenetInkController;`, context);
   // Run the actual preview's opening, Close button and close-retirement handlers.
-  // Journal rendering is outside this native hit-box regression and stays inert.
-  const start = embedded ? uiSource.indexOf('    const frame = shell.querySelector("iframe");')
-    : uiSource.lastIndexOf('  control.addEventListener("click", () => {');
-  const end = embedded ? uiSource.indexOf("    return;", start)
-    : uiSource.indexOf('  dialog.querySelector("form").addEventListener', start);
-  assert.ok(start >= 0 && end > start, "the preview lifecycle must remain identifiable");
-  vm.runInContext(embedded ? `(() => {
-    const control = previewControl, shell = previewDialog;
-    ${uiSource.slice(start, end)}
-  })();` : `(() => {
-    const control = previewControl, dialog = previewDialog, viewerOnly = false;
+  // Include the real gate/accessor and library refresh so default-off behavior
+  // cannot pass merely because a mock silently bypassed journal enumeration.
+  const gateStart = uiSource.indexOf("  const standalone =");
+  const gateEnd = uiSource.indexOf("  let selected =", gateStart);
+  const refreshStart = uiSource.indexOf("  async function refreshLibrary()");
+  const refreshEnd = uiSource.indexOf("  async function renderEvent(", refreshStart);
+  const start = uiSource.indexOf('  control.addEventListener("click", () => {');
+  const closeMarker = '  dialog.addEventListener("close", retireView);';
+  const closeStart = uiSource.indexOf(closeMarker, start);
+  assert.ok(gateStart >= 0 && gateEnd > gateStart && refreshStart >= 0 && refreshEnd > refreshStart,
+    "real read-only gate and library refresh must remain identifiable");
+  assert.ok(start >= 0 && closeStart > start, "the complete preview lifecycle must remain identifiable");
+  const signOut = uiSource.match(/^  window\.addEventListener\("tenet:sign-out",[^\r\n]+/m)?.[0];
+  const pagehide = uiSource.match(/^  window\.addEventListener\("pagehide",[^\r\n]+/m)?.[0];
+  assert.ok(signOut && pagehide, "native navigation regression must exercise real lifecycle retirement");
+  vm.runInContext(`(() => {
+    ${uiSource.slice(gateStart, gateEnd)}
+    const control = previewControl, dialog = previewDialog;
     const find = action => dialog.querySelector('[data-action="' + action + '"]');
+    const value = name => dialog.querySelector('[data-value="' + name + '"]');
     let sessionEpoch = 0, generation = 0, selectionEpoch = 0, busyOwner = 0;
-    const capture = () => null, stopPlaying = () => {}, clearImage = () => {};
-    const refreshLibrary = async () => {}, paintRecord = async () => {};
+    let selected = null, events = [], assetSource = journal, imported = false, sample = false;
+    const stopPlaying = () => {}, clearImage = () => { previewLifecycle.clearImage++; };
+    const clearPrepared = () => { previewLifecycle.clearPrepared++; }, paintRecord = async () => {};
     const perform = async operation => operation();
-    ${uiSource.slice(start, end)}
+    ${uiSource.slice(refreshStart, refreshEnd)}
+    ${uiSource.slice(start, closeStart + closeMarker.length)}
+    ${signOut}
+    ${pagehide}
   })();`, context);
   const settle = async () => {
     for (let index = 0; index < 12; index++) {
@@ -178,7 +206,7 @@ async function harness({ embedded = false } = {}) {
     }
   };
   await settle();
-  return { window, document, state, calls, control, dialog, close, slider, frame, Element, settle,
+  return { window, document, state, calls, control, dialog, close, slider, access, lifecycle, Element, settle,
     api:window.TenetInk, controller:context.controller,
     latest:() => calls.filter(call => call.kind === "configure").at(-1),
     async addStroke() {
@@ -193,12 +221,15 @@ async function harness({ embedded = false } = {}) {
 test("Teacher preview uses native-observed modal semantics and web-owned launcher controls", () => {
   assert.match(uiSource, /const control = document\.createElement\("button"\)/);
   assert.match(uiSource, /control\.className = "tenet-process-launch"/);
-  assert.match(uiSource, /const shell = document\.createElement\("dialog"\)/);
-  assert.match(uiSource, /shell\.id = "tenetProcessDialog"; shell\.className = "tenet-process-dialog tenet-process-embedded"/);
-  assert.match(uiSource, /frame\.src = "\.\/tenet-history-viewer\.html"/);
   assert.match(uiSource, /const dialog = document\.createElement\("dialog"\)/);
   assert.match(uiSource, /dialog\.id = "tenetProcessDialog"/);
   assert.match(uiSource, /control\.setAttribute\("aria-controls", dialog\.id\)/);
+  assert.match(uiSource, /const style = document\.createElement\("link"\)/);
+  assert.match(uiSource, /style\.id = "tenetProcessStyles"; style\.rel = "stylesheet"; style\.href = "\.\/tenet-process\.css"/);
+  assert.doesNotMatch(uiSource, /<iframe\b|document\.createElement\(["'](?:iframe|style)["']\)|\.style\.cssText|window\.open\s*\(|(?:window\.)?location\.(?:href|assign|replace)\b/,
+    "the modal must neither require framed/inline-style CSP exceptions nor navigate away from scratch work");
+  assert.match(uiSource, /if \(!viewerOnly\) \{\s*dialog\.querySelector\("form"\)\.addEventListener/,
+    "recording handlers must not be registered for read-only sessions");
   assert.match(inkSource, /attributeFilter:\[[^\]]*"open"/);
   assert.match(inkSource, /mutations\.observe\(document\.body, \{ subtree:true, childList:true, attributes:true/);
 });
@@ -249,42 +280,52 @@ test("closing Teacher preview cannot override another modal, suspension, or Web 
   assert.equal(h.latest().visible, false); assert.equal(h.api.getStatus().engine, "web");
 });
 
-test("ordinary-session embedded preview blocks the entire iframe and restores scratch ink without enabling capture", async () => {
-  const h = await harness({ embedded:true });
+test("ordinary-session same-document preview blocks its controls and preserves scratch without journal or capture access", async () => {
+  const h = await harness({ readOnly:true });
   await h.api.setEngine("pencilkit");
   await h.addStroke();
   const before = h.latest(), drawing = plain(h.controller.snapshot());
+  // Seeding existing scratch ink emits the ordinary nativeRevision notification.
+  // Measure preview access after that unrelated native drawing lifecycle.
+  const beforePreviewAccess = { ...h.access };
+  assert.equal(beforePreviewAccess.journal, 0); assert.equal(beforePreviewAccess.list, 0); assert.equal(beforePreviewAccess.begin, 0);
   assert.equal(h.latest().visible, true);
   assert.deepEqual(h.latest().exclusions, [{ x:1046, y:128, width:158, height:52 }]);
   h.control.click(); await h.settle();
   assert.equal(h.dialog.open, true);
-  assert.equal(h.frame.src, "./tenet-history-viewer.html");
   assert.equal(h.latest().visible, false); assert.equal(h.latest().inputEnabled, false);
-  assert.ok(h.latest().exclusions.some(hole => hole.x <= 110 && hole.y <= 270 && hole.x + hole.width >= 1110 && hole.y + hole.height >= 850), "the parent dialog covers every child-frame control without inspecting iframe contents");
+  assert.ok(h.latest().exclusions.some(hole => hole.x <= 590 && hole.y <= 790 && hole.x + hole.width >= 990 && hole.y + hole.height >= 834), "the same-document modal covers the replay slider and other controls");
+  assert.deepEqual(h.access, beforePreviewAccess, "opening default-off preview must not access additional shared-profile services");
   h.close.click(); await h.settle();
-  assert.equal(h.dialog.open, false); assert.equal(h.frame.src, "about:blank");
+  assert.equal(h.dialog.open, false);
   assert.equal(h.latest().visible, true); assert.equal(h.latest().inputEnabled, true);
   assert.equal(h.latest().sessionId, before.sessionId);
+  for (const field of ["panX", "panY", "scale"]) assert.equal(h.latest()[field], before[field], field);
   assert.deepEqual(plain(h.controller.snapshot()), drawing);
   assert.deepEqual(h.latest().exclusions, before.exclusions);
-  assert.equal(h.window.TenetProcessCapture, undefined);
-  assert.equal(h.window.TenetProcessJournal, undefined);
+  assert.deepEqual(h.access, beforePreviewAccess, "closing default-off preview must not access journal or recording services");
 });
 
-test("embedded preview browser close and sign-out unload the frame; pagehide never restores native input", async () => {
+test("read-only preview browser close and sign-out retire viewer state; pagehide never restores native input", async () => {
   for (const reason of ["browser-close", "tenet:sign-out", "pagehide"]) {
-    const h = await harness({ embedded:true }); await h.api.setEngine("pencilkit");
+    const h = await harness({ readOnly:true }); await h.api.setEngine("pencilkit");
     h.control.click(); await h.settle();
     assert.equal(h.latest().visible, false);
     const start = h.calls.length;
     if (reason === "browser-close") h.dialog.close();
     else h.window.dispatchEvent(new Event(reason));
     await h.settle();
-    assert.equal(h.dialog.open, false, reason); assert.equal(h.frame.src, "about:blank", reason);
+    assert.ok(h.lifecycle.clearImage > 0, `${reason} must retire viewer image state`);
+    assert.deepEqual(h.access, { journal:0, list:0, capture:0, begin:0 }, reason);
     if (reason === "pagehide") {
-      assert.equal(h.calls.slice(start).some(call => call.kind === "configure" && call.inputEnabled), false, "closing the shell cannot revive the retired native controller");
+      assert.equal(h.calls.slice(start).some(call => call.kind === "configure" && call.inputEnabled), false, "retiring the viewer cannot revive the retired native controller");
       assert.equal(h.latest().inputEnabled, false);
-    } else if (reason === "browser-close") assert.equal(h.latest().inputEnabled, true);
+      assert.ok(h.lifecycle.clearPrepared > 0);
+    } else {
+      assert.equal(h.dialog.open, false, reason);
+      if (reason === "browser-close") assert.equal(h.latest().inputEnabled, true);
+      else assert.ok(h.lifecycle.clearPrepared > 0);
+    }
     // Real sign-out authority is enforced natively, not fabricated by this VM.
   }
 });

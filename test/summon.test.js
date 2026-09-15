@@ -4,10 +4,78 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
+const vm = require("node:vm");
 const SUMMON = require("../public/summon.js");
 
 const ROOT = path.resolve(__dirname, "..");
 const read = (file) => fs.readFileSync(path.join(ROOT, file), "utf8");
+
+test("short closed-contour highlights wrap safely at every animation head and boundary", () => {
+  const match = read("public/summon.js").match(/  function drawHighlight\([\s\S]*?\n  \}/);
+  assert.ok(match, "exercise the production highlight implementation without exposing a new API");
+  const drawHighlight = vm.runInNewContext(`(${match[0]})`, {
+    THINKING_LAYOUT:SUMMON.THINKING_LAYOUT,
+    clamp01:(value) => Math.max(0, Math.min(1, value)),
+  });
+  // Two-point scopes remain invalid publicly; the drawing primitive accepts two points.
+  for (let count = 2; count <= 5; count++) {
+    const points = Array.from({ length:count }, (_, index) => ({ x:index * 11, y:index * 17 })),
+      length = Math.max(6, Math.round(count * SUMMON.THINKING_LAYOUT.highlightFraction)),
+      progressValues = new Set([-1, 0, 0.13, 1, 2]);
+    for (let sample = 0; sample <= 100; sample++) progressValues.add(sample / 100);
+    for (let head = 0; head < count; head++) {
+      progressValues.add(head / count);
+      progressValues.add((head + 0.5) / count);
+      progressValues.add((head + 1) / count - 1e-9);
+    }
+    for (const progress of progressValues) {
+      const segments = [];
+      let current = [], saves = 0, restores = 0;
+      const ctx = {
+        save() { saves++; },
+        restore() { restores++; },
+        beginPath() { current = []; },
+        moveTo(x, y) { current.push({ x, y }); },
+        lineTo(x, y) { current.push({ x, y }); },
+        stroke() { segments.push({ points:current, alpha:this.globalAlpha }); },
+      };
+      const label = `${count} points, progress ${progress}`;
+      assert.doesNotThrow(() => drawHighlight(ctx, points, "#526ff1", progress, 0.75), label);
+      assert.equal(saves, 1, label);
+      assert.equal(restores, 1, label);
+      assert.equal(segments.length, length, label);
+      assert.equal(ctx.strokeStyle, "#526ff1", label);
+      assert.equal(ctx.lineWidth, 2.5, label);
+      const head = Math.floor(Math.max(0, Math.min(1, progress)) * count) % count;
+      for (let step = 0; step < length; step++) {
+        // Start at head, walk backward with positive indices, then advance each segment.
+        let index = head;
+        for (let back = 0; back < length; back++) index = (index + count - 1) % count;
+        index = (index + step) % count;
+        assert.deepEqual(segments[step].points, [points[index], points[(index + 1) % count]], label);
+        assert.equal(segments[step].alpha,
+          0.75 * (0.12 + Math.sin((step + 1) / (length + 1) * Math.PI) * 0.82), label);
+      }
+    }
+  }
+});
+
+test("short closed scopes preserve their vertices without accepting two-point polygons", () => {
+  for (let count = 2; count <= 5; count++) {
+    const points = Array.from({ length:count }, (_, index) => ({
+      x:100 + 40 * Math.cos(index / count * Math.PI * 2),
+      y:100 + 40 * Math.sin(index / count * Math.PI * 2),
+    }));
+    const scope = { path:points, closed:true };
+    if (count === 2) {
+      assert.equal(SUMMON.normalizeScope(scope), null);
+      assert.equal(SUMMON.projectScope(scope, { scale:1 }), null);
+    } else {
+      assert.deepEqual(SUMMON.normalizeScope(scope).path, points);
+      assert.deepEqual(SUMMON.projectScope(scope, { scale:1, panX:0, panY:0 }).path, points);
+    }
+  }
+});
 
 test("spatial echo projects the active canvas region into viewport coordinates", () => {
   assert.deepEqual(
