@@ -23,6 +23,8 @@
   let indexedEvents = null, frames = [], frameAtEvent = [], nextFrameAt = [], previousFrameAt = [];
   let eventTimes = [], eventPositions = [], eventGroups = [], precedingGroups = [];
   let requestGroups = [], activityBins = [], timeBased = false, currentIndex = 0;
+  let orderedTimestamps = false;
+  const clockFormatter = new Intl.DateTimeFormat(undefined, {year:"numeric", month:"short", day:"numeric", hour:"numeric", minute:"2-digit", second:"2-digit", timeZoneName:"short"});
   let moments = [], momentAtEvent = [];
   let playbackSpeed = 1, skipLongPauses = true, aiFilter = null, aiListPage = 0, inspectedGroup = null;
   let inputEpoch = 0, inputUrl = null, inputDecoder = null, cancelInputDecode = null;
@@ -62,6 +64,7 @@
         <div class="tenet-process-record" hidden>
           <div class="tenet-process-record-heading"><div><h3 data-value="title"></h3><p data-value="meta"></p></div><span class="tenet-process-badge" data-value="badge"></span></div>
           <p class="tenet-process-coverage" data-value="coverage"></p>
+          <section class="tenet-process-timing" aria-label="Recorded elapsed and clock time"><div class="tenet-process-time-cards"><div><span>Recorded span</span><strong data-value="recorded-span">Unavailable</strong></div><div><span>First observation</span><strong data-value="recorded-start">Not recorded</strong></div><div><span>Last observation</span><strong data-value="recorded-end">Not recorded</strong></div></div><p class="tenet-process-caption" data-value="timing-note"></p></section>
           <div class="tenet-process-metrics" aria-label="Observed history summary"><div><strong data-value="checkpoints">0</strong><span>Page checkpoints</span></div><button type="button" data-action="ai-summary" aria-expanded="false" aria-controls="tenetProcessAIRequests"><strong data-value="requests">0</strong><span>AI interactions / Open summary</span></button><div><strong data-value="gaps">0</strong><span>Coverage gaps</span></div></div>
           <section class="tenet-process-portable" aria-label="Share work and report"><div class="tenet-process-portable-actions"><button type="button" data-action="share-work" class="tenet-process-share-work">Share work (.tenet)</button><button type="button" data-action="report">Open report / PDF</button><button type="button" data-action="final-page" hidden>Show saved final page</button></div><p data-value="sharing-note" class="tenet-process-sharing-note"></p></section>
           <div class="tenet-process-actions">
@@ -164,6 +167,7 @@
     for (const key of frameCache.keys()) dropFrame(key);
     indexedEvents = null; frames = []; frameAtEvent = []; nextFrameAt = []; previousFrameAt = [];
     eventTimes = []; eventPositions = []; eventGroups = []; precedingGroups = [];
+    orderedTimestamps = false;
     requestGroups = []; activityBins = []; inspectedGroup = null; aiFilter = null; aiListPage = 0;
     moments = []; momentAtEvent = [];
     clearInput();
@@ -172,7 +176,7 @@
     dialog.querySelector(".tenet-process-input-records").replaceChildren();
     dialog.querySelector(".tenet-process-ai-summary").hidden = true;
     find("ai-summary").setAttribute("aria-expanded", "false");
-    for (const name of ["ai-title", "ai-origin", "ai-lifecycle", "ai-question", "ai-replies", "ai-context", "ai-list-note", "activity-note", "selected-time"]) value(name).textContent = "";
+    for (const name of ["ai-title", "ai-origin", "ai-lifecycle", "ai-question", "ai-replies", "ai-context", "ai-list-note", "activity-note", "selected-time", "recorded-span", "recorded-start", "recorded-end", "timing-note"]) value(name).textContent = "";
   }
   function clearPrepared() {
     exportFile = null; find("download").hidden = true; find("share").hidden = true;
@@ -565,7 +569,8 @@
     }
     for (let index = 0; index < frames.length; index++) previousFrameAt[index] = index === 0 ? -1 : frames[index - 1].key === frames[index].key ? previousFrameAt[index - 1] : index - 1;
     for (let index = frames.length - 1; index >= 0; index--) nextFrameAt[index] = index === frames.length - 1 ? -1 : frames[index + 1].key === frames[index].key ? nextFrameAt[index + 1] : index + 1;
-    timeBased = events.length > 1 && eventTimes.every((time, index) => time !== null && (index === 0 || time >= eventTimes[index - 1])) && eventTimes.at(-1) > eventTimes[0];
+    orderedTimestamps = events.length > 0 && eventTimes.every((time, index) => time !== null && (index === 0 || time >= eventTimes[index - 1]));
+    timeBased = events.length > 1 && orderedTimestamps && eventTimes.at(-1) > eventTimes[0];
     const count = Math.min(12, Math.max(1, events.length));
     activityBins = Array.from({length:count}, () => ({first:-1, last:-1, editIndex:-1, web:0, native:0, gaps:0, groups:[]}));
     for (let index = 0; index < events.length; index++) {
@@ -613,7 +618,7 @@
     activityBins.forEach((bin, binIndex) => {
       const x = 30 + binIndex * width, middle = x + width / 2;
       const index = bin.editIndex >= 0 ? bin.editIndex : bin.first >= 0 ? bin.first : nearestPosition(binIndex / activityBins.length);
-      const label = `Interval ${binIndex + 1}: ${bin.web} canvas edits, ${bin.native} PencilKit revisions, ${bin.gaps} coverage gap observations. Seek to recorded event ${index + 1}.`;
+      const label = `Interval ${binIndex + 1}: ${bin.web} canvas edits, ${bin.native} PencilKit revisions, ${bin.gaps} coverage gap observations. Seek to recorded event ${index + 1}: ${recordedEventTime(events[index])}.`;
       const button = graphButton(svg, label, () => seekEvent(index));
       button.append(svgElement("rect", {x, y:49, width, height:80, rx:5, class:"tenet-process-bin-hit"}));
       const webHeight = bin.web / peak * 60, nativeHeight = bin.native / peak * 60;
@@ -629,8 +634,8 @@
       }
     });
     svg.append(svgElement("line", {x1:30, x2:30, y1:47, y2:131, class:"tenet-process-current-marker", "aria-hidden":"true"}));
-    svg.append(svgElement("text", {x:30, y:164, class:"tenet-process-axis-label"}, timeBased ? "Earlier device time" : "Earlier recorded events"));
-    svg.append(svgElement("text", {x:690, y:164, "text-anchor":"end", class:"tenet-process-axis-label"}, timeBased ? "Later device time" : "Later recorded events"));
+    svg.append(svgElement("text", {x:30, y:164, class:"tenet-process-axis-label"}, timeBased ? recordedEventTime(events[0]) : "Earlier recorded events"));
+    svg.append(svgElement("text", {x:690, y:164, "text-anchor":"end", class:"tenet-process-axis-label"}, timeBased ? recordedEventTime(events.at(-1)) : "Later recorded events"));
     host.append(svg);
   }
   function momentTitle(moment) {
@@ -686,12 +691,13 @@
     const start = aiListPage * AI_LIST_PAGE_SIZE;
     value("ai-list-note").textContent = `${aiFilter === null ? "All recorded requests" : "Requests in activity interval " + (aiFilter + 1)}. ${groups.length ? `${start + 1}-${Math.min(groups.length, start + AI_LIST_PAGE_SIZE)} of ${groups.length}` : "None recorded"}.`;
     for (const number of groups.slice(start, start + AI_LIST_PAGE_SIZE)) {
-      const group = requestGroups[number], request = events[group.index], button = document.createElement("button"), title = document.createElement("span"), note = document.createElement("small");
+      const group = requestGroups[number], request = events[group.index], button = document.createElement("button"), title = document.createElement("span"), note = document.createElement("small"), time = document.createElement("small");
       button.type = "button"; button.dataset.request = String(number); button.setAttribute("aria-current", String(inspectedGroup === number));
       title.textContent = `${number + 1}. ${originLabel(request)}`;
       note.textContent = String(request.details?.question || "No question text recorded; inspect recorded context.").slice(0, 160);
       button.title = `${originLabel(request)} / ${recordedEventTime(request)}`;
-      button.append(title, note); button.addEventListener("click", () => chooseAIRequest(number)); list.append(button);
+      time.className = "tenet-process-event-time"; time.textContent = recordedEventTime(request);
+      button.append(title, time, note); button.addEventListener("click", () => chooseAIRequest(number)); list.append(button);
     }
     find("ai-previous").disabled = aiListPage === 0; find("ai-next").disabled = aiListPage >= lastPage;
   }
@@ -898,9 +904,27 @@
     }
     return null;
   }
+  function elapsedTime(milliseconds) {
+    const seconds = Math.floor(milliseconds / 1000);
+    if (seconds < 1) return milliseconds > 0 ? "<1s" : "0s";
+    const days = Math.floor(seconds / 86400), hours = Math.floor(seconds / 3600) % 24;
+    const minutes = Math.floor(seconds / 60) % 60, remainder = seconds % 60;
+    return [days ? `${days}d` : "", days || hours ? `${hours}h` : "", days || hours || minutes ? `${minutes}m` : "", `${remainder}s`].filter(Boolean).join(" ");
+  }
+  function clockTime(time) { return time === null || time === undefined ? "Clock time unavailable" : clockFormatter.format(new Date(time)); }
   function recordedEventTime(event) {
     const time = eventMillis(event);
-    return time === null ? "Time unavailable" : new Date(time).toLocaleString();
+    const relative = orderedTimestamps && time !== null && time >= eventTimes[0] ? `+${elapsedTime(time - eventTimes[0])}` : "Relative time unavailable";
+    return `${relative} | ${clockTime(time)}`;
+  }
+  function paintTiming() {
+    const first = eventTimes[0] ?? null, last = eventTimes.at(-1) ?? null;
+    value("recorded-start").textContent = clockTime(first);
+    value("recorded-end").textContent = clockTime(last);
+    value("recorded-span").textContent = !events.length || !orderedTimestamps ? "Unavailable" : events.length === 1 ? "One observation" : elapsedTime(last - first);
+    const explanation = !events.length ? "No recorded observations: elapsed time cannot be reconstructed from the final page or its save date." : !orderedTimestamps ? "Missing or out-of-order device timestamps prevent a reliable elapsed span. Clock times are shown where recorded; events remain in their original order." : events.length === 1 ? "A single observation does not establish a duration." : last === first ? "All observations share one device timestamp. A zero recorded span does not mean the assignment took zero time." : "First-to-last recorded observation, including pauses and AI wait time. This is not measured active work or a verified assignment start and finish.";
+    const gaps = selected?.incomplete || selected?.droppedEvents > 0 || events.some(event => event.type === "coverage.gap");
+    value("timing-note").textContent = `${explanation} Relative times start at the first recorded observation; playback speed and skipped pauses do not change them. Clock times use the viewer's timezone (${clockFormatter.resolvedOptions().timeZone || "local time"}) and the recording device's clock, not a server-verified clock.${gaps ? " This history has missing or omitted observations; the displayed span is not complete assignment coverage." : ""} Work before recording or outside this app is not observed.`;
   }
   async function renderEvent(index) {
     const token = ++generation, session = sessionEpoch, selection = selectionEpoch, playback = playbackEpoch;
@@ -961,6 +985,7 @@
     if (!selected) return;
     indexHistory();
     value("title").textContent = selected.title;
+    paintTiming();
     value("meta").textContent = `${selected.subject || "Assignment"} / ${moments.length} work moments / ${requestGroups.length} AI interactions. ${events.length} raw observations retained.`;
     value("badge").textContent = savedPageId !== null ? "SAVED WHITEBOARD / ON DEVICE" : sample ? "SYNTHETIC EXAMPLE" : portableFile ? "PORTABLE WORK / LOCAL FILE" : imported ? "IMPORTED / UNVERIFIED" : String(selected.status).toUpperCase();
     value("coverage").textContent = (savedPageId !== null || portableFile) && !historyAvailable ? "No process history is available for this saved whiteboard. We cannot reconstruct earlier edits, time spent or AI help, and do not substitute a sample. A saved final-page preview, when supplied, is shown separately without inventing events." : `${savedPageId !== null ? "Actual process history stored with this whiteboard. " : sample ? "Fictional work and scripted AI replies. " : "Local observations, not server-attested evidence. "}Coalesced checkpoints, not full stroke playback. No verified student identity, assignment-rule enforcement or Schoology receipt.${selected.incomplete ? " Known gaps: " + (selected.coverageNotes || selected.incompleteReasons || []).join(" ") : " Not proof of independent work."}${selected.droppedEvents > 0 ? " Events omitted by retention limits: " + selected.droppedEvents + "." : ""}`;
@@ -976,6 +1001,8 @@
     for (let index = start; index < moments.length; index++) {
       const button = document.createElement("button"); button.type = "button"; button.dataset.moment = String(index);
       button.textContent = `${index + 1}. ${momentTitle(moments[index])}`;
+      const time = document.createElement("small"); time.className = "tenet-process-event-time";
+      time.textContent = `Moment starts ${recordedEventTime(events[moments[index].start])}`; button.append(time);
       button.addEventListener("click", () => seekMoment(index)); list.append(button);
     }
     paintActivity(); paintActions(); await renderEvent(moments.at(-1)?.index || 0);

@@ -164,7 +164,8 @@ function boot(options = {}) {
     image.decode = () => { calls.decoded.push(url); return options.decode ? options.decode(url, blob, image) : Promise.resolve(); };
     void Promise.resolve().then(() => { if (image.src === url) image.onload?.(); });
   };
-  const context = vm.createContext({window:win, document:doc, Blob, File, navigator:{}, URL:{createObjectURL:blob => { const url = "blob:fixture-" + (++urlId); urls.set(url, blob); return url; }, revokeObjectURL:url => { urls.delete(url); revoked.push(url); }}, setTimeout:(callback, ms) => { const id = ++timerId; timers.set(id, {callback, ms}); return id; }, clearTimeout:id => timers.delete(id)});
+  const intl = options.timeZone ? {DateTimeFormat:function(locale, format) { return new Intl.DateTimeFormat(locale, {...format, timeZone:options.timeZone}); }} : Intl;
+  const context = vm.createContext({window:win, document:doc, Blob, File, Intl:intl, navigator:{}, URL:{createObjectURL:blob => { const url = "blob:fixture-" + (++urlId); urls.set(url, blob); return url; }, revokeObjectURL:url => { urls.delete(url); revoked.push(url); }}, setTimeout:(callback, ms) => { const id = ++timerId; timers.set(id, {callback, ms}); return id; }, clearTimeout:id => timers.delete(id)});
   new vm.Script(source, {filename}).runInContext(context);
   const dialog = doc.querySelector("dialog");
   return {
@@ -178,6 +179,109 @@ function boot(options = {}) {
     async runTimer(ms) { const [id, entry] = [...timers.entries()].find(([, item]) => ms === undefined || item.ms === ms) || []; assert.ok(entry, "An expected timer must be scheduled"); timers.delete(id); entry.callback(); await settle(); },
   };
 }
+
+test("relative and clock labels expose a five-minute recorded span without using the save date", async () => {
+  const start = Date.parse("2026-09-15T15:00:00Z");
+  const fixture = fixtureWith([recorded("history.observation",1,{},[],start), recorded("history.observation",2,{},[],start+252000), recorded("history.observation",3,{},[],start+312000)]);
+  fixture.attempt.startedAt = "2026-09-01T00:00:00Z"; fixture.savedAt = "2026-10-01T00:00:00Z";
+  const ui = boot({bundle:fixture, timeZone:"UTC"}); await ui.import();
+  assert.equal(ui.value("recorded-span").textContent, "5m 12s");
+  assert.match(ui.value("recorded-start").textContent, /3:00:00 PM UTC/);
+  assert.match(ui.value("recorded-end").textContent, /3:05:12 PM UTC/);
+  assert.match(ui.value("timing-note").textContent, /not measured active work/);
+  assert.match(ui.value("timing-note").textContent, /not a server-verified clock/);
+  const rows = ui.dialog.querySelectorAll(".tenet-process-events button");
+  assert.match(rows[1].textContent, /Moment starts \+4m 12s \|.*3:04:12 PM UTC/);
+  await seek(ui,1); assert.match(ui.value("selected-time").textContent, /\+4m 12s \|.*3:04:12 PM UTC/);
+  assert.match(ui.dialog.querySelector(".tenet-process-graph").textContent, /\+5m 12s \|/);
+  assert.equal(ui.calls.begin,0);
+});
+
+test("accelerated playback and pause skipping never shorten displayed recorded time", async () => {
+  const start = 1700000000000;
+  const ui = boot({bundle:fixtureWith([recorded("history.observation",1,{},[],start),recorded("history.observation",2,{},[],start+300000)])});
+  await ui.import(); const end = ui.value("recorded-end").textContent;
+  const speed = ui.dialog.querySelector('[data-control="speed"]'); speed.value = "8"; speed.fire("change"); await settle();
+  await ui.click("play"); assert.equal([...ui.timers.values()][0].ms,125); await ui.runTimer(125);
+  assert.equal(ui.value("recorded-span").textContent,"5m 0s");
+  assert.equal(ui.value("recorded-end").textContent,end);
+  assert.match(ui.value("selected-time").textContent,/\+5m 0s \|/);
+  const skip = ui.dialog.querySelector('[data-control="skip-pauses"]'); skip.checked = false; skip.fire("change"); await settle();
+  await ui.click("play"); assert.equal([...ui.timers.values()][0].ms,37500);
+  assert.equal(ui.value("recorded-span").textContent,"5m 0s"); ui.action("close").click();
+});
+
+test("no history and a single observation do not invent a working duration", async () => {
+  for (const count of [0,1]) {
+    const ui = boot({bundle:fixtureWith(count ? [recorded("history.observation",1)] : [])}); await ui.import();
+    assert.equal(ui.value("recorded-span").textContent,count ? "One observation" : "Unavailable");
+    assert.match(ui.value("timing-note").textContent,count ? /single observation does not establish a duration/ : /cannot be reconstructed from the final page/);
+    if (!count) assert.equal(ui.value("recorded-start").textContent,"Clock time unavailable");
+  }
+});
+
+test("equal device timestamps remain zero recorded span with an explicit limitation", async () => {
+  const ui = boot({bundle:fixtureWith([recorded("history.observation",1,{},[],1000),recorded("history.observation",2,{},[],1000)])}); await ui.import();
+  assert.equal(ui.value("recorded-span").textContent,"0s");
+  assert.match(ui.value("timing-note").textContent,/does not mean the assignment took zero time/);
+  assert.match(ui.value("selected-time").textContent,/\+0s \|/);
+});
+
+test("missing timestamps or a backward device clock disable relative spans without reordering events", async () => {
+  for (const times of [[1000,null,3000],[3000,1000,5000]]) {
+    const events = times.map((time,index)=>recorded("history.observation",index+1,{},[],time));
+    const before = JSON.stringify(events), ui = boot({bundle:fixtureWith(events)}); await ui.import();
+    assert.equal(ui.value("recorded-span").textContent,"Unavailable");
+    assert.match(ui.value("timing-note").textContent,/Missing or out-of-order device timestamps/);
+    assert.match(ui.value("selected-time").textContent,/Relative time unavailable/);
+    await seek(ui,1); assert.equal(JSON.parse(ui.value("detail").textContent).sequence,2);
+    assert.equal(JSON.stringify(events),before);
+  }
+});
+
+test("relative elapsed time uses absolute instants across daylight-saving clock changes", async () => {
+  const events = ["2026-11-01T01:59:00-04:00","2026-11-01T01:01:00-05:00"].map((timestamp,index)=>({type:"history.observation",sequence:index+1,timestamp,details:{},assets:[]}));
+  const ui = boot({bundle:fixtureWith(events),timeZone:"America/New_York"}); await ui.import();
+  assert.equal(ui.value("recorded-span").textContent,"2m 0s");
+  assert.match(ui.value("recorded-start").textContent,/1:59:00 AM EDT/);
+  assert.match(ui.value("recorded-end").textContent,/1:01:00 AM EST/);
+  assert.match(ui.value("timing-note").textContent,/America\/New_York/);
+  assert.match(ui.value("selected-time").textContent,/\+2m 0s \|/);
+});
+
+test("epoch timestamps, fractional spans and multi-day spans are displayed without wrapping", async () => {
+  for (const [span,label] of [[500,"<1s"],[90061000,"1d 1h 1m 1s"]]) {
+    const ui = boot({bundle:fixtureWith([recorded("history.observation",1,{},[],0),recorded("history.observation",2,{},[],span)]),timeZone:"UTC"}); await ui.import();
+    assert.equal(ui.value("recorded-span").textContent,label);
+    assert.match(ui.value("recorded-start").textContent,/1970/);
+    assert.ok(ui.value("selected-time").textContent.includes("+"+label+" |"));
+  }
+});
+
+test("AI requests and their completed lifecycle share the same relative-time origin", async () => {
+  const ui = boot({bundle:rawInputFixture().fixture}); await ui.import(); await ui.click("ai-summary");
+  assert.match(ui.dialog.querySelector(".tenet-process-ai-requests button").textContent,/\+0s \|/);
+  assert.match(ui.value("ai-origin").textContent,/Request observed: \+0s \|/);
+  assert.match(ui.value("ai-lifecycle").textContent,/at \+10s \|/);
+  assert.match(ui.value("ai-replies").textContent,/Reply observed \+5s \|/);
+  assert.equal(ui.value("recorded-span").textContent,"15s");
+});
+
+test("timing coverage warnings and session retirement preserve privacy", async () => {
+  const fixture = fixtureWith([recorded("history.observation",1),recorded("coverage.gap",2)]);
+  fixture.attempt.incomplete=true; fixture.attempt.droppedEvents=3;
+  const ui = boot({bundle:fixture}); await ui.import();
+  assert.match(ui.value("timing-note").textContent,/missing or omitted observations/);
+  ui.win.fire("tenet:sign-out"); await settle();
+  for (const name of ["recorded-span","recorded-start","recorded-end","timing-note"]) assert.equal(ui.value(name).textContent,"");
+  assert.equal(ui.dialog.open,false);
+});
+
+test("timing cards use responsive external CSS and do not create student verdict controls", () => {
+  assert.match(processCSS,/@media\(max-width:560px\)\{\.tenet-process-time-cards\{grid-template-columns:1fr 1fr/);
+  const ui=boot(); assert.equal(ui.dialog.querySelectorAll(".tenet-process-timing button").length,0);
+  assert.equal(ui.dialog.querySelector(".tenet-process-timing").getAttribute("aria-label"),"Recorded elapsed and clock time");
+});
 
 test("non-Tenet mode installs no preview UI", () => {
   const ui = boot({config:{tenetMode:false}});
@@ -489,7 +593,8 @@ test("event details normalize saved ISO timestamps and legacy numeric times with
   ];
   const history = savedProvider([work]); const ui = savedBoot(history.provider);
   assert.equal(await ui.win.TenetProcessUI.openSavedPage("times"), true); await settle();
-  const expected = [new Date(iso).toLocaleString(), new Date(legacy).toLocaleString(), "Time unavailable", "Time unavailable", "Time unavailable", new Date(0).toLocaleString(), new Date(legacy).toLocaleString()];
+  const format = new Intl.DateTimeFormat(undefined, {year:"numeric", month:"short", day:"numeric", hour:"numeric", minute:"2-digit", second:"2-digit", timeZoneName:"short"});
+  const expected = [Date.parse(iso), legacy, null, null, null, 0, legacy].map(time => `Relative time unavailable | ${time === null ? "Clock time unavailable" : format.format(new Date(time))}`);
   for (let index = 0; index < expected.length; index++) {
     ui.slider.value = String(index); ui.slider.fire("input"); await settle();
     const detail = JSON.parse(ui.value("detail").textContent);
@@ -573,7 +678,7 @@ test("explicitly linked late edit selects its own request rather than a newer pr
     recorded("canvas.commit", 6, {note:"Independent later student edit"}),
   ];
   const ui = boot({bundle:fixtureWith(events)}); await ui.import();
-  const linkedBar = ui.dialog.querySelectorAll('g[role="button"]').find(node => /Seek to recorded event 5\./.test(node.getAttribute("aria-label")));
+  const linkedBar = ui.dialog.querySelectorAll('g[role="button"]').find(node => /Seek to recorded event 5: \+20s \|/.test(node.getAttribute("aria-label")));
   assert.ok(linkedBar); linkedBar.click(); await settle();
   assert.equal(ui.value("question").textContent, "First question"); assert.equal(ui.value("response").textContent, "First hint");
   assert.deepEqual(JSON.parse(ui.value("detail").textContent).groupedRawSequences, [1,2,5]);

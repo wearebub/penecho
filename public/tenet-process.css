@@ -110,5 +110,14 @@
 .tenet-process-input-image{display:block;max-width:100%;max-height:250px;object-fit:contain;border:1px solid #ddd6e6;border-radius:8px;background:white}
 .tenet-process-ai-inspector [data-value=input-download]{display:inline-flex;align-items:center;min-height:44px;color:#64429c;font-size:12px;text-underline-offset:3px}
 .tenet-process-events button{min-height:44px}
+.tenet-process-timing{margin:16px 0;padding:15px;border:1px solid #cddbcf;border-radius:12px;background:linear-gradient(120deg,#edf4ed,#fffdf5)}
+.tenet-process-time-cards{display:grid;grid-template-columns:minmax(125px,.8fr) repeat(2,minmax(0,1fr));gap:16px}
+.tenet-process-time-cards>div{display:flex;flex-direction:column;gap:6px;min-width:0}
+.tenet-process-time-cards span{font-size:11px;color:#596e63}
+.tenet-process-time-cards strong{font-size:13px;line-height:1.6;color:#244e43;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.tenet-process-time-cards [data-value=recorded-span]{font-size:25px;line-height:1.3;letter-spacing:-.5px}
+.tenet-process-timing>.tenet-process-caption{margin-bottom:0}
+.tenet-process-events button .tenet-process-event-time,.tenet-process-ai-requests .tenet-process-event-time{display:block;margin-top:5px;font-size:10px;line-height:1.6;font-weight:400;color:#55695e;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+@media(max-width:560px){.tenet-process-time-cards{grid-template-columns:1fr 1fr;gap:12px}.tenet-process-time-cards>div:first-child{grid-column:1/-1}.tenet-process-timing{padding:12px}}
 @media(max-width:850px){.tenet-process-ai-layout{grid-template-columns:1fr}.tenet-process-ai-requests{max-height:225px}.tenet-process-ai-summary{padding:13px}.tenet-process-metrics>div,.tenet-process-metrics>button{padding:9px}.tenet-process-metrics span{line-height:1.4}}
 .tenet-process-saved-heading{display:flex;align-items:center;justify-content:space-between;gap:10px}.tenet-process-saved-heading h3{margin:0}.tenet-process-saved-caption{font-size:12px;line-height:1.55;color:#68716f}.tenet-process-saved-pages{display:grid;gap:8px;max-height:420px;overflow:auto;margin:14px 0 20px;font-size:12px;line-height:1.55;color:#68716f}.tenet-process-saved-pages button{text-align:left;display:grid;gap:5px;min-height:58px;overflow-wrap:anywhere}.tenet-process-saved-pages small{font-size:11px;font-weight:400;color:#66766e}.tenet-process-saved-pages button[aria-current=true]{border-color:#527f77;background:#ecf3ec;box-shadow:inset 3px 0 #427d69}.tenet-process-examples{border-top:1px solid #dddcd1;margin-top:20px;padding-top:5px}.tenet-process-examples>.tenet-process-demo{margin-top:8px}.tenet-process-examples>summary{font-size:12px;color:#647268}@media(max-width:900px){.tenet-process-saved-pages{max-height:230px}}
