@@ -287,7 +287,7 @@
     return { descriptor:{ asset:{ name:"final-page." + blob.type.slice(6), hash, mime:blob.type, size:blob.size },
       representation:"saved-page-thumbnail", caption:"Saved page preview (thumbnail, not a recorded history moment)" }, blob };
   }
-  function viewerBundle(item, history, final, submission, assertCurrent) {
+  function viewerBundle(item, history, final, submission, assertCurrent, workFile = null) {
     const readable = new Map(Array.from(history.assets, ([hash, asset]) => [hash, asset.blob]));
     const existing = readable.get(final.descriptor.asset.hash);
     need(!existing || existing.type === final.blob.type, "Ambiguous final preview media type.");
@@ -298,7 +298,8 @@
         updatedAt:item.updatedAt ?? item.createdAt, eventCount:history.events.length, incomplete:history.incomplete,
         incompleteReasons:history.incompleteReasons, droppedEvents:history.droppedEvents,
         evidence:"local-client-observation", serverVerified:false },
-      finalPreview:final.blob, finalPage:final.descriptor, submission,
+      finalPreview:final.blob, finalPage:final.descriptor, submission, assertCurrent,
+      ...(workFile ? { getWorkFile() { assertCurrent(); return workFile; } } : {}),
       async getAsset(attemptId, hash) {
         assertCurrent();
         need(attemptId === item.id, "Work asset belongs to a different saved page.");
@@ -314,7 +315,10 @@
     return "Tenet - " + name + ".tenet";
   }
   // Local report preparation does not build/compress an archive or force a save.
-  async function prepareSavedPage(id) {
+  async function prepareSavedPage(id, options = {}) {
+    // A PDF and its attachment must come from one read, not two independently
+    // selected saves. Keep the inexpensive preview-only API for other callers.
+    if (options.includeWorkFile === true) return (await exportSavedPage(id)).bundle;
     return operation(async (guard, assertAccount) => {
       need(typeof window.TenetDocumentHistory?.readSubmissionSource === "function", "Saved notebook access is unavailable.");
       const saved = await wait(window.TenetDocumentHistory.readSubmissionSource(id), guard);
@@ -362,7 +366,7 @@
         compressedBytes:blob.size, expandedBytes:expanded.size, integrity:"sha256-not-authorship", localOnly:true };
       return { blob, filename:filename(page.item.name), bytes:blob.size, assetCount:encoded.assets.length,
         historyAvailable:history.available, incomplete:history.incomplete,
-        bundle:viewerBundle(page.item, history, final, submission, lease) };
+        bundle:viewerBundle(page.item, history, final, submission, lease, blob) };
     });
   }
   async function decodeAssets(manifest, guard, hashes) {
@@ -405,11 +409,63 @@
     for (const asset of table.values()) need(asset.used, "Unreferenced work package asset.");
     return table;
   }
+  // Read only our bounded, single-revision PDF envelope. Follow its xref and
+  // EmbeddedFiles name tree, never search arbitrary image/attachment bytes for
+  // magic or execute/render PDF actions. Rewritten/printed PDFs fail explicitly.
+  async function workFileFromPdf(file, guard) {
+    const message = "This PDF has no supported embedded Tenet work file, or was changed after export. Download the original Tenet PDF or open the separate .tenet file.";
+    need(file.size <= 24 * MiB, "Choose a Tenet PDF no larger than 24 MiB, or open the separate .tenet file.");
+    const readText = async (start, end) => new TextDecoder().decode(await wait(file.slice(start, end).arrayBuffer(), guard));
+    const tail = await readText(Math.max(0, file.size - 256), file.size);
+    const pointer = /startxref\n(\d+)\n%%EOF\n?$/.exec(tail);
+    need(pointer, message);
+    const xref = Number(pointer[1]);
+    need(Number.isSafeInteger(xref) && xref > 8 && xref < file.size && file.size - xref <= 16384, message);
+    const table = await readText(xref, file.size);
+    const match = /^xref\n0 (\d+)\n0000000000 65535 f \n((?:\d{10} 00000 n \n)+)trailer\n<< \/Size (\d+) \/Root 1 0 R >>\nstartxref\n(\d+)\n%%EOF\n?$/.exec(table);
+    need(match, message);
+    const count = Number(match[1]), rows = match[2].trimEnd().split("\n");
+    need(count >= 9 && count <= 512 && Number(match[3]) === count && Number(match[4]) === xref && rows.length === count - 1, message);
+    const offsets = [0, ...rows.map(row => Number(row.slice(0, 10))), xref];
+    for (let i = 1; i < count; i++) need(Number.isSafeInteger(offsets[i]) && offsets[i] > offsets[i - 1] && offsets[i] < offsets[i + 1], message);
+    const object = async id => {
+      need(Number.isSafeInteger(id) && id > 0 && id < count && offsets[id + 1] - offsets[id] <= 4096, message);
+      const text = await readText(offsets[id], offsets[id + 1]);
+      const prefix = `${id} 0 obj\n`, suffix = "\nendobj\n";
+      need(text.startsWith(prefix) && text.endsWith(suffix), message);
+      return text.slice(prefix.length, -suffix.length);
+    };
+    const catalog = /^<< \/Type \/Catalog \/Pages 2 0 R \/Names << \/EmbeddedFiles (\d+) 0 R >> \/TenetWorkVersion 1 >>$/.exec(await object(1));
+    need(catalog, message);
+    const namesId = Number(catalog[1]);
+    need(namesId === count - 3, message);
+    const names = /^<< \/Names \[\(work\.tenet\) (\d+) 0 R\] >>$/.exec(await object(namesId));
+    need(names && Number(names[1]) === namesId + 1, message);
+    const spec = /^<< \/Type \/Filespec \/F \(work\.tenet\) \/UF \(work\.tenet\) \/Desc \(Tenet saved work with recorded history\) \/EF << \/F (\d+) 0 R >> >>$/.exec(await object(namesId + 1));
+    need(spec && Number(spec[1]) === namesId + 2, message);
+    const id = namesId + 2, start = offsets[id];
+    const prefix = `${id} 0 obj\n`;
+    const streamHeader = await readText(start, Math.min(start + 512, offsets[id + 1]));
+    need(streamHeader.startsWith(prefix), message);
+    const stream = /^<< \/Type \/EmbeddedFile \/Subtype \/application#2Fvnd\.tenet\.whiteboard \/Length (\d+) \/Params << \/Size (\d+) >> >>\nstream\n/.exec(streamHeader.slice(prefix.length));
+    need(stream, message);
+    const size = Number(stream[1]), dataStart = start + prefix.length + stream[0].length;
+    const end = "\nendstream\nendobj\n";
+    need(Number.isSafeInteger(size) && size > HEADER && size <= MAX_FILE && size === Number(stream[2]) && dataStart + size + end.length === offsets[id + 1], message);
+    need(await readText(dataStart + size, offsets[id + 1]) === end, message);
+    guard();
+    return file.slice(dataStart, dataStart + size, MIME);
+  }
   async function openFile(file) {
     return operation(async (guard, assertAccount) => {
       need(file instanceof Blob && file.size > HEADER && file.size <= MAX_FILE, "Choose a .tenet work file no larger than 64 MiB.");
       need(typeof DecompressionStream === "function", "This browser cannot open compressed work packages. Use a current supported browser.");
-      const header = new Uint8Array(await wait(file.slice(0, HEADER).arrayBuffer(), guard));
+      let header = new Uint8Array(await wait(file.slice(0, HEADER).arrayBuffer(), guard));
+      const pdf = header[0] === 37 && header[1] === 80 && header[2] === 68 && header[3] === 70 && header[4] === 45;
+      if (pdf) {
+        file = await workFileFromPdf(file, guard);
+        header = new Uint8Array(await wait(file.slice(0, HEADER).arrayBuffer(), guard));
+      }
       need(magic.every((byte, index) => header[index] === byte), "This is not a Tenet work package.");
       const view = new DataView(header.buffer);
       need(view.getUint32(8) === VERSION, "This Tenet work format version is not supported.");
@@ -439,7 +495,7 @@
       guard();
       return viewerBundle(item, history, final, { version:VERSION, exportedAt:manifest.exportedAt,
         assetCount:table.size, compressedBytes:file.size, expandedBytes:expectedBytes,
-        integrity:"sha256-not-authorship", localOnly:true }, assertAccount);
+        integrity:"sha256-not-authorship", localOnly:true, container:pdf ? "pdf" : "tenet" }, assertAccount, file);
     });
   }
   window.TenetSubmission = Object.freeze({ exportSavedPage, openFile, prepareSavedPage });

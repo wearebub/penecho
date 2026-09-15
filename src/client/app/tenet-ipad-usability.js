@@ -588,7 +588,7 @@
     const exportButton = labelHeaderButton(
       "#exportPngBtn",
       isNativeIos() ? "Export PDF" : "Export",
-      isNativeIos() ? "Export this page as a PDF" : "Export this page",
+      isNativeIos() ? "Save this page and export a PDF with its recorded history" : "Export this page",
     );
 
     let openButton = document.querySelector("#tenetOpenDocumentBtn");
@@ -606,7 +606,7 @@
       else if (exportButton?.parentElement) exportButton.parentElement.insertBefore(openButton, exportButton);
     }
 
-    if (exportButton && nativePlugin()?.exportPdf) {
+    if (exportButton && isNativeIos()) {
       exportButton.addEventListener("click", (event) => {
         event.preventDefault();
         event.stopImmediatePropagation();
@@ -995,42 +995,48 @@
 
   async function exportCurrentPageAsPdf(control = null) {
     if (pdfExportActive) return;
-    const plugin = nativePlugin();
-    if (!plugin?.exportPdf) return;
-    if (typeof renderExportCanvas !== "function") {
-      showTenetMessage("PDF export is unavailable.", "error");
+    if (typeof window.TenetSubmission?.prepareSavedPage !== "function" || typeof window.TenetSubmissionReport !== "function") {
+      showTenetMessage("PDF with work history is unavailable in this build. Update Whiteboard and try again.", "error");
       return;
     }
-
     pdfExportActive = true;
     if (control) control.disabled = true;
-    let exportCanvas = null;
+    let cancelled = false, reportOpen = false;
+    const generation = state.snapshotLoadGeneration;
+    const cancel = () => { cancelled = true; };
+    window.addEventListener("tenet:sign-out", cancel);
+    window.addEventListener("pagehide", cancel);
+    const cleanup = () => {
+      window.removeEventListener("tenet:sign-out", cancel);
+      window.removeEventListener("pagehide", cancel);
+      void window.TenetInk?.resume?.("pdf-export");
+      pdfExportActive = false;
+      if (control) control.disabled = false;
+    };
     try {
-      exportCanvas = await renderExportCanvas();
-      if (!exportCanvas?.width || !exportCanvas?.height) throw new Error("Add something to the page before exporting it.");
-      const resize = Math.min(1, 8192 / exportCanvas.width, 8192 / exportCanvas.height, Math.sqrt(32 * 1024 * 1024 / (exportCanvas.width * exportCanvas.height)));
-      if (resize < 1) {
-        const bounded = document.createElement("canvas");
-        bounded.width = Math.max(1, Math.floor(exportCanvas.width * resize));
-        bounded.height = Math.max(1, Math.floor(exportCanvas.height * resize));
-        bounded.getContext("2d").drawImage(exportCanvas, 0, 0, bounded.width, bounded.height);
-        exportCanvas.width = exportCanvas.height = 0;
-        exportCanvas = bounded;
-      }
-      const result = await plugin.exportPdf({
-        dataUrl: exportCanvas.toDataURL("image/png"),
-        filename: `${safeFileStem()}.pdf`,
+      await window.TenetInk?.suspend?.("pdf-export");
+      if (cancelled || state.snapshotLoadGeneration !== generation) throw new Error("The page changed. Export again from the intended page.");
+      showTenetMessage("Saving this page locally so the PDF and its embedded history match...");
+      const id = await saveSnapshot({
+        overwriteId: state.currentSnapshotLocation === "device" ? state.currentSnapshotId : null,
+        name: state.currentSnapshotName || safeFileStem(),
+        location: "device",
       });
-      if (!result?.cancelled) showTenetMessage("PDF ready to share or save.");
+      if (!id) throw new Error("The page could not be saved for export. Finish any pending AI action and save the page, then try again.");
+      const revision = state.snapshotSavedRevision;
+      const current = () => !cancelled && state.snapshotLoadGeneration === generation && state.currentSnapshotId === id && state.currentSnapshotLocation === "device" && state.userRevision === revision;
+      if (!current()) throw new Error("The page changed while saving. Export again to include the latest work.");
+      const bundle = await window.TenetSubmission.prepareSavedPage(id, {includeWorkFile:true});
+      if (!current()) throw new Error("The page changed while preparing its report. Your saved work is retained; export again.");
+      bundle.assertCurrent?.();
+      // Use the same saved snapshot for visible pages AND the embedded package.
+      // Never fall back to the old image-only native exporter on failure.
+      window.TenetSubmissionReport(bundle, {isCurrent:current, onClose:cleanup});
+      reportOpen = true;
     } catch (error) {
       showTenetMessage(error?.message || "The PDF could not be exported.", "error");
     } finally {
-      if (exportCanvas) {
-        exportCanvas.width = 0;
-        exportCanvas.height = 0;
-      }
-      pdfExportActive = false;
-      if (control) control.disabled = false;
+      if (!reportOpen) cleanup();
     }
   }
 

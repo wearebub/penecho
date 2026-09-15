@@ -156,12 +156,17 @@
   }
 
   async function makePdf(bundle, check, progress) {
+    check(); bundle.assertCurrent?.();
+    const workFile = typeof bundle.getWorkFile === "function" ? await bundle.getWorkFile() : null;
+    check(); bundle.assertCurrent?.();
+    if (bundle.submission && !workFile) throw new Error("This saved report is missing its portable work file. Reopen the saved page in the updated viewer; no history was removed.");
+    if (workFile && (!(workFile instanceof Blob) || !workFile.size || workFile.size > 23 * MIB)) throw new Error("The complete work file is too large to embed within the 24 MiB PDF limit. Share the separate .tenet file instead; no history was removed.");
     const canvas = document.createElement("canvas");
     canvas.width = 1190; canvas.height = 1684;
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("PDF rendering is unavailable.");
     const pages = [];
-    let y = 105, totalBytes = 0, textBytes = 0;
+    let y = 105, totalBytes = workFile?.size || 0, textBytes = 0;
     function startPage() {
       ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.fillStyle = "#536172"; ctx.font = "bold 18px sans-serif";
@@ -215,7 +220,10 @@
       await text(bundle.title || bundle.attempt?.title || "Saved whiteboard", true);
       const savedAt = bundle.savedAt || bundle.attempt?.updatedAt;
       await text(`Saved (viewer local time): ${observedTime(savedAt)}`);
-      await text("This report summarizes the selected saved version, not unsaved edits. Open its .tenet file in the Tenet teacher viewer for playback and recorded request images/JSON. PDF text is rendered as page images; use the viewer for selectable recorded text.");
+      await text(workFile
+        ? "This PDF contains the complete .tenet file as an embedded attachment: saved drawing data, recorded history, AI questions, replies and retained inputs. Anyone with this PDF can read that data. Open this original PDF or the separate .tenet file in the Tenet teacher viewer for playback. Printing or converting the PDF can remove its attachment."
+        : "REPORT ONLY: this legacy capture or synthetic example has no portable saved-page package to embed. This PDF does not contain interactive playback; keep its original history archive.");
+      await text("This report summarizes the selected saved version, not unsaved edits. PDF text is rendered as page images; use the viewer for selectable recorded text.");
       await text("History reflects observed application actions, not a screen recording or proof of authorship, independent work, or outside help. Client request inputs are not the complete downstream Gateway/provider prompt. This is not an LMS receipt.");
       if (!bundle.historyAvailable) await text("No recorded work history is available for this saved page.", true);
       if (bundle.incomplete || bundle.attempt?.incomplete || bundle.attempt?.status === "incomplete") await text("History is marked partial. Some actions or attachments were not retained.", true);
@@ -262,10 +270,11 @@
       await finishPage(); check();
       const parts = [], offsets = [0];
       let length = 0;
-      const append = value => { const data = typeof value === "string" ? encoder.encode(value) : value; parts.push(data); length += data.byteLength; };
+      const append = value => { const data = typeof value === "string" ? encoder.encode(value) : value; parts.push(data); length += data instanceof Blob ? data.size : data.byteLength; };
       const object = (id, value) => { offsets[id] = length; append(`${id} 0 obj\n`); append(value); append("\nendobj\n"); };
       append("%PDF-1.4\n");
-      object(1, "<< /Type /Catalog /Pages 2 0 R >>");
+      const namesId = 3 + pages.length * 3;
+      object(1, workFile ? `<< /Type /Catalog /Pages 2 0 R /Names << /EmbeddedFiles ${namesId} 0 R >> /TenetWorkVersion 1 >>` : "<< /Type /Catalog /Pages 2 0 R >>");
       object(2, `<< /Type /Pages /Count ${pages.length} /Kids [${pages.map((_, i) => `${3 + i * 3} 0 R`).join(" ")}] >>`);
       for (let i = 0; i < pages.length; i++) {
         const id = 3 + i * 3, image = pages[i], content = "q 595 0 0 842 0 0 cm /PageImage Do Q\n";
@@ -275,12 +284,20 @@
         append(image); append("\nendstream\nendobj\n");
         object(id + 2, `<< /Length ${encoder.encode(content).byteLength} >>\nstream\n${content}endstream`);
       }
+      if (workFile) {
+        check(); bundle.assertCurrent?.();
+        object(namesId, `<< /Names [(work.tenet) ${namesId + 1} 0 R] >>`);
+        object(namesId + 1, `<< /Type /Filespec /F (work.tenet) /UF (work.tenet) /Desc (Tenet saved work with recorded history) /EF << /F ${namesId + 2} 0 R >> >>`);
+        offsets[namesId + 2] = length;
+        append(`${namesId + 2} 0 obj\n<< /Type /EmbeddedFile /Subtype /application#2Fvnd.tenet.whiteboard /Length ${workFile.size} /Params << /Size ${workFile.size} >> >>\nstream\n`);
+        append(workFile); append("\nendstream\nendobj\n");
+      }
       const xref = length;
       append(`xref\n0 ${offsets.length}\n0000000000 65535 f \n`);
       for (let i = 1; i < offsets.length; i++) append(`${String(offsets[i]).padStart(10, "0")} 00000 n \n`);
       append(`trailer\n<< /Size ${offsets.length} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
       const result = new Blob(parts, { type: "application/pdf" });
-      if (result.size > 24 * MIB) throw new Error("The report exceeds the PDF size limit.");
+      if (result.size > 24 * MIB) throw new Error("The report and embedded work exceed the 24 MiB PDF limit. Share the separate .tenet file instead; no history was removed.");
       return result;
     } finally { canvas.width = canvas.height = 0; }
   }
@@ -292,38 +309,53 @@
     dialog.setAttribute("aria-labelledby", "tenetSubmissionReportTitle");
     const heading = document.createElement("h2"); heading.id = "tenetSubmissionReportTitle"; heading.textContent = "PDF work report";
     const description = document.createElement("p");
-    description.textContent = "Includes the saved-page preview and recorded AI questions, replies, and outcomes. The separate .tenet file keeps interactive playback and retained request inputs. Share only through your school-approved destination.";
+    const hasWorkFile = typeof bundle.getWorkFile === "function";
+    description.textContent = hasWorkFile
+      ? "The PDF embeds the complete .tenet work file by default, including recorded history, AI questions, replies and retained inputs. The teacher viewer can open either file. Anyone with the PDF can read the attached data. Share only through your school-approved destination, and keep the original downloaded PDF: printing or conversion can strip its attachment."
+      : "Report only: this legacy capture or synthetic example has no portable saved-page package to embed. Keep its original history archive for playback. Share only through your school-approved destination.";
     const status = document.createElement("p"); status.className = "tenet-submission-report-status"; status.setAttribute("role", "status");
     const actions = document.createElement("div"); actions.className = "tenet-submission-report-actions";
     const prepare = document.createElement("button"); prepare.type = "button"; prepare.textContent = "Prepare PDF";
     const close = document.createElement("button"); close.type = "button"; close.textContent = "Close";
-    actions.append(prepare, close); dialog.append(heading, description, status, actions);
+    const work = document.createElement("button"); work.type = "button"; work.textContent = "Share .tenet only"; work.hidden = !hasWorkFile;
+    actions.append(prepare, work, close); dialog.append(heading, description, status, actions);
     document.body.append(dialog);
     let current = true, pdf = null;
-    const check = () => { if (!current || (options.isCurrent && !options.isCurrent())) throw abortError(); };
+    const check = () => { if (!current || (options.isCurrent && !options.isCurrent())) throw abortError(); bundle.assertCurrent?.(); };
     const cleanup = () => {
       if (!current) return;
       current = false; pdf = null; dialog.remove();
       window.TenetInk?.resume?.("submission-report");
       if (activeReport === dialog) activeReport = null;
+      options.onClose?.();
     };
     dialog.addEventListener("close", cleanup, { once: true });
     close.addEventListener("click", () => dialog.close());
     prepare.addEventListener("click", async () => {
-      prepare.disabled = true;
+      prepare.disabled = true; work.disabled = true;
       try {
         check();
         if (!pdf) {
           status.textContent = "Preparing locally...";
           pdf = await makePdf(bundle, check, message => { if (current) status.textContent = message; });
           check(); prepare.textContent = "Share / save PDF";
-          status.textContent = `PDF ready (${(pdf.size / MIB).toFixed(2)} MiB). Nothing has been uploaded.`;
+          status.textContent = `PDF ready (${(pdf.size / MIB).toFixed(2)} MiB). ${hasWorkFile ? "Complete .tenet work attached inside." : "Report only, no embedded work."} Nothing has been uploaded.`;
         } else {
           const result = await shareFile(pdf, filenameFor(bundle.title || bundle.attempt?.title, ".pdf"), { isCurrent: () => current && (!options.isCurrent || options.isCurrent()) });
           if (current) status.textContent = result?.cancelled ? "Sharing cancelled. The PDF is ready to try again." : "PDF handed to sharing/download. Confirm it was saved or attached in your destination.";
         }
       } catch (error) { if (current) status.textContent = error?.message || "The PDF could not be prepared."; }
-      finally { if (current) prepare.disabled = false; }
+      finally { if (current) { prepare.disabled = false; work.disabled = false; } }
+    });
+    work.addEventListener("click", async () => {
+      prepare.disabled = true; work.disabled = true;
+      try {
+        check();
+        const file = await bundle.getWorkFile(); check();
+        const result = await shareFile(file, filenameFor(bundle.title || bundle.attempt?.title, ".tenet"), { isCurrent: () => { try { check(); return true; } catch { return false; } } });
+        if (current) status.textContent = result?.cancelled ? "Sharing cancelled. Your work is unchanged." : "The separate .tenet file was handed to sharing/download. Confirm it reached your intended destination.";
+      } catch (error) { if (current) status.textContent = error?.message || "The work file could not be shared."; }
+      finally { if (current) { prepare.disabled = false; work.disabled = false; } }
     });
     try {
       check(); window.TenetInk?.suspend?.("submission-report");

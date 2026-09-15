@@ -46,7 +46,7 @@
     <div class="tenet-process-layout">
       <aside class="tenet-process-sidebar">
         <section class="tenet-process-saved"><div class="tenet-process-saved-heading"><h3>Saved whiteboards</h3><button type="button" data-action="refresh-pages">Refresh</button></div><p class="tenet-process-saved-caption">History travels with the saved page. Older pages may not have recorded history.</p><nav class="tenet-process-saved-pages" aria-label="Saved whiteboards"></nav></section>
-        <section class="tenet-process-file-tools" aria-label="Open shared work"><button type="button" data-action="open">Open shared work</button><p>Choose a portable .tenet file or a legacy history archive from your device. Files are read here, not uploaded.</p><input data-file="archive" type="file" accept=".tenet,.json,.tenet-work,application/json" hidden /></section>
+        <section class="tenet-process-file-tools" aria-label="Open shared work"><button type="button" data-action="open">Open shared work</button><p>Choose an original Tenet PDF, a .tenet work file, or a legacy history archive. Files are read here, not uploaded.</p><input data-file="archive" type="file" accept=".pdf,.tenet,.json,.tenet-work,application/pdf,application/json,application/vnd.tenet.whiteboard" hidden /></section>
         <details class="tenet-process-examples"><summary>Explore a synthetic example</summary>
         <div class="tenet-process-demo"><small>START HERE</small><h3>A hint, then a next step.</h3><p>Follow a fictional algebra example. No student data and no AI request.</p><button type="button" data-action="sample" class="tenet-process-primary">Play a sample assignment</button></div>
         </details>
@@ -308,7 +308,7 @@
       if (localSavedPage) {
         if (typeof window.TenetSubmission?.prepareSavedPage !== "function") throw Error("Saved-page report preparation is not available in this build. Update Whiteboard to include the saved page image; your selected work is retained.");
         message("Preparing the selected whiteboard's saved page and history for a local report. Unsaved canvas edits are not included.");
-        reportSource = await window.TenetSubmission.prepareSavedPage(savedPageId);
+        reportSource = await window.TenetSubmission.prepareSavedPage(savedPageId, {includeWorkFile:true});
         assertCurrent();
         if (!reportSource?.attempt || typeof reportSource.attempt.id !== "string" || !Array.isArray(reportSource.events) || typeof reportSource.getAsset !== "function") throw Error("The saved-page report could not be prepared. Your work and current selection are unchanged.");
       }
@@ -324,13 +324,16 @@
         finalPreview:reportSource?.finalPreview instanceof Blob ? reportSource.finalPreview : undefined,
         title:reportSource?.title || reportRecord.title, savedAt:reportSource?.savedAt ?? null,
         synthetic:sample, assertCurrent:assertReportCurrent,
+        ...(typeof reportSource?.getWorkFile === "function" ? { getWorkFile:async () => {
+          assertReportCurrent(); const file = await reportSource.getWorkFile(); assertReportCurrent(); return file;
+        } } : {}),
         getAsset:async (attemptId, hash) => {
           assertReportCurrent();
           if (attemptId !== reportRecord.id) throw Error("This attachment does not belong to the selected report.");
           const blob = await reportSource.getAsset(attemptId, hash); assertReportCurrent(); return blob;
         },
       };
-      message("Opening a local report of the saved version, not unsaved canvas edits. Use Save PDF report there for an optional PDF; the .tenet file retains the portable work history.");
+      message("Opening a local report of the saved version, not unsaved canvas edits. Saved-page PDFs embed the complete .tenet work file by default; you can also share that file separately.");
       await window.TenetSubmissionReport(bundle, {isCurrent:reportCurrent});
       return reportCurrent();
     } catch (error) {
@@ -345,7 +348,7 @@
     if (!dialog.open) dialog.showModal();
     const token = ++selectionEpoch, session = sessionEpoch;
     const current = () => token === selectionEpoch && session === sessionEpoch && dialog.open;
-    const portable = /\.tenet$/i.test(String(file.name || ""));
+    const portable = /\.(tenet|pdf)$/i.test(String(file.name || "")) || ["application/pdf", "application/vnd.tenet.whiteboard"].includes(file.type);
     stopPlaying(); generation++;
     // Do not discard the selected page, images or prepared archive before the
     // replacement file is successfully decoded and ownership is still current.
@@ -353,7 +356,7 @@
     try {
       let bundle;
       if (portable) {
-        if (typeof window.TenetSubmission?.openFile !== "function") throw Error("Portable .tenet files are not supported in this build. Update the viewer; your current selection is retained.");
+        if (typeof window.TenetSubmission?.openFile !== "function") throw Error("Tenet PDF and .tenet files are not supported in this build. Update the viewer; your current selection is retained.");
         bundle = await window.TenetSubmission.openFile(file);
       } else {
         const archive = window.TenetProcessJournal;
@@ -989,7 +992,7 @@
     value("meta").textContent = `${selected.subject || "Assignment"} / ${moments.length} work moments / ${requestGroups.length} AI interactions. ${events.length} raw observations retained.`;
     value("badge").textContent = savedPageId !== null ? "SAVED WHITEBOARD / ON DEVICE" : sample ? "SYNTHETIC EXAMPLE" : portableFile ? "PORTABLE WORK / LOCAL FILE" : imported ? "IMPORTED / UNVERIFIED" : String(selected.status).toUpperCase();
     value("coverage").textContent = (savedPageId !== null || portableFile) && !historyAvailable ? "No process history is available for this saved whiteboard. We cannot reconstruct earlier edits, time spent or AI help, and do not substitute a sample. A saved final-page preview, when supplied, is shown separately without inventing events." : `${savedPageId !== null ? "Actual process history stored with this whiteboard. " : sample ? "Fictional work and scripted AI replies. " : "Local observations, not server-attested evidence. "}Coalesced checkpoints, not full stroke playback. No verified student identity, assignment-rule enforcement or Schoology receipt.${selected.incomplete ? " Known gaps: " + (selected.coverageNotes || selected.incompleteReasons || []).join(" ") : " Not proof of independent work."}${selected.droppedEvents > 0 ? " Events omitted by retention limits: " + selected.droppedEvents + "." : ""}`;
-    value("sharing-note").textContent = savedPageId !== null ? "Share one compact .tenet work file, not a GIF or video. It contains the saved student work and recorded questions, replies and images. Only the saved version is exported: save canvas changes first if you want them included. File size depends on the recorded contents. Share only with intended recipients; anyone with the file may read it. Nothing is uploaded automatically. Open report / PDF offers a separate optional report." : sample ? "This is a fictional example, not student work. A local report can demonstrate the format; it is not a classroom submission." : "This local file may contain private student work, questions, replies and images. Share only with intended recipients. Opening it does not upload data, restore the canvas or grant teacher privileges. Open report / PDF offers an optional local report; a report does not replace the portable history file.";
+    value("sharing-note").textContent = savedPageId !== null ? "Share one compact .tenet work file, not a GIF or video. It contains the saved student work and recorded questions, replies and images. Only the saved version is exported: save canvas changes first if you want them included. Open report / PDF embeds that complete work file by default, and also offers a separate .tenet download. Anyone with either file may read its contents. Nothing is uploaded automatically." : sample ? "This is a fictional example, not student work. Its report-only PDF has no portable saved-page attachment; it is not a classroom submission." : "This local file may contain private student work, questions, replies and images. Share only with intended recipients. Opening it does not upload data, restore the canvas or grant teacher privileges. Open report / PDF embeds portable .tenet work when available and offers it separately. Legacy archives without a saved-page package produce a clearly labeled report-only PDF.";
     value("checkpoints").textContent = String(frames.length);
     value("requests").textContent = String(requestGroups.length);
     value("gaps").textContent = String(events.filter(event => event.type === "coverage.gap").length || (selected.incomplete ? "Recorded" : 0));
