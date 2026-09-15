@@ -1,4 +1,24 @@
 /* Same-origin process viewer styles. No inline-style CSP exception required. */
+/* Portable sharing/report controls stay inside the same-document modal layer. */
+.tenet-process-file-tools{margin:16px 0;padding:14px;border:1px solid #d5dfd7;border-radius:11px;background:#f1f5ed}
+.tenet-process-file-tools>button{width:100%;min-height:44px;font-weight:700}
+.tenet-process-file-tools>p{font-size:11px;line-height:1.6;color:#596f61;margin:9px 0 0}
+.tenet-process-portable{padding:14px;margin:14px 0;border:1px solid #d7dfd5;border-radius:12px;background:linear-gradient(135deg,#edf3e9,#fffcf4)}
+.tenet-process-portable-actions{display:flex;flex-wrap:wrap;gap:9px;align-items:center}
+.tenet-process-dialog .tenet-process-share-work{background:#244e43;border-color:#244e43;color:#fff;min-height:44px}
+.tenet-process-sharing-note{font-size:11px;line-height:1.65;color:#54685b;margin:10px 0 0;overflow-wrap:anywhere}
+.tenet-submission-report{box-sizing:border-box;width:min(760px,calc(100vw - 32px));max-height:calc(100dvh - 32px);overflow:auto;padding:24px;border:1px solid #dad6ca;border-radius:20px;background:linear-gradient(145deg,#fffefb,#f5f2e9);color:#172638;font-family:"Avenir Next","Trebuchet MS",sans-serif;box-shadow:0 20px 70px #10223340;overflow-wrap:anywhere}
+.tenet-submission-report::backdrop{background:#17263860;backdrop-filter:blur(5px)}
+.tenet-submission-report [hidden]{display:none!important}
+.tenet-submission-report-actions{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:16px 0}
+.tenet-submission-report button,.tenet-submission-report-actions button{box-sizing:border-box;min-height:44px;padding:9px 13px;border:1px solid #d2d5d5;border-radius:9px;background:#fffdfa;color:#172638;font:600 13px "Avenir Next","Trebuchet MS",sans-serif;cursor:pointer;touch-action:manipulation}
+.tenet-submission-report button:disabled{opacity:.5;cursor:default}
+.tenet-submission-report button:focus-visible,.tenet-submission-report a:focus-visible{outline:3px solid #5a98c1;outline-offset:3px}
+.tenet-submission-report-status{min-height:20px;padding:10px 13px;border-radius:9px;background:#eaf0ed;color:#355b4c;font-size:12px;line-height:1.6;white-space:pre-wrap}
+.tenet-submission-report-status[data-error=true]{background:#fae8e2;color:#90331f}
+.tenet-submission-report h2{font-size:25px;letter-spacing:-.5px;margin:0 0 12px}.tenet-submission-report h3{font-size:17px;margin:22px 0 9px}
+.tenet-submission-report p{font-size:13px;line-height:1.7;white-space:pre-wrap}.tenet-submission-report pre{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.65 ui-monospace,monospace}
+.tenet-submission-report img{display:block;max-width:100%;max-height:45vh;object-fit:contain;border:1px solid #deddd4;border-radius:9px;background:#fff}
 .tenet-process-launch{display:inline-flex;align-items:center;gap:6px;min-height:44px;margin-inline-start:8px;padding:7px 11px;border:1px solid #d6d3ca;border-radius:9px;background:#f7f3e9;color:#172638;font:600 13px "Avenir Next","Trebuchet MS",sans-serif;cursor:pointer;touch-action:manipulation;flex-shrink:0}
     .tenet-process-launch svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
     .tenet-process-launch[data-recording=true]{border-color:#1c816d;background:#eaf4ef}

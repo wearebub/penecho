@@ -549,6 +549,7 @@ public final class TenetNativePlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthenti
         CAPPluginMethod(name: "inkSurfaceCommand", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "pickDocument", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "exportPdf", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "exportFile", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getVoiceCapabilities", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "startVoiceRecognition", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "stopVoiceRecognition", returnType: CAPPluginReturnPromise),
@@ -563,6 +564,7 @@ public final class TenetNativePlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthenti
     private var documentPickerController: UIDocumentPickerViewController?
     private var exportCall: CAPPluginCall?
     private var exportTemporaryUrl: URL?
+    private weak var exportActivityController: UIActivityViewController?
     private var voiceSession: TenetVoiceSession?
     private var voiceLoadingObservation: NSKeyValueObservation?
     private var voiceUrlObservation: NSKeyValueObservation?
@@ -590,10 +592,14 @@ public final class TenetNativePlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthenti
             self.webCanvasPencilInteraction = interaction
             // Do not replace WKNavigationDelegate: Capacitor owns navigation.
             self.voiceLoadingObservation = webView.observe(\.isLoading, options: [.new]) { [weak self] _, change in
-                if change.newValue == true { self?.stopNativeVoice() }
+                if change.newValue == true {
+                    self?.stopNativeVoice()
+                    self?.retireNativeExport()
+                }
             }
             self.voiceUrlObservation = webView.observe(\.url, options: [.new]) { [weak self] _, _ in
                 self?.stopNativeVoice()
+                self?.retireNativeExport()
             }
         }
     }
@@ -602,6 +608,34 @@ public final class TenetNativePlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthenti
         voiceLoadingObservation?.invalidate()
         voiceUrlObservation?.invalidate()
         voiceSession?.shutdown()
+        if let exportTemporaryUrl { removeTemporaryExport(exportTemporaryUrl) }
+        // Capture owned resources, never a deferred weak reference to this
+        // already-deinitialized plugin. A process kill remains an OS boundary.
+        let activity = exportActivityController
+        let call = exportCall
+        DispatchQueue.main.async {
+            activity?.completionWithItemsHandler = nil
+            if activity?.presentingViewController != nil { activity?.dismiss(animated: false) }
+            call?.reject("The file share was cancelled because the page or session changed.", "export_cancelled")
+        }
+    }
+
+    private func retireNativeExport() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            let call = self.exportCall
+            let activity = self.exportActivityController
+            let url = self.exportTemporaryUrl
+            // Retire the exact operation before dismissing or rejecting it.
+            // Late worker/completion callbacks may only clean their own file.
+            self.exportCall = nil
+            self.exportTemporaryUrl = nil
+            self.exportActivityController = nil
+            activity?.completionWithItemsHandler = nil
+            if activity?.presentingViewController != nil { activity?.dismiss(animated: false) }
+            if let url { removeTemporaryExport(url) }
+            call?.reject("The file share was cancelled because the page or session changed.", "export_cancelled")
+        }
     }
 
     private func stopNativeVoice() {
@@ -965,6 +999,7 @@ public final class TenetNativePlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthenti
 
     @objc public func signOut(_ call: CAPPluginCall) {
         stopNativeVoice()
+        retireNativeExport()
         let stored: NativeSession?
         do {
             if let data = try KeychainStore.read() {
@@ -1143,6 +1178,97 @@ public final class TenetNativePlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthenti
         }
     }
 
+    // Share an explicit portable submission, not a path or an arbitrary URL.
+    // Keep the same presentation lock as the existing single-page PDF exporter.
+    @objc public func exportFile(_ call: CAPPluginCall) {
+        guard let filename = call.getString("filename"),
+              filename.range(of: "\\A[A-Za-z0-9][A-Za-z0-9._ -]{0,80}\\.(tenet|pdf)\\z", options: .regularExpression) != nil,
+              let base64 = call.getString("base64") else {
+            call.reject("Choose a short .tenet or .pdf filename without path characters.", "invalid_export_filename")
+            return
+        }
+        let limit = filename.hasSuffix(".pdf") ? 24 * 1024 * 1024 : 64 * 1024 * 1024
+        guard !base64.isEmpty, base64.utf8.count <= ((limit + 2) / 3) * 4 else {
+            call.reject("The file exceeds the safe sharing limit.", "export_too_large")
+            return
+        }
+        DispatchQueue.main.async {
+            guard self.exportCall == nil else {
+                call.reject("Another file is already being shared.", "export_busy")
+                return
+            }
+            guard let presenter = self.bridge?.viewController,
+                  presenter.viewIfLoaded?.window != nil,
+                  presenter.presentedViewController == nil else {
+                call.reject("Close the other native screen before sharing.", "presentation_unavailable")
+                return
+            }
+            self.exportCall = call
+            DispatchQueue.global(qos: .userInitiated).async {
+                let directory = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("TenetSubmission-\(UUID().uuidString)", isDirectory: true)
+                do {
+                    guard let data = Data(base64Encoded: base64), !data.isEmpty, data.count <= limit else {
+                        throw NSError(domain: "TenetSubmission", code: 1,
+                                      userInfo: [NSLocalizedDescriptionKey: "The shared file is invalid or too large."])
+                    }
+                    if filename.hasSuffix(".pdf"), !data.starts(with: Data("%PDF-".utf8)) {
+                        throw NSError(domain: "TenetSubmission", code: 2,
+                                      userInfo: [NSLocalizedDescriptionKey: "The PDF could not be read."])
+                    }
+                    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false,
+                        attributes: [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication])
+                    let url = directory.appendingPathComponent(filename, isDirectory: false)
+                    try data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+                    DispatchQueue.main.async {
+                        guard self.exportCall === call else {
+                            try? FileManager.default.removeItem(at: directory)
+                            return
+                        }
+                        guard presenter.presentedViewController == nil,
+                              presenter.viewIfLoaded?.window != nil else {
+                            try? FileManager.default.removeItem(at: directory)
+                            self.exportCall = nil
+                            call.reject("The sharing screen is no longer available.", "presentation_busy")
+                            return
+                        }
+                        self.exportTemporaryUrl = url
+                        let activity = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+                        if let popover = activity.popoverPresentationController {
+                            popover.sourceView = presenter.view
+                            popover.sourceRect = CGRect(x: presenter.view.bounds.midX, y: presenter.view.bounds.midY,
+                                                       width: 1, height: 1)
+                            popover.permittedArrowDirections = []
+                        }
+                        activity.completionWithItemsHandler = { [weak self] _, completed, _, error in
+                            DispatchQueue.main.async {
+                                try? FileManager.default.removeItem(at: directory)
+                                guard let self, self.exportCall === call else { return }
+                                self.exportCall = nil
+                                self.exportTemporaryUrl = nil
+                                self.exportActivityController = nil
+                                if let error {
+                                    call.reject(error.localizedDescription, "share_failed", error)
+                                } else {
+                                    call.resolve(["cancelled": !completed, "filename": filename])
+                                }
+                            }
+                        }
+                        self.exportActivityController = activity
+                        presenter.present(activity, animated: true)
+                    }
+                } catch {
+                    try? FileManager.default.removeItem(at: directory)
+                    DispatchQueue.main.async {
+                        guard self.exportCall === call else { return }
+                        self.exportCall = nil
+                        call.reject("The file could not be prepared for sharing.", "export_failed", error)
+                    }
+                }
+            }
+        }
+    }
+
     @objc public func exportPdf(_ call: CAPPluginCall) {
         guard
             let dataUrl = call.getString("dataUrl"),
@@ -1174,9 +1300,13 @@ public final class TenetNativePlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthenti
                 do {
                     let export = try createExportPdf(dataUrl: dataUrl, filename: filename)
                     DispatchQueue.main.async {
+                        guard self.exportCall === call else {
+                            removeTemporaryExport(export.url)
+                            return
+                        }
                         guard
-                            self.exportCall != nil,
-                            presenter.presentedViewController == nil
+                            presenter.presentedViewController == nil,
+                            presenter.viewIfLoaded?.window != nil
                         else {
                             self.exportCall = nil
                             removeTemporaryExport(export.url)
@@ -1202,9 +1332,10 @@ public final class TenetNativePlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthenti
                         activity.completionWithItemsHandler = { [weak self] _, completed, _, error in
                             DispatchQueue.main.async {
                                 removeTemporaryExport(export.url)
-                                guard let self else { return }
+                                guard let self, self.exportCall === call else { return }
                                 self.exportCall = nil
                                 self.exportTemporaryUrl = nil
+                                self.exportActivityController = nil
                                 if let error {
                                     call.reject(error.localizedDescription, "share_failed", error)
                                 } else {
@@ -1215,12 +1346,15 @@ public final class TenetNativePlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthenti
                                 }
                             }
                         }
+                        self.exportActivityController = activity
                         presenter.present(activity, animated: true)
                     }
                 } catch {
                     DispatchQueue.main.async {
+                        guard self.exportCall === call else { return }
                         self.exportCall = nil
                         self.exportTemporaryUrl = nil
+                        self.exportActivityController = nil
                         let code = (error as? NativeDocumentError)?.code ?? "pdf_creation_failed"
                         call.reject(error.localizedDescription, code, error)
                     }

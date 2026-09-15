@@ -430,7 +430,9 @@ test('a saved-page History action closes the notebook and opens that save withou
 test('every saved-page card has a touch-sized history action and autosave includes history-only edits', () => {
   assert.match(notebookSource, /historyButton\.textContent = "View work history"/);
   assert.match(notebookSource, /await openPageHistory\(page\.id\)/);
-  assert.match(notebookSource, /card\.append\(openButton, move, historyButton\)/);
+  assert.match(notebookSource, /card\.append\(openButton, move, historyButton, shareButton\)/);
+  assert.match(notebookSource, /shareButton\.textContent = "Share work"/);
+  assert.match(notebookSource, /await window\.TenetProcessUI\.shareSavedPage\(page\.id\)/);
   assert.ok(parseFloat(rule(notebookCss, '.tenet-notebook-page-history')['min-height']) >= 44);
   assert.match(notebookSource, /if \(autosave && Number\(state\.userRevision\) === Number\(state\.snapshotSavedRevision\)\s*&& !window\.TenetDocumentHistory\?\.isDirty\?\.\(\)\) return existingId/);
   assert.match(notebookSource, /if \(revision === Number\(state\.snapshotSavedRevision\) && !window\.TenetDocumentHistory\?\.isDirty\?\.\(\)\) return/);

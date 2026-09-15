@@ -274,6 +274,793 @@ window.PENECHO_CONFIG = {tenetMode:true,tenetAssignmentPreview:true,tenetHistory
       pauseAttempt, resumeAttempt, markIncomplete, recoverAttempt, freezeAttempt, deleteAttempt, exportAttempt, readArchive }
     : { readArchive });
 })(window);
+// Standalone, browser-only portable saved work. No database, fetch, execution
+// of drawing/widget contents, automatic save, provider calls, or new authority.
+// v1: 48-byte header (8-byte magic, uint32 version, uint32 expanded bytes,
+// SHA-256 of expanded JSON), then gzip UTF-8 JSON. Integers are big-endian.
+// Blob bytes are deduplicated by SHA-256; explicit paths restore null slots.
+(() => {
+  "use strict";
+  const VERSION = 1, HEADER = 48, MIME = "application/vnd.tenet.whiteboard";
+  const MiB = 1024 * 1024;
+  const MAX_FILE = 64 * MiB, MAX_EXPANDED = 96 * MiB, MAX_ASSET_BYTES = 64 * MiB;
+  const MAX_ASSET = 16 * MiB, MAX_PREVIEW = 8 * MiB, MAX_ASSETS = 10000, MAX_REFS = 20000;
+  const MAX_EVENTS = 5000, MAX_DETAILS = 12 * 1024, MAX_NODES = 250000, MAX_DEPTH = 32;
+  const encoder = new TextEncoder(), magic = encoder.encode("TENETWB\n");
+  const own = (value, key) => Object.prototype.hasOwnProperty.call(value, key);
+  const hashPattern = /^[0-9a-f]{64}$/;
+  const imageTypes = new Set(["image/png", "image/jpeg", "image/webp"]);
+  const itemFields = new Set(["version", "id", "createdAt", "updatedAt", "name", "theme", "view", "tileCount",
+    "animationCount", "animations", "widgetCount", "widgets", "textBoxCount", "textBoxes", "imageCount",
+    "images", "preview", "manifestExtensions", "preservedAssets", "workHistory"]);
+  let epoch = 0, signedOut = false, busy = false;
+  window.addEventListener("tenet:sign-out", () => { signedOut = true; epoch++; });
+
+  function need(condition, message) { if (!condition) throw Error(message); }
+  function plain(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+    const prototype = Object.getPrototypeOf(value);
+    return prototype === Object.prototype || prototype === null;
+  }
+  function safeKey(key) {
+    return typeof key === "string" && key.length <= 256 && !["__proto__", "prototype", "constructor"].includes(key);
+  }
+  function mediaType(value) {
+    return typeof value === "string" && value.length <= 128 &&
+      (value === "" || /^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/i.test(value));
+  }
+  function sameKeys(value, allowed) { return plain(value) && Object.keys(value).every(key => allowed.has(key)); }
+  const hex = buffer => Array.from(new Uint8Array(buffer), byte => byte.toString(16).padStart(2, "0")).join("");
+  function timestamp(value) {
+    if (value === undefined || value === null) return null;
+    const date = new Date(value);
+    return Number.isFinite(date.getTime()) ? date.toISOString() : null;
+  }
+  async function wait(promise, guard) {
+    let timer;
+    try {
+      guard();
+      const result = await Promise.race([promise, new Promise((_, reject) => {
+        timer = setTimeout(() => reject(Error("Work package processing timed out.")), 60000);
+      })]);
+      guard();
+      return result;
+    } finally { clearTimeout(timer); }
+  }
+  async function operation(callback) {
+    need(!busy, "Another work package is being processed. Please wait.");
+    const startedEpoch = epoch, deadline = Date.now() + 60000;
+    const assertAccount = () => need(!signedOut && epoch === startedEpoch, "Work sharing is unavailable after sign-out. Reopen the application.");
+    const guard = () => { assertAccount(); need(Date.now() <= deadline, "Work package processing timed out."); };
+    assertAccount();
+    need(globalThis.crypto?.subtle, "This browser requires a secure connection to process work packages.");
+    busy = true;
+    try { return await callback(guard, assertAccount); }
+    finally { busy = false; }
+  }
+  async function readStream(stream, maximum, guard) {
+    const reader = stream.getReader(), chunks = [];
+    let bytes = 0;
+    try {
+      for (;;) {
+        const next = await wait(reader.read(), guard);
+        if (next.done) break;
+        need(next.value instanceof Uint8Array, "Invalid work package byte stream.");
+        bytes += next.value.byteLength;
+        need(bytes <= maximum, "Work package exceeds its compressed or expanded size limit.");
+        chunks.push(next.value);
+      }
+      guard();
+      return new Blob(chunks);
+    } catch (error) {
+      void reader.cancel().catch(() => {});
+      throw error;
+    } finally { reader.releaseLock(); }
+  }
+  function budget() { return { nodes:0, textBytes:0 }; }
+  function inspect(value, depth, limits) {
+    need(++limits.nodes <= MAX_NODES && depth <= MAX_DEPTH, "Work package data is too complex.");
+    if (typeof value === "string") {
+      need(value.length <= MAX_EXPANDED, "Work package text is too large.");
+      limits.textBytes += encoder.encode(value).byteLength;
+      need(limits.textBytes <= MAX_EXPANDED, "Work package text is too large.");
+    } else if (typeof value === "number") need(Number.isFinite(value), "Invalid numeric work data.");
+    else if (value !== null && typeof value !== "boolean") {
+      need(Array.isArray(value) || plain(value), "Only plain drawing data can be shared.");
+      need(Object.keys(value).length <= MAX_REFS, "Work package collection is too large.");
+    }
+  }
+  // JSON.parse alone silently accepts duplicate keys. Check keys before it
+  // discards evidence, including escaped spellings of the same key.
+  function parseManifestJSON(text) {
+    let at = 0, nodes = 0;
+    const whitespace = () => { while (/[\x20\t\r\n]/.test(text[at] || "!")) at++; };
+    function string(key = false) {
+      const start = at++;
+      while (at < text.length) {
+        const char = text[at++];
+        if (char === '"') return key ? JSON.parse(text.slice(start, at)) : null;
+        if (char === "\\") at++;
+      }
+      throw Error("Unterminated JSON string.");
+    }
+    function value(depth) {
+      need(depth <= 32 && ++nodes <= 250000, "Work package JSON structure exceeds limits.");
+      whitespace();
+      const first = text[at];
+      if (first === '"') { string(); return; }
+      if (first === "{" || first === "[") {
+        const object = first === "{", end = object ? "}" : "]", keys = new Set();
+        at++; whitespace();
+        if (text[at] === end) { at++; return; }
+        let count = 0;
+        while (at < text.length) {
+          need(++count <= 20000, "Work package JSON collection exceeds limits.");
+          whitespace();
+          if (object) {
+            need(text[at] === '"', "Invalid JSON object key.");
+            const key = string(true);
+            need(safeKey(key) && !keys.has(key), "Unsafe or duplicate JSON field.");
+            keys.add(key); whitespace();
+            need(text[at++] === ":", "Invalid JSON field.");
+          }
+          value(depth + 1); whitespace();
+          if (text[at] === end) { at++; return; }
+          need(text[at++] === ",", "Invalid JSON separator.");
+        }
+        throw Error("Unterminated JSON collection.");
+      }
+      const start = at;
+      while (at < text.length && !/[\x20\t\r\n,\]}]/.test(text[at])) at++;
+      need(at > start, "Invalid JSON value.");
+    }
+    value(0); whitespace();
+    need(at === text.length, "Unexpected JSON trailing content.");
+    return JSON.parse(text);
+  }
+  function validatePlain(value, depth = 0, limits = budget()) {
+    inspect(value, depth, limits);
+    if (Array.isArray(value)) for (const child of value) validatePlain(child, depth + 1, limits);
+    else if (plain(value)) for (const key of Object.keys(value)) {
+      need(safeKey(key), "Unsafe work package field.");
+      validatePlain(value[key], depth + 1, limits);
+    }
+  }
+  function base64(buffer) {
+    const data = new Uint8Array(buffer), parts = [];
+    for (let index = 0; index < data.length; index += 32768)
+      parts.push(String.fromCharCode(...data.subarray(index, index + 32768)));
+    return btoa(parts.join(""));
+  }
+  function decodeBase64(text, size) {
+    need(typeof text === "string" && text.length === Math.ceil(size / 3) * 4 && !/[^A-Za-z0-9+/=]/.test(text),
+      "Invalid work package asset encoding.");
+    let binary;
+    try { binary = atob(text); } catch { throw Error("Invalid work package asset encoding."); }
+    need(binary.length === size, "Work package asset length does not match.");
+    const bytes = new Uint8Array(size);
+    for (let index = 0; index < size; index++) bytes[index] = binary.charCodeAt(index);
+    return bytes;
+  }
+  async function blobHash(blob, hashes, guard) {
+    if (hashes.has(blob)) return hashes.get(blob);
+    const buffer = await wait(blob.arrayBuffer(), guard);
+    const hash = hex(await wait(crypto.subtle.digest("SHA-256", buffer), guard));
+    hashes.set(blob, hash);
+    return hash;
+  }
+  async function encodePage(page, guard, hashes) {
+    const table = new Map(), refs = [], limits = budget();
+    let total = 0;
+    async function copy(value, path, depth) {
+      guard();
+      if (value instanceof Blob) {
+        need(value.size <= MAX_ASSET && mediaType(value.type), "A drawing asset exceeds the 16 MiB portable limit or has invalid media metadata.");
+        need(refs.length < MAX_REFS && depth <= MAX_DEPTH, "Too many work package asset references.");
+        const hash = await blobHash(value, hashes, guard);
+        if (!table.has(hash)) {
+          total += value.size;
+          need(table.size < MAX_ASSETS && total <= MAX_ASSET_BYTES, "Work assets exceed the portable package budget.");
+          const buffer = await wait(value.arrayBuffer(), guard);
+          table.set(hash, { hash, size:value.size, data:base64(buffer) });
+        }
+        refs.push({ path, hash, size:value.size, mime:value.type });
+        return null;
+      }
+      if (value === undefined) return null;
+      inspect(value, depth, limits);
+      if (Array.isArray(value)) {
+        const result = [];
+        for (let index = 0; index < value.length; index++) result.push(await copy(value[index], path.concat(index), depth + 1));
+        return result;
+      }
+      if (plain(value)) {
+        const result = Object.create(null);
+        for (const key of Object.keys(value)) {
+          need(safeKey(key), "Unsafe saved drawing field.");
+          if (value[key] !== undefined) result[key] = await copy(value[key], path.concat(key), depth + 1);
+        }
+        return result;
+      }
+      return value;
+    }
+    return { page:await copy(page, [], 0), blobRefs:refs, assets:Array.from(table.values()) };
+  }
+  function checkPage(page) {
+    need(sameKeys(page, new Set(["item", "tileEntries"])) && sameKeys(page.item, itemFields), "Unsupported portable drawing fields.");
+    const item = page.item;
+    need(typeof item.id === "string" && item.id.length > 0 && item.id.length <= 256, "Invalid saved page identity.");
+    need(item.name === undefined || (typeof item.name === "string" && item.name.length <= 512), "Invalid saved page title.");
+    need(item.version === undefined || item.version === 1 || item.version === 2, "Unsupported saved drawing version.");
+    if (item.manifestExtensions !== undefined)
+      need(sameKeys(item.manifestExtensions, new Set(["tenetNativeInk"])), "Unsupported native drawing extension.");
+    need(Array.isArray(page.tileEntries) && page.tileEntries.length <= MAX_ASSETS, "Invalid saved drawing tiles.");
+    const keys = new Set();
+    for (const tile of page.tileEntries) {
+      need(sameKeys(tile, new Set(["k", "blob"])) && typeof tile.k === "string" && /^\d{1,6},\d{1,6}$/.test(tile.k) &&
+        !keys.has(tile.k) && tile.blob instanceof Blob, "Invalid or duplicate saved drawing tile.");
+      keys.add(tile.k);
+    }
+    need(item.preview instanceof Blob && item.preview.size > 0 && item.preview.size <= MAX_PREVIEW && imageTypes.has(item.preview.type),
+      "This saved page does not have a supported final preview. Save it again before sharing.");
+  }
+  async function checkHistory(value, hashes, guard) {
+    if (value === undefined || value === null) return { available:false, events:[], assets:new Map(), incomplete:false,
+      incompleteReasons:[], droppedEvents:0 };
+    need(plain(value) && value.version === 1 && Array.isArray(value.events) && value.events.length <= MAX_EVENTS &&
+      Array.isArray(value.assets) && value.assets.length <= MAX_ASSETS, "Invalid saved work history.");
+    const assets = new Map();
+    let bytes = 0, sequence = 0;
+    for (const asset of value.assets) {
+      guard();
+      need(plain(asset) && hashPattern.test(asset.hash) && !assets.has(asset.hash) && asset.blob instanceof Blob &&
+        asset.size === asset.blob.size && asset.mime === asset.blob.type && asset.size <= MAX_ASSET,
+      "Invalid saved history asset.");
+      bytes += asset.size;
+      need(bytes <= MAX_ASSET_BYTES, "Saved history exceeds its byte budget.");
+      need(await blobHash(asset.blob, hashes, guard) === asset.hash, "Saved history asset hash does not match.");
+      assets.set(asset.hash, { ...asset, refs:0 });
+    }
+    const events = [];
+    for (const event of value.events) {
+      guard();
+      need(plain(event) && Number.isSafeInteger(event.sequence) && event.sequence > sequence &&
+        typeof event.type === "string" && /^[a-z][a-z0-9.-]{0,63}$/.test(event.type) &&
+        typeof event.timestamp === "string" && event.timestamp.length <= 64 && timestamp(event.timestamp) &&
+        encoder.encode(JSON.stringify(event.details || {})).byteLength <= MAX_DETAILS &&
+        Array.isArray(event.assets) && event.assets.length <= 2, "Invalid saved history event.");
+      bytes += encoder.encode(JSON.stringify(event)).byteLength;
+      need(bytes <= MAX_ASSET_BYTES, "Saved history exceeds its byte budget.");
+      for (const reference of event.assets) {
+        const asset = assets.get(reference?.hash);
+        need(asset && asset.size === reference.size && asset.mime === reference.mime &&
+          typeof reference.name === "string" && reference.name.length <= 64, "Missing or mismatched history asset reference.");
+        asset.refs++;
+      }
+      events.push(JSON.parse(JSON.stringify(event))); sequence = event.sequence;
+    }
+    need(sequence < Number.MAX_SAFE_INTEGER - MAX_EVENTS, "Saved history sequence limit reached.");
+    for (const asset of assets.values()) need(asset.refs > 0, "Unreferenced saved history asset.");
+    return { available:events.length > 0, events, assets, incomplete:value.incomplete === true,
+      incompleteReasons:Array.isArray(value.incompleteReasons) ? value.incompleteReasons.slice(0, 16).map(reason => String(reason).slice(0, 160)) : [],
+      droppedEvents:Number.isSafeInteger(value.droppedEvents) && value.droppedEvents >= 0 ? value.droppedEvents : 0 };
+  }
+  async function finalPageFor(item, history, hashes, guard) {
+    // Never call an arbitrary latest image the final state. A retained explicit
+    // save checkpoint is usable only without later page/coverage events.
+    for (let index = history.events.length - 1; index >= 0; index--) {
+      const event = history.events[index];
+      if (event.type.startsWith("ai.")) continue;
+      if (event.type === "canvas.checkpoint" && event.details?.label === "saved-end-state" &&
+          event.details.representation === "coalesced-rendered-page") {
+        const reference = event.assets.find(asset => asset.name === "page.png" && imageTypes.has(asset.mime) && asset.size <= MAX_PREVIEW);
+        if (reference) return { descriptor:{ asset:{ ...reference }, representation:"recorded-save-checkpoint",
+          caption:"Full recorded save checkpoint", sourceEventSequence:event.sequence }, blob:history.assets.get(reference.hash).blob };
+      }
+      break;
+    }
+    const blob = item.preview, hash = await blobHash(blob, hashes, guard);
+    return { descriptor:{ asset:{ name:"final-page." + blob.type.slice(6), hash, mime:blob.type, size:blob.size },
+      representation:"saved-page-thumbnail", caption:"Saved page preview (thumbnail, not a recorded history moment)" }, blob };
+  }
+  function viewerBundle(item, history, final, submission, assertCurrent) {
+    const readable = new Map(Array.from(history.assets, ([hash, asset]) => [hash, asset.blob]));
+    const existing = readable.get(final.descriptor.asset.hash);
+    need(!existing || existing.type === final.blob.type, "Ambiguous final preview media type.");
+    readable.set(final.descriptor.asset.hash, final.blob);
+    const title = item.name || "Untitled canvas", savedAt = timestamp(item.updatedAt ?? item.createdAt);
+    return { title, savedAt, historyAvailable:history.available, events:history.events,
+      attempt:{ id:item.id, title, phase:"unconfigured", status:"saved", createdAt:item.createdAt,
+        updatedAt:item.updatedAt ?? item.createdAt, eventCount:history.events.length, incomplete:history.incomplete,
+        incompleteReasons:history.incompleteReasons, droppedEvents:history.droppedEvents,
+        evidence:"local-client-observation", serverVerified:false },
+      finalPreview:final.blob, finalPage:final.descriptor, submission,
+      async getAsset(attemptId, hash) {
+        assertCurrent();
+        need(attemptId === item.id, "Work asset belongs to a different saved page.");
+        const blob = readable.get(hash);
+        need(blob, "Work history or final-preview attachment is unavailable.");
+        assertCurrent();
+        return blob;
+      } };
+  }
+  function filename(title) {
+    const name = String(title || "Saved work").normalize("NFKC").replace(/[\x00-\x1f<>:"/\\|?*]/g, " ")
+      .replace(/\s+/g, " ").trim().slice(0, 80).replace(/[. ]+$/, "") || "Saved work";
+    return "Tenet - " + name + ".tenet";
+  }
+  // Local report preparation does not build/compress an archive or force a save.
+  async function prepareSavedPage(id) {
+    return operation(async (guard, assertAccount) => {
+      need(typeof window.TenetDocumentHistory?.readSubmissionSource === "function", "Saved notebook access is unavailable.");
+      const saved = await wait(window.TenetDocumentHistory.readSubmissionSource(id), guard);
+      const check = () => { guard(); saved.assertCurrent(); };
+      const lease = () => { assertAccount(); saved.assertCurrent(); };
+      check();
+      const page = { item:saved.item, tileEntries:saved.tileEntries }, hashes = new WeakMap();
+      checkPage(page);
+      const history = await checkHistory(page.item.workHistory, hashes, check);
+      const final = await finalPageFor(page.item, history, hashes, check);
+      check();
+      return viewerBundle(page.item, history, final, {
+        version:VERSION, localOnly:true, integrity:"sha256-not-authorship", source:"local-saved-page"
+      }, lease);
+    });
+  }
+  async function exportSavedPage(id) {
+    return operation(async (guard, assertAccount) => {
+      need(typeof CompressionStream === "function", "This browser cannot compress work packages. Use a current supported browser.");
+      need(typeof window.TenetDocumentHistory?.readSubmissionSource === "function", "Open a saved local whiteboard before sharing work.");
+      const source = await wait(window.TenetDocumentHistory.readSubmissionSource(id), guard);
+      const check = () => { guard(); source.assertCurrent(); };
+      const lease = () => { assertAccount(); source.assertCurrent(); };
+      check();
+      const page = { item:source.item, tileEntries:source.tileEntries }, hashes = new WeakMap();
+      checkPage(page);
+      const encoded = await encodePage(page, check, hashes);
+      const history = await checkHistory(page.item.workHistory, hashes, check);
+      const final = await finalPageFor(page.item, history, hashes, check);
+      const manifest = { format:"tenet-saved-work", version:VERSION, exportedAt:new Date().toISOString(),
+        ...encoded, finalPage:final.descriptor };
+      validatePlain(manifest);
+      const text = JSON.stringify(manifest);
+      need(text.length <= MAX_EXPANDED, "Work package exceeds the expanded JSON limit.");
+      const expanded = new Blob([text], { type:"application/json" });
+      need(expanded.size <= MAX_EXPANDED, "Work package exceeds the expanded UTF-8 limit.");
+      const digest = await wait(crypto.subtle.digest("SHA-256", await wait(expanded.arrayBuffer(), check)), check);
+      const compressed = await readStream(expanded.stream().pipeThrough(new CompressionStream("gzip")), MAX_FILE - HEADER, check);
+      const header = new Uint8Array(HEADER), view = new DataView(header.buffer);
+      header.set(magic); view.setUint32(8, VERSION); view.setUint32(12, expanded.size); header.set(new Uint8Array(digest), 16);
+      const blob = new Blob([header, compressed], { type:MIME });
+      need(blob.size <= MAX_FILE, "Work package exceeds the 64 MiB sharing limit. No history was removed.");
+      check();
+      const submission = { version:VERSION, exportedAt:manifest.exportedAt, assetCount:encoded.assets.length,
+        compressedBytes:blob.size, expandedBytes:expanded.size, integrity:"sha256-not-authorship", localOnly:true };
+      return { blob, filename:filename(page.item.name), bytes:blob.size, assetCount:encoded.assets.length,
+        historyAvailable:history.available, incomplete:history.incomplete,
+        bundle:viewerBundle(page.item, history, final, submission, lease) };
+    });
+  }
+  async function decodeAssets(manifest, guard, hashes) {
+    need(Array.isArray(manifest.assets) && manifest.assets.length <= MAX_ASSETS &&
+      Array.isArray(manifest.blobRefs) && manifest.blobRefs.length <= MAX_REFS, "Too many portable work assets.");
+    const table = new Map();
+    let total = 0;
+    for (const asset of manifest.assets) {
+      guard();
+      need(sameKeys(asset, new Set(["hash", "size", "data"])) && typeof asset.hash === "string" && hashPattern.test(asset.hash) &&
+        !table.has(asset.hash) && Number.isSafeInteger(asset.size) && asset.size >= 0 && asset.size <= MAX_ASSET,
+      "Invalid or duplicate work package asset.");
+      total += asset.size;
+      need(total <= MAX_ASSET_BYTES, "Expanded work assets exceed the 64 MiB limit.");
+      const bytes = decodeBase64(asset.data, asset.size);
+      need(hex(await wait(crypto.subtle.digest("SHA-256", bytes), guard)) === asset.hash, "Work package asset hash does not match.");
+      table.set(asset.hash, { blob:new Blob([bytes]), size:asset.size, used:false, typed:new Map() });
+    }
+    const paths = new Set();
+    for (const reference of manifest.blobRefs) {
+      guard();
+      need(sameKeys(reference, new Set(["path", "hash", "size", "mime"])) && Array.isArray(reference.path) &&
+        reference.path.length > 0 && reference.path.length <= MAX_DEPTH && mediaType(reference.mime), "Invalid work asset path.");
+      const asset = table.get(reference.hash), key = JSON.stringify(reference.path);
+      need(asset && asset.size === reference.size && !paths.has(key), "Duplicate or missing work asset reference.");
+      paths.add(key);
+      let parent = manifest.page;
+      for (let index = 0; index < reference.path.length; index++) {
+        const part = reference.path[index];
+        need((Array.isArray(parent) && Number.isSafeInteger(part) && part >= 0 && part < parent.length) ||
+          (plain(parent) && safeKey(part) && own(parent, part)), "Invalid work asset location.");
+        if (index === reference.path.length - 1) {
+          need(parent[part] === null, "Work asset would overwrite other drawing data.");
+          let blob = asset.typed.get(reference.mime);
+          if (!blob) { blob = asset.blob.slice(0, asset.size, reference.mime); asset.typed.set(reference.mime, blob); hashes.set(blob, reference.hash); }
+          parent[part] = blob; asset.used = true;
+        } else parent = parent[part];
+      }
+    }
+    for (const asset of table.values()) need(asset.used, "Unreferenced work package asset.");
+    return table;
+  }
+  async function openFile(file) {
+    return operation(async (guard, assertAccount) => {
+      need(file instanceof Blob && file.size > HEADER && file.size <= MAX_FILE, "Choose a .tenet work file no larger than 64 MiB.");
+      need(typeof DecompressionStream === "function", "This browser cannot open compressed work packages. Use a current supported browser.");
+      const header = new Uint8Array(await wait(file.slice(0, HEADER).arrayBuffer(), guard));
+      need(magic.every((byte, index) => header[index] === byte), "This is not a Tenet work package.");
+      const view = new DataView(header.buffer);
+      need(view.getUint32(8) === VERSION, "This Tenet work format version is not supported.");
+      const expectedBytes = view.getUint32(12);
+      need(expectedBytes > 0 && expectedBytes <= MAX_EXPANDED, "Work package declares an invalid expanded size.");
+      // Enforce the bound while reading decompressed chunks, BEFORE allocating
+      // a complete text/JSON value. A small compressed bomb cannot bypass it.
+      const expanded = await readStream(file.slice(HEADER).stream().pipeThrough(new DecompressionStream("gzip")), expectedBytes, guard);
+      need(expanded.size === expectedBytes, "Work package expanded length does not match.");
+      const buffer = await wait(expanded.arrayBuffer(), guard);
+      need(hex(await wait(crypto.subtle.digest("SHA-256", buffer), guard)) === hex(header.slice(16, 48)), "Work package digest does not match.");
+      let manifest;
+      try { manifest = parseManifestJSON(new TextDecoder("utf-8", { fatal:true }).decode(buffer)); }
+      catch { throw Error("Work package JSON is invalid."); }
+      validatePlain(manifest);
+      need(sameKeys(manifest, new Set(["format", "version", "exportedAt", "page", "blobRefs", "assets", "finalPage"])) &&
+        manifest.format === "tenet-saved-work" && manifest.version === VERSION &&
+        typeof manifest.exportedAt === "string" && manifest.exportedAt.length <= 64 && timestamp(manifest.exportedAt),
+      "Unsupported work package manifest.");
+      const hashes = new WeakMap(), table = await decodeAssets(manifest, guard, hashes);
+      checkPage(manifest.page);
+      const item = manifest.page.item, history = await checkHistory(item.workHistory, hashes, guard);
+      const final = await finalPageFor(item, history, hashes, guard);
+      // Recompute the claimed final-page choice from saved data. Do not allow
+      // an arbitrary AI input or unrelated blob to masquerade as the final page.
+      need(JSON.stringify(manifest.finalPage) === JSON.stringify(final.descriptor), "Work package final-preview provenance does not match.");
+      guard();
+      return viewerBundle(item, history, final, { version:VERSION, exportedAt:manifest.exportedAt,
+        assetCount:table.size, compressedBytes:file.size, expandedBytes:expectedBytes,
+        integrity:"sha256-not-authorship", localOnly:true }, assertAccount);
+    });
+  }
+  window.TenetSubmission = Object.freeze({ exportSavedPage, openFile, prepareSavedPage });
+})();
+(function initTenetSubmissionSharing() {
+  "use strict";
+  if (window.PENECHO_CONFIG?.tenetMode !== true) return;
+
+  const MIB = 1024 * 1024;
+  const downloads = new Set();
+  let activeReport = null;
+  let sharing = false;
+  const encoder = new TextEncoder();
+
+  function filenameFor(value, extension) {
+    const stem = String(value || "Tenet work").replace(/\.(tenet|pdf)$/i, "")
+      .replace(/[^A-Za-z0-9._ -]/g, "_").replace(/^[^A-Za-z0-9]+/, "").slice(0, 72);
+    return (stem || "Tenet-work") + extension;
+  }
+
+  function abortError() { return new Error("This report was closed or its saved-page context changed."); }
+
+  function observedTime(value) {
+    if (typeof value !== "string" && typeof value !== "number") return "not recorded";
+    const date = new Date(value);
+    return Number.isFinite(date.getTime()) ? date.toLocaleString() : "not recorded";
+  }
+
+  function readBase64(blob) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result).split(",", 2)[1]);
+      reader.onerror = () => reject(new Error("The file could not be prepared for sharing."));
+      reader.onabort = () => reject(abortError());
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  async function shareFile(blob, filename, options = {}) {
+    if (!(blob instanceof Blob) || !blob.size) throw new Error("There is no file to share.");
+    const extension = /\.pdf$/i.test(filename) ? ".pdf" : ".tenet";
+    const limit = extension === ".pdf" ? 24 * MIB : 64 * MIB;
+    if (blob.size > limit) throw new Error("This file exceeds the safe sharing limit. No history was removed.");
+    if (sharing) throw new Error("Another file is already being shared.");
+    const check = () => { if (options.isCurrent && !options.isCurrent()) throw abortError(); };
+    const safeName = filenameFor(filename, extension);
+    check();
+    sharing = true;
+    try {
+      const native = window.Capacitor?.getPlatform?.() === "ios";
+      if (native) {
+        const plugin = window.Capacitor?.Plugins?.TenetNative;
+        if (typeof plugin?.exportFile === "function") {
+          const base64 = await readBase64(blob);
+          check();
+          try { return await plugin.exportFile({ base64, filename: safeName }); }
+          catch (error) {
+            if (!/unimplemented|not implemented|not available/i.test(String(error?.code) + " " + String(error?.message))) throw error;
+          }
+        }
+        const file = new File([blob], safeName, { type: extension === ".pdf" ? "application/pdf" : "application/octet-stream" });
+        if (navigator.canShare?.({ files: [file] }) && navigator.share) {
+          check();
+          try { await navigator.share({ files: [file] }); return { cancelled: false }; }
+          catch (error) {
+            if (error?.name === "AbortError") return { cancelled: true };
+            throw new Error("Sharing could not start. Update the Tenet iPad app, then try again.");
+          }
+        }
+        throw new Error("Update the Tenet iPad app to share work files and PDF reports. Your saved work is unchanged.");
+      }
+      check();
+      const url = URL.createObjectURL(blob);
+      downloads.add(url);
+      const link = document.createElement("a");
+      link.href = url; link.download = safeName; link.hidden = true;
+      document.body.append(link);
+      try { link.click(); } finally { link.remove(); }
+      setTimeout(() => { URL.revokeObjectURL(url); downloads.delete(url); }, 60000);
+      return { cancelled: false, downloaded: true };
+    } finally { sharing = false; }
+  }
+
+  function interactions(events) {
+    const source = Array.isArray(events) ? events : [];
+    if (source.length > 5000) throw new Error("This report exceeds the supported event count.");
+    const counts = new Map(), groups = [], linked = new Map();
+    for (const event of source) {
+      if (event.type === "ai.request" && typeof event.details?.localRequestId === "string") {
+        const id = event.details.localRequestId;
+        counts.set(id, (counts.get(id) || 0) + 1);
+      }
+    }
+    for (const event of source) {
+      if (event.type !== "ai.request") continue;
+      const group = { request: event, responses: [], finishes: [], inputs: [] };
+      groups.push(group);
+      const id = event.details?.localRequestId;
+      if (counts.get(id) === 1) linked.set(id, group);
+    }
+    let unlinked = 0;
+    for (const event of source) {
+      if (!["ai.response", "ai.finished", "ai.input"].includes(event.type)) continue;
+      const group = linked.get(event.details?.localRequestId);
+      if (!group) { unlinked++; continue; }
+      group[event.type === "ai.response" ? "responses" : event.type === "ai.input" ? "inputs" : "finishes"].push(event);
+    }
+    return { groups, unlinked };
+  }
+
+  // Inspect bounded headers before asking the browser to decode an imported image.
+  async function previewImage(blob, check) {
+    if (!(blob instanceof Blob) || blob.size > 8 * MIB) throw new Error("Preview exceeds the report image limit.");
+    const bytes = new Uint8Array(await blob.slice(0, 512 * 1024).arrayBuffer());
+    check();
+    const view = new DataView(bytes.buffer);
+    let w = 0, h = 0;
+    if (blob.type === "image/png" && bytes.length >= 24 && bytes[0] === 137 && bytes[1] === 80 && bytes[2] === 78 && bytes[3] === 71) {
+      w = view.getUint32(16); h = view.getUint32(20);
+    } else if (blob.type === "image/jpeg" && bytes[0] === 255 && bytes[1] === 216) {
+      let offset = 2;
+      while (offset + 8 < bytes.length) {
+        if (bytes[offset++] !== 255) break;
+        while (bytes[offset] === 255) offset++;
+        const marker = bytes[offset++];
+        if (marker === 217 || marker === 218) break;
+        if (marker === 1 || (marker >= 208 && marker <= 215)) continue;
+        if (offset + 2 > bytes.length) break;
+        const length = view.getUint16(offset);
+        if (length < 2 || offset + length > bytes.length) break;
+        if ([192,193,194,195,197,198,199,201,202,203,205,206,207].includes(marker) && length >= 7) {
+          h = view.getUint16(offset + 3); w = view.getUint16(offset + 5); break;
+        }
+        offset += length;
+      }
+    } else if (blob.type === "image/webp" && bytes.length >= 30 && String.fromCharCode(...bytes.slice(0, 4)) === "RIFF" && String.fromCharCode(...bytes.slice(8, 12)) === "WEBP") {
+      const kind = String.fromCharCode(...bytes.slice(12, 16));
+      if (kind === "VP8X") {
+        w = 1 + bytes[24] + (bytes[25] << 8) + (bytes[26] << 16);
+        h = 1 + bytes[27] + (bytes[28] << 8) + (bytes[29] << 16);
+      } else if (kind === "VP8 " && bytes[23] === 157 && bytes[24] === 1 && bytes[25] === 42) {
+        w = view.getUint16(26, true) & 16383; h = view.getUint16(28, true) & 16383;
+      } else if (kind === "VP8L" && bytes[20] === 47) {
+        const bits = view.getUint32(21, true); w = (bits & 16383) + 1; h = ((bits >>> 14) & 16383) + 1;
+      }
+    }
+    if (!w || !h || w > 4096 || h > 4096 || w * h > 8 * MIB) throw new Error("Preview dimensions are unsupported.");
+    const url = URL.createObjectURL(blob), img = new Image();
+    try {
+      await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => { img.src = ""; reject(new Error("Preview could not be decoded in time.")); }, 8000);
+        img.onload = () => { clearTimeout(timer); resolve(); };
+        img.onerror = () => { clearTimeout(timer); reject(new Error("Preview could not be decoded.")); };
+        img.src = url;
+      });
+      check();
+      if (img.naturalWidth !== w || img.naturalHeight !== h) throw new Error("Preview dimensions do not match its header.");
+      return img;
+    } finally { URL.revokeObjectURL(url); }
+  }
+
+  async function makePdf(bundle, check, progress) {
+    const canvas = document.createElement("canvas");
+    canvas.width = 1190; canvas.height = 1684;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("PDF rendering is unavailable.");
+    const pages = [];
+    let y = 105, totalBytes = 0, textBytes = 0;
+    function startPage() {
+      ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#536172"; ctx.font = "bold 18px sans-serif";
+      ctx.fillText("TENET / SAVED WORK & AI HELP", 72, 55);
+      y = 105;
+    }
+    async function finishPage() {
+      check();
+      if (pages.length >= 64) throw new Error("This report exceeds 64 pages. Share the complete .tenet file instead; no history was removed.");
+      ctx.fillStyle = "#536172"; ctx.font = "18px sans-serif";
+      ctx.fillText(`Client-recorded observations | Page ${pages.length + 1}`, 72, 1638);
+      const blob = await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error("PDF page encoding timed out.")), 10000);
+        canvas.toBlob(value => { clearTimeout(timer); value ? resolve(value) : reject(new Error("PDF page could not be encoded.")); }, "image/jpeg", 0.9);
+      });
+      check();
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      check(); totalBytes += bytes.byteLength;
+      if (totalBytes > 23 * MIB) throw new Error("This report exceeds the PDF sharing limit. Share the complete .tenet file instead.");
+      pages.push(bytes); progress(`Preparing PDF: ${pages.length} page${pages.length === 1 ? "" : "s"}...`);
+      await new Promise(resolve => setTimeout(resolve, 0));
+      check(); startPage();
+    }
+    async function text(value, heading = false) {
+      const content = typeof value === "string" ? value : "Not recorded";
+      textBytes += encoder.encode(content).byteLength;
+      if (textBytes > 2 * MIB) throw new Error("This report contains too much text for a PDF. Use the complete .tenet file.");
+      const font = heading ? "bold 30px sans-serif" : "24px sans-serif";
+      const height = heading ? 44 : 35;
+      if (heading && y + height * 3 > 1580) await finishPage();
+      for (const paragraph of content.replace(/\r/g, "").split("\n")) {
+        const points = Array.from(paragraph);
+        if (!points.length) { y += height; continue; }
+        for (let from = 0; from < points.length;) {
+          if (y + height > 1580) await finishPage();
+          ctx.font = font; ctx.fillStyle = heading ? "#162638" : "#263547";
+          let count = Math.min(96, points.length - from);
+          while (count > 1 && ctx.measureText(points.slice(from, from + count).join("")).width > 1046) count--;
+          if (from + count < points.length) {
+            const lastSpace = points.slice(from, from + count).lastIndexOf(" ");
+            if (lastSpace > count / 2) count = lastSpace + 1;
+          }
+          ctx.fillText(points.slice(from, from + count).join(""), 72, y);
+          y += height; from += count;
+        }
+      }
+      y += 13;
+    }
+    try {
+      startPage();
+      await text(bundle.title || bundle.attempt?.title || "Saved whiteboard", true);
+      const savedAt = bundle.savedAt || bundle.attempt?.updatedAt;
+      await text(`Saved (viewer local time): ${observedTime(savedAt)}`);
+      await text("This report summarizes the selected saved version, not unsaved edits. Open its .tenet file in the Tenet teacher viewer for playback and recorded request images/JSON. PDF text is rendered as page images; use the viewer for selectable recorded text.");
+      await text("History reflects observed application actions, not a screen recording or proof of authorship, independent work, or outside help. Client request inputs are not the complete downstream Gateway/provider prompt. This is not an LMS receipt.");
+      if (!bundle.historyAvailable) await text("No recorded work history is available for this saved page.", true);
+      if (bundle.incomplete || bundle.attempt?.incomplete || bundle.attempt?.status === "incomplete") await text("History is marked partial. Some actions or attachments were not retained.", true);
+      let preview = bundle.finalPreview;
+      if (!preview && bundle.finalPage?.asset && bundle.getAsset) {
+        const ref = bundle.finalPage.asset;
+        preview = await bundle.getAsset(bundle.attempt.id, ref.hash); check();
+      }
+      if (preview) {
+        let img;
+        try { img = await previewImage(preview, check); }
+        catch (_error) { check(); await text("The saved preview could not be rendered within the PDF image limits. The work file retains its original data."); }
+        if (img) {
+          if (y > 1000) await finishPage();
+          await text("Saved-page view", true);
+          const scale = Math.min(1046 / img.naturalWidth, (1460 - y) / img.naturalHeight);
+          ctx.drawImage(img, 72, y, img.naturalWidth * scale, img.naturalHeight * scale);
+          y += img.naturalHeight * scale + 45;
+          img.src = "";
+          await text(bundle.finalPage?.caption || "Saved preview. This is not a reconstruction of missing history.");
+        }
+      } else await text("No saved-page preview was retained. The work file may still contain drawing data and recorded events.");
+      const { groups, unlinked } = interactions(bundle.events);
+      await text(`AI help: ${groups.length} recorded request${groups.length === 1 ? "" : "s"}`, true);
+      if (unlinked) await text(`${unlinked} AI record(s) could not be uniquely linked to a request. Inspect the full history; this report does not guess their relationship.`);
+      const methods = { "quick-help": "Quick help", "specific-question": "Typed question", "voice-question": "Talk to Tenet", automatic: "Automatic help" };
+      for (let i = 0; i < groups.length; i++) {
+        check();
+        const group = groups[i], details = group.request.details || {};
+        await text(`${i + 1}. ${methods[details.origin] || "Input method not recorded"}`, true);
+        await text(`Observed (viewer local time): ${observedTime(group.request.timestamp || group.request.clientWallTime)}`);
+        await text("Student question: " + (details.question || "No separate question text was recorded. Quick help may have used the submitted image/context."));
+        if (details.questionTruncated) await text("The recorded question was truncated by the history limit.");
+        if (!group.responses.length) await text("AI response: no response was retained.");
+        for (const response of group.responses) {
+          await text("AI response: " + (response.details?.text || "No text response was retained. Inspect the work file for recorded commands/attachments."));
+          if (response.details?.textTruncated) await text("The recorded response was truncated by the history limit.");
+        }
+        await text("Outcome: " + (group.finishes.map(event => event.details?.outcome).filter(Boolean).join("; ") || "not recorded"));
+        await text(group.inputs.length ? "Recorded client input details and retained images are available in the work file. Partial/omitted inputs are labeled there." : "Full client request inputs were not retained for this interaction.");
+      }
+      const gaps = (bundle.events || []).filter(event => /gap|limit|interrupted/i.test(event.type || ""));
+      if (gaps.length) await text(`Coverage notice: ${gaps.length} recorded gap/limit/interruption event(s). Review the timeline for details.`);
+      await finishPage(); check();
+      const parts = [], offsets = [0];
+      let length = 0;
+      const append = value => { const data = typeof value === "string" ? encoder.encode(value) : value; parts.push(data); length += data.byteLength; };
+      const object = (id, value) => { offsets[id] = length; append(`${id} 0 obj\n`); append(value); append("\nendobj\n"); };
+      append("%PDF-1.4\n");
+      object(1, "<< /Type /Catalog /Pages 2 0 R >>");
+      object(2, `<< /Type /Pages /Count ${pages.length} /Kids [${pages.map((_, i) => `${3 + i * 3} 0 R`).join(" ")}] >>`);
+      for (let i = 0; i < pages.length; i++) {
+        const id = 3 + i * 3, image = pages[i], content = "q 595 0 0 842 0 0 cm /PageImage Do Q\n";
+        object(id, `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /XObject << /PageImage ${id + 1} 0 R >> >> /Contents ${id + 2} 0 R >>`);
+        offsets[id + 1] = length;
+        append(`${id + 1} 0 obj\n<< /Type /XObject /Subtype /Image /Width 1190 /Height 1684 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${image.byteLength} >>\nstream\n`);
+        append(image); append("\nendstream\nendobj\n");
+        object(id + 2, `<< /Length ${encoder.encode(content).byteLength} >>\nstream\n${content}endstream`);
+      }
+      const xref = length;
+      append(`xref\n0 ${offsets.length}\n0000000000 65535 f \n`);
+      for (let i = 1; i < offsets.length; i++) append(`${String(offsets[i]).padStart(10, "0")} 00000 n \n`);
+      append(`trailer\n<< /Size ${offsets.length} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
+      const result = new Blob(parts, { type: "application/pdf" });
+      if (result.size > 24 * MIB) throw new Error("The report exceeds the PDF size limit.");
+      return result;
+    } finally { canvas.width = canvas.height = 0; }
+  }
+
+  function openReport(bundle, options = {}) {
+    activeReport?.close();
+    const dialog = document.createElement("dialog");
+    dialog.className = "tenet-submission-report";
+    dialog.setAttribute("aria-labelledby", "tenetSubmissionReportTitle");
+    const heading = document.createElement("h2"); heading.id = "tenetSubmissionReportTitle"; heading.textContent = "PDF work report";
+    const description = document.createElement("p");
+    description.textContent = "Includes the saved-page preview and recorded AI questions, replies, and outcomes. The separate .tenet file keeps interactive playback and retained request inputs. Share only through your school-approved destination.";
+    const status = document.createElement("p"); status.className = "tenet-submission-report-status"; status.setAttribute("role", "status");
+    const actions = document.createElement("div"); actions.className = "tenet-submission-report-actions";
+    const prepare = document.createElement("button"); prepare.type = "button"; prepare.textContent = "Prepare PDF";
+    const close = document.createElement("button"); close.type = "button"; close.textContent = "Close";
+    actions.append(prepare, close); dialog.append(heading, description, status, actions);
+    document.body.append(dialog);
+    let current = true, pdf = null;
+    const check = () => { if (!current || (options.isCurrent && !options.isCurrent())) throw abortError(); };
+    const cleanup = () => {
+      if (!current) return;
+      current = false; pdf = null; dialog.remove();
+      window.TenetInk?.resume?.("submission-report");
+      if (activeReport === dialog) activeReport = null;
+    };
+    dialog.addEventListener("close", cleanup, { once: true });
+    close.addEventListener("click", () => dialog.close());
+    prepare.addEventListener("click", async () => {
+      prepare.disabled = true;
+      try {
+        check();
+        if (!pdf) {
+          status.textContent = "Preparing locally...";
+          pdf = await makePdf(bundle, check, message => { if (current) status.textContent = message; });
+          check(); prepare.textContent = "Share / save PDF";
+          status.textContent = `PDF ready (${(pdf.size / MIB).toFixed(2)} MiB). Nothing has been uploaded.`;
+        } else {
+          const result = await shareFile(pdf, filenameFor(bundle.title || bundle.attempt?.title, ".pdf"), { isCurrent: () => current && (!options.isCurrent || options.isCurrent()) });
+          if (current) status.textContent = result?.cancelled ? "Sharing cancelled. The PDF is ready to try again." : "PDF handed to sharing/download. Confirm it was saved or attached in your destination.";
+        }
+      } catch (error) { if (current) status.textContent = error?.message || "The PDF could not be prepared."; }
+      finally { if (current) prepare.disabled = false; }
+    });
+    try {
+      check(); window.TenetInk?.suspend?.("submission-report");
+      dialog.showModal(); activeReport = dialog;
+    } catch (error) { cleanup(); throw error; }
+  }
+
+  window.addEventListener("pagehide", () => {
+    activeReport?.close();
+    for (const url of downloads) URL.revokeObjectURL(url);
+    downloads.clear();
+  });
+  window.TenetSubmissionShare = shareFile;
+  window.TenetSubmissionReport = openReport;
+})();
 // Local assignment-preview controls. Server policy and LMS receipts are later lanes.
 (function installTenetProcessUI() {
   "use strict";
@@ -285,6 +1072,8 @@ window.PENECHO_CONFIG = {tenetMode:true,tenetAssignmentPreview:true,tenetHistory
   const documents = () => standalone ? null : window.TenetDocumentHistory;
   let selected = null, events = [], assetSource = journal, imported = false, sample = false;
   let savedPageId = null, historyAvailable = true, savedListEpoch = 0;
+  let portableFile = false, finalPage = null, submissionMeta = null, showingFinalPage = false;
+  let shareOwner = 0, reportOwner = 0, sharingWork = false, openingReport = false, pendingShareOpen = null;
   let exportFile = null, imageUrl = null, generation = 0, playing = false, playTimer = null;
   let sessionEpoch = 0, selectionEpoch = 0, playbackEpoch = 0, busyOwner = 0;
   // Retain only a few decoded checkpoints, never an entire assignment's images.
@@ -318,10 +1107,9 @@ window.PENECHO_CONFIG = {tenetMode:true,tenetAssignmentPreview:true,tenetHistory
     <div class="tenet-process-layout">
       <aside class="tenet-process-sidebar">
         <section class="tenet-process-saved"><div class="tenet-process-saved-heading"><h3>Saved whiteboards</h3><button type="button" data-action="refresh-pages">Refresh</button></div><p class="tenet-process-saved-caption">History travels with the saved page. Older pages may not have recorded history.</p><nav class="tenet-process-saved-pages" aria-label="Saved whiteboards"></nav></section>
-        <details class="tenet-process-examples"><summary>Examples & archive imports</summary>
+        <section class="tenet-process-file-tools" aria-label="Open shared work"><button type="button" data-action="open">Open shared work</button><p>Choose a portable .tenet file or a legacy history archive from your device. Files are read here, not uploaded.</p><input data-file="archive" type="file" accept=".tenet,.json,.tenet-work,application/json" hidden /></section>
+        <details class="tenet-process-examples"><summary>Explore a synthetic example</summary>
         <div class="tenet-process-demo"><small>START HERE</small><h3>A hint, then a next step.</h3><p>Follow a fictional algebra example. No student data and no AI request.</p><button type="button" data-action="sample" class="tenet-process-primary">Play a sample assignment</button></div>
-        <button type="button" data-action="open">Open a history archive</button>
-        <input data-file="archive" type="file" accept=".json,.tenet-work,application/json" hidden />
         </details>
         <details class="tenet-process-record-options"><summary>Record my current page</summary><form data-form="start"><h3>Opt-in local capture</h3>
           <label>Assignment title<input name="title" required maxlength="80" placeholder="Problem set: linear equations" autocomplete="off" /></label>
@@ -338,6 +1126,7 @@ window.PENECHO_CONFIG = {tenetMode:true,tenetAssignmentPreview:true,tenetHistory
           <div class="tenet-process-record-heading"><div><h3 data-value="title"></h3><p data-value="meta"></p></div><span class="tenet-process-badge" data-value="badge"></span></div>
           <p class="tenet-process-coverage" data-value="coverage"></p>
           <div class="tenet-process-metrics" aria-label="Observed history summary"><div><strong data-value="checkpoints">0</strong><span>Page checkpoints</span></div><button type="button" data-action="ai-summary" aria-expanded="false" aria-controls="tenetProcessAIRequests"><strong data-value="requests">0</strong><span>AI interactions / Open summary</span></button><div><strong data-value="gaps">0</strong><span>Coverage gaps</span></div></div>
+          <section class="tenet-process-portable" aria-label="Share work and report"><div class="tenet-process-portable-actions"><button type="button" data-action="share-work" class="tenet-process-share-work">Share work (.tenet)</button><button type="button" data-action="report">Open report / PDF</button><button type="button" data-action="final-page" hidden>Show saved final page</button></div><p data-value="sharing-note" class="tenet-process-sharing-note"></p></section>
           <div class="tenet-process-actions">
             <button type="button" data-action="checkpoint">Capture checkpoint</button>
             <button type="button" data-action="pause">Pause recording</button>
@@ -381,10 +1170,10 @@ window.PENECHO_CONFIG = {tenetMode:true,tenetAssignmentPreview:true,tenetHistory
     dialog.querySelector(".tenet-process-saved").hidden = true;
     dialog.querySelector(".tenet-process-examples").open = true;
     dialog.querySelector(".tenet-process-heading small").textContent = "TENET WORK HISTORY VIEWER";
-    dialog.querySelector(".tenet-process-disclosure").textContent = "Open a Tenet history archive from your device or explore the synthetic example. This viewer is read-only and never enumerates saved whiteboards or makes AI, school-account or upload requests. File consistency is not proof of student identity or independent work.";
-    dialog.querySelector(".tenet-process-empty p").textContent = "Open a local history archive or explore the fictional example. This public viewer cannot list whiteboards saved inside the app.";
+    dialog.querySelector(".tenet-process-disclosure").textContent = "Open shared work as a .tenet file or a legacy history archive, or explore the synthetic example. Files may contain private student work, questions, replies and images. This read-only viewer reads files locally and never enumerates saved app whiteboards or makes AI, school-account or upload requests. File integrity is not proof of student identity or independent work.";
+    dialog.querySelector(".tenet-process-empty p").textContent = "Open shared work from your device to inspect the saved page and any recorded history. This public viewer cannot list whiteboards saved inside the app. The synthetic example is optional.";
     find("close").textContent = "Close";
-    statusLine.textContent = "Try the synthetic sample or open an archive from your device.";
+    statusLine.textContent = "Open a shared .tenet file or legacy archive from your device. Nothing is uploaded.";
   }
   function message(text, error = false) {
     statusLine.textContent = text; statusLine.dataset.error = String(error); control.title = text;
@@ -429,6 +1218,11 @@ window.PENECHO_CONFIG = {tenetMode:true,tenetAssignmentPreview:true,tenetHistory
     releaseFrame(entry); entry.finish?.(null);
   }
   function clearImage() {
+    pendingShareOpen = null;
+    shareOwner++; reportOwner++; sharingWork = false; openingReport = false;
+    find("share-work").disabled = false; find("report").disabled = false;
+    portableFile = false; finalPage = null; submissionMeta = null; showingFinalPage = false;
+    value("sharing-note").textContent = "";
     cacheEpoch++; hidePicture(); requestedFrameKey = null; desiredFrameKeys.clear();
     for (const key of frameCache.keys()) dropFrame(key);
     indexedEvents = null; frames = []; frameAtEvent = []; nextFrameAt = []; previousFrameAt = [];
@@ -499,6 +1293,8 @@ window.PENECHO_CONFIG = {tenetMode:true,tenetAssignmentPreview:true,tenetHistory
       savedPageId = id; historyAvailable = bundle.historyAvailable === true;
       selected = bundle.attempt; events = historyAvailable ? bundle.events : [];
       assetSource = bundle; imported = true; sample = false;
+      finalPage = bundle.finalPage || null; submissionMeta = bundle.submission || null;
+      showingFinalPage = Boolean(finalPage && !events.length);
       dialog.querySelectorAll(".tenet-process-saved-pages button").forEach(button => button.setAttribute("aria-current", String(button.dataset.pageId === String(id))));
       await paintRecord();
       if (session !== sessionEpoch || token !== selectionEpoch || !dialog.open) return false;
@@ -515,6 +1311,131 @@ window.PENECHO_CONFIG = {tenetMode:true,tenetAssignmentPreview:true,tenetHistory
     const opened = await selectSavedPage(id);
     if (opened && dialog.open) await refreshSavedPages();
     return opened;
+  }
+  async function shareSavedPage(id) {
+    if (standalone || id === null || id === undefined || sharingWork || pendingShareOpen) return false;
+    // Notebook callers close their own overlay first. Open the saved selection
+    // here as well as from the history button, so sharing never reports invisibly.
+    if (!dialog.open || !selected || savedPageId === null || String(savedPageId) !== String(id)) {
+      const opening = openSavedPage(id);
+      const pending = {session:sessionEpoch, selection:selectionEpoch};
+      pendingShareOpen = pending;
+      const currentOpening = () => pendingShareOpen === pending && pending.session === sessionEpoch && pending.selection === selectionEpoch && dialog.open;
+      try {
+        const opened = await opening;
+        if (!opened || !currentOpening()) return false;
+      } catch (error) {
+        if (currentOpening()) message(error?.message || "The saved whiteboard could not be opened for sharing. Your canvas is unchanged.", true);
+        return false;
+      } finally {
+        if (pendingShareOpen === pending) pendingShareOpen = null;
+      }
+    }
+    if (!dialog.open || !selected || savedPageId === null || String(savedPageId) !== String(id)) return false;
+    const owner = ++shareOwner, session = sessionEpoch, selection = selectionEpoch;
+    const record = selected;
+    const current = () => owner === shareOwner && session === sessionEpoch && selection === selectionEpoch && dialog.open && selected === record && String(savedPageId) === String(id);
+    sharingWork = true; find("share-work").disabled = true;
+    try {
+      if (typeof window.TenetSubmission?.exportSavedPage !== "function") throw Error("Portable work export is not available in this build. Your saved whiteboard is unchanged.");
+      if (typeof window.TenetSubmissionShare !== "function") throw Error("Work-file sharing is not available in this build. Your saved whiteboard is unchanged.");
+      message("Preparing one .tenet file from the saved whiteboard. Unsaved canvas edits are not included.");
+      const result = await window.TenetSubmission.exportSavedPage(id);
+      if (!current()) return false;
+      if (!(result?.blob instanceof Blob) || !result.blob.size || typeof result.filename !== "string" || !/\.tenet$/i.test(result.filename)) throw Error("The portable exporter did not return a valid work file. Your saved whiteboard is unchanged.");
+      await window.TenetSubmissionShare(result.blob, result.filename);
+      if (!current()) return false;
+      message("Work-file sharing/download was requested. Complete or cancel it in your device's dialog. Only the saved version is included; share it only with intended recipients.");
+      return true;
+    } catch (error) {
+      if (current()) message(error?.name === "AbortError" ? "Sharing cancelled. Your saved work and current canvas are unchanged." : error?.message || "Work sharing did not complete. Your saved work and current selection are retained.", error?.name !== "AbortError");
+      return false;
+    } finally {
+      if (owner === shareOwner) { sharingWork = false; find("share-work").disabled = false; }
+    }
+  }
+  async function showReport() {
+    if (!selected || !dialog.open || openingReport) return false;
+    const owner = ++reportOwner, session = sessionEpoch, selection = selectionEpoch, record = selected, source = assetSource;
+    const current = () => owner === reportOwner && session === sessionEpoch && selection === selectionEpoch && selected === record && source === assetSource && dialog.open;
+    const assertCurrent = () => { if (!current()) throw Error("This history view was closed or changed. Reopen the report from the intended work file."); };
+    openingReport = true; find("report").disabled = true;
+    try {
+      if (typeof window.TenetSubmissionReport !== "function") throw Error("The local report/PDF viewer is not available in this build. Your selected work is retained.");
+      let reportSource = source;
+      const localSavedPage = !standalone && savedPageId !== null;
+      if (localSavedPage) {
+        if (typeof window.TenetSubmission?.prepareSavedPage !== "function") throw Error("Saved-page report preparation is not available in this build. Update Whiteboard to include the saved page image; your selected work is retained.");
+        message("Preparing the selected whiteboard's saved page and history for a local report. Unsaved canvas edits are not included.");
+        reportSource = await window.TenetSubmission.prepareSavedPage(savedPageId);
+        assertCurrent();
+        if (!reportSource?.attempt || typeof reportSource.attempt.id !== "string" || !Array.isArray(reportSource.events) || typeof reportSource.getAsset !== "function") throw Error("The saved-page report could not be prepared. Your work and current selection are unchanged.");
+      }
+      const reportRecord = localSavedPage ? reportSource.attempt : record;
+      const reportHasHistory = localSavedPage ? reportSource.historyAvailable !== false : historyAvailable;
+      const assertReportCurrent = () => { assertCurrent(); reportSource?.assertCurrent?.(); };
+      const reportCurrent = () => { try { assertReportCurrent(); return true; } catch { return false; } };
+      assertReportCurrent();
+      const bundle = {
+        attempt:reportRecord, events:reportHasHistory ? (localSavedPage ? reportSource.events : events).slice() : [], historyAvailable:reportHasHistory,
+        finalPage:localSavedPage ? reportSource.finalPage ?? null : finalPage,
+        submission:localSavedPage ? reportSource.submission ?? null : submissionMeta,
+        finalPreview:reportSource?.finalPreview instanceof Blob ? reportSource.finalPreview : undefined,
+        title:reportSource?.title || reportRecord.title, savedAt:reportSource?.savedAt ?? null,
+        synthetic:sample, assertCurrent:assertReportCurrent,
+        getAsset:async (attemptId, hash) => {
+          assertReportCurrent();
+          if (attemptId !== reportRecord.id) throw Error("This attachment does not belong to the selected report.");
+          const blob = await reportSource.getAsset(attemptId, hash); assertReportCurrent(); return blob;
+        },
+      };
+      message("Opening a local report of the saved version, not unsaved canvas edits. Use Save PDF report there for an optional PDF; the .tenet file retains the portable work history.");
+      await window.TenetSubmissionReport(bundle, {isCurrent:reportCurrent});
+      return reportCurrent();
+    } catch (error) {
+      if (current()) message(error?.message || "The report could not be opened. Your work and selection are unchanged.", true);
+      return false;
+    } finally {
+      if (owner === reportOwner) { openingReport = false; find("report").disabled = false; }
+    }
+  }
+  async function openFile(file) {
+    if (!file) return false;
+    if (!dialog.open) dialog.showModal();
+    const token = ++selectionEpoch, session = sessionEpoch;
+    const current = () => token === selectionEpoch && session === sessionEpoch && dialog.open;
+    const portable = /\.tenet$/i.test(String(file.name || ""));
+    stopPlaying(); generation++;
+    // Do not discard the selected page, images or prepared archive before the
+    // replacement file is successfully decoded and ownership is still current.
+    message(portable ? "Opening the portable work file locally..." : "Opening the legacy history archive locally...");
+    try {
+      let bundle;
+      if (portable) {
+        if (typeof window.TenetSubmission?.openFile !== "function") throw Error("Portable .tenet files are not supported in this build. Update the viewer; your current selection is retained.");
+        bundle = await window.TenetSubmission.openFile(file);
+      } else {
+        const archive = window.TenetProcessJournal;
+        if (typeof archive?.readArchive !== "function") throw Error("The read-only archive reader is unavailable in this build. Your current selection is retained and recording has not been enabled.");
+        bundle = await archive.readArchive(file);
+      }
+      if (!current()) return false;
+      if (!bundle?.attempt || !Array.isArray(bundle.events) || typeof bundle.getAsset !== "function") throw Error("This file did not contain readable work history. Your current selection is retained.");
+      clearImage(); clearPrepared();
+      selected = bundle.attempt; events = bundle.events; imported = true; sample = false; savedPageId = null;
+      portableFile = portable; historyAvailable = portable ? bundle.historyAvailable === true : true;
+      finalPage = bundle.finalPage || null; submissionMeta = bundle.submission || null;
+      if (!historyAvailable) events = [];
+      showingFinalPage = Boolean(finalPage && !events.length);
+      assetSource = bundle;
+      await paintRecord();
+      if (!current()) return false;
+      message(portable ? "Portable work opened locally. Nothing was uploaded or loaded onto your canvas. Saved images and recorded history are observations, not verified student identity or authorship." : "Legacy archive opened read-only. Internal consistency checked; identity and independent authorship are not verified.");
+      return true;
+    } catch (error) {
+      if (current()) message(error?.message || "This file could not be opened. Your selected history and current canvas are retained.", true);
+      return false;
+    }
   }
   function isCheckpointImage(asset, event) {
     return !String(event?.type || "").startsWith("ai.") && !/^ai-input[.\/-]/i.test(String(asset?.name || "")) &&
@@ -802,6 +1723,7 @@ window.PENECHO_CONFIG = {tenetMode:true,tenetAssignmentPreview:true,tenetHistory
     value("selected-time").textContent = events[index] ? `Work moment ${momentAtEvent[index] + 1}: ${momentTitle(moment)}. Selected observation time: ${recordedEventTime(events[index])}.` : "No selected work moment.";
   }
   function seekEvent(index) {
+    if (events.length) showingFinalPage = false;
     stopPlaying(); clearInput();
     const session = sessionEpoch, selection = selectionEpoch;
     void renderEvent(index).catch(error => { if (session === sessionEpoch && selection === selectionEpoch && dialog.open) message(error?.message || "The selected event could not be displayed.", true); });
@@ -998,6 +1920,11 @@ window.PENECHO_CONFIG = {tenetMode:true,tenetAssignmentPreview:true,tenetHistory
   }
   function paintActions() {
     dialog.querySelector(".tenet-process-actions").hidden = viewerOnly;
+    find("share-work").hidden = standalone || savedPageId === null || !selected;
+    find("report").hidden = !selected;
+    find("final-page").hidden = !finalPage;
+    find("final-page").textContent = showingFinalPage ? events.length ? "Return to work history" : "Saved final page" : "Show saved final page";
+    find("final-page").disabled = Boolean(showingFinalPage && !events.length);
     const ownsActive = selected && capture()?.activeId() === selected.id;
     const recording = selected?.status === "recording";
     find("checkpoint").hidden = imported || !ownsActive || !recording;
@@ -1051,14 +1978,17 @@ window.PENECHO_CONFIG = {tenetMode:true,tenetAssignmentPreview:true,tenetHistory
     paintObservation(event, index);
     updateActivityPosition(index);
     dialog.querySelectorAll(".tenet-process-events button").forEach(button => button.setAttribute("aria-current", String(Number(button.dataset.moment) === momentNumber)));
-    const frameIndex = frameAtEvent[index], frame = frames[frameIndex];
+    const frameIndex = frameAtEvent[index];
+    const finalImage = finalPage && isCheckpointImage(finalPage.asset, {type:"submission.final-page"}) ? finalPage.asset : null;
+    const finalView = Boolean(finalImage && (showingFinalPage || !events.length));
+    const frame = finalView ? {eventIndex:-1, asset:finalImage, key:finalImage.mime + ":" + finalImage.hash} : frames[frameIndex];
     requestedFrameKey = frame?.key || null;
-    desiredFrameKeys = new Set([frame?.key, frames[nextFrameAt[frameIndex]]?.key, frames[previousFrameAt[frameIndex]]?.key].filter(Boolean));
+    desiredFrameKeys = new Set((finalView ? [frame.key] : [frame?.key, frames[nextFrameAt[frameIndex]]?.key, frames[previousFrameAt[frameIndex]]?.key]).filter(Boolean));
     for (const [key, entry] of frameCache) if (entry.state === "loading" && !desiredFrameKeys.has(key)) dropFrame(key);
     value("preview").hidden = false;
     value("preview").textContent = frame ? "Preparing the next checkpoint. Any visible image retains its own timestamp below." : "No rendered checkpoint at or before this event.";
     dialog.querySelector(".tenet-process-preview").dataset.retained = String(Boolean(imageUrl));
-    if (savedPageId !== null && !historyAvailable) {
+    if ((savedPageId !== null || portableFile) && !historyAvailable) {
       value("preview").textContent = "History unavailable for this saved whiteboard. No past steps or AI interactions can be reconstructed.";
       value("event-title").textContent = "No recorded history";
       value("event-description").textContent = "This page predates saved work-history capture or contains no saved history. It is not evidence that no AI was used.";
@@ -1076,10 +2006,16 @@ window.PENECHO_CONFIG = {tenetMode:true,tenetAssignmentPreview:true,tenetHistory
     if (picture.getAttribute("src") !== imageUrl) picture.src = imageUrl;
     picture.hidden = false; value("preview").hidden = true;
     dialog.querySelector(".tenet-process-preview").dataset.retained = "false";
+    if (finalView) {
+      value("frame-time").textContent = `Displayed saved final page / ${String(finalPage.representation || "preview provenance unavailable").replaceAll("-", " ")}. This is separate from timed replay observations.`;
+      value("checkpoint-caption").textContent = `${finalPage.caption || "A saved final-page image supplied with this work file."} No history events are added or inferred from this image.`;
+      paintActions(); return;
+    }
     const imageEvent = events[frame.eventIndex];
     value("frame-time").textContent = `Displayed ${imageEvent.details?.representation === "saved-page-thumbnail" ? "saved-page thumbnail" : "checkpoint"}: event ${frame.eventIndex + 1}, ${recordedEventTime(imageEvent)}. Selected event: ${index + 1}, ${recordedEventTime(event)}.`;
     value("checkpoint-caption").textContent = imageEvent.details?.representation === "saved-page-thumbnail" ? "This displayed frame is a saved-page thumbnail, not a full-resolution checkpoint or a recording of every stroke." : "Recorded checkpoints and native revision observations, not a video of individual pen strokes. A checkpoint may combine several edits.";
     const next = frames[nextFrameAt[frameIndex]];
+    paintActions();
     if (next && current()) void loadFrame(next);
   }
   async function paintRecord() {
@@ -1089,8 +2025,9 @@ window.PENECHO_CONFIG = {tenetMode:true,tenetAssignmentPreview:true,tenetHistory
     indexHistory();
     value("title").textContent = selected.title;
     value("meta").textContent = `${selected.subject || "Assignment"} / ${moments.length} work moments / ${requestGroups.length} AI interactions. ${events.length} raw observations retained.`;
-    value("badge").textContent = savedPageId !== null ? "SAVED WHITEBOARD / ON DEVICE" : sample ? "SYNTHETIC EXAMPLE" : imported ? "IMPORTED / UNVERIFIED" : String(selected.status).toUpperCase();
-    value("coverage").textContent = savedPageId !== null && !historyAvailable ? "No process history is available for this saved whiteboard. We cannot reconstruct earlier edits, time spent or AI help, and do not substitute a sample." : `${savedPageId !== null ? "Actual process history stored with this whiteboard. " : sample ? "Fictional work and scripted AI replies. " : "Local observations, not server-attested evidence. "}Coalesced checkpoints, not full stroke playback. No verified student identity, assignment-rule enforcement or Schoology receipt.${selected.incomplete ? " Known gaps: " + (selected.coverageNotes || selected.incompleteReasons || []).join(" ") : " Not proof of independent work."}${selected.droppedEvents > 0 ? " Events omitted by retention limits: " + selected.droppedEvents + "." : ""}`;
+    value("badge").textContent = savedPageId !== null ? "SAVED WHITEBOARD / ON DEVICE" : sample ? "SYNTHETIC EXAMPLE" : portableFile ? "PORTABLE WORK / LOCAL FILE" : imported ? "IMPORTED / UNVERIFIED" : String(selected.status).toUpperCase();
+    value("coverage").textContent = (savedPageId !== null || portableFile) && !historyAvailable ? "No process history is available for this saved whiteboard. We cannot reconstruct earlier edits, time spent or AI help, and do not substitute a sample. A saved final-page preview, when supplied, is shown separately without inventing events." : `${savedPageId !== null ? "Actual process history stored with this whiteboard. " : sample ? "Fictional work and scripted AI replies. " : "Local observations, not server-attested evidence. "}Coalesced checkpoints, not full stroke playback. No verified student identity, assignment-rule enforcement or Schoology receipt.${selected.incomplete ? " Known gaps: " + (selected.coverageNotes || selected.incompleteReasons || []).join(" ") : " Not proof of independent work."}${selected.droppedEvents > 0 ? " Events omitted by retention limits: " + selected.droppedEvents + "." : ""}`;
+    value("sharing-note").textContent = savedPageId !== null ? "Share one compact .tenet work file, not a GIF or video. It contains the saved student work and recorded questions, replies and images. Only the saved version is exported: save canvas changes first if you want them included. File size depends on the recorded contents. Share only with intended recipients; anyone with the file may read it. Nothing is uploaded automatically. Open report / PDF offers a separate optional report." : sample ? "This is a fictional example, not student work. A local report can demonstrate the format; it is not a classroom submission." : "This local file may contain private student work, questions, replies and images. Share only with intended recipients. Opening it does not upload data, restore the canvas or grant teacher privileges. Open report / PDF offers an optional local report; a report does not replace the portable history file.";
     value("checkpoints").textContent = String(frames.length);
     value("requests").textContent = String(requestGroups.length);
     value("gaps").textContent = String(events.filter(event => event.type === "coverage.gap").length || (selected.incomplete ? "Recorded" : 0));
@@ -1118,6 +2055,7 @@ window.PENECHO_CONFIG = {tenetMode:true,tenetAssignmentPreview:true,tenetHistory
   async function tick(position, token) {
     if (!playing || !dialog.open || token !== playbackEpoch) return;
     const moment = moments[position]; if (!moment) { stopPlaying(); return; }
+    showingFinalPage = false;
     try { await renderEvent(moment.index); }
     catch (error) { if (token === playbackEpoch) { stopPlaying(); message(error.message, true); } return; }
     if (!playing || !dialog.open || token !== playbackEpoch) return;
@@ -1236,20 +2174,17 @@ window.PENECHO_CONFIG = {tenetMode:true,tenetAssignmentPreview:true,tenetHistory
   find("hide-ai-summary").addEventListener("click", () => { clearInput(); dialog.querySelector(".tenet-process-ai-summary").hidden = true; find("ai-summary").setAttribute("aria-expanded", "false"); find("ai-summary").focus(); });
   find("ai-previous").addEventListener("click", () => { aiListPage--; paintAIList(); });
   find("ai-next").addEventListener("click", () => { aiListPage++; paintAIList(); });
+  find("share-work").addEventListener("click", () => { if (savedPageId !== null) void shareSavedPage(savedPageId); });
+  find("report").addEventListener("click", () => void showReport());
+  find("final-page").addEventListener("click", () => {
+    if (!finalPage) return;
+    stopPlaying(); clearInput(); showingFinalPage = !showingFinalPage;
+    const session = sessionEpoch, selection = selectionEpoch;
+    void renderEvent(currentIndex).catch(error => { if (session === sessionEpoch && selection === selectionEpoch && dialog.open) message(error?.message || "The saved final page could not be displayed.", true); });
+  });
   const picker = dialog.querySelector('[data-file="archive"]');
   find("open").addEventListener("click", () => picker.click());
-  picker.addEventListener("change", () => void perform(async () => {
-    const file = picker.files?.[0]; picker.value = ""; if (!file) return;
-    const token = ++selectionEpoch, session = sessionEpoch;
-    stopPlaying(); generation++; clearImage(); clearPrepared();
-    message("Opening and checking archive consistency...");
-    const archive = window.TenetProcessJournal;
-    if (typeof archive?.readArchive !== "function") throw Error("The read-only archive reader is unavailable in this build. The synthetic sample still works; recording has not been enabled.");
-    const bundle = await archive.readArchive(file);
-    if (token !== selectionEpoch || session !== sessionEpoch || !dialog.open) return;
-    selected = bundle.attempt; events = bundle.events; imported = true; sample = false; savedPageId = null; historyAvailable = true; assetSource = bundle;
-    await paintRecord(); if (session === sessionEpoch && dialog.open) message("Archive opened read-only. Internal consistency checked; identity and independent authorship are not verified.");
-  }));
+  picker.addEventListener("change", () => { const file = picker.files?.[0]; picker.value = ""; if (file) void openFile(file); });
   find("sample").addEventListener("click", () => void perform(async () => {
     const token = ++selectionEpoch, session = sessionEpoch;
     stopPlaying(); generation++; clearImage(); clearPrepared();
@@ -1270,6 +2205,6 @@ window.PENECHO_CONFIG = {tenetMode:true,tenetAssignmentPreview:true,tenetHistory
   window.addEventListener("tenet:sign-out", () => { dialog.close(); retireView(); selected = null; events = []; assetSource = journal; imported = false; sample = false; clearPrepared(); value("detail").textContent = ""; value("question").textContent = ""; value("response").textContent = ""; dialog.querySelector(".tenet-process-list").replaceChildren(); dialog.querySelector(".tenet-process-events").replaceChildren(); void paintRecord(); });
   document.addEventListener("visibilitychange", () => { if (document.hidden) stopPlaying(); });
   window.addEventListener("pagehide", () => { retireView(); clearPrepared(); });
-  window.TenetProcessUI = Object.freeze({openSavedPage});
+  window.TenetProcessUI = Object.freeze({openSavedPage, shareSavedPage, openFile});
   if (standalone) control.click();
 })();

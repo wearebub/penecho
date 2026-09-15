@@ -519,7 +519,31 @@
       }
     });
 
-    card.append(openButton, move, historyButton);
+    const shareButton = document.createElement("button");
+    shareButton.type = "button";
+    shareButton.className = "tenet-notebook-page-history";
+    shareButton.textContent = "Share work";
+    shareButton.setAttribute("aria-label", `Share saved work and AI history for ${snapshotName(page)}`);
+    shareButton.addEventListener("click", async () => {
+      if (typeof window.TenetProcessUI?.shareSavedPage !== "function") {
+        setNotebookStatus("Sharing is unavailable. Reopen Tenet and try again.", "error");
+        return;
+      }
+      shareButton.disabled = true;
+      closeNotebook();
+      try {
+        await window.TenetProcessUI.shareSavedPage(page.id);
+      } catch (_error) {
+        if (runtimeActive) {
+          openNotebook();
+          setNotebookStatus("Work could not be shared. Your saved page is unchanged.", "error");
+        }
+      } finally {
+        shareButton.disabled = false;
+      }
+    });
+
+    card.append(openButton, move, historyButton, shareButton);
     return card;
   }
 

@@ -27,6 +27,8 @@ const SOURCES = [
   "src/client/app/tenet-object-resize.js",
   "src/client/app/tenet-process-capture.js",
   "src/client/app/tenet-document-history.js",
+  "src/client/app/tenet-submission.js",
+  "src/client/app/tenet-submission-share.js",
   "src/client/app/tenet-process-ui.js",
   "src/client/app/ui-bootstrap.js",
   "src/client/app/tenet-branding.js",
@@ -41,7 +43,7 @@ function compiledSource() {
 
 function main(argv = process.argv.slice(2)) {
   const source = compiledSource();
-  const viewer = `${BANNER}\nwindow.PENECHO_CONFIG = {tenetMode:true,tenetAssignmentPreview:true,tenetHistoryViewerOnly:true};\n${["tenet-process-journal.js", "tenet-process-ui.js"].map(file => fs.readFileSync(path.join(ROOT, "src/client/app", file), "utf8").trimEnd()).join("\n")}\n`;
+  const viewer = `${BANNER}\nwindow.PENECHO_CONFIG = {tenetMode:true,tenetAssignmentPreview:true,tenetHistoryViewerOnly:true};\n${["tenet-process-journal.js", "tenet-submission.js", "tenet-submission-share.js", "tenet-process-ui.js"].map(file => fs.readFileSync(path.join(ROOT, "src/client/app", file), "utf8").trimEnd()).join("\n")}\n`;
   if (argv.includes("--check")) {
     const current = fs.existsSync(TARGET) ? fs.readFileSync(TARGET, "utf8") : "";
     if (current !== source) {

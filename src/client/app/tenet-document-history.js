@@ -586,13 +586,34 @@
           return asset.blob;
         } };
     }
+    async function readSubmissionSource(id) {
+      const epoch = accountEpoch;
+      assertReader(epoch);
+      // Export exactly one already-saved local transaction. Do not finalize,
+      // save, navigate, inspect another journal, or sample the live canvas.
+      const stored = await readDeviceSnapshot(id);
+      assertReader(epoch);
+      if (!stored?.item || stored.item.id !== id) throw Error("Saved notebook page was not found.");
+      const item = {};
+      const fields = ["version", "id", "createdAt", "updatedAt", "name", "theme", "view", "tileCount",
+        "animationCount", "animations", "widgetCount", "widgets", "textBoxCount", "textBoxes",
+        "imageCount", "images", "preview", "preservedAssets", "workHistory"];
+      for (const field of fields) if (stored.item[field] !== undefined) item[field] = stored.item[field];
+      if (stored.item.manifestExtensions?.tenetNativeInk !== undefined)
+        item.manifestExtensions = { tenetNativeInk:stored.item.manifestExtensions.tenetNativeInk };
+      // projectId, bundleExtensions/community lineage, session/auth data and
+      // undocumented root extensions are intentionally not portable drawing.
+      const tileEntries = (stored.tileEntries || []).map(({ k, blob }) => ({ k, blob }));
+      assertReader(epoch);
+      return { item, tileEntries, assertCurrent:() => assertReader(epoch) };
+    }
     function protect(callback) {
       return (...args) => {
         try { return callback(...args); }
         catch { if (current) mark(current, "history-observer-failed"); return null; }
       };
     }
-    window.TenetDocumentHistory = Object.freeze({ listSavedPages, readSavedPage,
+    window.TenetDocumentHistory = Object.freeze({ listSavedPages, readSavedPage, readSubmissionSource,
       currentSavedPageId:() => !signedOut && state.currentSnapshotLocation === "device" ? state.currentSnapshotId ?? null : null,
       isDirty:() => Boolean(live()?.hasWork && current.version > current.savedVersion),
       hasWork:() => Boolean(live()?.hasWork), flush,

@@ -803,3 +803,329 @@ test("rendered graph and inspector retain strict CSP and same-document modal con
   assert.equal(ui.calls.list,0); assert.equal(ui.calls.begin,0); assert.match(ui.dialog.querySelector(".tenet-process-source").textContent,/AGPL-3.0/);
   assert.doesNotMatch(source,/\.style\.(?:cssText|setProperty|removeProperty|[A-Za-z_$][\w$]*\s*=)/);
 });
+
+function portableBundle(title = "Portable homework", historyAvailable = true) {
+  const original = bundle(title, historyAvailable ? 3 : 0), finalPreview = rasterBlob("saved final page", "image/png", 1200, 800);
+  return {
+    ...original, historyAvailable, title, savedAt:"2026-09-15T18:00:00.000Z", finalPreview,
+    finalPage:{asset:{name:"saved-preview.png",hash:"final-page",mime:"image/png",size:finalPreview.size},representation:"saved-preview-thumbnail",caption:"Saved snapshot preview; not a full-resolution rendered checkpoint."},
+    submission:{version:1,exportedAt:"2026-09-15T18:30:00.000Z",assetCount:4,compressedBytes:4096,expandedBytes:8192,integrity:"sha256-not-authorship",localOnly:true},
+    getAsset:async (id,hash)=>hash==="final-page"?finalPreview:original.getAsset(id,hash),
+  };
+}
+function installSubmission(ui, options = {}) {
+  const calls={opens:[],exports:[],prepares:[],shares:[],reports:[]};
+  ui.win.TenetSubmission={
+    openFile:async file=>{calls.opens.push(file);return options.openFile?options.openFile(file):portableBundle();},
+    exportSavedPage:async id=>{calls.exports.push(id);return options.exportSavedPage?options.exportSavedPage(id):{blob:new Blob(["portable saved bytes"],{type:"application/vnd.tenet.whiteboard"}),filename:"homework.tenet"};},
+    prepareSavedPage:async id=>{calls.prepares.push(id);return options.prepareSavedPage?options.prepareSavedPage(id):portableBundle();},
+  };
+  ui.win.TenetSubmissionShare=async (blob,filename)=>{calls.shares.push({blob,filename});return options.share?options.share(blob,filename):undefined;};
+  ui.win.TenetSubmissionReport=async (record,settings)=>{calls.reports.push({bundle:record,settings});return options.report?options.report(record,settings):undefined;};
+  return calls;
+}
+
+test("portable picker routes .tenet to the bounded codec and keeps legacy archives on the legacy reader", async () => {
+  const ui=boot(), calls=installSubmission(ui);
+  const picker=ui.dialog.querySelector('[data-file="archive"]');
+  assert.match(picker.getAttribute("accept"),/\.tenet,/); assert.match(picker.getAttribute("accept"),/\.json/);
+  await ui.import({name:"work.TENET",type:"application/octet-stream"});
+  assert.equal(calls.opens.length,1); assert.equal(ui.calls.archive,0); assert.equal(ui.value("badge").textContent,"PORTABLE WORK / LOCAL FILE");
+  await ui.import({name:"old.tenet-work.json",type:"application/json"});
+  assert.equal(calls.opens.length,1); assert.equal(ui.calls.archive,1); assert.equal(ui.value("badge").textContent,"IMPORTED / UNVERIFIED");
+  assert.equal(ui.calls.list,0); assert.equal(ui.calls.begin,0); assert.equal(calls.shares.length,0);
+});
+
+test("public openFile opens the same document dialog without navigating or replacing scratch work", async () => {
+  const history=savedProvider([savedBundle("local","Local saved work")]);
+  const ui=savedBoot(history.provider), calls=installSubmission(ui);
+  const scratch={ink:["unsaved stroke"]};ui.win.scratch=scratch;ui.win.location=Object.freeze({href:"https://district.example/whiteboard"});
+  ui.win.open=()=>assert.fail("Portable history must stay in-app");
+  assert.equal(ui.dialog.open,false);
+  assert.equal(await ui.win.TenetProcessUI.openFile({name:"homework.tenet"}),true);await settle();
+  assert.equal(ui.dialog.open,true);assert.strictEqual(ui.win.scratch,scratch);assert.deepEqual(scratch.ink,["unsaved stroke"]);
+  assert.equal(ui.win.location.href,"https://district.example/whiteboard");assert.equal(ui.dialog.querySelector("iframe"),null);
+  assert.equal(calls.opens.length,1);assert.deepEqual(history.calls.reads,[]);
+  assert.equal(typeof ui.win.TenetProcessUI.openSavedPage,"function");assert.equal(typeof ui.win.TenetProcessUI.shareSavedPage,"function");
+});
+
+test("corrupt portable and legacy imports retain the previous selected history and displayed frame", async () => {
+  for(const portable of [true,false]) {
+    const ui=boot({readArchive:file=>file.name==="bad.json"?Promise.reject(Error("Legacy integrity failure")):bundle("Keep this work")});
+    installSubmission(ui,{openFile:()=>Promise.reject(Error("Portable integrity failure"))});await ui.import();
+    const frame=ui.dialog.querySelector(".tenet-process-preview img").src,title=ui.value("title").textContent;
+    assert.equal(await ui.win.TenetProcessUI.openFile({name:portable?"bad.tenet":"bad.json"}),false);await settle();
+    assert.equal(ui.value("title").textContent,title);assert.equal(ui.dialog.querySelector(".tenet-process-preview img").src,frame);
+    assert.ok(ui.urls.has(frame));assert.equal(ui.dialog.querySelector(".tenet-process-record").hidden,false);
+    assert.match(ui.dialog.querySelector(".tenet-process-status").textContent,/integrity failure/);
+  }
+});
+
+test("portable codec failure never falls through to a different archive parser", async () => {
+  const ui=boot(), calls=installSubmission(ui,{openFile:()=>Promise.reject(Error("Bad TENETWB magic"))});
+  assert.equal(await ui.win.TenetProcessUI.openFile({name:"renamed-json.tenet",type:"application/json"}),false);
+  assert.equal(calls.opens.length,1);assert.equal(ui.calls.archive,0);assert.equal(ui.calls.begin,0);
+  assert.match(ui.dialog.querySelector(".tenet-process-status").textContent,/Bad TENETWB magic/);
+});
+
+test("cancelled file selection and missing portable module preserve existing work", async () => {
+  const ui=boot();await ui.import();const title=ui.value("title").textContent,frame=ui.dialog.querySelector(".tenet-process-preview img").src;
+  const picker=ui.dialog.querySelector('[data-file="archive"]');picker.files=[];picker.fire("change");await settle();
+  assert.equal(ui.value("title").textContent,title);assert.equal(await ui.win.TenetProcessUI.openFile(null),false);
+  assert.equal(await ui.win.TenetProcessUI.openFile({name:"new.tenet"}),false);
+  assert.match(ui.dialog.querySelector(".tenet-process-status").textContent,/not supported in this build/);
+  assert.equal(ui.dialog.querySelector(".tenet-process-preview img").src,frame);
+});
+
+test("latest portable selection wins over a delayed file without reviving old URLs", async () => {
+  const pending=deferred(), ui=boot();installSubmission(ui,{openFile:file=>file.name==="old.tenet"?pending.promise:portableBundle("Latest file")});
+  const old=ui.win.TenetProcessUI.openFile({name:"old.tenet"});await settle();
+  assert.equal(await ui.win.TenetProcessUI.openFile({name:"new.tenet"}),true);const frame=ui.dialog.querySelector(".tenet-process-preview img").src;
+  pending.resolve(portableBundle("Old file"));assert.equal(await old,false);await settle();
+  assert.equal(ui.value("title").textContent,"Latest file");assert.equal(ui.dialog.querySelector(".tenet-process-preview img").src,frame);
+});
+
+test("portable imports and final-page reads cannot cross close, pagehide or sign-out boundaries", async () => {
+  for(const action of ["close","pagehide","tenet:sign-out"]) {
+    const pending=deferred(), ui=boot();installSubmission(ui,{openFile:()=>pending.promise});
+    const opening=ui.win.TenetProcessUI.openFile({name:"private.tenet"});await settle();
+    if(action==="close")ui.dialog.close();else ui.win.fire(action);
+    pending.resolve(portableBundle("Retired private file",false));assert.equal(await opening,false);await settle();
+    assert.equal(ui.value("title").textContent,"");assert.equal(ui.urls.size,0);assert.equal(ui.value("sharing-note").textContent,"");
+  }
+  const pending=deferred(), record=portableBundle("Private final page",false);record.getAsset=()=>pending.promise;
+  const ui=boot();installSubmission(ui,{openFile:()=>record});const opening=ui.win.TenetProcessUI.openFile({name:"private.tenet"});await settle();
+  ui.win.fire("tenet:sign-out");pending.resolve(record.finalPreview);assert.equal(await opening,false);await settle();assert.equal(ui.urls.size,0);
+});
+
+test("portable no-history files display only the actual final preview without invented events", async () => {
+  const record=portableBundle("Legacy worksheet",false), ui=boot();installSubmission(ui,{openFile:()=>record});
+  assert.equal(await ui.win.TenetProcessUI.openFile({name:"legacy.tenet"}),true);await settle();
+  assert.equal(displayedLabel(ui),"saved final page");assert.equal(ui.value("position").textContent,"0 / 0 moments");
+  assert.equal(ui.value("checkpoints").textContent,"0");assert.equal(ui.value("requests").textContent,"0");
+  assert.equal(ui.dialog.querySelectorAll(".tenet-process-events button").length,0);assert.equal(ui.action("play").disabled,true);
+  assert.match(ui.value("coverage").textContent,/No process history/);assert.match(ui.value("checkpoint-caption").textContent,/Saved snapshot preview.*No history events are added/);
+  assert.match(ui.value("frame-time").textContent,/separate from timed replay/);assert.equal(ui.calls.canvases,0);assert.equal(ui.calls.begin,0);
+});
+
+test("saved final preview is an independent view and playback returns to historical checkpoints", async () => {
+  const ui=boot();installSubmission(ui);await ui.win.TenetProcessUI.openFile({name:"work.tenet"});await settle();
+  assert.equal(displayedLabel(ui),"frame2");assert.equal(ui.value("checkpoints").textContent,"3");
+  await ui.click("final-page");assert.equal(displayedLabel(ui),"saved final page");assert.match(ui.action("final-page").textContent,/Return to work history/);
+  assert.equal(ui.value("checkpoints").textContent,"3");assert.equal(ui.value("position").textContent,"3 / 3 moments");
+  await ui.click("play");assert.equal(displayedLabel(ui),"frame0");assert.match(ui.value("frame-time").textContent,/checkpoint: event 1/);
+});
+
+test("portable files retain full grouped AI interactions and lazy original client inputs", async () => {
+  const input=rawInputFixture(), record={...portableBundle(),...input.fixture,historyAvailable:true}, ui=boot();
+  installSubmission(ui,{openFile:()=>record});await ui.win.TenetProcessUI.openFile({name:"ai-work.tenet"});await settle();
+  assert.equal(ui.value("position").textContent,"1 / 1 moments");assert.equal(ui.value("checkpoints").textContent,"0");
+  await ui.click("ai-summary");assert.match(ui.value("ai-lifecycle").textContent,/completed/);assert.match(ui.value("ai-replies").textContent,/undo \+6/);
+  await inspectInput(ui,"Inspect recorded request JSON");assert.equal(await ui.urls.get(ui.value("input-download").href).text(),JSON.stringify(input.body));
+  assert.equal(ui.value("checkpoints").textContent,"0");assert.equal(ui.calls.archive,0);
+});
+
+test("Share work exports only the selected saved version and never touches unsaved scratch work", async () => {
+  const saved=savedBundle("saved-id","Saved assignment"), history=savedProvider([saved],"saved-id"), ui=savedBoot(history.provider);
+  const bytes=new Blob(["only saved version"],{type:"application/vnd.tenet.whiteboard"}), calls=installSubmission(ui,{exportSavedPage:id=>({blob:bytes,filename:"assignment.tenet",bytes:bytes.size})});
+  const scratch={name:"Unsaved rename",strokes:["new unsaved ink"]};ui.win.scratch=scratch;
+  await ui.win.TenetProcessUI.openSavedPage("saved-id");await settle();assert.equal(calls.exports.length,0);assert.equal(calls.shares.length,0);
+  assert.equal(ui.action("share-work").hidden,false);assert.match(ui.value("sharing-note").textContent,/Only the saved version is exported/);
+  assert.match(ui.value("sharing-note").textContent,/questions, replies and images/);assert.match(ui.value("sharing-note").textContent,/Nothing is uploaded automatically/);
+  await ui.click("share-work");assert.deepEqual(calls.exports,["saved-id"]);assert.equal(calls.shares.length,1);
+  assert.strictEqual(calls.shares[0].blob,bytes);assert.equal(calls.shares[0].filename,"assignment.tenet");
+  assert.strictEqual(ui.win.scratch,scratch);assert.deepEqual(scratch.strokes,["new unsaved ink"]);assert.equal(ui.value("title").textContent,"Saved assignment");
+  assert.match(ui.dialog.querySelector(".tenet-process-status").textContent,/sharing\/download was requested/);
+});
+
+test("Share work remains unavailable for imported and standalone files and cannot enumerate local saves", async () => {
+  const ui=boot(), calls=installSubmission(ui);await ui.win.TenetProcessUI.openFile({name:"shared.tenet"});await settle();
+  assert.equal(ui.action("share-work").hidden,true);assert.equal(await ui.win.TenetProcessUI.shareSavedPage("private-id"),false);
+  assert.deepEqual(calls.exports,[]);assert.equal(ui.calls.list,0);
+  const ordinary=savedBoot(savedProvider([]).provider);installSubmission(ordinary);await ordinary.win.TenetProcessUI.openFile({name:"shared.tenet"});
+  assert.equal(ordinary.action("share-work").hidden,true);
+});
+
+test("share cancellation, export failure and old-native update errors retain selection and restore controls", async () => {
+  for(const kind of ["cancel","export","old-native","invalid-result"]) {
+    const ui=savedBoot(savedProvider([savedBundle("a","Keep saved work")]).provider);
+    const cancel=Error("User cancelled");cancel.name="AbortError";
+    const calls=installSubmission(ui,{
+      exportSavedPage:()=>kind==="export"?Promise.reject(Error("Storage export failed")):kind==="invalid-result"?{blob:new Blob([]),filename:"invalid.tenet"}:{blob:new Blob(["saved"]),filename:"saved.tenet"},
+      share:()=>kind==="cancel"?Promise.reject(cancel):kind==="old-native"?Promise.reject(Error("Update the iPad application to share work files.")):undefined,
+    });
+    await ui.win.TenetProcessUI.openSavedPage("a");const frame=ui.dialog.querySelector(".tenet-process-preview img").src;
+    assert.equal(await ui.win.TenetProcessUI.shareSavedPage("a"),false);await settle();
+    assert.equal(ui.value("title").textContent,"Keep saved work");assert.equal(ui.dialog.querySelector(".tenet-process-preview img").src,frame);
+    assert.equal(ui.action("share-work").disabled,false);
+    const status=ui.dialog.querySelector(".tenet-process-status");
+    assert.match(status.textContent,kind==="cancel"?/Sharing cancelled/:kind==="export"?/Storage export failed/:kind==="old-native"?/Update the iPad/:/valid work file/);
+    assert.equal(status.dataset.error,kind==="cancel"?"false":"true");if(kind==="export"||kind==="invalid-result")assert.equal(calls.shares.length,0);
+  }
+});
+
+test("sharing rejects stale export completions after page switches or sign-out", async () => {
+  for(const action of ["page","signout"]) {
+    const pending=deferred(), history=savedProvider([savedBundle("a","First"),savedBundle("b","Second")]), ui=savedBoot(history.provider);
+    const calls=installSubmission(ui,{exportSavedPage:()=>pending.promise});await ui.win.TenetProcessUI.openSavedPage("a");
+    const sharing=ui.win.TenetProcessUI.shareSavedPage("a");await settle();assert.equal(ui.action("share-work").disabled,true);
+    if(action==="page")await ui.win.TenetProcessUI.openSavedPage("b");else ui.win.fire("tenet:sign-out");
+    pending.resolve({blob:new Blob(["retired saved work"]),filename:"old.tenet"});assert.equal(await sharing,false);await settle();
+    assert.equal(calls.shares.length,0);assert.equal(ui.action("share-work").disabled,false);assert.equal(ui.value("title").textContent,action==="page"?"Second":"");
+  }
+});
+
+test("duplicate Share work clicks do not dispatch multiple exports or native share sheets", async () => {
+  const pending=deferred(), ui=savedBoot(savedProvider([savedBundle("a","Saved work")]).provider), calls=installSubmission(ui,{share:()=>pending.promise});
+  await ui.win.TenetProcessUI.openSavedPage("a");const first=ui.win.TenetProcessUI.shareSavedPage("a");await settle();
+  assert.equal(await ui.win.TenetProcessUI.shareSavedPage("a"),false);assert.equal(calls.exports.length,1);assert.equal(calls.shares.length,1);
+  pending.resolve();assert.equal(await first,true);assert.equal(ui.action("share-work").disabled,false);
+});
+
+test("report receives raw lifecycle fields, final-page metadata and guarded asset access", async () => {
+  const input=rawInputFixture(), record=portableBundle("Reportable work"), assets=new Map(input.assets);
+  record.events=input.fixture.events;record.getAsset=async(_id,hash)=>hash==="final-page"?record.finalPreview:assets.get(hash);
+  const ui=boot(), calls=installSubmission(ui,{openFile:()=>record});await ui.win.TenetProcessUI.openFile({name:"report.tenet"});await ui.click("report");
+  assert.equal(calls.reports.length,1);const report=calls.reports[0];assert.equal(report.settings.isCurrent(),true);
+  assert.equal(report.bundle.title,"Reportable work");assert.equal(report.bundle.savedAt,record.savedAt);assert.strictEqual(report.bundle.finalPreview,record.finalPreview);
+  assert.deepEqual(report.bundle.finalPage,record.finalPage);assert.deepEqual(report.bundle.submission,record.submission);
+  assert.equal(report.bundle.events[1].details.text,"Which operation would undo +6?");assert.equal(report.bundle.events[2].details.outcome,"completed");
+  assert.equal(report.bundle.events[3].type,"ai.input");assert.strictEqual(await report.bundle.getAsset(record.attempt.id,"body"),input.json);
+  await assert.rejects(report.bundle.getAsset("wrong-attempt","body"),/does not belong/);
+  assert.equal(calls.shares.length,0,"Opening a report must not itself share a file");
+});
+
+test("report current guard survives its same-document modal and rejects closed or changed ownership", async () => {
+  const ui=boot(), calls=installSubmission(ui,{report:()=>{const modal=ui.doc.createElement("dialog");modal.className="tenet-submission-report";ui.doc.body.append(modal);modal.showModal();}});
+  await ui.win.TenetProcessUI.openFile({name:"work.tenet"});await ui.click("report");const {bundle:report,settings}=calls.reports[0];
+  assert.equal(ui.dialog.open,true);assert.equal(ui.doc.querySelector(".tenet-submission-report").open,true);assert.equal(settings.isCurrent(),true);
+  ui.dialog.close();await settle();assert.equal(settings.isCurrent(),false);assert.throws(report.assertCurrent,/closed or changed/);
+  await assert.rejects(report.getAsset(report.attempt.id,"final-page"),/closed or changed/);assert.equal(ui.urls.size,0);
+});
+
+test("report asset results and late report errors cannot cross page or account boundaries", async () => {
+  for(const action of ["page","signout"]) {
+    const asset=deferred(), parent=deferred(), record=portableBundle("Private report"), original=record.getAsset;
+    record.getAsset=(id,hash)=>hash==="body"?asset.promise:original(id,hash);
+    const ui=boot(), calls=installSubmission(ui,{openFile:file=>file.name==="next.tenet"?portableBundle("New selection",false):record,report:()=>parent.promise});
+    await ui.win.TenetProcessUI.openFile({name:"first.tenet"});await ui.click("report");
+    const {bundle:report,settings}=calls.reports[0];const reading=report.getAsset(report.attempt.id,"body");
+    if(action==="page")await ui.win.TenetProcessUI.openFile({name:"next.tenet"});else ui.win.fire("tenet:sign-out");
+    assert.equal(settings.isCurrent(),false);asset.resolve(new Blob(["private body"]));await assert.rejects(reading,/closed or changed/);
+    parent.reject(Error("Late private report error"));await settle();assert.doesNotMatch(ui.dialog.querySelector(".tenet-process-status").textContent,/Late private report error/);
+    assert.equal(ui.value("title").textContent,action==="page"?"New selection":"");assert.equal(ui.action("report").disabled,false);
+  }
+});
+
+test("missing or failed report helpers retain history and allow retry without exporting", async () => {
+  const ui=boot(), calls=installSubmission(ui,{report:()=>Promise.reject(Error("PDF/report unavailable"))});
+  await ui.win.TenetProcessUI.openFile({name:"work.tenet"});const frame=ui.dialog.querySelector(".tenet-process-preview img").src;
+  await ui.click("report");assert.match(ui.dialog.querySelector(".tenet-process-status").textContent,/PDF\/report unavailable/);
+  assert.equal(ui.action("report").disabled,false);assert.equal(ui.dialog.querySelector(".tenet-process-preview img").src,frame);
+  delete ui.win.TenetSubmissionReport;await ui.click("report");assert.match(ui.dialog.querySelector(".tenet-process-status").textContent,/not available in this build/);
+  assert.equal(calls.exports.length,0);assert.equal(calls.shares.length,0);
+});
+
+test("portable/report UI retains strict CSP, privacy disclosures and native modal touch targets", async () => {
+  const ui=boot();installSubmission(ui);await ui.win.TenetProcessUI.openFile({name:"work.tenet"});
+  assert.equal(ui.dialog.id,"tenetProcessDialog");assert.equal(ui.dialog.querySelector("iframe"),null);assert.equal(ui.doc.head.querySelector("style"),null);
+  assert.equal(ui.dialog.querySelectorAll("[style]").length,0);assert.match(ui.dialog.querySelector(".tenet-process-disclosure").textContent,/read-only/);
+  assert.match(ui.value("sharing-note").textContent,/private student work, questions, replies and images/);
+  assert.match(processCSS,/\.tenet-submission-report\{[^}]*width:min\(760px,calc\(100vw - 32px\)\)[^}]*max-height:calc\(100dvh - 32px\)[^}]*overflow:auto[^}]*padding:24px/);
+  assert.match(processCSS,/\.tenet-submission-report::backdrop/);assert.match(processCSS,/\.tenet-submission-report-actions\{display:flex;flex-wrap:wrap;gap:12px/);
+  assert.match(processCSS,/\.tenet-submission-report-actions button\{[^}]*min-height:44px/);
+  assert.doesNotMatch(source,/window\.print\(|createElement\(["']iframe["']\)|createElement\(["']style["']\)/);
+  assert.doesNotMatch(source,/\.style\.(?:cssText|setProperty|removeProperty|[A-Za-z_$][\w$]*\s*=)/);
+});
+
+test("notebook public Share opens the requested saved page with visible confirmation and PDF access", async () => {
+  const history=savedProvider([savedBundle("chosen","Chosen saved page"),savedBundle("current","Different current canvas")],"current"), ui=savedBoot(history.provider);
+  const complete=portableBundle("Chosen saved report"), calls=installSubmission(ui,{prepareSavedPage:()=>complete});
+  const scratch={title:"Unsaved scratch",ink:["not saved"]};ui.win.scratch=scratch;
+  const notebook=ui.doc.createElement("dialog");notebook.id="tenetNotebook";ui.doc.body.append(notebook);notebook.showModal();
+  assert.equal(ui.dialog.open,false);notebook.close();
+  assert.equal(await ui.win.TenetProcessUI.shareSavedPage("chosen"),true);await settle();
+  assert.equal(ui.dialog.open,true);assert.equal(notebook.open,false);assert.equal(ui.value("title").textContent,"Chosen saved page");
+  assert.equal(ui.dialog.querySelector(".tenet-process-record").hidden,false);assert.equal(ui.action("report").hidden,false);assert.equal(ui.action("report").disabled,false);
+  assert.match(ui.dialog.querySelector(".tenet-process-status").textContent,/sharing\/download was requested/);
+  assert.match(ui.value("sharing-note").textContent,/Only the saved version/);assert.deepEqual(calls.exports,["chosen"]);assert.equal(calls.shares.length,1);
+  assert.deepEqual(history.calls.reads,["chosen"]);assert.strictEqual(ui.win.scratch,scratch);assert.deepEqual(scratch.ink,["not saved"]);
+  await ui.click("report");assert.deepEqual(calls.prepares,["chosen"]);assert.equal(calls.reports.length,1);assert.strictEqual(calls.reports[0].bundle.finalPreview,complete.finalPreview);
+  assert.equal(ui.dialog.open,true);assert.equal(ui.calls.begin,0);assert.equal(ui.calls.canvases,0);
+});
+
+test("public Share visibly reports missing saved pages without exporting another page", async () => {
+  const ui=savedBoot(savedProvider([]).provider), calls=installSubmission(ui);
+  assert.equal(await ui.win.TenetProcessUI.shareSavedPage("missing"),false);await settle();
+  assert.equal(ui.dialog.open,true);assert.match(ui.dialog.querySelector(".tenet-process-status").textContent,/not found/);
+  assert.equal(calls.exports.length,0);assert.equal(calls.shares.length,0);assert.equal(ui.action("share-work").disabled,false);
+});
+
+test("public Share cannot export a selection retired while its saved page is opening", async () => {
+  for(const action of ["close","page","signout"]) {
+    const pending=deferred(), history=savedProvider([savedBundle("b","New page")]), read=history.provider.readSavedPage;
+    history.provider.readSavedPage=id=>id==="a"?pending.promise:read(id);
+    const ui=savedBoot(history.provider), calls=installSubmission(ui), sharing=ui.win.TenetProcessUI.shareSavedPage("a");await settle();
+    if(action==="close")ui.dialog.close();else if(action==="page")await ui.win.TenetProcessUI.openSavedPage("b");else ui.win.fire("tenet:sign-out");
+    pending.resolve(savedBundle("a","Retired private page"));assert.equal(await sharing,false);await settle();
+    assert.equal(calls.exports.length,0);assert.equal(calls.shares.length,0);assert.equal(ui.value("title").textContent,action==="page"?"New page":"");
+    assert.equal(ui.action("share-work").disabled,false);assert.doesNotMatch(ui.dialog.querySelector(".tenet-process-status").textContent,/sharing\/download was requested/);
+  }
+});
+
+test("duplicate public Share calls during opening load and share the saved page only once", async () => {
+  const pending=deferred(), entry=savedBundle("a","Saved page"), history=savedProvider([entry]);let reads=0;
+  history.provider.readSavedPage=()=>{reads++;return pending.promise;};
+  const ui=savedBoot(history.provider), calls=installSubmission(ui), first=ui.win.TenetProcessUI.shareSavedPage("a");await settle();
+  assert.equal(await ui.win.TenetProcessUI.shareSavedPage("a"),false);assert.equal(reads,1);assert.equal(calls.exports.length,0);
+  pending.resolve(entry);assert.equal(await first,true);assert.equal(calls.exports.length,1);assert.equal(calls.shares.length,1);assert.equal(ui.dialog.open,true);
+});
+
+test("fresh local saved report prepares one complete saved version without export, compression or current canvas", async () => {
+  const history=savedProvider([savedBundle("chosen","Saved page")]), ui=savedBoot(history.provider), prepared=portableBundle("Latest saved version",false);
+  prepared.attempt={...prepared.attempt,id:"prepared-saved-version"};
+  const calls=installSubmission(ui,{prepareSavedPage:()=>prepared});ui.win.scratch={image:"unsaved current canvas",question:"not part of the saved report"};
+  await ui.win.TenetProcessUI.openSavedPage("chosen");await ui.click("report");
+  assert.deepEqual(calls.prepares,["chosen"]);assert.equal(calls.exports.length,0);assert.equal(calls.shares.length,0);assert.equal(calls.reports.length,1);
+  const report=calls.reports[0];assert.equal(report.settings.isCurrent(),true);assert.equal(report.bundle.title,"Latest saved version");
+  assert.equal(report.bundle.attempt.id,"prepared-saved-version");assert.strictEqual(report.bundle.finalPreview,prepared.finalPreview);assert.deepEqual(report.bundle.finalPage,prepared.finalPage);
+  assert.equal(report.bundle.historyAvailable,false);assert.equal(report.bundle.events.length,0);assert.equal(report.bundle.savedAt,prepared.savedAt);
+  assert.strictEqual(await report.bundle.getAsset("prepared-saved-version","final-page"),prepared.finalPreview);
+  await assert.rejects(report.bundle.getAsset("chosen","final-page"),/does not belong/);
+  assert.equal(ui.value("title").textContent,"Saved page");assert.match(ui.dialog.querySelector(".tenet-process-status").textContent,/saved version, not unsaved canvas edits/);
+  assert.equal(ui.calls.canvases,0);assert.equal(ui.win.scratch.image,"unsaved current canvas");
+});
+
+test("local report preparation failures retain the saved selection and never omit its image silently", async () => {
+  for(const kind of ["missing","failure","invalid"]) {
+    const ui=savedBoot(savedProvider([savedBundle("a","Retained saved page")]).provider);
+    const calls=installSubmission(ui,{prepareSavedPage:()=>kind==="invalid"?{attempt:{id:"invalid"}}:Promise.reject(Error("Saved page preparation failed"))});
+    if(kind==="missing")delete ui.win.TenetSubmission.prepareSavedPage;
+    await ui.win.TenetProcessUI.openSavedPage("a");const frame=ui.dialog.querySelector(".tenet-process-preview img").src;await ui.click("report");
+    assert.equal(calls.reports.length,0);assert.equal(calls.exports.length,0);assert.equal(calls.shares.length,0);assert.equal(ui.action("report").disabled,false);
+    assert.equal(ui.value("title").textContent,"Retained saved page");assert.equal(ui.dialog.querySelector(".tenet-process-preview img").src,frame);
+    assert.match(ui.dialog.querySelector(".tenet-process-status").textContent,kind==="missing"?/preparation is not available/:kind==="invalid"?/could not be prepared/:/preparation failed/);
+    ui.win.TenetSubmission.prepareSavedPage=async()=>portableBundle("Retry saved version");await ui.click("report");assert.equal(calls.reports.length,1);
+  }
+});
+
+test("local saved report preparation is fenced across close, page switch and sign-out", async () => {
+  for(const action of ["close","page","signout"]) {
+    const pending=deferred(), ui=savedBoot(savedProvider([savedBundle("a","Private saved work"),savedBundle("b","Next saved page")]).provider);
+    const calls=installSubmission(ui,{prepareSavedPage:()=>pending.promise});await ui.win.TenetProcessUI.openSavedPage("a");await ui.click("report");
+    assert.equal(ui.action("report").disabled,true);
+    if(action==="close")ui.dialog.close();else if(action==="page")await ui.win.TenetProcessUI.openSavedPage("b");else ui.win.fire("tenet:sign-out");
+    pending.resolve(portableBundle("Private prepared image"));await settle();
+    assert.equal(calls.reports.length,0);assert.equal(calls.exports.length,0);assert.equal(calls.shares.length,0);assert.equal(ui.action("report").disabled,false);
+    assert.equal(ui.value("title").textContent,action==="page"?"Next saved page":"");
+  }
+});
+
+test("prepared report guards keep codec account invalidation and its own asset reader", async () => {
+  let accountCurrent=true;const prepared=portableBundle("Account-bound saved work");
+  prepared.assertCurrent=()=>{if(!accountCurrent)throw Error("Saved account changed");};
+  const ui=savedBoot(savedProvider([savedBundle("a","Saved work")]).provider), calls=installSubmission(ui,{prepareSavedPage:()=>prepared});
+  await ui.win.TenetProcessUI.openSavedPage("a");await ui.click("report");const report=calls.reports[0];
+  assert.equal(report.settings.isCurrent(),true);accountCurrent=false;assert.equal(report.settings.isCurrent(),false);
+  assert.throws(report.bundle.assertCurrent,/Saved account changed/);await assert.rejects(report.bundle.getAsset(prepared.attempt.id,"final-page"),/Saved account changed/);
+});
