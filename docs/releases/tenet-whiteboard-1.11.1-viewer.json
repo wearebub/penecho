@@ -1,0 +1,20 @@
+{
+  "status": "verified",
+  "sourceCommit": "d384a649ead548acc86e7ec3421502fa2e330ff9",
+  "verifiedAt": "2026-09-15T22:22:18.758Z",
+  "url": "https://wearebub.github.io/penecho/",
+  "assets": [
+    {
+      "path": "index.html",
+      "sha256": "5c44bb1b2d6a0a0ade36fb7cbfbb301ca069ecc3a0472163106652f74a385b74"
+    },
+    {
+      "path": "tenet-history-viewer.js",
+      "sha256": "6450c786fdb7f8060d125937b83770f3f3fd3765024b946e31d92ca2c2a03b2a"
+    },
+    {
+      "path": "tenet-process.css",
+      "sha256": "d58297a6a6675230f3ffd9408fab7fa0340deae123a389d125686dfcb683c4db"
+    }
+  ]
+}
