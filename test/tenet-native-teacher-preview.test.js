@@ -9,7 +9,7 @@ const uiSource = read("../src/client/app/tenet-process-ui.js");
 const nativeSource = read("../tools/mobile/plugins/tenet-ipad-native/ios/Plugin/TenetInkSurface.swift");
 const plain = value => JSON.parse(JSON.stringify(value));
 
-async function harness({ readOnly = false } = {}) {
+async function harness({ readOnly = false, documentHistory = null } = {}) {
   const frames = new Map(), listeners = new Map(), observers = new Set(), calls = [];
   const window = new EventTarget(), document = new EventTarget();
   let nextId = 0, revision = 0, sessionId = null;
@@ -136,7 +136,7 @@ async function harness({ readOnly = false } = {}) {
     access.journal++;
     return { listAttempts:async () => { access.list++; return []; } };
   } });
-  Object.defineProperty(window, "TenetProcessCapture", { get() {
+  Object.defineProperty(window, "TenetProcessCapture", { configurable:true, get() {
     access.capture++;
     return { activeId:() => null, isRecording:() => false, nativeRevision:() => {}, begin:() => { access.begin++; throw Error("Preview must not start capture"); } };
   } });
@@ -168,9 +168,25 @@ async function harness({ readOnly = false } = {}) {
   });
   vm.runInContext(`${inkSource}\nglobalThis.controller = tenetInkController;`, context);
   // Run the actual preview's opening, Close button and close-retirement handlers.
-  // Include the real gate/accessor and library refresh so default-off behavior
-  // cannot pass merely because a mock silently bypassed journal enumeration.
+  // Include actual saved-page reads and legacy gates; rendering is exercised
+  // separately by the full UI fixture in the persistence integration suite.
   const gateStart = uiSource.indexOf("  const standalone =");
+  window.TenetDocumentHistory = documentHistory || {
+    listSavedPages: async () => [],
+    currentSavedPageId: () => null,
+    readSavedPage: async () => { throw Error("No saved page in this fixture"); },
+  };
+  for (const name of ["title", "meta", "badge", "coverage", "ai-provenance", "event-title", "event-description"]) {
+    const node = document.createElement("p");
+    node.setAttribute("data-value", name);
+    dialog.append(node);
+  }
+  const savedPages = document.createElement("nav");
+  savedPages.className = "tenet-process-saved-pages";
+  dialog.append(savedPages);
+  const savedStart = uiSource.indexOf("  function clearRecord()");
+  const savedEnd = uiSource.indexOf("  function eventTitle(", savedStart);
+  assert.ok(savedStart > 0 && savedEnd > savedStart, "Actual saved-page lifecycle must be available");
   const gateEnd = uiSource.indexOf("  let selected =", gateStart);
   const refreshStart = uiSource.indexOf("  async function refreshLibrary()");
   const refreshEnd = uiSource.indexOf("  async function renderEvent(", refreshStart);
@@ -190,13 +206,17 @@ async function harness({ readOnly = false } = {}) {
     const value = name => dialog.querySelector('[data-value="' + name + '"]');
     let sessionEpoch = 0, generation = 0, selectionEpoch = 0, busyOwner = 0;
     let selected = null, events = [], assetSource = journal, imported = false, sample = false;
+    let savedPageId = null, historyAvailable = true, savedListEpoch = 0;
     const stopPlaying = () => {}, clearImage = () => { previewLifecycle.clearImage++; };
     const clearPrepared = () => { previewLifecycle.clearPrepared++; }, paintRecord = async () => {};
-    const perform = async operation => operation();
+    const perform = async operation => operation(), message = () => {};
+    ${uiSource.slice(savedStart, savedEnd)}
     ${uiSource.slice(refreshStart, refreshEnd)}
     ${uiSource.slice(start, closeStart + closeMarker.length)}
     ${signOut}
     ${pagehide}
+    window.TenetProcessUI = Object.freeze({ openSavedPage });
+    globalThis.previewState = () => ({ selected, events, savedPageId, historyAvailable, imported, sample });
   })();`, context);
   const settle = async () => {
     for (let index = 0; index < 12; index++) {
@@ -206,7 +226,8 @@ async function harness({ readOnly = false } = {}) {
     }
   };
   await settle();
-  return { window, document, state, calls, control, dialog, close, slider, access, lifecycle, Element, settle,
+  return { window, document, state, context, calls, control, dialog, close, slider, access, lifecycle, Element, settle,
+    previewState:() => plain(context.previewState()),
     api:window.TenetInk, controller:context.controller,
     latest:() => calls.filter(call => call.kind === "configure").at(-1),
     async addStroke() {
@@ -280,7 +301,7 @@ test("closing Teacher preview cannot override another modal, suspension, or Web 
   assert.equal(h.latest().visible, false); assert.equal(h.api.getStatus().engine, "web");
 });
 
-test("ordinary-session same-document preview blocks its controls and preserves scratch without journal or capture access", async () => {
+test("ordinary-session saved-history viewer blocks controls and preserves scratch without legacy journal or capture access", async () => {
   const h = await harness({ readOnly:true });
   await h.api.setEngine("pencilkit");
   await h.addStroke();
@@ -295,7 +316,7 @@ test("ordinary-session same-document preview blocks its controls and preserves s
   assert.equal(h.dialog.open, true);
   assert.equal(h.latest().visible, false); assert.equal(h.latest().inputEnabled, false);
   assert.ok(h.latest().exclusions.some(hole => hole.x <= 590 && hole.y <= 790 && hole.x + hole.width >= 990 && hole.y + hole.height >= 834), "the same-document modal covers the replay slider and other controls");
-  assert.deepEqual(h.access, beforePreviewAccess, "opening default-off preview must not access additional shared-profile services");
+  assert.deepEqual(h.access, beforePreviewAccess, "opening saved history must not enumerate legacy captures or start recording");
   h.close.click(); await h.settle();
   assert.equal(h.dialog.open, false);
   assert.equal(h.latest().visible, true); assert.equal(h.latest().inputEnabled, true);
@@ -303,7 +324,72 @@ test("ordinary-session same-document preview blocks its controls and preserves s
   for (const field of ["panX", "panY", "scale"]) assert.equal(h.latest()[field], before[field], field);
   assert.deepEqual(plain(h.controller.snapshot()), drawing);
   assert.deepEqual(h.latest().exclusions, before.exclusions);
-  assert.deepEqual(h.access, beforePreviewAccess, "closing default-off preview must not access journal or recording services");
+  assert.deepEqual(h.access, beforePreviewAccess, "closing saved history must not access legacy journal or recording services");
+});
+
+test("saved-page launcher reads history while native ink is blocked and close preserves the original page", async () => {
+  const reads = [];
+  const bundle = { attempt:{ id:"saved-math", title:"Math" }, historyAvailable:true,
+    events:[{ type:"native.revision", sequence:1, details:{ revision:7 } }],
+    getAsset:async () => null };
+  const h = await harness({ readOnly:true, documentHistory:{
+    listSavedPages:async () => { reads.push("list"); return [{ id:"saved-math", name:"Math", hasHistory:true, eventCount:1 }]; },
+    currentSavedPageId:() => "saved-math",
+    readSavedPage:async id => { reads.push(id); return bundle; },
+  } });
+  await h.api.setEngine("pencilkit"); await h.addStroke();
+  const drawing = plain(h.controller.snapshot()), before = h.latest(), edits = h.state.history.length;
+  const legacyAccess = { ...h.access };
+  h.control.click(); await h.settle();
+  assert.deepEqual(reads, ["list", "saved-math"]);
+  assert.equal(h.latest().visible, false); assert.equal(h.latest().inputEnabled, false);
+  assert.equal(h.previewState().selected.id, "saved-math");
+  assert.deepEqual(h.previewState().events, bundle.events);
+  assert.equal(h.previewState().sample, false);
+  assert.deepEqual(h.access, legacyAccess);
+  h.close.click(); await h.settle();
+  assert.equal(h.previewState().selected, null); assert.deepEqual(h.previewState().events, []);
+  assert.equal(h.previewState().savedPageId, null);
+  assert.equal(h.latest().inputEnabled, true);
+  for (const field of ["sessionId", "panX", "panY", "scale"]) assert.equal(h.latest()[field], before[field]);
+  assert.deepEqual(plain(h.controller.snapshot()), drawing);
+  assert.equal(h.state.history.length, edits);
+});
+
+test("notebook History entry blocks ink during a pending read and discards a result delivered after close", async () => {
+  let resolveRead;
+  const pending = new Promise(resolve => { resolveRead = resolve; });
+  const h = await harness({ readOnly:true, documentHistory:{
+    listSavedPages:async () => [], currentSavedPageId:() => null,
+    readSavedPage:() => pending,
+  } });
+  await h.api.setEngine("pencilkit"); await h.addStroke();
+  const drawing = plain(h.controller.snapshot()), session = h.latest().sessionId;
+  const opened = h.window.TenetProcessUI.openSavedPage("saved-old");
+  await h.settle();
+  assert.equal(h.dialog.open, true); assert.equal(h.latest().inputEnabled, false);
+  h.close.click(); await h.settle();
+  resolveRead({ attempt:{ id:"saved-old", title:"Must not reappear" }, events:[{ type:"ai.response", details:{ text:"Private old reply" } }], historyAvailable:true, getAsset:async () => null });
+  assert.equal(await opened, false); await h.settle();
+  assert.equal(h.dialog.open, false); assert.equal(h.latest().inputEnabled, true);
+  assert.equal(h.previewState().selected, null); assert.deepEqual(h.previewState().events, []);
+  assert.equal(h.latest().sessionId, session);
+  assert.deepEqual(plain(h.controller.snapshot()), drawing);
+});
+
+test("a saved page without history stays read-only and never substitutes sample work", async () => {
+  const h = await harness({ readOnly:true, documentHistory:{
+    listSavedPages:async () => [], currentSavedPageId:() => null,
+    readSavedPage:async () => ({ attempt:{ id:"legacy", title:"Old page" }, events:[], historyAvailable:false, getAsset:async () => null }),
+  } });
+  await h.api.setEngine("pencilkit");
+  assert.equal(await h.window.TenetProcessUI.openSavedPage("legacy"), true); await h.settle();
+  assert.equal(h.latest().inputEnabled, false);
+  assert.equal(h.previewState().historyAvailable, false); assert.equal(h.previewState().sample, false);
+  assert.deepEqual(h.previewState().events, []);
+  h.close.click(); await h.settle();
+  assert.equal(h.latest().inputEnabled, true);
+  assert.deepEqual(h.access, { journal:0, list:0, capture:0, begin:0 });
 });
 
 test("read-only preview browser close and sign-out retire viewer state; pagehide never restores native input", async () => {

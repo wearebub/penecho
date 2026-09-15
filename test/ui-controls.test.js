@@ -3200,6 +3200,13 @@ test("local snapshot database upgrades preserve existing canvas records", () => 
   assert.match(snapshotDb, /indexedDB\.open\(SNAPSHOT_DB, 2\)/);
   assert.match(snapshotDb, /createObjectStore\(SNAPSHOT_TILE_STORE/);
   assert.doesNotMatch(snapshotDb, /objectStore\(SNAPSHOT_STORE\)\.clear\(\)/);
+  const persistence = read("src/client/app/persistence.js"),
+    saveDevice = functionSource(persistence, "saveDeviceSnapshot");
+  assert.match(saveDevice, /db\.transaction\(\[SNAPSHOT_STORE, SNAPSHOT_TILE_STORE\], "readwrite"\)/);
+  assert.match(saveDevice, /objectStore\(SNAPSHOT_STORE\)\.put\(item\)/);
+  assert.match(persistence, /item\.workHistory = await documentHistory\.serializeForSave\(historySave, item, savedUserRevision\)/);
+  assert.match(persistence, /documentHistory\.didSave\(historySave, storedId\)/);
+  assert.match(persistence, /TenetDocumentHistory\?\.restore\(item\)/);
 });
 
 test("Cloud History distinguishes sign-in from failures and protects external Canvas opens", () => {

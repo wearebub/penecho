@@ -6,14 +6,16 @@
   const journal = !standalone && window.PENECHO_CONFIG?.tenetAssignmentPreview === true ? window.TenetProcessJournal : null;
   const viewerOnly = !journal;
   const capture = () => viewerOnly ? null : window.TenetProcessCapture;
+  const documents = () => standalone ? null : window.TenetDocumentHistory;
   let selected = null, events = [], assetSource = journal, imported = false, sample = false;
+  let savedPageId = null, historyAvailable = true, savedListEpoch = 0;
   let exportFile = null, imageUrl = null, generation = 0, playing = false, playTimer = null;
   let sessionEpoch = 0, selectionEpoch = 0, playbackEpoch = 0, busyOwner = 0;
   const control = document.createElement("button");
   control.type = "button"; control.className = "tenet-process-launch";
   control.setAttribute("aria-haspopup", "dialog");
-  control.setAttribute("aria-label", "Teacher preview: assignment playback");
-  control.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m2 8 10-5 10 5-10 5-10-5Zm4 3v6c4 3 8 3 12 0v-6M22 8v9"/></svg><span>Teacher preview</span>';
+  control.setAttribute("aria-label", "Teacher view: saved whiteboard history");
+  control.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m2 8 10-5 10 5-10 5-10-5Zm4 3v6c4 3 8 3 12 0v-6M22 8v9"/></svg><span>Teacher view</span>';
   // One same-document modal preserves scratch work and obeys frame-ancestors.
   const dialog = document.createElement("dialog");
   dialog.className = "tenet-process-dialog";
@@ -21,25 +23,28 @@
   dialog.setAttribute("aria-labelledby", "tenetProcessTitle");
   control.setAttribute("aria-controls", dialog.id);
   dialog.innerHTML = `
-    <header class="tenet-process-heading"><div><small>TENET / ASSIGNMENT PLAYBACK</small><h2 id="tenetProcessTitle">See how the thinking unfolded.</h2></div><button type="button" data-action="close" aria-label="Close teacher preview">Close</button></header>
-    <p class="tenet-process-disclosure">Teacher-style preview, not an authenticated teacher dashboard. This viewer does not upload work or call AI. Real teacher access, assignment rules and Schoology hand-in are not connected. Ordinary canvas AI continues through the district Gateway.</p>
-    <p class="tenet-process-status" role="status" aria-live="polite">Explore a synthetic example, or explicitly record a local assignment.</p>
+    <header class="tenet-process-heading"><div><small>TENET / TEACHER VIEW</small><h2 id="tenetProcessTitle">The work behind the answer.</h2></div><button type="button" data-action="close" aria-label="Close teacher view">Back to canvas</button></header>
+    <p class="tenet-process-disclosure">On-device Teacher view, not an authenticated teacher or LMS service. Select a saved whiteboard to inspect the actions, checkpoints and AI interactions saved with it. This viewer never loads the page onto your canvas, starts recording, uploads work or calls AI. District AI rules still apply to normal canvas requests.</p>
+    <p class="tenet-process-status" role="status" aria-live="polite">Choose a saved whiteboard to see its actual work history.</p>
     <div class="tenet-process-layout">
       <aside class="tenet-process-sidebar">
+        <section class="tenet-process-saved"><div class="tenet-process-saved-heading"><h3>Saved whiteboards</h3><button type="button" data-action="refresh-pages">Refresh</button></div><p class="tenet-process-saved-caption">History travels with the saved page. Older pages may not have recorded history.</p><nav class="tenet-process-saved-pages" aria-label="Saved whiteboards"></nav></section>
+        <details class="tenet-process-examples"><summary>Examples & archive imports</summary>
         <div class="tenet-process-demo"><small>START HERE</small><h3>A hint, then a next step.</h3><p>Follow a fictional algebra example. No student data and no AI request.</p><button type="button" data-action="sample" class="tenet-process-primary">Play a sample assignment</button></div>
         <button type="button" data-action="open">Open a history archive</button>
         <input data-file="archive" type="file" accept=".json,.tenet-work,application/json" hidden />
+        </details>
         <details class="tenet-process-record-options"><summary>Record my current page</summary><form data-form="start"><h3>Opt-in local capture</h3>
           <label>Assignment title<input name="title" required maxlength="80" placeholder="Problem set: linear equations" autocomplete="off" /></label>
           <label>Subject<input name="subject" maxlength="80" placeholder="Math" autocomplete="off" /></label>
           <label class="tenet-process-consent"><input name="consent" type="checkbox" required /><span>Record this page's edits, checkpoints and observed AI activity locally. Use synthetic work in this preview; this browser profile is not separated by school account.</span></label>
           <button type="submit" class="tenet-process-primary">Start capture on this page</button>
         </form></details>
-        <div class="tenet-process-library-heading"><h3>Local histories</h3><button type="button" data-action="refresh">Refresh</button></div>
+        <div class="tenet-process-library-heading"><h3>Advanced captures</h3><button type="button" data-action="refresh">Refresh</button></div>
         <nav class="tenet-process-list" aria-label="Recorded assignments"></nav>
       </aside>
       <section class="tenet-process-work" aria-label="Assignment history viewer">
-        <div class="tenet-process-empty"><span>TEACHER PREVIEW</span><h3>The work behind the answer.</h3><p>See a page develop alongside the questions asked and the help received. Start with the sample, or open a local history. No past work is reconstructed.</p></div>
+        <div class="tenet-process-empty"><span>SAVED WHITEBOARD HISTORY</span><h3>Choose the work you want to understand.</h3><p>Select a saved whiteboard to review its actual recorded edits and AI help. No manual recording or archive export is required. Missing history is never reconstructed.</p></div>
         <div class="tenet-process-record" hidden>
           <div class="tenet-process-record-heading"><div><h3 data-value="title"></h3><p data-value="meta"></p></div><span class="tenet-process-badge" data-value="badge"></span></div>
           <p class="tenet-process-coverage" data-value="coverage"></p>
@@ -55,7 +60,7 @@
           </div>
           <div class="tenet-process-preview"><img alt="Recorded page checkpoint" hidden /><p data-value="preview">No rendered checkpoint selected.</p></div>
           <div class="tenet-process-playback"><button type="button" data-action="play">Play history</button><input type="range" min="0" max="0" value="0" aria-label="History position" /><output data-value="position">0 / 0</output></div>
-          <p class="tenet-process-caption">Checkpoint replay, not a recording of every pen movement. The image is the nearest recorded checkpoint at or before the selected event.</p>
+          <p class="tenet-process-caption" data-value="checkpoint-caption">Checkpoint replay, not a recording of every pen movement. The image is the nearest recorded checkpoint at or before the selected event.</p>
           <div class="tenet-process-detail"><div><h3>Work timeline</h3><p class="tenet-process-caption" data-value="timeline-note"></p><nav class="tenet-process-events" aria-label="Recorded events"></nav></div><section class="tenet-process-observation" aria-label="AI help and process evidence"><small data-value="event-label"></small><h3 data-value="event-title"></h3><p data-value="event-description"></p><div class="tenet-process-conversation" hidden><h4>Question observed</h4><p data-value="question"></p><h4>Tenet reply observed</h4><p data-value="response"></p><p class="tenet-process-caption" data-value="ai-provenance"></p></div><details><summary>Technical event details</summary><pre data-value="detail" aria-label="Event details"></pre></details></section></div>
         </div>
       </section>
@@ -77,8 +82,14 @@
     dialog.querySelector('.tenet-process-record-options').hidden = true;
     dialog.querySelector(".tenet-process-library-heading").hidden = true;
     dialog.querySelector(".tenet-process-list").hidden = true;
+  }
+  if (standalone) {
+    dialog.querySelector(".tenet-process-saved").hidden = true;
+    dialog.querySelector(".tenet-process-examples").open = true;
     dialog.querySelector(".tenet-process-heading small").textContent = "TENET WORK HISTORY VIEWER";
-    dialog.querySelector(".tenet-process-disclosure").textContent = "Open a Tenet history archive from your device. This viewer is read-only and makes no AI, school-account or upload requests. File consistency is not proof of student identity or independent work.";
+    dialog.querySelector(".tenet-process-disclosure").textContent = "Open a Tenet history archive from your device or explore the synthetic example. This viewer is read-only and never enumerates saved whiteboards or makes AI, school-account or upload requests. File consistency is not proof of student identity or independent work.";
+    dialog.querySelector(".tenet-process-empty p").textContent = "Open a local history archive or explore the fictional example. This public viewer cannot list whiteboards saved inside the app.";
+    find("close").textContent = "Close";
     statusLine.textContent = "Try the synthetic sample or open an archive from your device.";
   }
   function message(text, error = false) {
@@ -95,10 +106,81 @@
   function clearPrepared() {
     exportFile = null; find("download").hidden = true; find("share").hidden = true;
   }
+  function clearRecord() {
+    selected = null; events = []; assetSource = journal; imported = false; sample = false;
+    savedPageId = null; historyAvailable = true;
+    clearPrepared(); clearImage();
+    for (const name of ["title", "meta", "badge", "coverage", "detail", "question", "response", "ai-provenance", "event-title", "event-description"]) value(name).textContent = "";
+    dialog.querySelector(".tenet-process-events").replaceChildren();
+    dialog.querySelector(".tenet-process-saved-pages").replaceChildren();
+    dialog.querySelector(".tenet-process-list").replaceChildren();
+    void paintRecord();
+  }
+  async function refreshSavedPages(selectCurrent = false) {
+    if (standalone) return;
+    const session = sessionEpoch, token = ++savedListEpoch, selection = selectionEpoch;
+    const list = dialog.querySelector(".tenet-process-saved-pages"), provider = documents();
+    list.textContent = "Loading saved whiteboards...";
+    if (typeof provider?.listSavedPages !== "function") { list.textContent = "Saved-whiteboard history is unavailable in this build."; message(list.textContent, true); return; }
+    try {
+      const rows = await provider.listSavedPages();
+      const currentId = typeof provider.currentSavedPageId === "function" ? await provider.currentSavedPageId() : null;
+      if (session !== sessionEpoch || token !== savedListEpoch || !dialog.open) return;
+      if (!Array.isArray(rows)) throw Error("The saved-whiteboard list could not be read.");
+      list.replaceChildren();
+      for (const row of rows) {
+        const button = document.createElement("button"), name = document.createElement("span"), detail = document.createElement("small");
+        button.type = "button"; button.dataset.pageId = String(row.id);
+        button.setAttribute("aria-current", String(savedPageId !== null && String(savedPageId) === String(row.id)));
+        name.textContent = row.name || "Untitled whiteboard";
+        detail.textContent = `${row.hasHistory === true ? String(row.eventCount || 0) + " recorded events" : "History unavailable"}${currentId != null && String(currentId) === String(row.id) ? " / Current page" : ""}`;
+        button.append(name, detail); button.addEventListener("click", () => void selectSavedPage(row.id)); list.append(button);
+      }
+      if (!rows.length) list.textContent = "No saved whiteboards yet. Save your canvas to view the history stored with it.";
+      if (selectCurrent && selection === selectionEpoch && currentId != null && rows.some(row => String(row.id) === String(currentId))) await selectSavedPage(currentId);
+    } catch (error) {
+      if (session !== sessionEpoch || token !== savedListEpoch || !dialog.open) return;
+      list.textContent = "Saved whiteboards could not be read. Try Refresh.";
+      message(error?.message || list.textContent, true);
+    }
+  }
+  async function selectSavedPage(id) {
+    const token = ++selectionEpoch, session = sessionEpoch;
+    stopPlaying(); generation++; clearPrepared(); clearImage();
+    selected = null; events = []; savedPageId = null;
+    await paintRecord();
+    message("Opening the history saved with this whiteboard...");
+    try {
+      const provider = documents();
+      if (typeof provider?.readSavedPage !== "function") throw Error("Saved-whiteboard history is unavailable in this build.");
+      const bundle = await provider.readSavedPage(id);
+      if (session !== sessionEpoch || token !== selectionEpoch || !dialog.open) return false;
+      if (!bundle?.attempt || !Array.isArray(bundle.events) || typeof bundle.getAsset !== "function") throw Error("This whiteboard's history could not be read.");
+      savedPageId = id; historyAvailable = bundle.historyAvailable === true;
+      selected = bundle.attempt; events = historyAvailable ? bundle.events : [];
+      assetSource = bundle; imported = true; sample = false;
+      dialog.querySelectorAll(".tenet-process-saved-pages button").forEach(button => button.setAttribute("aria-current", String(button.dataset.pageId === String(id))));
+      await paintRecord();
+      if (session !== sessionEpoch || token !== selectionEpoch || !dialog.open) return false;
+      message(historyAvailable ? "Showing actual history saved with this whiteboard. Your scratch canvas is unchanged." : "No work history was saved for this whiteboard. Earlier actions and AI help cannot be reconstructed.");
+      return true;
+    } catch (error) {
+      if (session === sessionEpoch && token === selectionEpoch && dialog.open) message(error?.message || "This whiteboard's history could not be opened. Your canvas is unchanged.", true);
+      return false;
+    }
+  }
+  async function openSavedPage(id) {
+    if (!dialog.open) dialog.showModal();
+    savedListEpoch++; busyOwner++; dialog.dataset.busy = "false"; dialog.removeAttribute("aria-busy");
+    const opened = await selectSavedPage(id);
+    if (opened && dialog.open) await refreshSavedPages();
+    return opened;
+  }
+  function isCheckpointImage(asset) { return ["image/png", "image/jpeg", "image/webp"].includes(asset?.mime); }
   function eventTitle(event) {
     const titles = { "capture.started":"Recording began", "capture.paused":"Recording paused", "canvas.commit":"Canvas edit committed", "canvas.undo":"Edit undone", "canvas.redo":"Edit restored", "native.revision":"PencilKit revision received", "ai.request":"Question sent to Tenet", "ai.response":"Tenet reply observed", "ai.finished":"AI request finished", "coverage.gap":"Coverage gap recorded" };
     if (!event) return "No event selected";
-    if ((event.assets || []).some(asset => /^image\/(png|jpeg)$/.test(asset.mime))) return "Page checkpoint";
+    if ((event.assets || []).some(isCheckpointImage)) return event.details?.representation === "saved-page-thumbnail" ? "Saved-page thumbnail" : "Page checkpoint";
     return Object.hasOwn(titles, event.type) ? titles[event.type] : String(event.type).replaceAll(".", " ");
   }
   function paintObservation(event, index) {
@@ -199,17 +281,37 @@
     if (!rows.length) { const empty = document.createElement("p"); empty.textContent = "No recorded assignments yet."; list.append(empty); }
     control.dataset.recording = String(Boolean(capture()?.isRecording()));
   }
+  function recordedEventTime(event) {
+    const iso = event?.timestamp;
+    const isoTime = typeof iso === "string" && iso.length <= 40 && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/.test(iso) ? Date.parse(iso) : NaN;
+    const legacyTime = typeof event?.clientWallTime === "number" ? event.clientWallTime : NaN;
+    for (const time of [isoTime, legacyTime]) {
+      if (!Number.isFinite(time)) continue;
+      const date = new Date(time);
+      if (Number.isFinite(date.getTime())) return date.toLocaleString();
+    }
+    return "Time unavailable";
+  }
   async function renderEvent(index) {
     const token = ++generation; clearImage();
     index = Math.max(0, Math.min(Number(index) || 0, Math.max(0, events.length - 1)));
     const event = events[index];
     slider.value = String(index); value("position").textContent = `${event ? index + 1 : 0} / ${events.length}`;
-    value("detail").textContent = event ? JSON.stringify({ event: event.type, sequence: event.sequence, recordedAt: new Date(event.clientWallTime).toLocaleString(), details: event.details }, null, 2) : "No events recorded.";
+    value("detail").textContent = event ? JSON.stringify({ event: event.type, sequence: event.sequence, recordedAt: recordedEventTime(event), details: event.details }, null, 2) : "No events recorded.";
     paintObservation(event, index);
     dialog.querySelectorAll(".tenet-process-events button").forEach(button => button.setAttribute("aria-current", String(Number(button.dataset.index) === index)));
-    let image = null;
-    for (let cursor = index; cursor >= 0 && !image; cursor--) image = (events[cursor]?.assets || []).find(asset => asset.mime === "image/png" || asset.mime === "image/jpeg");
+    let image = null, imageEvent = null;
+    for (let cursor = index; cursor >= 0 && !image; cursor--) {
+      image = (events[cursor]?.assets || []).find(isCheckpointImage);
+      if (image) imageEvent = events[cursor];
+    }
+    value("checkpoint-caption").textContent = imageEvent?.details?.representation === "saved-page-thumbnail" ? "This frame is a saved-page thumbnail, not a full-resolution checkpoint or a recording of every stroke. It is the nearest saved image at or before this event." : "Checkpoint replay, not a recording of every pen movement. The image is the nearest recorded checkpoint at or before the selected event.";
     value("preview").hidden = false; value("preview").textContent = image ? "Loading recorded checkpoint..." : "No rendered checkpoint at or before this event.";
+    if (savedPageId !== null && !historyAvailable) {
+      value("preview").textContent = "History unavailable for this saved whiteboard. No past steps or AI interactions can be reconstructed.";
+      value("event-title").textContent = "No recorded history";
+      value("event-description").textContent = "This page predates saved work-history capture or contains no saved history. It is not evidence that no AI was used.";
+    }
     if (!image || !selected) return;
     const blob = await assetSource.getAsset(selected.id, image.hash);
     if (token !== generation || !dialog.open) return;
@@ -223,9 +325,9 @@
     value("title").textContent = selected.title;
     const aiCount = events.filter(event => event.type.startsWith("ai.")).length;
     value("meta").textContent = `${selected.subject || "Assignment"} / ${events.length} events / ${aiCount} AI lifecycle events`;
-    value("badge").textContent = sample ? "SYNTHETIC EXAMPLE" : imported ? "IMPORTED / UNVERIFIED" : String(selected.status).toUpperCase();
-    value("coverage").textContent = `${sample ? "Fictional work and scripted AI replies. " : "Local observations, not server-attested evidence. "}Coalesced checkpoints, not full stroke playback. No verified student identity, assignment-rule enforcement or Schoology receipt.${selected.incomplete ? " Known gaps: " + (selected.coverageNotes || []).join(" ") : " Not proof of independent work."}`;
-    value("checkpoints").textContent = String(events.filter(event => (event.assets || []).some(asset => /^image\/(png|jpeg)$/.test(asset.mime))).length);
+    value("badge").textContent = savedPageId !== null ? "SAVED WHITEBOARD / ON DEVICE" : sample ? "SYNTHETIC EXAMPLE" : imported ? "IMPORTED / UNVERIFIED" : String(selected.status).toUpperCase();
+    value("coverage").textContent = savedPageId !== null && !historyAvailable ? "No process history is available for this saved whiteboard. We cannot reconstruct earlier edits, time spent or AI help, and do not substitute a sample." : `${savedPageId !== null ? "Actual process history stored with this whiteboard. " : sample ? "Fictional work and scripted AI replies. " : "Local observations, not server-attested evidence. "}Coalesced checkpoints, not full stroke playback. No verified student identity, assignment-rule enforcement or Schoology receipt.${selected.incomplete ? " Known gaps: " + (selected.coverageNotes || selected.incompleteReasons || []).join(" ") : " Not proof of independent work."}${selected.droppedEvents > 0 ? " Events omitted by retention limits: " + selected.droppedEvents + "." : ""}`;
+    value("checkpoints").textContent = String(events.filter(event => (event.assets || []).some(isCheckpointImage)).length);
     value("requests").textContent = String(events.filter(event => event.type === "ai.request").length);
     value("gaps").textContent = String(events.filter(event => event.type === "coverage.gap").length || (selected.incomplete ? "Recorded" : 0));
     slider.max = String(Math.max(0, events.length - 1)); slider.disabled = !events.length;
@@ -246,7 +348,7 @@
     stopPlaying(); generation++; clearPrepared(); clearImage();
     const attempt = await journal.readAttempt(id), nextEvents = attempt ? await journal.listEvents(id) : [];
     if (token !== selectionEpoch || session !== sessionEpoch || !dialog.open) return;
-    imported = false; sample = false; assetSource = journal; selected = attempt; events = nextEvents;
+    imported = false; sample = false; savedPageId = null; historyAvailable = true; assetSource = journal; selected = attempt; events = nextEvents;
     await paintRecord(); await refreshLibrary();
   }
   async function tick(index, token) {
@@ -277,11 +379,12 @@
   control.addEventListener("click", () => {
     if (!dialog.open) dialog.showModal();
     const session = sessionEpoch;
-    void perform(async () => { await refreshLibrary(); if (session !== sessionEpoch || !dialog.open) return; if (!viewerOnly && capture()?.activeId()) await selectAttempt(capture().activeId()); else await paintRecord(); });
+    void perform(async () => { await refreshSavedPages(true); if (session !== sessionEpoch || !dialog.open) return; await refreshLibrary(); if (session !== sessionEpoch || !dialog.open) return; await paintRecord(); });
   });
   find("close").addEventListener("click", () => dialog.close());
-  function retireView() { stopPlaying(); generation++; sessionEpoch++; selectionEpoch++; busyOwner++; dialog.dataset.busy = "false"; dialog.removeAttribute("aria-busy"); clearImage(); }
+  function retireView() { stopPlaying(); generation++; sessionEpoch++; selectionEpoch++; savedListEpoch++; busyOwner++; dialog.dataset.busy = "false"; dialog.removeAttribute("aria-busy"); clearRecord(); }
   dialog.addEventListener("close", retireView);
+  find("refresh-pages").addEventListener("click", () => void refreshSavedPages());
   if (!viewerOnly) {
   dialog.querySelector("form").addEventListener("submit", event => {
     event.preventDefault();
@@ -350,7 +453,7 @@
     if (typeof archive?.readArchive !== "function") throw Error("The read-only archive reader is unavailable in this build. The synthetic sample still works; recording has not been enabled.");
     const bundle = await archive.readArchive(file);
     if (token !== selectionEpoch || session !== sessionEpoch || !dialog.open) return;
-    selected = bundle.attempt; events = bundle.events; imported = true; sample = false; assetSource = bundle;
+    selected = bundle.attempt; events = bundle.events; imported = true; sample = false; savedPageId = null; historyAvailable = true; assetSource = bundle;
     await paintRecord(); if (session === sessionEpoch && dialog.open) message("Archive opened read-only. Internal consistency checked; identity and independent authorship are not verified.");
   }));
   find("sample").addEventListener("click", () => void perform(async () => {
@@ -359,7 +462,7 @@
     message("Preparing a fictional assignment. No recording or AI request is being started.");
     const bundle = await syntheticAssignment();
     if (token !== selectionEpoch || session !== sessionEpoch || !dialog.open) return;
-    selected = bundle.attempt; events = bundle.events; imported = true; sample = true; assetSource = bundle;
+    selected = bundle.attempt; events = bundle.events; imported = true; sample = true; savedPageId = null; historyAvailable = true; assetSource = bundle;
     await paintRecord();
     if (session !== sessionEpoch || !dialog.open) return;
     await renderEvent(0);
@@ -373,5 +476,6 @@
   window.addEventListener("tenet:sign-out", () => { dialog.close(); retireView(); selected = null; events = []; assetSource = journal; imported = false; sample = false; clearPrepared(); value("detail").textContent = ""; value("question").textContent = ""; value("response").textContent = ""; dialog.querySelector(".tenet-process-list").replaceChildren(); dialog.querySelector(".tenet-process-events").replaceChildren(); void paintRecord(); });
   document.addEventListener("visibilitychange", () => { if (document.hidden) stopPlaying(); });
   window.addEventListener("pagehide", () => { retireView(); clearPrepared(); });
+  window.TenetProcessUI = Object.freeze({openSavedPage});
   if (standalone) control.click();
 })();

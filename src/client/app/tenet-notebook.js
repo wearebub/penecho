@@ -28,6 +28,7 @@
   let restoreFocusTarget = null;
   let launcherCollapsed = readLauncherCollapsed();
   let runtimeActive = false;
+  let historySaveIncomplete = false;
   let focusFrame = null;
 
   let launcher;
@@ -504,8 +505,46 @@
     });
     move.append(dot, moveSelect);
 
-    card.append(openButton, move);
+    const historyButton = document.createElement("button");
+    historyButton.type = "button";
+    historyButton.className = "tenet-notebook-page-history";
+    historyButton.textContent = "View work history";
+    historyButton.setAttribute("aria-label", `View work history for ${snapshotName(page)}`);
+    historyButton.addEventListener("click", async () => {
+      historyButton.disabled = true;
+      try {
+        await openPageHistory(page.id);
+      } finally {
+        historyButton.disabled = false;
+      }
+    });
+
+    card.append(openButton, move, historyButton);
     return card;
+  }
+
+  async function openPageHistory(pageId) {
+    if (typeof window.TenetProcessUI?.openSavedPage !== "function") {
+      setNotebookStatus("Work history is unavailable. Reopen Tenet and try again.", "error");
+      return;
+    }
+    closeNotebook();
+    try {
+      await window.TenetProcessUI.openSavedPage(pageId);
+    } catch (_error) {
+      openNotebook();
+      setNotebookStatus("This page's history could not be opened. Your saved page is unchanged.", "error");
+    }
+  }
+
+  function handleDocumentHistoryStatus(event) {
+    if (!runtimeActive || !event.detail) return;
+    const detail = event.detail;
+    if (detail.snapshotId && detail.snapshotId !== currentDeviceSnapshotId()) return;
+    historySaveIncomplete = detail.incomplete === true;
+    if (!detail.dirty && historySaveIncomplete) {
+      setNotebookStatus("Notebook saved. History is partial.", "error");
+    }
   }
 
   function syncEditorForCurrentPage(pages, force = false) {
@@ -628,7 +667,8 @@
     if (notebookSaveInFlight) return null;
     const existingId = currentDeviceSnapshotId();
     if (autosave && (!existingId || !metadata.pages[existingId])) return null;
-    if (autosave && Number(state.userRevision) === Number(state.snapshotSavedRevision)) return existingId;
+    if (autosave && Number(state.userRevision) === Number(state.snapshotSavedRevision)
+        && !window.TenetDocumentHistory?.isDirty?.()) return existingId;
 
     notebookSaveInFlight = true;
     saveButton.disabled = true;
@@ -656,7 +696,10 @@
       lastObservedRevision = Number(state.userRevision) || 0;
       lastRevisionChangeAt = Date.now();
       await refreshPages(true);
-      setNotebookStatus(autosave ? "Autosaved on this device" : "Saved on this device", "saved");
+      setNotebookStatus(historySaveIncomplete
+        ? "Notebook saved. History is partial."
+        : (autosave ? "Autosaved on this device" : "Saved on this device"),
+      historySaveIncomplete ? "error" : "saved");
       return snapshotId;
     } catch (_error) {
       setNotebookStatus("This page could not be saved locally.", "error");
@@ -734,7 +777,7 @@
     syncEditorForCurrentPage(latestPages);
     const currentId = currentDeviceSnapshotId();
     if (!currentId || !metadata.pages[currentId]) return;
-    if (revision === Number(state.snapshotSavedRevision)) return;
+    if (revision === Number(state.snapshotSavedRevision) && !window.TenetDocumentHistory?.isDirty?.()) return;
     if (Date.now() - lastRevisionChangeAt < AUTOSAVE_IDLE_MS) return;
     if (notebookSaveInFlight || state.drawing || state.imageImporting || tenetInkController?.active()) return;
     void saveNotebookPage({ autosave: true });
@@ -806,6 +849,7 @@
     document.addEventListener("pointerdown", handleDocumentPointerDown);
     document.addEventListener("keydown", handleDocumentKeydown);
     window.addEventListener("storage", handleLauncherPreferenceStorage);
+    window.addEventListener("tenet:document-history-status", handleDocumentHistoryStatus);
     autosaveInterval = window.setInterval(monitorAutosave, AUTOSAVE_POLL_MS);
   }
 
@@ -817,6 +861,7 @@
     document.removeEventListener("pointerdown", handleDocumentPointerDown);
     document.removeEventListener("keydown", handleDocumentKeydown);
     window.removeEventListener("storage", handleLauncherPreferenceStorage);
+    window.removeEventListener("tenet:document-history-status", handleDocumentHistoryStatus);
     restoreFocusTarget = null;
     closeNotebook();
     unbindHeaderPages();

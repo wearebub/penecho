@@ -26,6 +26,7 @@ const SOURCES = [
   "src/client/app/tenet-ipad-usability.js",
   "src/client/app/tenet-object-resize.js",
   "src/client/app/tenet-process-capture.js",
+  "src/client/app/tenet-document-history.js",
   "src/client/app/tenet-process-ui.js",
   "src/client/app/ui-bootstrap.js",
   "src/client/app/tenet-branding.js",

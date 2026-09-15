@@ -23,7 +23,7 @@ const instrumented = notebookSource.replace(
     '',
     '  globalThis.notebookTest = {',
     '    readLauncherCollapsed, setLauncherCollapsed, handleLauncherPreferenceStorage,',
-    '    startRuntime, handlePageHide, handlePageShow, openNotebook, closeNotebook,',
+    '    startRuntime, handlePageHide, handlePageShow, openNotebook, closeNotebook, openPageHistory,',
     '    getLauncherCollapsed: () => launcherCollapsed,',
     '    attachUI(elements) {',
     '      launcherDock = elements.dock; launcherToggle = elements.toggle;',
@@ -407,6 +407,33 @@ test('the notebook leaves upstream Pages untouched outside Tenet mode', () => {
   assert.equal(context.notebookTest, undefined);
   assert.equal(header.getAttribute('aria-controls'), 'historyPanel');
   assert.equal(header.listenerCount('click'), 0);
+});
+
+test('a saved-page History action closes the notebook and opens that save without loading its canvas', async () => {
+  const instance = harness();
+  const opened = [];
+  instance.window.TenetProcessUI = {
+    async openSavedPage(id) {
+      assert.equal(instance.overlay.hidden, true, 'Close the notebook before opening the teacher dialog');
+      opened.push(id);
+    }
+  };
+  instance.controls.startRuntime();
+  instance.controls.openNotebook();
+  assert.equal(instance.overlay.hidden, false);
+  await instance.controls.openPageHistory('saved-page');
+  assert.deepEqual(opened, ['saved-page']);
+  assert.equal(instance.overlay.hidden, true);
+  instance.controls.handlePageHide({ persisted: false });
+});
+
+test('every saved-page card has a touch-sized history action and autosave includes history-only edits', () => {
+  assert.match(notebookSource, /historyButton\.textContent = "View work history"/);
+  assert.match(notebookSource, /await openPageHistory\(page\.id\)/);
+  assert.match(notebookSource, /card\.append\(openButton, move, historyButton\)/);
+  assert.ok(parseFloat(rule(notebookCss, '.tenet-notebook-page-history')['min-height']) >= 44);
+  assert.match(notebookSource, /if \(autosave && Number\(state\.userRevision\) === Number\(state\.snapshotSavedRevision\)\s*&& !window\.TenetDocumentHistory\?\.isDirty\?\.\(\)\) return existingId/);
+  assert.match(notebookSource, /if \(revision === Number\(state\.snapshotSavedRevision\) && !window\.TenetDocumentHistory\?\.isDirty\?\.\(\)\) return/);
 });
 
 test('whiteboard chrome is opaque with app/page/header specificity over studio styling', () => {

@@ -1143,13 +1143,18 @@
     }
     if (!SNAPSHOT_LOCATIONS.has(location)) throw Error("Invalid snapshot location");
     if (overwriteId && state.currentSnapshotLocation !== location) throw Error(t("noCurrentSnapshot"));
+    const documentHistory = window.TenetDocumentHistory,
+      historySave = documentHistory?.beginSave(location);
     await finalizeCanvasForSnapshot();
-    if (!tenetInkBounds() && !tiles.size && !state.images.length && !state.textBoxes.length && !state.preservedSnapshotAnimations.length && (!pluginEnabled("animation") || !state.animations.length) && !visibleWidgets().length) {
+    if (historySave && !documentHistory.isSaveCurrent(historySave)) return null;
+    if (!tenetInkBounds() && !tiles.size && !state.images.length && !state.textBoxes.length && !state.preservedSnapshotAnimations.length && (!pluginEnabled("animation") || !state.animations.length) && !visibleWidgets().length && !documentHistory?.hasWork()) {
       setStatusKey("emptyCanvas");
       return null;
     }
     await prepareVisibleWidgetSnapshots(null, false);
+    if (historySave && !documentHistory.isSaveCurrent(historySave)) return null;
     const savedUserRevision = state.userRevision;
+    if (historySave) documentHistory.pinSave(historySave);
     const nameInput = document.querySelector("#historyName"),
       existing = overwriteId ? snapshotItems.find((item) => item.id === overwriteId) : null,
       id = overwriteId || `${Date.now()}-${crypto.randomUUID?.() || Math.random().toString(36).slice(2)}`,
@@ -1195,6 +1200,10 @@
         preservedAssets:snapshotPreservedAssets(state.currentSnapshotPreservedAssets),
       };
     if (overwriteId && !existing && overwriteId !== state.currentSnapshotId) throw Error(t("noCurrentSnapshot"));
+    if (historySave) {
+      item.workHistory = await documentHistory.serializeForSave(historySave, item, savedUserRevision);
+      if (!documentHistory.isSaveCurrent(historySave, savedUserRevision)) return null;
+    }
     let storedId = id,
       storedRevisionId = null;
     if (location === "server") await saveServerSnapshot(item, tileEntries, overwriteId);
@@ -1202,7 +1211,16 @@
       const saved = await saveCloudSnapshot(item, tileEntries, overwriteId);
       storedId = saved.id;
       storedRevisionId = saved.revisionId;
-    } else await saveDeviceSnapshot(item, tileEntries, overwriteId);
+    } else {
+      try { await saveDeviceSnapshot(item, tileEntries, overwriteId); }
+      catch (error) {
+        if (!historySave || !item.workHistory || !["QuotaExceededError", "DataCloneError"].includes(error?.name)) throw error;
+        item.workHistory = documentHistory.degradeForSave(historySave, item.workHistory);
+        await saveDeviceSnapshot(item, tileEntries, overwriteId);
+      }
+    }
+    // A save finishing after navigation must not adopt its old ID into the new page.
+    if (historySave && !documentHistory.isSaveCurrent(historySave)) return storedId;
     nameInput.value = "";
     if (storedId !== state.currentSnapshotId || location !== state.currentSnapshotLocation)
       window.TenetProcessCapture?.boundary("saved-page-identity-changed");
@@ -1217,6 +1235,7 @@
     state.currentSnapshotManifestExtensions = snapshotExtensionObject(item.manifestExtensions);
     state.currentSnapshotPreservedAssets = snapshotPreservedAssets(item.preservedAssets);
     state.snapshotSavedRevision = savedUserRevision;
+    if (historySave) documentHistory.didSave(historySave, storedId);
     canvasAgentCanvasDidPersist(location, storedId);
     await refreshSnapshots();
     window.PenEchoStudioNavigator?.refreshSource?.(location, { force:true });
@@ -1399,6 +1418,7 @@
       applyTheme(item.theme);
       restoreImages(images);
       await restoreTextBoxes(item.textBoxes, 1);
+      if (loadGeneration !== state.snapshotLoadGeneration) return false;
       if (item.view) {
         state.scale = Math.max(0.03, Math.min(2, item.view.scale));
         state.panX = item.view.panX;
@@ -1417,6 +1437,7 @@
       state.currentSnapshotManifestExtensions = snapshotExtensionObject(item.manifestExtensions);
       state.currentSnapshotPreservedAssets = snapshotPreservedAssets(item.preservedAssets);
       state.snapshotSavedRevision = state.userRevision;
+      window.TenetDocumentHistory?.restore(item);
       const restoreStudioConversation=window.PenEchoStudioNavigator?.wantsConversationForCanvas?.({ id:item.id, location })===true;
       canvasAgentCanvasDidChange({ id:item.id, location },{clearProject:true,deferConversationStart:restoreStudioConversation});
       window.PenEchoStudioNavigator?.canvasDidLoad?.({ id:item.id, location });
@@ -1432,6 +1453,7 @@
       window.PenEchoStudioNavigator?.cancelPendingConversation?.();
       if (decodedTiles?.size) releaseSnapshotTileCanvases(decodedTiles);
       if (loadGeneration !== state.snapshotLoadGeneration) return false;
+      window.TenetDocumentHistory?.loadFailed(loadGeneration);
       const message = t("snapshotLoadFailed").replace("{message}", String(error?.message || error));
       setHistoryActivity(t("snapshotLoading").replace("{name}", displayName), message, null, "error");
       throw error;
@@ -1638,6 +1660,7 @@
     });
     state.snapshotSavedRevision = state.userRevision;
     pendingCanvasTransition = null;
+    window.TenetDocumentHistory?.restore(null, { reason:"new-blank-page" });
     document.querySelector("#newSnapshotName").value = "";
     if (dialog.open) dialog.close();
     if (document.querySelector("#historyPanel").classList.contains("open")) closeHistoryPanel();

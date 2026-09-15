@@ -12113,13 +12113,18 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     }
     if (!SNAPSHOT_LOCATIONS.has(location)) throw Error("Invalid snapshot location");
     if (overwriteId && state.currentSnapshotLocation !== location) throw Error(t("noCurrentSnapshot"));
+    const documentHistory = window.TenetDocumentHistory,
+      historySave = documentHistory?.beginSave(location);
     await finalizeCanvasForSnapshot();
-    if (!tenetInkBounds() && !tiles.size && !state.images.length && !state.textBoxes.length && !state.preservedSnapshotAnimations.length && (!pluginEnabled("animation") || !state.animations.length) && !visibleWidgets().length) {
+    if (historySave && !documentHistory.isSaveCurrent(historySave)) return null;
+    if (!tenetInkBounds() && !tiles.size && !state.images.length && !state.textBoxes.length && !state.preservedSnapshotAnimations.length && (!pluginEnabled("animation") || !state.animations.length) && !visibleWidgets().length && !documentHistory?.hasWork()) {
       setStatusKey("emptyCanvas");
       return null;
     }
     await prepareVisibleWidgetSnapshots(null, false);
+    if (historySave && !documentHistory.isSaveCurrent(historySave)) return null;
     const savedUserRevision = state.userRevision;
+    if (historySave) documentHistory.pinSave(historySave);
     const nameInput = document.querySelector("#historyName"),
       existing = overwriteId ? snapshotItems.find((item) => item.id === overwriteId) : null,
       id = overwriteId || `${Date.now()}-${crypto.randomUUID?.() || Math.random().toString(36).slice(2)}`,
@@ -12165,6 +12170,10 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
         preservedAssets:snapshotPreservedAssets(state.currentSnapshotPreservedAssets),
       };
     if (overwriteId && !existing && overwriteId !== state.currentSnapshotId) throw Error(t("noCurrentSnapshot"));
+    if (historySave) {
+      item.workHistory = await documentHistory.serializeForSave(historySave, item, savedUserRevision);
+      if (!documentHistory.isSaveCurrent(historySave, savedUserRevision)) return null;
+    }
     let storedId = id,
       storedRevisionId = null;
     if (location === "server") await saveServerSnapshot(item, tileEntries, overwriteId);
@@ -12172,7 +12181,16 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       const saved = await saveCloudSnapshot(item, tileEntries, overwriteId);
       storedId = saved.id;
       storedRevisionId = saved.revisionId;
-    } else await saveDeviceSnapshot(item, tileEntries, overwriteId);
+    } else {
+      try { await saveDeviceSnapshot(item, tileEntries, overwriteId); }
+      catch (error) {
+        if (!historySave || !item.workHistory || !["QuotaExceededError", "DataCloneError"].includes(error?.name)) throw error;
+        item.workHistory = documentHistory.degradeForSave(historySave, item.workHistory);
+        await saveDeviceSnapshot(item, tileEntries, overwriteId);
+      }
+    }
+    // A save finishing after navigation must not adopt its old ID into the new page.
+    if (historySave && !documentHistory.isSaveCurrent(historySave)) return storedId;
     nameInput.value = "";
     if (storedId !== state.currentSnapshotId || location !== state.currentSnapshotLocation)
       window.TenetProcessCapture?.boundary("saved-page-identity-changed");
@@ -12187,6 +12205,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     state.currentSnapshotManifestExtensions = snapshotExtensionObject(item.manifestExtensions);
     state.currentSnapshotPreservedAssets = snapshotPreservedAssets(item.preservedAssets);
     state.snapshotSavedRevision = savedUserRevision;
+    if (historySave) documentHistory.didSave(historySave, storedId);
     canvasAgentCanvasDidPersist(location, storedId);
     await refreshSnapshots();
     window.PenEchoStudioNavigator?.refreshSource?.(location, { force:true });
@@ -12369,6 +12388,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       applyTheme(item.theme);
       restoreImages(images);
       await restoreTextBoxes(item.textBoxes, 1);
+      if (loadGeneration !== state.snapshotLoadGeneration) return false;
       if (item.view) {
         state.scale = Math.max(0.03, Math.min(2, item.view.scale));
         state.panX = item.view.panX;
@@ -12387,6 +12407,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       state.currentSnapshotManifestExtensions = snapshotExtensionObject(item.manifestExtensions);
       state.currentSnapshotPreservedAssets = snapshotPreservedAssets(item.preservedAssets);
       state.snapshotSavedRevision = state.userRevision;
+      window.TenetDocumentHistory?.restore(item);
       const restoreStudioConversation=window.PenEchoStudioNavigator?.wantsConversationForCanvas?.({ id:item.id, location })===true;
       canvasAgentCanvasDidChange({ id:item.id, location },{clearProject:true,deferConversationStart:restoreStudioConversation});
       window.PenEchoStudioNavigator?.canvasDidLoad?.({ id:item.id, location });
@@ -12402,6 +12423,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       window.PenEchoStudioNavigator?.cancelPendingConversation?.();
       if (decodedTiles?.size) releaseSnapshotTileCanvases(decodedTiles);
       if (loadGeneration !== state.snapshotLoadGeneration) return false;
+      window.TenetDocumentHistory?.loadFailed(loadGeneration);
       const message = t("snapshotLoadFailed").replace("{message}", String(error?.message || error));
       setHistoryActivity(t("snapshotLoading").replace("{name}", displayName), message, null, "error");
       throw error;
@@ -12608,6 +12630,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     });
     state.snapshotSavedRevision = state.userRevision;
     pendingCanvasTransition = null;
+    window.TenetDocumentHistory?.restore(null, { reason:"new-blank-page" });
     document.querySelector("#newSnapshotName").value = "";
     if (dialog.open) dialog.close();
     if (document.querySelector("#historyPanel").classList.contains("open")) closeHistoryPanel();
@@ -24334,6 +24357,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
   let restoreFocusTarget = null;
   let launcherCollapsed = readLauncherCollapsed();
   let runtimeActive = false;
+  let historySaveIncomplete = false;
   let focusFrame = null;
 
   let launcher;
@@ -24810,8 +24834,46 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     });
     move.append(dot, moveSelect);
 
-    card.append(openButton, move);
+    const historyButton = document.createElement("button");
+    historyButton.type = "button";
+    historyButton.className = "tenet-notebook-page-history";
+    historyButton.textContent = "View work history";
+    historyButton.setAttribute("aria-label", `View work history for ${snapshotName(page)}`);
+    historyButton.addEventListener("click", async () => {
+      historyButton.disabled = true;
+      try {
+        await openPageHistory(page.id);
+      } finally {
+        historyButton.disabled = false;
+      }
+    });
+
+    card.append(openButton, move, historyButton);
     return card;
+  }
+
+  async function openPageHistory(pageId) {
+    if (typeof window.TenetProcessUI?.openSavedPage !== "function") {
+      setNotebookStatus("Work history is unavailable. Reopen Tenet and try again.", "error");
+      return;
+    }
+    closeNotebook();
+    try {
+      await window.TenetProcessUI.openSavedPage(pageId);
+    } catch (_error) {
+      openNotebook();
+      setNotebookStatus("This page's history could not be opened. Your saved page is unchanged.", "error");
+    }
+  }
+
+  function handleDocumentHistoryStatus(event) {
+    if (!runtimeActive || !event.detail) return;
+    const detail = event.detail;
+    if (detail.snapshotId && detail.snapshotId !== currentDeviceSnapshotId()) return;
+    historySaveIncomplete = detail.incomplete === true;
+    if (!detail.dirty && historySaveIncomplete) {
+      setNotebookStatus("Notebook saved. History is partial.", "error");
+    }
   }
 
   function syncEditorForCurrentPage(pages, force = false) {
@@ -24934,7 +24996,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     if (notebookSaveInFlight) return null;
     const existingId = currentDeviceSnapshotId();
     if (autosave && (!existingId || !metadata.pages[existingId])) return null;
-    if (autosave && Number(state.userRevision) === Number(state.snapshotSavedRevision)) return existingId;
+    if (autosave && Number(state.userRevision) === Number(state.snapshotSavedRevision)
+        && !window.TenetDocumentHistory?.isDirty?.()) return existingId;
 
     notebookSaveInFlight = true;
     saveButton.disabled = true;
@@ -24962,7 +25025,10 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       lastObservedRevision = Number(state.userRevision) || 0;
       lastRevisionChangeAt = Date.now();
       await refreshPages(true);
-      setNotebookStatus(autosave ? "Autosaved on this device" : "Saved on this device", "saved");
+      setNotebookStatus(historySaveIncomplete
+        ? "Notebook saved. History is partial."
+        : (autosave ? "Autosaved on this device" : "Saved on this device"),
+      historySaveIncomplete ? "error" : "saved");
       return snapshotId;
     } catch (_error) {
       setNotebookStatus("This page could not be saved locally.", "error");
@@ -25040,7 +25106,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     syncEditorForCurrentPage(latestPages);
     const currentId = currentDeviceSnapshotId();
     if (!currentId || !metadata.pages[currentId]) return;
-    if (revision === Number(state.snapshotSavedRevision)) return;
+    if (revision === Number(state.snapshotSavedRevision) && !window.TenetDocumentHistory?.isDirty?.()) return;
     if (Date.now() - lastRevisionChangeAt < AUTOSAVE_IDLE_MS) return;
     if (notebookSaveInFlight || state.drawing || state.imageImporting || tenetInkController?.active()) return;
     void saveNotebookPage({ autosave: true });
@@ -25112,6 +25178,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     document.addEventListener("pointerdown", handleDocumentPointerDown);
     document.addEventListener("keydown", handleDocumentKeydown);
     window.addEventListener("storage", handleLauncherPreferenceStorage);
+    window.addEventListener("tenet:document-history-status", handleDocumentHistoryStatus);
     autosaveInterval = window.setInterval(monitorAutosave, AUTOSAVE_POLL_MS);
   }
 
@@ -25123,6 +25190,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     document.removeEventListener("pointerdown", handleDocumentPointerDown);
     document.removeEventListener("keydown", handleDocumentKeydown);
     window.removeEventListener("storage", handleLauncherPreferenceStorage);
+    window.removeEventListener("tenet:document-history-status", handleDocumentHistoryStatus);
     restoreFocusTarget = null;
     closeNotebook();
     unbindHeaderPages();
@@ -27810,6 +27878,485 @@ function tenetSyncResizeHandles() {
     window.addEventListener("hashchange", () => boundary("navigation"));
     document.addEventListener("visibilitychange", () => { if (document.hidden) boundary("backgrounded"); });
   })();
+// Inside the canvas closure, after the explicitly opted-in process adapter.
+// Ordinary Tenet notebooks own this history in snapshot.workHistory. No separate
+// journal, database, upload, microphone recording, or server policy authority.
+// Events describe observed commits, not individual stroke ancestry or authorship.
+  (function initializeTenetDocumentHistory() {
+    const config = window.PENECHO_CONFIG;
+    if (config?.tenetMode !== true || config.tenetAssignmentPreview === true || config.runtime === "viewer") return;
+    const MAX_BYTES = 64 * 1024 * 1024, MAX_EVENTS = 5000, MAX_DETAILS = 12 * 1024;
+    const MAX_IMAGE = 8 * 1024 * 1024, MAX_NATIVE = 16 * 1024 * 1024;
+    const DELAY = 400, TIMEOUT = 12000;
+    const encoder = new TextEncoder(), runtimeId = crypto.randomUUID();
+    let current = null, signedOut = false, renderJob = null, requestNumber = 0, accountEpoch = 0;
+    const now = () => new Date().toISOString();
+    const bytes = value => encoder.encode(JSON.stringify(value)).length;
+    const clone = value => JSON.parse(JSON.stringify(value));
+    const page = () => ({ generation:state.snapshotLoadGeneration,
+      id:state.currentSnapshotId ?? null, location:state.currentSnapshotLocation ?? null });
+    const local = () => (state.currentSnapshotLocation || state.snapshotLocation || "device") === "device";
+    function samePage(ctx) {
+      const value = page();
+      return current === ctx && !signedOut && ctx.accountEpoch === accountEpoch &&
+        value.generation === ctx.page.generation && value.id === ctx.page.id && value.location === ctx.page.location;
+    }
+    function live() { return current && !current.closed && !document.hidden && local() && samePage(current) ? current : null; }
+    function report(ctx, error = null) {
+      if (error && ctx) ctx.error = String(error?.message || error).slice(0, 200);
+      try {
+        window.dispatchEvent(new CustomEvent("tenet:document-history-status", { detail:{
+          snapshotId:ctx?.page.id ?? null, dirty:Boolean(ctx?.hasWork && ctx.version > ctx.savedVersion),
+          incomplete:Boolean(ctx?.incomplete), droppedEvents:ctx?.droppedEvents || 0,
+          ...(ctx?.error ? { error:ctx.error } : {}),
+        } }));
+      } catch { /* A status listener cannot break ordinary editing. */ }
+    }
+    function mark(ctx, reason) {
+      ctx.incomplete = true;
+      if (!ctx.incompleteReasons.includes(reason) && ctx.incompleteReasons.length < 16) ctx.incompleteReasons.push(reason);
+      report(ctx, "Notebook history is incomplete: " + reason + ". Your canvas is unchanged.");
+    }
+    function bounded(promise) {
+      let timer;
+      return Promise.race([promise, new Promise((_, reject) => {
+        timer = setTimeout(() => reject(Error("History checkpoint timed out.")), TIMEOUT);
+      })]).finally(() => clearTimeout(timer));
+    }
+    function safeDetails(value) {
+      let result = clone(value);
+      if (bytes(result) > MAX_DETAILS) {
+        for (const field of ["question", "text"]) if (typeof result[field] === "string") result[field] = result[field].slice(0, 512);
+        result.textTruncated = true;
+        result.detailsTruncated = true;
+      }
+      if (bytes(result) > MAX_DETAILS) result = { detailsTruncated:true, evidence:"local-client-observation", serverVerified:false };
+      return result;
+    }
+    function evict(ctx) {
+      const event = ctx.events.shift();
+      if (!event) return;
+      if (ctx.lastCheckpoint?.sequence === event.sequence) ctx.lastCheckpoint = null;
+      ctx.bytes -= bytes(event);
+      for (const asset of event.assets) {
+        const stored = ctx.assets.get(asset.hash);
+        if (stored && --stored.refs === 0) { ctx.bytes -= stored.size; ctx.assets.delete(asset.hash); }
+      }
+      ctx.droppedEvents++;
+    }
+    function append(ctx, type, details = {}, attachments = []) {
+      const event = { sequence:ctx.nextSequence++, timestamp:now(), type,
+        details:safeDetails({ evidence:"local-client-observation", serverVerified:false,
+          userRevision:state.userRevision, ...details }),
+        assets:attachments.map(({ name, hash, blob }) => ({ name, hash, mime:blob.type, size:blob.size })) };
+      for (const asset of attachments) {
+        let stored = ctx.assets.get(asset.hash);
+        if (!stored) {
+          stored = { hash:asset.hash, blob:asset.blob, mime:asset.blob.type, size:asset.blob.size, refs:0 };
+          ctx.assets.set(asset.hash, stored); ctx.bytes += stored.size;
+        }
+        stored.refs++;
+      }
+      ctx.events.push(event); ctx.bytes += bytes(event); ctx.version++;
+      let trimmed = false;
+      // Leave room for a small, explicit retention-gap event. Blob references
+      // are shared until the last referencing event is evicted.
+      while (ctx.events.length > MAX_EVENTS - 1 || ctx.bytes > MAX_BYTES - 2048) { evict(ctx); trimmed = true; }
+      if (trimmed) {
+        mark(ctx, "history-retention-limit");
+        if (type !== "coverage.gap") append(ctx, "coverage.gap", { reason:"history-retention-limit", droppedEvents:ctx.droppedEvents });
+      }
+      report(ctx);
+      return event;
+    }
+    function gap(ctx, reason, details = {}) {
+      mark(ctx, reason);
+      return append(ctx, "coverage.gap", { reason, ...details });
+    }
+    function newContext() {
+      return { page:page(), accountEpoch, epoch:0, closed:false, hasWork:false, startedAt:now(),
+        events:[], assets:new Map(), bytes:0, nextSequence:1, version:0, savedVersion:0,
+        incomplete:false, incompleteReasons:[], droppedEvents:0, error:null,
+        mutation:0, timer:0, pending:null, requests:new Set(), lastNativeRevision:null, lastCheckpoint:null };
+    }
+    function stamp(ctx) {
+      return { epoch:ctx.epoch, revision:state.userRevision, mutation:ctx.mutation,
+        native:tenetInkController?.snapshot() || null, observedAt:now() };
+    }
+    function matches(ctx, value) {
+      return live() === ctx && value.epoch === ctx.epoch && value.revision === state.userRevision &&
+        value.mutation === ctx.mutation && value.native === (tenetInkController?.snapshot() || null);
+    }
+    function unsettledReason() {
+      if (state.drawing || state.areaEraseGesture || tenetInkController?.active()) return "active-input";
+      if (snapshotLoadInProgress) return "page-loading";
+      // Preserve the original settlement fence. Save finalizes the toolbox
+      // before requesting a fresh, pinned full checkpoint when needed.
+      if (hasUnsettledToolbox()) return "uncommitted-toolbox";
+      if (state.historyBefore.size || state.animationHistoryBefore || state.widgetHistoryBefore ||
+          state.imageHistoryBefore || state.textBoxHistoryBefore ||
+          state.tenetNativeHistoryBefore !== undefined) return "uncommitted-history";
+      return null;
+    }
+    async function attachment(name, blob) {
+      const digest = await bounded(crypto.subtle.digest("SHA-256", await blob.arrayBuffer()));
+      return { name, blob, hash:Array.from(new Uint8Array(digest), value => value.toString(16).padStart(2, "0")).join("") };
+    }
+    function nativeBlob(record) {
+      const source = record?.drawingData;
+      if (!source) return null;
+      if (typeof source !== "string" || source.length > Math.ceil(MAX_NATIVE / 3) * 4) throw Error("Native history attachment too large.");
+      const binary = atob(source);
+      if (binary.length > MAX_NATIVE) throw Error("Native history attachment too large.");
+      const data = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) data[i] = binary.charCodeAt(i);
+      return new Blob([data], { type:"application/octet-stream" });
+    }
+    async function checkpoint(ctx, item) {
+      let canvas = null, valid = true, stage = "settlement";
+      const isCurrent = () => valid && matches(ctx, item.stamp) && !unsettledReason();
+      try {
+        if (!isCurrent() || item.unsupported) throw Error("Unsettled history checkpoint.");
+        stage = "render";
+        canvas = await bounded(renderExportCanvas({ isCurrent, maxDimension:2048, maxPixels:4 * 1024 * 1024 })
+          .then(value => { if (!valid && value) value.width = value.height = 1; return value; }));
+        if (!isCurrent()) throw Error("History revision changed.");
+        const dimensions = canvas ? { width:canvas.width, height:canvas.height } : null, assets = [];
+        if (canvas) {
+          stage = "encode-image";
+          const blob = await bounded(canvasBlob(canvas));
+          if (blob.size > MAX_IMAGE) throw Error("History image too large.");
+          stage = "hash-image";
+          assets.push(await attachment("page.png", blob));
+        }
+        if (!isCurrent()) throw Error("History revision changed.");
+        stage = "native-attachment";
+        const native = nativeBlob(item.stamp.native);
+        if (native) assets.push(await attachment("drawing.pkdrawing", native));
+        if (!isCurrent()) throw Error("History revision changed.");
+        stage = "record-checkpoint";
+        const event = append(ctx, "canvas.checkpoint", { label:item.label, dimensions, blank:!canvas,
+          requestedStateObservedAt:item.stamp.observedAt, userRevision:item.stamp.revision,
+          representation:"coalesced-rendered-page", coalescedCommits:item.count, everyStroke:false,
+          nativeArchiveIncluded:Boolean(native), nativeStrokeCount:item.stamp.native?.strokeCount ?? null }, assets);
+        ctx.lastCheckpoint = { stamp:item.stamp, sequence:event.sequence };
+      } catch (error) {
+        if (samePage(ctx) && !ctx.closed) gap(ctx, item.unsupported || "checkpoint-render-or-revision-gap", {
+          label:item.label, requestedRevision:item.stamp.revision, coalescedCommits:item.count,
+          failureStage:stage, guard:matches(ctx, item.stamp) ? unsettledReason() : "page-or-revision-changed",
+          errorName:["Error", "TypeError", "ReferenceError", "SecurityError", "RangeError"].includes(error?.name) ? error.name : "Error" });
+      } finally {
+        valid = false;
+        if (canvas) canvas.width = canvas.height = 1;
+      }
+    }
+    function schedule(ctx) {
+      if (!ctx.timer && ctx.pending && !ctx.closed) ctx.timer = setTimeout(() => { void pump(ctx); }, DELAY);
+    }
+    function pump(ctx) {
+      clearTimeout(ctx.timer); ctx.timer = 0;
+      if (renderJob) return renderJob;
+      const item = ctx.pending;
+      ctx.pending = null;
+      if (!item || live() !== ctx) return Promise.resolve();
+      renderJob = checkpoint(ctx, item).catch(() => { if (live() === ctx) gap(ctx, "checkpoint-observer-failed"); })
+        .finally(() => { renderJob = null; if (current?.pending) schedule(current); });
+      return renderJob;
+    }
+    function requestCheckpoint(ctx, label, unsupported = null) {
+      ctx.pending = { stamp:stamp(ctx), label, unsupported, count:(ctx.pending?.count || 0) + 1 };
+      schedule(ctx);
+    }
+    async function flush() {
+      const ctx = live();
+      if (!ctx) return;
+      await pump(ctx);
+      // At most one newly coalesced checkpoint, never a polling/drain loop.
+      if (live() === ctx && ctx.pending) await pump(ctx);
+    }
+    function historyDetails(entry) {
+      return { tileChanges:Array.isArray(entry) ? entry.length : entry?.tiles?.length || 0,
+        nativeChanged:Object.prototype.hasOwnProperty.call(entry || {}, "nativeInkBefore"),
+        imagesChanged:Boolean(entry?.imagesBefore), textBoxesChanged:Boolean(entry?.textBoxesBefore),
+        widgetsChanged:Boolean(entry?.widgetsBefore), animationsChanged:Boolean(entry?.animationsBefore),
+        granularity:"history-entry-not-stroke", actor:"not-inferred" };
+    }
+    function observe(type, details, label = null, unsupported = null) {
+      const ctx = live();
+      if (!ctx) return null;
+      ctx.hasWork = true;
+      append(ctx, type, details);
+      if (label) { ctx.mutation++; requestCheckpoint(ctx, label, unsupported); }
+      return ctx;
+    }
+    function safeBox(box) {
+      return box && [box.x, box.y, box.w, box.h].every(Number.isFinite) ? { x:box.x, y:box.y, w:box.w, h:box.h } : null;
+    }
+    function aiRequested(input) {
+      const ctx = live();
+      if (!ctx) return null;
+      if (ctx.requests.size >= 8) { gap(ctx, "ai-observer-limit"); return null; }
+      const packed = input.packed || {}, question = packed.selectionQuestion ?? input.typedInput?.text;
+      const token = { ctx, epoch:ctx.epoch, id:runtimeId + ":" + (++requestNumber) };
+      ctx.requests.add(token);
+      observe("ai.request", { localRequestId:token.id, action:String(input.action || "").slice(0, 40),
+        automatic:input.automatic === true, requestRevision:input.revision,
+        question:typeof question === "string" ? question.slice(0, 4000) : null,
+        questionTruncated:typeof question === "string" && question.length > 4000,
+        context:{ evidence:"local-request-metadata-not-provider-payload", exactGatewayEvidence:false,
+          scope:packed.questionOnly ? "text-only" : packed.selectionContext ? "selection" : input.captureCurrentViewport ? "visible-page" : "recent-writing",
+          sourceRect:safeBox(packed.sourceRect), changedBox:safeBox(packed.changedBox),
+          closedSelection:packed.selectionContext?.closed === true,
+          providerImageRetained:false, promptAndPolicyNotAttested:true } });
+      return token;
+    }
+    function requestCurrent(token) { return token && live() === token.ctx && token.epoch === token.ctx.epoch && token.ctx.requests.has(token); }
+    function aiResponse(token, input) {
+      if (!requestCurrent(token)) return;
+      const commands = Array.isArray(input.commands) ? input.commands : [];
+      let text = "";
+      const tools = [];
+      for (const command of commands.slice(0, 64)) {
+        if (typeof command.tool === "string") tools.push(command.tool.slice(0, 64));
+        if (command.tool === "write_text" && typeof command.text === "string")
+          text += ((text ? "\n\n" : "") + command.text).slice(0, Math.max(0, 8000 - text.length));
+      }
+      observe("ai.response", { localRequestId:token.id, text, textTruncated:text.length === 8000 || commands.length > 64,
+        tools, commandCount:commands.length, committedToPage:false,
+        serverReportedRequestId:typeof input.requestId === "string" ? input.requestId.slice(0, 160) : null,
+        observation:"validated-current-response-before-draft-rendering",
+        nonTextOutput:"Tool names observed; committed output is represented by later page checkpoints." });
+    }
+    function aiFinished(token, outcome) {
+      if (!requestCurrent(token)) return;
+      observe("ai.finished", { localRequestId:token.id, outcome:String(outcome).slice(0, 80),
+        evidence:"local-runtime-outcome-not-server-attestation" });
+      token.ctx.requests.delete(token);
+    }
+    function boundary(reason = "page-transition") {
+      // Persistence adopts the same physical page after its first save or Save As.
+      if (reason === "saved-page-identity-changed") return;
+      const ctx = current;
+      if (ctx && !ctx.closed) {
+        if (ctx.pending || ctx.requests.size || renderJob) gap(ctx, "unfinished-work-at-boundary", { reason });
+        append(ctx, "coverage.boundary", { reason, unloadPersistenceGuaranteed:false });
+        ctx.closed = true; ctx.epoch++; ctx.pending = null; ctx.requests.clear();
+        clearTimeout(ctx.timer); ctx.timer = 0;
+      }
+      if (reason === "sign-out") { signedOut = true; accountEpoch++; current = null; report(null); }
+    }
+    function decode(value) {
+      if (!value || value.version !== 1 || !Array.isArray(value.events) || value.events.length > MAX_EVENTS ||
+          !Array.isArray(value.assets) || value.assets.length > MAX_EVENTS * 2) throw Error("Invalid saved-page history.");
+      const result = newContext();
+      let total = 0, sequence = 0;
+      for (const asset of value.assets) {
+        if (!asset || !/^[0-9a-f]{64}$/.test(asset.hash) || !(asset.blob instanceof Blob) ||
+            asset.size !== asset.blob.size || asset.mime !== asset.blob.type || asset.size > MAX_NATIVE || result.assets.has(asset.hash))
+          throw Error("Invalid history attachment.");
+        total += asset.size;
+        if (total > MAX_BYTES) throw Error("History exceeds its byte budget.");
+        result.assets.set(asset.hash, { ...asset, refs:0 });
+      }
+      for (const original of value.events) {
+        if (!original || !Number.isSafeInteger(original.sequence) || original.sequence <= sequence ||
+            !/^[a-z][a-z0-9.-]{0,63}$/.test(original.type) || typeof original.timestamp !== "string" ||
+            !Number.isFinite(Date.parse(original.timestamp)) || bytes(original.details || {}) > MAX_DETAILS ||
+            !Array.isArray(original.assets) || original.assets.length > 2) throw Error("Invalid history event.");
+        const event = clone(original);
+        total += bytes(event);
+        if (total > MAX_BYTES) throw Error("History exceeds its byte budget.");
+        for (const asset of event.assets) {
+          const stored = result.assets.get(asset.hash);
+          if (!stored || stored.size !== asset.size || stored.mime !== asset.mime || typeof asset.name !== "string" || asset.name.length > 64)
+            throw Error("Missing history attachment.");
+          stored.refs++;
+        }
+        result.events.push(event); sequence = event.sequence;
+      }
+      for (const asset of result.assets.values()) if (!asset.refs) throw Error("Unreferenced history attachment.");
+      if (sequence >= Number.MAX_SAFE_INTEGER - MAX_EVENTS) throw Error("History sequence limit reached.");
+      result.bytes = total; result.nextSequence = sequence + 1;
+      result.startedAt = typeof value.startedAt === "string" ? value.startedAt.slice(0, 40) : now();
+      result.incomplete = value.incomplete === true;
+      result.incompleteReasons = Array.isArray(value.incompleteReasons) ? value.incompleteReasons.slice(0, 16).map(reason => String(reason).slice(0, 160)) : [];
+      result.droppedEvents = Number.isSafeInteger(value.droppedEvents) && value.droppedEvents >= 0 ? value.droppedEvents : 0;
+      result.hasWork = result.events.some(event => /^(canvas\.commit|canvas\.undo|canvas\.redo|native\.revision|ai\.)/.test(event.type));
+      return result;
+    }
+    function snapshot(ctx) {
+      return { version:1, startedAt:ctx.startedAt, updatedAt:now(), nextSequence:ctx.nextSequence,
+        incomplete:ctx.incomplete, incompleteReasons:ctx.incompleteReasons.slice(), droppedEvents:ctx.droppedEvents,
+        bytes:ctx.bytes, events:clone(ctx.events),
+        assets:Array.from(ctx.assets.values(), ({ hash, blob, mime, size }) => ({ hash, blob, mime, size })) };
+    }
+    function restore(item = null, options = {}) {
+      if (signedOut || !local()) { boundary("non-local-page"); return; }
+      boundary("document-replaced");
+      let ctx = newContext();
+      if (item?.workHistory) {
+        try { ctx = decode(item.workHistory); }
+        catch { mark(ctx, "saved-history-invalid"); }
+      }
+      current = ctx;
+      if (item) {
+        gap(ctx, item.workHistory ? "reload-or-unobserved-period" : "history-unavailable-before-this-open", {
+          historicalActionsReconstructed:false });
+      }
+      append(ctx, "document.opened", { baselineOnly:true, existingPage:Boolean(item),
+        historyStartsNow:!item?.workHistory, reason:options.reason || "page-opened",
+        coverage:"Observed edits and AI, coalesced checkpoints; no outside-app activity, audio, or per-stroke ancestry." });
+      requestCheckpoint(ctx, item ? "reopened-baseline" : "initial-baseline");
+    }
+    function loadFailed(generation) {
+      const ctx = current;
+      if (!ctx || signedOut || generation !== state.snapshotLoadGeneration || state.currentSnapshotId !== ctx.page.id) return;
+      ctx.page = page(); ctx.closed = false; ctx.epoch++;
+      gap(ctx, "failed-load-unobserved-period");
+      requestCheckpoint(ctx, "after-failed-load-baseline");
+    }
+    function beginSave(location) {
+      const ctx = live();
+      return ctx && location === "device" ? { ctx, epoch:ctx.epoch, accountEpoch, preparedVersion:null } : null;
+    }
+    function isSaveCurrent(token, revision) {
+      return Boolean(token && !signedOut && token.accountEpoch === accountEpoch && !token.ctx.closed &&
+        samePage(token.ctx) && token.epoch === token.ctx.epoch &&
+        (revision === undefined || (revision === state.userRevision && token.stamp?.mutation === token.ctx.mutation &&
+          token.stamp?.native === (tenetInkController?.snapshot() || null))));
+    }
+    function pinSave(token) { if (isSaveCurrent(token)) token.stamp = stamp(token.ctx); }
+    async function serializeForSave(token, item, revision) {
+      if (!isSaveCurrent(token, revision)) return null;
+      const ctx = token.ctx;
+      // Save has finalized edits. Recover a full checkpoint missed while the
+      // UI was unsettled, using the already-pinned save revision, never a later
+      // page state. Drain at most the existing job and one coalesced checkpoint.
+      if (!ctx.lastCheckpoint || !matches(ctx, ctx.lastCheckpoint.stamp)) {
+        ctx.pending = { stamp:token.stamp, label:"saved-end-state", unsupported:null,
+          count:(ctx.pending?.count || 0) + 1 };
+      }
+      await flush();
+      if (!isSaveCurrent(token, revision)) return null;
+      if (ctx.lastCheckpoint && matches(ctx, ctx.lastCheckpoint.stamp)) {
+        token.preparedVersion = ctx.version;
+        return snapshot(ctx);
+      }
+      try {
+        // A real capture failure retains the explicit gap above. The snapshot
+        // thumbnail is only the bounded fallback, never the normal end state.
+        const assets = [];
+        if (item.preview instanceof Blob && item.preview.size <= MAX_IMAGE)
+          assets.push(await attachment(item.preview.type === "image/webp" ? "page.webp" : "page.png", item.preview));
+        const native = nativeBlob(token.stamp.native);
+        if (native) assets.push(await attachment("drawing.pkdrawing", native));
+        if (!isSaveCurrent(token, revision)) return null;
+        append(ctx, "canvas.checkpoint", { label:"saved-end-state", userRevision:revision,
+          representation:"saved-page-thumbnail", thumbnailMayBeFallback:true, everyStroke:false,
+          nativeArchiveIncluded:Boolean(native), blank:assets.every(asset => !asset.blob.type.startsWith("image/")) }, assets);
+      } catch {
+        if (!isSaveCurrent(token, revision)) return null;
+        gap(ctx, "save-checkpoint-attachment-failed");
+      }
+      token.preparedVersion = ctx.version;
+      return snapshot(ctx);
+    }
+    function degradeForSave(token, prepared) {
+      if (!token || !prepared) return null;
+      mark(token.ctx, "snapshot-history-storage-failed");
+      // Keep all in-memory events for retry. Only this fallback save is reduced;
+      // it explicitly states that its history is unavailable, not complete.
+      const last = prepared.events.at(-1);
+      return { version:1, startedAt:prepared.startedAt, updatedAt:now(), incomplete:true,
+        incompleteReasons:["snapshot-history-storage-failed"], droppedEvents:prepared.droppedEvents + prepared.events.length,
+        events:[{ sequence:(last?.sequence || 0) + 1, timestamp:now(), type:"coverage.gap",
+          details:{ reason:"snapshot-history-storage-failed", evidence:"local-client-observation", serverVerified:false,
+            omittedEvents:prepared.events.length, notebookContentPreserved:true }, assets:[] }], assets:[] };
+    }
+    function didSave(token, id) {
+      const ctx = token?.ctx;
+      if (!ctx || current !== ctx || signedOut || ctx.closed || token.epoch !== ctx.epoch ||
+          token.accountEpoch !== accountEpoch || ctx.page.generation !== state.snapshotLoadGeneration ||
+          state.currentSnapshotId !== id || state.currentSnapshotLocation !== "device") return;
+      ctx.page = page();
+      ctx.savedVersion = Math.max(ctx.savedVersion, token.preparedVersion ?? -1);
+      report(ctx);
+    }
+    function assertReader(epoch) {
+      if (signedOut || epoch !== accountEpoch) throw Error("Notebook history is unavailable after an account change.");
+    }
+    async function listSavedPages() {
+      const epoch = accountEpoch;
+      assertReader(epoch);
+      const items = await allSnapshots();
+      assertReader(epoch);
+      return items.map(item => ({ id:item.id, name:item.name || "Untitled canvas", createdAt:item.createdAt,
+        eventCount:Array.isArray(item.workHistory?.events) ? Math.min(MAX_EVENTS, item.workHistory.events.length) : 0,
+        hasHistory:item.workHistory?.version === 1 && Array.isArray(item.workHistory.events) && item.workHistory.events.length > 0 }));
+    }
+    async function readSavedPage(id) {
+      const epoch = accountEpoch;
+      assertReader(epoch);
+      const stored = await readDeviceSnapshot(id);
+      assertReader(epoch);
+      if (!stored?.item) throw Error("Saved notebook page was not found.");
+      const item = stored.item;
+      let history = null, invalid = false;
+      if (item.workHistory) { try { history = decode(item.workHistory); } catch { invalid = true; } }
+      const events = history?.events || [];
+      return { historyAvailable:Boolean(history && events.length), events,
+        attempt:{ id:item.id, title:item.name || "Untitled canvas", phase:"unconfigured", status:"saved",
+          createdAt:item.createdAt, updatedAt:item.updatedAt || item.createdAt, eventCount:events.length,
+          incomplete:invalid || Boolean(history?.incomplete), incompleteReasons:invalid ? ["saved-history-invalid"] : history?.incompleteReasons || [],
+          droppedEvents:history?.droppedEvents || 0, evidence:"local-client-observation", serverVerified:false },
+        async getAsset(attemptId, hash) {
+          assertReader(epoch);
+          if (attemptId !== item.id) throw Error("History asset belongs to a different saved page.");
+          const asset = history?.assets.get(hash);
+          if (!asset) throw Error("History attachment is unavailable.");
+          const checked = await attachment("asset", asset.blob);
+          assertReader(epoch);
+          if (checked.hash !== hash) throw Error("History attachment hash mismatch.");
+          return asset.blob;
+        } };
+    }
+    function protect(callback) {
+      return (...args) => {
+        try { return callback(...args); }
+        catch { if (current) mark(current, "history-observer-failed"); return null; }
+      };
+    }
+    window.TenetDocumentHistory = Object.freeze({ listSavedPages, readSavedPage,
+      currentSavedPageId:() => !signedOut && state.currentSnapshotLocation === "device" ? state.currentSnapshotId ?? null : null,
+      isDirty:() => Boolean(live()?.hasWork && current.version > current.savedVersion),
+      hasWork:() => Boolean(live()?.hasWork), flush,
+      beginSave:protect(beginSave), pinSave:protect(pinSave), isSaveCurrent,
+      serializeForSave, degradeForSave:protect(degradeForSave), didSave:protect(didSave),
+      restore:protect(restore), loadFailed:protect(loadFailed) });
+    window.TenetProcessCapture = Object.freeze({
+      boundary:protect(boundary), aiRequested:protect(aiRequested), aiResponse:protect(aiResponse), aiFinished:protect(aiFinished),
+      commit:protect(entry => observe("canvas.commit", historyDetails(entry), "committed-edit")),
+      history:protect((entry, side) => observe(side === "before" ? "canvas.undo" : "canvas.redo", historyDetails(entry), "history-change",
+        entry?.[side === "before" ? "textBoxesBefore" : "textBoxesAfter"] ? "asynchronous-text-restoration-not-observed" : null)),
+      nativeRevision:protect(value => {
+        const ctx = live();
+        if (!ctx || ctx.lastNativeRevision === value.revision) return;
+        ctx.lastNativeRevision = value.revision;
+        observe("native.revision", { revision:value.revision, strokeCount:value.strokeCount,
+          changedBounds:safeBox(value.changedBounds), changedBoundsAreConservative:true,
+          granularity:"accepted-PKDrawing-revision-not-individual-stroke" }, "native-revision");
+      }) });
+    window.addEventListener("tenet:sign-out", () => boundary("sign-out"));
+    for (const event of ["pagehide", "popstate", "hashchange"]) window.addEventListener(event, () => boundary(event));
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) boundary("backgrounded");
+      else if (current?.closed && samePage(current)) {
+        current.closed = false; current.epoch++;
+        gap(current, "background-unobserved-period"); requestCheckpoint(current, "foreground-baseline");
+      }
+    });
+    restore(null, { reason:"automatic-notebook-history" });
+  })();
 // Local assignment-preview controls. Server policy and LMS receipts are later lanes.
 (function installTenetProcessUI() {
   "use strict";
@@ -27818,14 +28365,16 @@ function tenetSyncResizeHandles() {
   const journal = !standalone && window.PENECHO_CONFIG?.tenetAssignmentPreview === true ? window.TenetProcessJournal : null;
   const viewerOnly = !journal;
   const capture = () => viewerOnly ? null : window.TenetProcessCapture;
+  const documents = () => standalone ? null : window.TenetDocumentHistory;
   let selected = null, events = [], assetSource = journal, imported = false, sample = false;
+  let savedPageId = null, historyAvailable = true, savedListEpoch = 0;
   let exportFile = null, imageUrl = null, generation = 0, playing = false, playTimer = null;
   let sessionEpoch = 0, selectionEpoch = 0, playbackEpoch = 0, busyOwner = 0;
   const control = document.createElement("button");
   control.type = "button"; control.className = "tenet-process-launch";
   control.setAttribute("aria-haspopup", "dialog");
-  control.setAttribute("aria-label", "Teacher preview: assignment playback");
-  control.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m2 8 10-5 10 5-10 5-10-5Zm4 3v6c4 3 8 3 12 0v-6M22 8v9"/></svg><span>Teacher preview</span>';
+  control.setAttribute("aria-label", "Teacher view: saved whiteboard history");
+  control.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m2 8 10-5 10 5-10 5-10-5Zm4 3v6c4 3 8 3 12 0v-6M22 8v9"/></svg><span>Teacher view</span>';
   // One same-document modal preserves scratch work and obeys frame-ancestors.
   const dialog = document.createElement("dialog");
   dialog.className = "tenet-process-dialog";
@@ -27833,25 +28382,28 @@ function tenetSyncResizeHandles() {
   dialog.setAttribute("aria-labelledby", "tenetProcessTitle");
   control.setAttribute("aria-controls", dialog.id);
   dialog.innerHTML = `
-    <header class="tenet-process-heading"><div><small>TENET / ASSIGNMENT PLAYBACK</small><h2 id="tenetProcessTitle">See how the thinking unfolded.</h2></div><button type="button" data-action="close" aria-label="Close teacher preview">Close</button></header>
-    <p class="tenet-process-disclosure">Teacher-style preview, not an authenticated teacher dashboard. This viewer does not upload work or call AI. Real teacher access, assignment rules and Schoology hand-in are not connected. Ordinary canvas AI continues through the district Gateway.</p>
-    <p class="tenet-process-status" role="status" aria-live="polite">Explore a synthetic example, or explicitly record a local assignment.</p>
+    <header class="tenet-process-heading"><div><small>TENET / TEACHER VIEW</small><h2 id="tenetProcessTitle">The work behind the answer.</h2></div><button type="button" data-action="close" aria-label="Close teacher view">Back to canvas</button></header>
+    <p class="tenet-process-disclosure">On-device Teacher view, not an authenticated teacher or LMS service. Select a saved whiteboard to inspect the actions, checkpoints and AI interactions saved with it. This viewer never loads the page onto your canvas, starts recording, uploads work or calls AI. District AI rules still apply to normal canvas requests.</p>
+    <p class="tenet-process-status" role="status" aria-live="polite">Choose a saved whiteboard to see its actual work history.</p>
     <div class="tenet-process-layout">
       <aside class="tenet-process-sidebar">
+        <section class="tenet-process-saved"><div class="tenet-process-saved-heading"><h3>Saved whiteboards</h3><button type="button" data-action="refresh-pages">Refresh</button></div><p class="tenet-process-saved-caption">History travels with the saved page. Older pages may not have recorded history.</p><nav class="tenet-process-saved-pages" aria-label="Saved whiteboards"></nav></section>
+        <details class="tenet-process-examples"><summary>Examples & archive imports</summary>
         <div class="tenet-process-demo"><small>START HERE</small><h3>A hint, then a next step.</h3><p>Follow a fictional algebra example. No student data and no AI request.</p><button type="button" data-action="sample" class="tenet-process-primary">Play a sample assignment</button></div>
         <button type="button" data-action="open">Open a history archive</button>
         <input data-file="archive" type="file" accept=".json,.tenet-work,application/json" hidden />
+        </details>
         <details class="tenet-process-record-options"><summary>Record my current page</summary><form data-form="start"><h3>Opt-in local capture</h3>
           <label>Assignment title<input name="title" required maxlength="80" placeholder="Problem set: linear equations" autocomplete="off" /></label>
           <label>Subject<input name="subject" maxlength="80" placeholder="Math" autocomplete="off" /></label>
           <label class="tenet-process-consent"><input name="consent" type="checkbox" required /><span>Record this page's edits, checkpoints and observed AI activity locally. Use synthetic work in this preview; this browser profile is not separated by school account.</span></label>
           <button type="submit" class="tenet-process-primary">Start capture on this page</button>
         </form></details>
-        <div class="tenet-process-library-heading"><h3>Local histories</h3><button type="button" data-action="refresh">Refresh</button></div>
+        <div class="tenet-process-library-heading"><h3>Advanced captures</h3><button type="button" data-action="refresh">Refresh</button></div>
         <nav class="tenet-process-list" aria-label="Recorded assignments"></nav>
       </aside>
       <section class="tenet-process-work" aria-label="Assignment history viewer">
-        <div class="tenet-process-empty"><span>TEACHER PREVIEW</span><h3>The work behind the answer.</h3><p>See a page develop alongside the questions asked and the help received. Start with the sample, or open a local history. No past work is reconstructed.</p></div>
+        <div class="tenet-process-empty"><span>SAVED WHITEBOARD HISTORY</span><h3>Choose the work you want to understand.</h3><p>Select a saved whiteboard to review its actual recorded edits and AI help. No manual recording or archive export is required. Missing history is never reconstructed.</p></div>
         <div class="tenet-process-record" hidden>
           <div class="tenet-process-record-heading"><div><h3 data-value="title"></h3><p data-value="meta"></p></div><span class="tenet-process-badge" data-value="badge"></span></div>
           <p class="tenet-process-coverage" data-value="coverage"></p>
@@ -27867,7 +28419,7 @@ function tenetSyncResizeHandles() {
           </div>
           <div class="tenet-process-preview"><img alt="Recorded page checkpoint" hidden /><p data-value="preview">No rendered checkpoint selected.</p></div>
           <div class="tenet-process-playback"><button type="button" data-action="play">Play history</button><input type="range" min="0" max="0" value="0" aria-label="History position" /><output data-value="position">0 / 0</output></div>
-          <p class="tenet-process-caption">Checkpoint replay, not a recording of every pen movement. The image is the nearest recorded checkpoint at or before the selected event.</p>
+          <p class="tenet-process-caption" data-value="checkpoint-caption">Checkpoint replay, not a recording of every pen movement. The image is the nearest recorded checkpoint at or before the selected event.</p>
           <div class="tenet-process-detail"><div><h3>Work timeline</h3><p class="tenet-process-caption" data-value="timeline-note"></p><nav class="tenet-process-events" aria-label="Recorded events"></nav></div><section class="tenet-process-observation" aria-label="AI help and process evidence"><small data-value="event-label"></small><h3 data-value="event-title"></h3><p data-value="event-description"></p><div class="tenet-process-conversation" hidden><h4>Question observed</h4><p data-value="question"></p><h4>Tenet reply observed</h4><p data-value="response"></p><p class="tenet-process-caption" data-value="ai-provenance"></p></div><details><summary>Technical event details</summary><pre data-value="detail" aria-label="Event details"></pre></details></section></div>
         </div>
       </section>
@@ -27889,8 +28441,14 @@ function tenetSyncResizeHandles() {
     dialog.querySelector('.tenet-process-record-options').hidden = true;
     dialog.querySelector(".tenet-process-library-heading").hidden = true;
     dialog.querySelector(".tenet-process-list").hidden = true;
+  }
+  if (standalone) {
+    dialog.querySelector(".tenet-process-saved").hidden = true;
+    dialog.querySelector(".tenet-process-examples").open = true;
     dialog.querySelector(".tenet-process-heading small").textContent = "TENET WORK HISTORY VIEWER";
-    dialog.querySelector(".tenet-process-disclosure").textContent = "Open a Tenet history archive from your device. This viewer is read-only and makes no AI, school-account or upload requests. File consistency is not proof of student identity or independent work.";
+    dialog.querySelector(".tenet-process-disclosure").textContent = "Open a Tenet history archive from your device or explore the synthetic example. This viewer is read-only and never enumerates saved whiteboards or makes AI, school-account or upload requests. File consistency is not proof of student identity or independent work.";
+    dialog.querySelector(".tenet-process-empty p").textContent = "Open a local history archive or explore the fictional example. This public viewer cannot list whiteboards saved inside the app.";
+    find("close").textContent = "Close";
     statusLine.textContent = "Try the synthetic sample or open an archive from your device.";
   }
   function message(text, error = false) {
@@ -27907,10 +28465,81 @@ function tenetSyncResizeHandles() {
   function clearPrepared() {
     exportFile = null; find("download").hidden = true; find("share").hidden = true;
   }
+  function clearRecord() {
+    selected = null; events = []; assetSource = journal; imported = false; sample = false;
+    savedPageId = null; historyAvailable = true;
+    clearPrepared(); clearImage();
+    for (const name of ["title", "meta", "badge", "coverage", "detail", "question", "response", "ai-provenance", "event-title", "event-description"]) value(name).textContent = "";
+    dialog.querySelector(".tenet-process-events").replaceChildren();
+    dialog.querySelector(".tenet-process-saved-pages").replaceChildren();
+    dialog.querySelector(".tenet-process-list").replaceChildren();
+    void paintRecord();
+  }
+  async function refreshSavedPages(selectCurrent = false) {
+    if (standalone) return;
+    const session = sessionEpoch, token = ++savedListEpoch, selection = selectionEpoch;
+    const list = dialog.querySelector(".tenet-process-saved-pages"), provider = documents();
+    list.textContent = "Loading saved whiteboards...";
+    if (typeof provider?.listSavedPages !== "function") { list.textContent = "Saved-whiteboard history is unavailable in this build."; message(list.textContent, true); return; }
+    try {
+      const rows = await provider.listSavedPages();
+      const currentId = typeof provider.currentSavedPageId === "function" ? await provider.currentSavedPageId() : null;
+      if (session !== sessionEpoch || token !== savedListEpoch || !dialog.open) return;
+      if (!Array.isArray(rows)) throw Error("The saved-whiteboard list could not be read.");
+      list.replaceChildren();
+      for (const row of rows) {
+        const button = document.createElement("button"), name = document.createElement("span"), detail = document.createElement("small");
+        button.type = "button"; button.dataset.pageId = String(row.id);
+        button.setAttribute("aria-current", String(savedPageId !== null && String(savedPageId) === String(row.id)));
+        name.textContent = row.name || "Untitled whiteboard";
+        detail.textContent = `${row.hasHistory === true ? String(row.eventCount || 0) + " recorded events" : "History unavailable"}${currentId != null && String(currentId) === String(row.id) ? " / Current page" : ""}`;
+        button.append(name, detail); button.addEventListener("click", () => void selectSavedPage(row.id)); list.append(button);
+      }
+      if (!rows.length) list.textContent = "No saved whiteboards yet. Save your canvas to view the history stored with it.";
+      if (selectCurrent && selection === selectionEpoch && currentId != null && rows.some(row => String(row.id) === String(currentId))) await selectSavedPage(currentId);
+    } catch (error) {
+      if (session !== sessionEpoch || token !== savedListEpoch || !dialog.open) return;
+      list.textContent = "Saved whiteboards could not be read. Try Refresh.";
+      message(error?.message || list.textContent, true);
+    }
+  }
+  async function selectSavedPage(id) {
+    const token = ++selectionEpoch, session = sessionEpoch;
+    stopPlaying(); generation++; clearPrepared(); clearImage();
+    selected = null; events = []; savedPageId = null;
+    await paintRecord();
+    message("Opening the history saved with this whiteboard...");
+    try {
+      const provider = documents();
+      if (typeof provider?.readSavedPage !== "function") throw Error("Saved-whiteboard history is unavailable in this build.");
+      const bundle = await provider.readSavedPage(id);
+      if (session !== sessionEpoch || token !== selectionEpoch || !dialog.open) return false;
+      if (!bundle?.attempt || !Array.isArray(bundle.events) || typeof bundle.getAsset !== "function") throw Error("This whiteboard's history could not be read.");
+      savedPageId = id; historyAvailable = bundle.historyAvailable === true;
+      selected = bundle.attempt; events = historyAvailable ? bundle.events : [];
+      assetSource = bundle; imported = true; sample = false;
+      dialog.querySelectorAll(".tenet-process-saved-pages button").forEach(button => button.setAttribute("aria-current", String(button.dataset.pageId === String(id))));
+      await paintRecord();
+      if (session !== sessionEpoch || token !== selectionEpoch || !dialog.open) return false;
+      message(historyAvailable ? "Showing actual history saved with this whiteboard. Your scratch canvas is unchanged." : "No work history was saved for this whiteboard. Earlier actions and AI help cannot be reconstructed.");
+      return true;
+    } catch (error) {
+      if (session === sessionEpoch && token === selectionEpoch && dialog.open) message(error?.message || "This whiteboard's history could not be opened. Your canvas is unchanged.", true);
+      return false;
+    }
+  }
+  async function openSavedPage(id) {
+    if (!dialog.open) dialog.showModal();
+    savedListEpoch++; busyOwner++; dialog.dataset.busy = "false"; dialog.removeAttribute("aria-busy");
+    const opened = await selectSavedPage(id);
+    if (opened && dialog.open) await refreshSavedPages();
+    return opened;
+  }
+  function isCheckpointImage(asset) { return ["image/png", "image/jpeg", "image/webp"].includes(asset?.mime); }
   function eventTitle(event) {
     const titles = { "capture.started":"Recording began", "capture.paused":"Recording paused", "canvas.commit":"Canvas edit committed", "canvas.undo":"Edit undone", "canvas.redo":"Edit restored", "native.revision":"PencilKit revision received", "ai.request":"Question sent to Tenet", "ai.response":"Tenet reply observed", "ai.finished":"AI request finished", "coverage.gap":"Coverage gap recorded" };
     if (!event) return "No event selected";
-    if ((event.assets || []).some(asset => /^image\/(png|jpeg)$/.test(asset.mime))) return "Page checkpoint";
+    if ((event.assets || []).some(isCheckpointImage)) return event.details?.representation === "saved-page-thumbnail" ? "Saved-page thumbnail" : "Page checkpoint";
     return Object.hasOwn(titles, event.type) ? titles[event.type] : String(event.type).replaceAll(".", " ");
   }
   function paintObservation(event, index) {
@@ -28011,17 +28640,37 @@ function tenetSyncResizeHandles() {
     if (!rows.length) { const empty = document.createElement("p"); empty.textContent = "No recorded assignments yet."; list.append(empty); }
     control.dataset.recording = String(Boolean(capture()?.isRecording()));
   }
+  function recordedEventTime(event) {
+    const iso = event?.timestamp;
+    const isoTime = typeof iso === "string" && iso.length <= 40 && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/.test(iso) ? Date.parse(iso) : NaN;
+    const legacyTime = typeof event?.clientWallTime === "number" ? event.clientWallTime : NaN;
+    for (const time of [isoTime, legacyTime]) {
+      if (!Number.isFinite(time)) continue;
+      const date = new Date(time);
+      if (Number.isFinite(date.getTime())) return date.toLocaleString();
+    }
+    return "Time unavailable";
+  }
   async function renderEvent(index) {
     const token = ++generation; clearImage();
     index = Math.max(0, Math.min(Number(index) || 0, Math.max(0, events.length - 1)));
     const event = events[index];
     slider.value = String(index); value("position").textContent = `${event ? index + 1 : 0} / ${events.length}`;
-    value("detail").textContent = event ? JSON.stringify({ event: event.type, sequence: event.sequence, recordedAt: new Date(event.clientWallTime).toLocaleString(), details: event.details }, null, 2) : "No events recorded.";
+    value("detail").textContent = event ? JSON.stringify({ event: event.type, sequence: event.sequence, recordedAt: recordedEventTime(event), details: event.details }, null, 2) : "No events recorded.";
     paintObservation(event, index);
     dialog.querySelectorAll(".tenet-process-events button").forEach(button => button.setAttribute("aria-current", String(Number(button.dataset.index) === index)));
-    let image = null;
-    for (let cursor = index; cursor >= 0 && !image; cursor--) image = (events[cursor]?.assets || []).find(asset => asset.mime === "image/png" || asset.mime === "image/jpeg");
+    let image = null, imageEvent = null;
+    for (let cursor = index; cursor >= 0 && !image; cursor--) {
+      image = (events[cursor]?.assets || []).find(isCheckpointImage);
+      if (image) imageEvent = events[cursor];
+    }
+    value("checkpoint-caption").textContent = imageEvent?.details?.representation === "saved-page-thumbnail" ? "This frame is a saved-page thumbnail, not a full-resolution checkpoint or a recording of every stroke. It is the nearest saved image at or before this event." : "Checkpoint replay, not a recording of every pen movement. The image is the nearest recorded checkpoint at or before the selected event.";
     value("preview").hidden = false; value("preview").textContent = image ? "Loading recorded checkpoint..." : "No rendered checkpoint at or before this event.";
+    if (savedPageId !== null && !historyAvailable) {
+      value("preview").textContent = "History unavailable for this saved whiteboard. No past steps or AI interactions can be reconstructed.";
+      value("event-title").textContent = "No recorded history";
+      value("event-description").textContent = "This page predates saved work-history capture or contains no saved history. It is not evidence that no AI was used.";
+    }
     if (!image || !selected) return;
     const blob = await assetSource.getAsset(selected.id, image.hash);
     if (token !== generation || !dialog.open) return;
@@ -28035,9 +28684,9 @@ function tenetSyncResizeHandles() {
     value("title").textContent = selected.title;
     const aiCount = events.filter(event => event.type.startsWith("ai.")).length;
     value("meta").textContent = `${selected.subject || "Assignment"} / ${events.length} events / ${aiCount} AI lifecycle events`;
-    value("badge").textContent = sample ? "SYNTHETIC EXAMPLE" : imported ? "IMPORTED / UNVERIFIED" : String(selected.status).toUpperCase();
-    value("coverage").textContent = `${sample ? "Fictional work and scripted AI replies. " : "Local observations, not server-attested evidence. "}Coalesced checkpoints, not full stroke playback. No verified student identity, assignment-rule enforcement or Schoology receipt.${selected.incomplete ? " Known gaps: " + (selected.coverageNotes || []).join(" ") : " Not proof of independent work."}`;
-    value("checkpoints").textContent = String(events.filter(event => (event.assets || []).some(asset => /^image\/(png|jpeg)$/.test(asset.mime))).length);
+    value("badge").textContent = savedPageId !== null ? "SAVED WHITEBOARD / ON DEVICE" : sample ? "SYNTHETIC EXAMPLE" : imported ? "IMPORTED / UNVERIFIED" : String(selected.status).toUpperCase();
+    value("coverage").textContent = savedPageId !== null && !historyAvailable ? "No process history is available for this saved whiteboard. We cannot reconstruct earlier edits, time spent or AI help, and do not substitute a sample." : `${savedPageId !== null ? "Actual process history stored with this whiteboard. " : sample ? "Fictional work and scripted AI replies. " : "Local observations, not server-attested evidence. "}Coalesced checkpoints, not full stroke playback. No verified student identity, assignment-rule enforcement or Schoology receipt.${selected.incomplete ? " Known gaps: " + (selected.coverageNotes || selected.incompleteReasons || []).join(" ") : " Not proof of independent work."}${selected.droppedEvents > 0 ? " Events omitted by retention limits: " + selected.droppedEvents + "." : ""}`;
+    value("checkpoints").textContent = String(events.filter(event => (event.assets || []).some(isCheckpointImage)).length);
     value("requests").textContent = String(events.filter(event => event.type === "ai.request").length);
     value("gaps").textContent = String(events.filter(event => event.type === "coverage.gap").length || (selected.incomplete ? "Recorded" : 0));
     slider.max = String(Math.max(0, events.length - 1)); slider.disabled = !events.length;
@@ -28058,7 +28707,7 @@ function tenetSyncResizeHandles() {
     stopPlaying(); generation++; clearPrepared(); clearImage();
     const attempt = await journal.readAttempt(id), nextEvents = attempt ? await journal.listEvents(id) : [];
     if (token !== selectionEpoch || session !== sessionEpoch || !dialog.open) return;
-    imported = false; sample = false; assetSource = journal; selected = attempt; events = nextEvents;
+    imported = false; sample = false; savedPageId = null; historyAvailable = true; assetSource = journal; selected = attempt; events = nextEvents;
     await paintRecord(); await refreshLibrary();
   }
   async function tick(index, token) {
@@ -28089,11 +28738,12 @@ function tenetSyncResizeHandles() {
   control.addEventListener("click", () => {
     if (!dialog.open) dialog.showModal();
     const session = sessionEpoch;
-    void perform(async () => { await refreshLibrary(); if (session !== sessionEpoch || !dialog.open) return; if (!viewerOnly && capture()?.activeId()) await selectAttempt(capture().activeId()); else await paintRecord(); });
+    void perform(async () => { await refreshSavedPages(true); if (session !== sessionEpoch || !dialog.open) return; await refreshLibrary(); if (session !== sessionEpoch || !dialog.open) return; await paintRecord(); });
   });
   find("close").addEventListener("click", () => dialog.close());
-  function retireView() { stopPlaying(); generation++; sessionEpoch++; selectionEpoch++; busyOwner++; dialog.dataset.busy = "false"; dialog.removeAttribute("aria-busy"); clearImage(); }
+  function retireView() { stopPlaying(); generation++; sessionEpoch++; selectionEpoch++; savedListEpoch++; busyOwner++; dialog.dataset.busy = "false"; dialog.removeAttribute("aria-busy"); clearRecord(); }
   dialog.addEventListener("close", retireView);
+  find("refresh-pages").addEventListener("click", () => void refreshSavedPages());
   if (!viewerOnly) {
   dialog.querySelector("form").addEventListener("submit", event => {
     event.preventDefault();
@@ -28162,7 +28812,7 @@ function tenetSyncResizeHandles() {
     if (typeof archive?.readArchive !== "function") throw Error("The read-only archive reader is unavailable in this build. The synthetic sample still works; recording has not been enabled.");
     const bundle = await archive.readArchive(file);
     if (token !== selectionEpoch || session !== sessionEpoch || !dialog.open) return;
-    selected = bundle.attempt; events = bundle.events; imported = true; sample = false; assetSource = bundle;
+    selected = bundle.attempt; events = bundle.events; imported = true; sample = false; savedPageId = null; historyAvailable = true; assetSource = bundle;
     await paintRecord(); if (session === sessionEpoch && dialog.open) message("Archive opened read-only. Internal consistency checked; identity and independent authorship are not verified.");
   }));
   find("sample").addEventListener("click", () => void perform(async () => {
@@ -28171,7 +28821,7 @@ function tenetSyncResizeHandles() {
     message("Preparing a fictional assignment. No recording or AI request is being started.");
     const bundle = await syntheticAssignment();
     if (token !== selectionEpoch || session !== sessionEpoch || !dialog.open) return;
-    selected = bundle.attempt; events = bundle.events; imported = true; sample = true; assetSource = bundle;
+    selected = bundle.attempt; events = bundle.events; imported = true; sample = true; savedPageId = null; historyAvailable = true; assetSource = bundle;
     await paintRecord();
     if (session !== sessionEpoch || !dialog.open) return;
     await renderEvent(0);
@@ -28185,6 +28835,7 @@ function tenetSyncResizeHandles() {
   window.addEventListener("tenet:sign-out", () => { dialog.close(); retireView(); selected = null; events = []; assetSource = journal; imported = false; sample = false; clearPrepared(); value("detail").textContent = ""; value("question").textContent = ""; value("response").textContent = ""; dialog.querySelector(".tenet-process-list").replaceChildren(); dialog.querySelector(".tenet-process-events").replaceChildren(); void paintRecord(); });
   document.addEventListener("visibilitychange", () => { if (document.hidden) stopPlaying(); });
   window.addEventListener("pagehide", () => { retireView(); clearPrepared(); });
+  window.TenetProcessUI = Object.freeze({openSavedPage});
   if (standalone) control.click();
 })();
 // Pointer and control bindings, portable snapshots, and application startup.

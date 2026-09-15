@@ -115,6 +115,7 @@ function boot(options = {}) {
   };
   const capture = {activeId:() => null, isRecording:() => false, begin:async () => { calls.begin++; return {id:"new", status:"recording"}; }};
   const win = new Events(); win.PENECHO_CONFIG = {tenetMode:true, tenetAssignmentPreview:true, tenetHistoryViewerOnly:true, ...options.config};
+  win.TenetDocumentHistory = options.documentHistory;
   win.confirm = () => true; win.TenetProcessJournal = options.noJournal ? undefined : options.readOnlyJournal ? Object.freeze({readArchive:journal.readArchive}) : journal; win.TenetProcessCapture = capture;
   const timers = new Map(); let timerId = 0, urlId = 0; const urls = new Map(), revoked = [];
   const context = vm.createContext({window:win, document:doc, Blob, File, navigator:{}, URL:{createObjectURL:blob => { const url = "blob:fixture-" + (++urlId); urls.set(url, blob); return url; }, revokeObjectURL:url => { urls.delete(url); revoked.push(url); }}, setTimeout:(callback, ms) => { const id = ++timerId; timers.set(id, {callback, ms}); return id; }, clearTimeout:id => timers.delete(id)});
@@ -179,7 +180,7 @@ test("ordinary Tenet sessions open an inline read-only viewer without navigating
     assert.equal(ui.dialog.open, false); assert.equal(ui.urls.size, 0);
     assert.strictEqual(ui.win.scratch, scratch); assert.deepEqual(scratch.strokes, [1, 2, 3]);
     ui.launch.click(); await settle(); assert.equal(ui.dialog.open, true);
-    assert.match(ui.launch.getAttribute("aria-label"), /Teacher preview/);
+    assert.match(ui.launch.getAttribute("aria-label"), /Teacher view/);
     assert.equal(ui.calls.list, 0); assert.equal(ui.calls.begin, 0);
   }
 });
@@ -214,7 +215,7 @@ test("standalone preview never enumerates shared-profile history and exposes no 
   const ui = boot(); await settle();
   assert.equal(ui.dialog.open, true); assert.equal(ui.calls.list, 0);
   assert.equal(ui.dialog.querySelector(".tenet-process-record-options").hidden, true);
-  assert.match(ui.launch.textContent, /Teacher preview/);
+  assert.match(ui.launch.textContent, /Teacher view/);
   assert.match(ui.dialog.querySelector(".tenet-process-disclosure").textContent, /read-only/);
 });
 
@@ -245,12 +246,13 @@ test("replay starts with checkpoint zero and advances once per timer without ski
   await ui.runTimer(); assert.equal(ui.value("position").textContent, "3 / 3"); assert.equal(ui.timers.size, 0); assert.equal(ui.action("play").textContent, "Play history");
 });
 
-test("pause and close retire scheduled replay; reopening restores the retained checkpoint", async () => {
+test("pause and close retire scheduled replay; closing clears loaded history from the hidden dialog", async () => {
   const ui = boot(); await ui.import(); await ui.click("play"); await ui.click("play");
   assert.equal(ui.timers.size, 0);
   await ui.click("play"); assert.equal(ui.timers.size, 1);
   await ui.click("close"); assert.equal(ui.timers.size, 0); assert.equal(ui.urls.size, 0);
-  ui.launch.click(); await settle(); assert.equal(ui.dialog.open, true); assert.equal(ui.urls.size, 1); assert.equal(ui.timers.size, 0);
+  ui.launch.click(); await settle(); assert.equal(ui.dialog.open, true); assert.equal(ui.urls.size, 0); assert.equal(ui.timers.size, 0);
+  assert.equal(ui.dialog.querySelector(".tenet-process-record").hidden, true); assert.equal(ui.value("title").textContent, "");
 });
 
 test("an old replay frame cannot schedule another timer after pause and restart", async () => {
@@ -326,4 +328,160 @@ test("pagehide retires a pending archive even if it resolves later", async () =>
   const pending = deferred(); const ui = boot({readArchive:() => pending.promise});
   await ui.import(); ui.win.fire("pagehide"); pending.resolve(bundle("Too late")); await settle();
   assert.notEqual(ui.value("title").textContent, "Too late"); assert.equal(ui.urls.size, 0); assert.equal(ui.timers.size, 0);
+});
+
+function savedBundle(id, title, historyAvailable = true) {
+  const value = bundle(title, historyAvailable ? 3 : 0);
+  return {...value, historyAvailable, attempt:{...value.attempt, id, title, status:"saved"}};
+}
+function savedProvider(entries, currentId = null) {
+  const calls = {list:0, current:0, reads:[]};
+  return {calls, provider:{
+    listSavedPages:async () => { calls.list++; return entries.map(entry => ({id:entry.attempt.id, name:entry.attempt.title, createdAt:1700000000000, eventCount:entry.events.length, hasHistory:entry.historyAvailable})); },
+    currentSavedPageId:() => { calls.current++; return currentId; },
+    readSavedPage:async id => { calls.reads.push(id); const found = entries.find(entry => entry.attempt.id === id); if (!found) throw Error("Saved whiteboard not found"); return found; },
+  }};
+}
+function savedBoot(provider) { return boot({documentHistory:provider, readOnlyJournal:true, config:{tenetAssignmentPreview:undefined, tenetHistoryViewerOnly:false}}); }
+
+test("Teacher view defaults to saved whiteboards and the current saved page, not a synthetic sample", async () => {
+  const history = savedProvider([savedBundle("math", "My algebra homework"), savedBundle("science", "My lab work")], "math");
+  const ui = savedBoot(history.provider); ui.launch.click(); await settle();
+  const buttons = ui.dialog.querySelectorAll(".tenet-process-saved-pages button");
+  assert.equal(buttons.length, 2); assert.match(buttons[0].textContent, /My algebra homework/); assert.match(buttons[0].textContent, /Current page/);
+  assert.deepEqual(history.calls.reads, ["math"]); assert.equal(ui.value("title").textContent, "My algebra homework");
+  assert.equal(ui.value("badge").textContent, "SAVED WHITEBOARD / ON DEVICE"); assert.equal(ui.calls.canvases, 0);
+  assert.equal(ui.dialog.querySelector(".tenet-process-examples").open, false);
+  assert.equal(ui.calls.list, 0); assert.equal(ui.calls.read, 0); assert.equal(ui.calls.archive, 0); assert.equal(ui.calls.begin, 0);
+  assert.equal(ui.dialog.querySelector(".tenet-process-record-options").hidden, true);
+});
+
+test("saved page selection renders its actual AI question/reply and checkpoint without loading the canvas", async () => {
+  const work = savedBundle("fraction-work", "Fractions worksheet");
+  work.events.push(
+    {sequence:4, type:"ai.request", details:{localRequestId:"real-question", question:"Why do I need a common denominator?", context:{scope:"selection"}}, assets:[]},
+    {sequence:5, type:"ai.response", details:{localRequestId:"real-question", text:"What size pieces are you combining?", committedToPage:false}, assets:[]}
+  );
+  const history = savedProvider([work]); const ui = savedBoot(history.provider);
+  const scratch = {strokes:["current unsaved ink"]}; ui.win.scratch = scratch;
+  ui.win.location = Object.freeze({href:"https://district.example/whiteboard"}); ui.win.open = () => assert.fail("No new tab");
+  const result = await ui.win.TenetProcessUI.openSavedPage("fraction-work"); await settle();
+  assert.equal(result, true); assert.equal(ui.dialog.open, true);
+  assert.equal(ui.value("question").textContent, "Why do I need a common denominator?");
+  assert.equal(ui.value("response").textContent, "What size pieces are you combining?");
+  assert.equal(await [...ui.urls.values()][0].text(), "frame2");
+  assert.strictEqual(ui.win.scratch, scratch); assert.deepEqual(scratch.strokes, ["current unsaved ink"]);
+  assert.equal(ui.win.location.href, "https://district.example/whiteboard"); assert.equal(ui.calls.canvases, 0); assert.equal(ui.calls.begin, 0);
+  ui.action("close").click(); await settle(); assert.equal(ui.value("question").textContent, ""); assert.equal(ui.urls.size, 0);
+  assert.strictEqual(ui.win.scratch, scratch);
+});
+
+test("clicking a saved whiteboard changes only the history selection", async () => {
+  const history = savedProvider([savedBundle("first", "First whiteboard"), savedBundle("second", "Second whiteboard")], "first");
+  const ui = savedBoot(history.provider); ui.launch.click(); await settle();
+  ui.dialog.querySelectorAll(".tenet-process-saved-pages button")[1].click(); await settle();
+  assert.equal(ui.value("title").textContent, "Second whiteboard"); assert.deepEqual(history.calls.reads, ["first", "second"]);
+  assert.equal(ui.dialog.querySelectorAll(".tenet-process-saved-pages button")[1].getAttribute("aria-current"), "true");
+  assert.equal(ui.calls.archive, 0); assert.equal(ui.calls.begin, 0);
+});
+
+test("legacy saved whiteboards explicitly report unavailable history without invented events or examples", async () => {
+  const history = savedProvider([savedBundle("old", "Last year's work", false)], "old");
+  const ui = savedBoot(history.provider); ui.launch.click(); await settle();
+  assert.equal(ui.value("title").textContent, "Last year's work"); assert.equal(ui.value("position").textContent, "0 / 0");
+  assert.match(ui.value("preview").textContent, /History unavailable/); assert.match(ui.value("coverage").textContent, /do not substitute a sample/);
+  assert.equal(ui.value("question").textContent, ""); assert.equal(ui.action("play").disabled, true); assert.equal(ui.calls.canvases, 0);
+  assert.match(ui.dialog.querySelector(".tenet-process-status").textContent, /cannot be reconstructed/);
+});
+
+test("saved history coverage reasons and dropped events remain visible", async () => {
+  const work = savedBundle("gaps", "Work with gaps"); work.attempt.incomplete = true; work.attempt.incompleteReasons = ["Storage was unavailable during one interval."]; work.attempt.droppedEvents = 4;
+  const history = savedProvider([work]); const ui = savedBoot(history.provider); await ui.win.TenetProcessUI.openSavedPage("gaps"); await settle();
+  assert.match(ui.value("coverage").textContent, /Storage was unavailable/); assert.match(ui.value("coverage").textContent, /Events omitted by retention limits: 4/);
+  assert.match(ui.value("coverage").textContent, /not full stroke playback/);
+});
+
+test("saved-page WebP thumbnails render and are explicitly distinguished from full checkpoints", async () => {
+  const work = savedBundle("webp", "Saved fallback thumbnail");
+  work.events = [{sequence:1, type:"canvas.checkpoint", clientWallTime:1700000000000, details:{representation:"saved-page-thumbnail", everyStroke:false}, assets:[{hash:"saved-thumb", name:"page.webp", mime:"image/webp"}]}];
+  work.getAsset = async () => new Blob(["saved webp thumbnail"], {type:"image/webp"});
+  const history = savedProvider([work]); const ui = savedBoot(history.provider);
+  assert.equal(await ui.win.TenetProcessUI.openSavedPage("webp"), true); await settle();
+  assert.equal(ui.value("checkpoints").textContent, "1"); assert.equal(ui.value("event-title").textContent, "Saved-page thumbnail");
+  assert.equal(await [...ui.urls.values()][0].text(), "saved webp thumbnail");
+  assert.match(ui.value("checkpoint-caption").textContent, /saved-page thumbnail, not a full-resolution checkpoint/);
+  assert.equal(ui.calls.canvases, 0);
+});
+
+test("event details normalize saved ISO timestamps and legacy numeric times without reordering playback", async () => {
+  const work = savedBundle("times", "Timestamp compatibility");
+  const iso = "2026-09-15T18:30:45.123Z", legacy = 1700000000000;
+  work.events = [
+    {sequence:1, type:"canvas.commit", timestamp:iso, details:{note:"ISO saved event"}, assets:[]},
+    {sequence:2, type:"canvas.commit", clientWallTime:legacy, details:{note:"Older clock value, later event order"}, assets:[]},
+    {sequence:3, type:"canvas.commit", timestamp:"not a time", details:{note:"Bad timestamp"}, assets:[]},
+    {sequence:4, type:"canvas.commit", clientWallTime:1e30, details:{note:"Out of Date range"}, assets:[]},
+    {sequence:5, type:"canvas.commit", clientWallTime:null, details:{note:"No timestamp"}, assets:[]},
+    {sequence:6, type:"canvas.commit", clientWallTime:0, details:{note:"Numeric epoch is valid"}, assets:[]},
+    {sequence:7, type:"canvas.commit", timestamp:"bad", clientWallTime:legacy, details:{note:"Legacy fallback"}, assets:[]},
+  ];
+  const history = savedProvider([work]); const ui = savedBoot(history.provider);
+  assert.equal(await ui.win.TenetProcessUI.openSavedPage("times"), true); await settle();
+  const expected = [new Date(iso).toLocaleString(), new Date(legacy).toLocaleString(), "Time unavailable", "Time unavailable", "Time unavailable", new Date(0).toLocaleString(), new Date(legacy).toLocaleString()];
+  for (let index = 0; index < expected.length; index++) {
+    ui.slider.value = String(index); ui.slider.fire("input"); await settle();
+    const detail = JSON.parse(ui.value("detail").textContent);
+    assert.equal(detail.recordedAt, expected[index]); assert.equal(detail.sequence, index + 1);
+    assert.deepEqual(detail.details, work.events[index].details);
+    assert.doesNotMatch(ui.value("detail").textContent, /Invalid Date/);
+  }
+  await ui.click("play"); assert.equal(JSON.parse(ui.value("detail").textContent).sequence, 1);
+  await ui.runTimer(); assert.equal(JSON.parse(ui.value("detail").textContent).sequence, 2);
+  assert.equal(ui.calls.begin, 0); assert.equal(ui.calls.archive, 0);
+});
+
+test("a newer notebook-card request wins over a delayed saved-page read", async () => {
+  const pending = deferred(), first = savedBundle("a", "Older selection"), second = savedBundle("b", "New selection");
+  const history = savedProvider([first, second]); const original = history.provider.readSavedPage;
+  history.provider.readSavedPage = id => id === "a" ? pending.promise : original(id);
+  const ui = savedBoot(history.provider); const old = ui.win.TenetProcessUI.openSavedPage("a"); await settle();
+  assert.equal(await ui.win.TenetProcessUI.openSavedPage("b"), true);
+  pending.resolve(first); assert.equal(await old, false); await settle();
+  assert.equal(ui.value("title").textContent, "New selection"); assert.equal(ui.value("badge").textContent, "SAVED WHITEBOARD / ON DEVICE");
+});
+
+test("a delayed initial listing cannot replace an explicit notebook-card selection", async () => {
+  const pending = deferred(), first = savedBundle("a", "Current scratch page"), second = savedBundle("b", "Chosen notebook card");
+  const history = savedProvider([first, second], "a"); const list = history.provider.listSavedPages; let lists = 0;
+  history.provider.listSavedPages = () => ++lists === 1 ? pending.promise : list();
+  const ui = savedBoot(history.provider); ui.launch.click(); await settle();
+  assert.equal(await ui.win.TenetProcessUI.openSavedPage("b"), true);
+  pending.resolve(await list()); await settle();
+  assert.equal(ui.value("title").textContent, "Chosen notebook card"); assert.deepEqual(history.calls.reads, ["b"]);
+});
+
+test("closing or signing out prevents a late saved-page read from repopulating hidden history", async () => {
+  for (const action of ["close", "signout"]) {
+    const pending = deferred(); const history = savedProvider([savedBundle("late", "Late saved work")]); history.provider.readSavedPage = () => pending.promise;
+    const ui = savedBoot(history.provider); const opening = ui.win.TenetProcessUI.openSavedPage("late"); await settle();
+    if (action === "close") ui.action("close").click(); else ui.win.fire("tenet:sign-out");
+    pending.resolve(savedBundle("late", "Late saved work")); assert.equal(await opening, false); await settle();
+    assert.equal(ui.dialog.open, false); assert.equal(ui.value("title").textContent, ""); assert.equal(ui.value("question").textContent, ""); assert.equal(ui.urls.size, 0);
+  }
+});
+
+test("saved-page load errors are visible and never fall back to fictional sample content", async () => {
+  const history = savedProvider([]); const ui = savedBoot(history.provider);
+  assert.equal(await ui.win.TenetProcessUI.openSavedPage("missing"), false); await settle();
+  assert.match(ui.dialog.querySelector(".tenet-process-status").textContent, /Saved whiteboard not found/);
+  assert.equal(ui.dialog.querySelector(".tenet-process-record").hidden, true); assert.equal(ui.calls.canvases, 0); assert.equal(ui.calls.begin, 0);
+});
+
+test("public standalone viewer cannot enumerate saved app whiteboards even when a provider exists", async () => {
+  const history = savedProvider([savedBundle("private", "Private saved page")], "private");
+  const ui = boot({documentHistory:history.provider}); await settle(); await ui.click("sample");
+  assert.equal(history.calls.list, 0); assert.deepEqual(history.calls.reads, []);
+  assert.equal(ui.dialog.querySelector(".tenet-process-saved").hidden, true);
+  assert.equal(await ui.win.TenetProcessUI.openSavedPage("private"), false);
+  assert.equal(history.calls.list, 0); assert.deepEqual(history.calls.reads, []);
 });
