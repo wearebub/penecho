@@ -392,11 +392,9 @@
         applyAiProgress(run,{phase:"slow",requestId:run.requestId||null,timeoutSeconds:Math.ceil(requestTimeoutMs/1000)});
     },slowNoticeDelay);
     const timeout = createActivityAwareAbortTimeout(controller,requestTimeoutMs);
-    const processCapture = window.TenetProcessCapture?.aiRequested({ action, automatic, revision,
-      captureCurrentViewport, packed, typedInput });
-    let processOutcome = "completed";
+    let processCapture = null, processOutcome = "completed";
     try {
-      const res = await fetch("/api/ai/command", {
+      const request = {
           signal: controller.signal,
           method: "POST",
           credentials: "same-origin",
@@ -418,7 +416,15 @@
               studio: "Minimal, well-organized general-purpose studio assistant. Prioritize clear structure, legible formatting, concise step-by-step reasoning, and practical actionable answers. Keep visual output clean and uncluttered; avoid decorative flourishes.",
             }[state.theme],
           }),
-        }),
+        };
+      // Observe exactly the serialized client body used below, never headers,
+      // credentials, raw microphone audio, or the downstream provider prompt.
+      // Do not await history hashing or let its failures change the AI request.
+      try {
+        processCapture = window.TenetProcessCapture?.aiRequested({ action, automatic, revision,
+          captureCurrentViewport, packed, typedInput, requestBody:request.body, voice:Boolean(run.voiceRequestId) });
+      } catch { /* Optional local history must not interrupt AI transport. */ }
+      const res = await fetch("/api/ai/command", request),
         streamed = await readAiCommandResponse(res,event=>applyAiProgress(run,event),timeout.activity),
         data = streamed.data;
       if (run.superseded || state.activeAI !== run) throw Error(AI_SUPERSEDED);

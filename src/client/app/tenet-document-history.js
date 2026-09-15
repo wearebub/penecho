@@ -7,9 +7,11 @@
     if (config?.tenetMode !== true || config.tenetAssignmentPreview === true || config.runtime === "viewer") return;
     const MAX_BYTES = 64 * 1024 * 1024, MAX_EVENTS = 5000, MAX_DETAILS = 12 * 1024;
     const MAX_IMAGE = 8 * 1024 * 1024, MAX_NATIVE = 16 * 1024 * 1024;
+    const MAX_AI_BODY = 12 * 1024 * 1024, MAX_AI_JOBS = 2;
     const DELAY = 400, TIMEOUT = 12000;
     const encoder = new TextEncoder(), runtimeId = crypto.randomUUID();
     let current = null, signedOut = false, renderJob = null, requestNumber = 0, accountEpoch = 0;
+    let inputTail = Promise.resolve(), inputJobs = 0, inputCharacters = 0;
     const now = () => new Date().toISOString();
     const bytes = value => encoder.encode(JSON.stringify(value)).length;
     const clone = value => JSON.parse(JSON.stringify(value));
@@ -97,7 +99,7 @@
       return { page:page(), accountEpoch, epoch:0, closed:false, hasWork:false, startedAt:now(),
         events:[], assets:new Map(), bytes:0, nextSequence:1, version:0, savedVersion:0,
         incomplete:false, incompleteReasons:[], droppedEvents:0, error:null,
-        mutation:0, timer:0, pending:null, requests:new Set(), lastNativeRevision:null, lastCheckpoint:null };
+        mutation:0, timer:0, pending:null, requests:new Set(), inputs:new Set(), lastNativeRevision:null, lastCheckpoint:null };
     }
     function stamp(ctx) {
       return { epoch:ctx.epoch, revision:state.userRevision, mutation:ctx.mutation,
@@ -190,9 +192,13 @@
     async function flush() {
       const ctx = live();
       if (!ctx) return;
+      // Drain only inputs admitted at this boundary. Later requests stay dirty
+      // when their attachments arrive; never poll or prolong an active AI run.
+      const inputs = inputTail;
       await pump(ctx);
       // At most one newly coalesced checkpoint, never a polling/drain loop.
       if (live() === ctx && ctx.pending) await pump(ctx);
+      await inputs;
     }
     function historyDetails(entry) {
       return { tileChanges:Array.isArray(entry) ? entry.length : entry?.tiles?.length || 0,
@@ -212,14 +218,151 @@
     function safeBox(box) {
       return box && [box.x, box.y, box.w, box.h].every(Number.isFinite) ? { x:box.x, y:box.y, w:box.w, h:box.h } : null;
     }
+    function recordInput(ctx, details, assets, omitted) {
+      append(ctx, "ai.input", { ...details, omitted, gatewayProviderPromptObserved:false }, assets);
+      if (omitted.length) gap(ctx, "ai-input-incomplete", { localRequestId:details.localRequestId, omitted });
+    }
+    function unavailableInput(ctx, details, reason) {
+      recordInput(ctx, { ...details, bodyStatus:"unavailable", bodyFormat:null, bodyExact:false,
+        imageStatus:"unavailable", bodyAssetName:null, imageAssetName:null }, [], [reason]);
+    }
+    function omitSensitiveInputFields(body) {
+      // The observer never receives fetch headers. Also exclude explicit
+      // credential/header properties should a future body extension add them.
+      // This is not DLP or a claim that free-form student text was scanned.
+      const sensitive = new Set(["authorization", "proxyauthorization", "cookie", "setcookie", "headers", "requestheaders",
+        "apikey", "apikeys", "accesstoken", "refreshtoken", "idtoken", "sessiontoken", "clientsecret",
+        "password", "credentials", "credential", "secret", "secrets"]);
+      const pending = [{ value:body, depth:0 }];
+      let entries = 0, omitted = false;
+      while (pending.length) {
+        const { value, depth } = pending.pop();
+        if (depth > 32) throw Error("AI input structure limit.");
+        const keys = Object.keys(value);
+        entries += keys.length;
+        if (entries > 8192) throw Error("AI input structure limit.");
+        for (const key of keys) {
+          if (sensitive.has(key.toLowerCase().replace(/[^a-z0-9]/g, ""))) {
+            delete value[key]; omitted = true;
+          } else if (value[key] && typeof value[key] === "object") {
+            pending.push({ value:value[key], depth:depth + 1 });
+          }
+        }
+      }
+      return omitted;
+    }
+    async function captureInput(job, isCurrent) {
+      // Read the immutable string already supplied to fetch, not live canvas,
+      // microphone, policy, plugin state, or a newly rendered/re-cropped image.
+      const raw = new Blob([job.body], { type:"application/json" });
+      if (raw.size > MAX_AI_BODY) {
+        if (isCurrent()) unavailableInput(job.ctx, job.details, "body-byte-limit");
+        return;
+      }
+      let body;
+      try {
+        body = JSON.parse(job.body);
+        if (!body || typeof body !== "object" || Array.isArray(body)) throw Error("Invalid request body.");
+      } catch {
+        if (isCurrent()) unavailableInput(job.ctx, job.details, "body-format-unavailable");
+        return;
+      }
+      const assets = [], omitted = [];
+      let bodyStatus = "recorded", bodyFormat = "raw-client-json", bodyAssetName = null;
+      let imageStatus = "not-submitted", imageAssetName = null;
+      let safeBody = null;
+      try {
+        if (omitSensitiveInputFields(body)) {
+          bodyStatus = "partial"; bodyFormat = "redacted-client-json";
+          omitted.push("sensitive-body-fields-omitted");
+          safeBody = new Blob([JSON.stringify(body)], { type:"application/json" });
+          if (safeBody.size > MAX_AI_BODY) throw Error("Redacted body limit.");
+        } else safeBody = raw;
+      } catch {
+        bodyStatus = "unavailable"; bodyFormat = null;
+        safeBody = null;
+        omitted.push("body-structure-limit");
+      }
+      if (safeBody) {
+        assets.push(await attachment("ai-input.json", safeBody));
+        if (!isCurrent()) return;
+        bodyAssetName = "ai-input.json";
+      }
+      const image = body.atlasImage;
+      if (image !== undefined && image !== null && image !== "") {
+        imageStatus = "omitted";
+        const prefix = typeof image === "string" && /^data:(image\/(?:png|jpeg|webp));base64,/i.exec(image);
+        if (!prefix) omitted.push("image-format-unavailable");
+        else if (image.length - prefix[0].length > Math.ceil(MAX_IMAGE / 3) * 4) omitted.push("image-byte-limit");
+        else {
+          let blob = null;
+          try {
+            const binary = atob(image.slice(prefix[0].length));
+            if (binary.length > MAX_IMAGE) omitted.push("image-byte-limit");
+            else if (!binary.length) omitted.push("image-encoding-invalid");
+            else {
+              const data = new Uint8Array(binary.length);
+              for (let i = 0; i < binary.length; i++) data[i] = binary.charCodeAt(i);
+              blob = new Blob([data], { type:prefix[1].toLowerCase() });
+            }
+          } catch { omitted.push("image-encoding-invalid"); }
+          if (blob) {
+            const name = "ai-input." + blob.type.slice("image/".length);
+            assets.push(await attachment(name, blob));
+            if (!isCurrent()) return;
+            imageAssetName = name; imageStatus = "recorded";
+          }
+        }
+      }
+      if (!isCurrent()) return;
+      // Exactly two attachments at most, within the existing saved-history
+      // schema. ai.input / ai-input.* are NEVER page replay checkpoints.
+      recordInput(job.ctx, { ...job.details, bodyStatus, bodyFormat, bodyExact:bodyStatus === "recorded",
+        imageStatus, bodyAssetName, imageAssetName }, assets, omitted);
+    }
+    function queueInput(token, input) {
+      const ctx = token.ctx, body = input.requestBody;
+      const details = { inputVersion:1, localRequestId:token.id, origin:token.origin,
+        userRevision:token.revision, requestRevision:token.revision, requestObservedAt:token.observedAt,
+        boundary:"client-to-whiteboard", method:"POST", endpoint:"/api/ai/command",
+        observation:"prepared-client-request-not-server-receipt" };
+      if (typeof body !== "string") { unavailableInput(ctx, details, "body-not-observed"); return; }
+      if (body.length > MAX_AI_BODY) { unavailableInput(ctx, details, "body-character-limit"); return; }
+      if (inputJobs >= MAX_AI_JOBS || inputCharacters + body.length > MAX_AI_BODY) {
+        unavailableInput(ctx, details, "input-queue-limit"); return;
+      }
+      const characters = body.length, job = { ctx, epoch:ctx.epoch, body, details, active:true };
+      ctx.inputs.add(job); inputJobs++; inputCharacters += characters;
+      // A bounded serial queue starts after fetch has received its request.
+      // Finished responses do not invalidate an immutable historical input;
+      // page/account/epoch changes do. No later page state is sampled here.
+      inputTail = inputTail.then(async () => {
+        const isCurrent = () => job.active && live() === ctx && job.epoch === ctx.epoch;
+        try {
+          if (isCurrent()) await bounded(captureInput(job, isCurrent));
+        } catch {
+          if (isCurrent()) unavailableInput(ctx, details, "input-capture-failed");
+        } finally {
+          job.active = false; job.body = null; ctx.inputs.delete(job);
+          inputJobs--; inputCharacters -= characters;
+        }
+      }).catch(() => { /* An optional observer cannot fail AI or notebook save. */ });
+    }
     function aiRequested(input) {
       const ctx = live();
       if (!ctx) return null;
       if (ctx.requests.size >= 8) { gap(ctx, "ai-observer-limit"); return null; }
       const packed = input.packed || {}, question = packed.selectionQuestion ?? input.typedInput?.text;
-      const token = { ctx, epoch:ctx.epoch, id:runtimeId + ":" + (++requestNumber) };
+      const origin = typeof input.voice !== "boolean" ? "unknown" : input.automatic === true ? "automatic"
+        : input.voice ? "voice-question" : typeof packed.selectionQuestion === "string" && packed.selectionQuestion.trim()
+          ? "specific-question" : "quick-help";
+      const token = { ctx, epoch:ctx.epoch, id:runtimeId + ":" + (++requestNumber),
+        origin, revision:input.revision, observedAt:now() };
       ctx.requests.add(token);
       observe("ai.request", { localRequestId:token.id, action:String(input.action || "").slice(0, 40),
+        inputVersion:1, origin, originEvidence:origin === "unknown" ? "not-observed" : "local-submit-path",
+        questionSource:typeof packed.selectionQuestion === "string" ? "selection-question"
+          : typeof input.typedInput?.text === "string" ? "canvas-typed-input" : "none",
         automatic:input.automatic === true, requestRevision:input.revision,
         question:typeof question === "string" ? question.slice(0, 4000) : null,
         questionTruncated:typeof question === "string" && question.length > 4000,
@@ -227,7 +370,8 @@
           scope:packed.questionOnly ? "text-only" : packed.selectionContext ? "selection" : input.captureCurrentViewport ? "visible-page" : "recent-writing",
           sourceRect:safeBox(packed.sourceRect), changedBox:safeBox(packed.changedBox),
           closedSelection:packed.selectionContext?.closed === true,
-          providerImageRetained:false, promptAndPolicyNotAttested:true } });
+          providerImageRetained:false, clientRequestInput:"see-linked-ai.input", promptAndPolicyNotAttested:true } });
+      queueInput(token, input);
       return token;
     }
     function requestCurrent(token) { return token && live() === token.ctx && token.epoch === token.ctx.epoch && token.ctx.requests.has(token); }
@@ -258,9 +402,11 @@
       if (reason === "saved-page-identity-changed") return;
       const ctx = current;
       if (ctx && !ctx.closed) {
-        if (ctx.pending || ctx.requests.size || renderJob) gap(ctx, "unfinished-work-at-boundary", { reason });
+        if (ctx.pending || ctx.requests.size || ctx.inputs.size || renderJob) gap(ctx, "unfinished-work-at-boundary", { reason });
         append(ctx, "coverage.boundary", { reason, unloadPersistenceGuaranteed:false });
         ctx.closed = true; ctx.epoch++; ctx.pending = null; ctx.requests.clear();
+        for (const input of ctx.inputs) { input.active = false; input.body = null; }
+        ctx.inputs.clear();
         clearTimeout(ctx.timer); ctx.timer = 0;
       }
       if (reason === "sign-out") { signedOut = true; accountEpoch++; current = null; report(null); }

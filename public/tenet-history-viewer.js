@@ -287,6 +287,19 @@ window.PENECHO_CONFIG = {tenetMode:true,tenetAssignmentPreview:true,tenetHistory
   let savedPageId = null, historyAvailable = true, savedListEpoch = 0;
   let exportFile = null, imageUrl = null, generation = 0, playing = false, playTimer = null;
   let sessionEpoch = 0, selectionEpoch = 0, playbackEpoch = 0, busyOwner = 0;
+  // Retain only a few decoded checkpoints, never an entire assignment's images.
+  const MAX_FRAME_ENTRIES = 3, MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+  const MAX_FRAME_PIXELS = 8 * 1024 * 1024, MAX_CACHE_PIXELS = 16 * 1024 * 1024;
+  const MAX_CACHE_BYTES = 16 * 1024 * 1024, AI_LIST_PAGE_SIZE = 20;
+  const frameCache = new Map();
+  let cacheEpoch = 0, cacheBytes = 0, cachePixels = 0;
+  let displayedFrameKey = null, requestedFrameKey = null, desiredFrameKeys = new Set();
+  let indexedEvents = null, frames = [], frameAtEvent = [], nextFrameAt = [], previousFrameAt = [];
+  let eventTimes = [], eventPositions = [], eventGroups = [], precedingGroups = [];
+  let requestGroups = [], activityBins = [], timeBased = false, currentIndex = 0;
+  let moments = [], momentAtEvent = [];
+  let playbackSpeed = 1, skipLongPauses = true, aiFilter = null, aiListPage = 0, inspectedGroup = null;
+  let inputEpoch = 0, inputUrl = null, inputDecoder = null, cancelInputDecode = null;
   const control = document.createElement("button");
   control.type = "button"; control.className = "tenet-process-launch";
   control.setAttribute("aria-haspopup", "dialog");
@@ -324,7 +337,7 @@ window.PENECHO_CONFIG = {tenetMode:true,tenetAssignmentPreview:true,tenetHistory
         <div class="tenet-process-record" hidden>
           <div class="tenet-process-record-heading"><div><h3 data-value="title"></h3><p data-value="meta"></p></div><span class="tenet-process-badge" data-value="badge"></span></div>
           <p class="tenet-process-coverage" data-value="coverage"></p>
-          <div class="tenet-process-metrics" aria-label="Observed history summary"><div><strong data-value="checkpoints">0</strong><span>Page checkpoints</span></div><div><strong data-value="requests">0</strong><span>AI requests observed</span></div><div><strong data-value="gaps">0</strong><span>Coverage gaps</span></div></div>
+          <div class="tenet-process-metrics" aria-label="Observed history summary"><div><strong data-value="checkpoints">0</strong><span>Page checkpoints</span></div><button type="button" data-action="ai-summary" aria-expanded="false" aria-controls="tenetProcessAIRequests"><strong data-value="requests">0</strong><span>AI interactions / Open summary</span></button><div><strong data-value="gaps">0</strong><span>Coverage gaps</span></div></div>
           <div class="tenet-process-actions">
             <button type="button" data-action="checkpoint">Capture checkpoint</button>
             <button type="button" data-action="pause">Pause recording</button>
@@ -335,8 +348,13 @@ window.PENECHO_CONFIG = {tenetMode:true,tenetAssignmentPreview:true,tenetHistory
             <button type="button" data-action="remove" class="tenet-process-danger">Remove local history</button>
           </div>
           <div class="tenet-process-preview"><img alt="Recorded page checkpoint" hidden /><p data-value="preview">No rendered checkpoint selected.</p></div>
+          <p class="tenet-process-frame-time" data-value="frame-time">Displayed checkpoint: none.</p>
           <div class="tenet-process-playback"><button type="button" data-action="play">Play history</button><input type="range" min="0" max="0" value="0" aria-label="History position" /><output data-value="position">0 / 0</output></div>
+          <div class="tenet-process-pacing"><label>Playback speed<select data-control="speed" aria-label="Playback speed"><option value="0.5">0.5x</option><option value="1" selected>1x</option><option value="2">2x</option><option value="4">4x</option><option value="8">8x</option></select></label><label class="tenet-process-skip"><input type="checkbox" data-control="skip-pauses" checked />Skip long pauses</label></div>
+          <p class="tenet-process-caption" data-value="pacing">Recorded-time pacing. Pauses longer than 10 seconds can be shortened to 1 second before speed adjustment.</p>
           <p class="tenet-process-caption" data-value="checkpoint-caption">Checkpoint replay, not a recording of every pen movement. The image is the nearest recorded checkpoint at or before the selected event.</p>
+          <section class="tenet-process-activity" aria-label="Observed work activity"><div class="tenet-process-activity-heading"><h3>Work activity</h3><span>Edits, revisions and AI requests</span></div><p class="tenet-process-caption" data-value="activity-note"></p><div class="tenet-process-graph" tabindex="0" aria-label="Scrollable activity graph"></div><p class="tenet-process-legend"><span class="tenet-process-web-key">Canvas edits</span><span class="tenet-process-native-key">PencilKit revisions</span><span class="tenet-process-ai-key">Purple stars: AI requests</span></p><p class="tenet-process-caption" data-value="selected-time"></p></section>
+          <section class="tenet-process-ai-summary" id="tenetProcessAIRequests" aria-label="Recorded AI interactions" hidden><header><div><small>RECORDED AI INTERACTIONS</small><h3>What was asked. What came back.</h3></div><button type="button" data-action="hide-ai-summary">Hide AI summary</button></header><p class="tenet-process-caption">This panel shows the complete recorded interaction, including replies and inputs appended later than the selected request. It is not limited to the replay cursor. Observation is not proof of receipt, acceptance or use.</p><div class="tenet-process-ai-layout"><div><p data-value="ai-list-note" class="tenet-process-caption"></p><nav class="tenet-process-ai-requests" aria-label="AI request summary"></nav><div class="tenet-process-ai-pagination"><button type="button" data-action="ai-previous">Previous requests</button><button type="button" data-action="ai-next">Next requests</button></div></div><section class="tenet-process-ai-inspector" aria-label="Complete recorded AI interaction"><h4 data-value="ai-title"></h4><p data-value="ai-origin"></p><p data-value="ai-lifecycle"></p><h4>Recorded question</h4><p data-value="ai-question"></p><h4>Recorded replies</h4><pre data-value="ai-replies"></pre><details><summary>Recorded request context</summary><pre data-value="ai-context"></pre></details><h4>Recorded client inputs</h4><p class="tenet-process-caption">These inputs, when available, were prepared by the client for Whiteboard. They are not the final Gateway or provider prompt, district policy, or a server receipt. No microphone audio is included.</p><div class="tenet-process-input-records"></div><p data-value="input-status" role="status"></p><img class="tenet-process-input-image" alt="Recorded image prepared for an AI request, not a page replay checkpoint" hidden /><pre data-value="input-body" hidden></pre><a data-value="input-download" download hidden>Save this recorded input</a></section></div></section>
           <div class="tenet-process-detail"><div><h3>Work timeline</h3><p class="tenet-process-caption" data-value="timeline-note"></p><nav class="tenet-process-events" aria-label="Recorded events"></nav></div><section class="tenet-process-observation" aria-label="AI help and process evidence"><small data-value="event-label"></small><h3 data-value="event-title"></h3><p data-value="event-description"></p><div class="tenet-process-conversation" hidden><h4>Question observed</h4><p data-value="question"></p><h4>Tenet reply observed</h4><p data-value="response"></p><p class="tenet-process-caption" data-value="ai-provenance"></p></div><details><summary>Technical event details</summary><pre data-value="detail" aria-label="Event details"></pre></details></section></div>
         </div>
       </section>
@@ -373,11 +391,57 @@ window.PENECHO_CONFIG = {tenetMode:true,tenetAssignmentPreview:true,tenetHistory
   }
   function stopPlaying() {
     playing = false; playbackEpoch++; clearTimeout(playTimer); playTimer = null; find("play").textContent = "Play history";
+    for (const [key, entry] of frameCache) if (entry.state === "loading") dropFrame(key);
+  }
+  function hidePicture() {
+    picture.hidden = true; picture.removeAttribute("src");
+    imageUrl = null; displayedFrameKey = null;
+    dialog.querySelector(".tenet-process-preview").dataset.retained = "false";
+    value("frame-time").textContent = "Displayed checkpoint: none.";
+  }
+  function clearInput() {
+    inputEpoch++;
+    if (cancelInputDecode) cancelInputDecode();
+    cancelInputDecode = null;
+    if (inputDecoder) inputDecoder.removeAttribute("src");
+    inputDecoder = null;
+    const image = dialog.querySelector(".tenet-process-input-image");
+    image.hidden = true; image.removeAttribute("src");
+    if (inputUrl) URL.revokeObjectURL(inputUrl);
+    inputUrl = null;
+    value("input-body").textContent = ""; value("input-body").hidden = true;
+    value("input-status").textContent = "";
+    value("input-download").hidden = true; value("input-download").removeAttribute("href");
+  }
+  function releaseFrame(entry) {
+    if (entry.cancelDecode) entry.cancelDecode();
+    entry.cancelDecode = null;
+    if (entry.decoder) entry.decoder.removeAttribute("src");
+    entry.decoder = null;
+    if (entry.url) URL.revokeObjectURL(entry.url);
+    entry.url = null;
+    cacheBytes -= entry.bytes; cachePixels -= entry.pixels;
+    entry.bytes = 0; entry.pixels = 0;
+  }
+  function dropFrame(key) {
+    const entry = frameCache.get(key); if (!entry) return;
+    frameCache.delete(key); entry.state = "retired";
+    releaseFrame(entry); entry.finish?.(null);
   }
   function clearImage() {
-    picture.hidden = true; picture.removeAttribute("src");
-    if (imageUrl) URL.revokeObjectURL(imageUrl);
-    imageUrl = null;
+    cacheEpoch++; hidePicture(); requestedFrameKey = null; desiredFrameKeys.clear();
+    for (const key of frameCache.keys()) dropFrame(key);
+    indexedEvents = null; frames = []; frameAtEvent = []; nextFrameAt = []; previousFrameAt = [];
+    eventTimes = []; eventPositions = []; eventGroups = []; precedingGroups = [];
+    requestGroups = []; activityBins = []; inspectedGroup = null; aiFilter = null; aiListPage = 0;
+    moments = []; momentAtEvent = [];
+    clearInput();
+    dialog.querySelector(".tenet-process-graph").replaceChildren();
+    dialog.querySelector(".tenet-process-ai-requests").replaceChildren();
+    dialog.querySelector(".tenet-process-input-records").replaceChildren();
+    dialog.querySelector(".tenet-process-ai-summary").hidden = true;
+    find("ai-summary").setAttribute("aria-expanded", "false");
+    for (const name of ["ai-title", "ai-origin", "ai-lifecycle", "ai-question", "ai-replies", "ai-context", "ai-list-note", "activity-note", "selected-time"]) value(name).textContent = "";
   }
   function clearPrepared() {
     exportFile = null; find("download").hidden = true; find("share").hidden = true;
@@ -452,11 +516,410 @@ window.PENECHO_CONFIG = {tenetMode:true,tenetAssignmentPreview:true,tenetHistory
     if (opened && dialog.open) await refreshSavedPages();
     return opened;
   }
-  function isCheckpointImage(asset) { return ["image/png", "image/jpeg", "image/webp"].includes(asset?.mime); }
+  function isCheckpointImage(asset, event) {
+    return !String(event?.type || "").startsWith("ai.") && !/^ai-input[.\/-]/i.test(String(asset?.name || "")) &&
+      ["image/png", "image/jpeg", "image/webp"].includes(asset?.mime) && typeof asset.hash === "string" && asset.hash.length > 0 && asset.hash.length <= 160;
+  }
+  function checkpointImage(event) { return (event?.assets || []).find(asset => isCheckpointImage(asset, event)); }
+  function requestId(event) {
+    const id = event?.details?.localRequestId;
+    return typeof id === "string" && id.length > 0 && id.length <= 200 ? id : null;
+  }
+  function originLabel(request) {
+    const labels = {"quick-help":"Quick help", "specific-question":"Specific question", "voice-question":"Voice question", automatic:"Automatic request", unknown:"Unknown request type"};
+    const origin = request?.details?.origin;
+    return typeof origin === "string" && Object.hasOwn(labels, origin) ? labels[origin] : "Request type not recorded (legacy)";
+  }
+  // Parse dimensions before asking the browser to decode an imported raster.
+  // Unknown headers and oversized frames remain readable as events, not images.
+  function rasterDimensions(buffer, mime) {
+    const bytes = new Uint8Array(buffer), view = new DataView(buffer), length = bytes.length;
+    const ascii = (offset, text) => offset + text.length <= length && Array.from(text).every((letter, index) => bytes[offset + index] === letter.charCodeAt(0));
+    const little24 = offset => bytes[offset] | bytes[offset + 1] << 8 | bytes[offset + 2] << 16;
+    let width = 0, height = 0;
+    if (mime === "image/png" && length >= 33 && bytes[0] === 137 && ascii(1, "PNG\r\n\u001a\n") && ascii(12, "IHDR") && view.getUint32(8) === 13) {
+      width = view.getUint32(16); height = view.getUint32(20);
+    } else if (mime === "image/jpeg" && length >= 4 && bytes[0] === 255 && bytes[1] === 216) {
+      let offset = 2;
+      for (let segments = 0; segments < 1024 && offset + 3 < length; segments++) {
+        if (bytes[offset++] !== 255) break;
+        while (offset < length && bytes[offset] === 255) offset++;
+        const marker = bytes[offset++];
+        if (marker === 218 || marker === 217 || marker === undefined) break;
+        if (marker === 1 || marker >= 208 && marker <= 215) continue;
+        if (offset + 2 > length) break;
+        const size = view.getUint16(offset);
+        if (size < 2 || offset + size > length) break;
+        if (marker >= 192 && marker <= 207 && ![196, 200, 204].includes(marker) && size >= 8) {
+          height = view.getUint16(offset + 3); width = view.getUint16(offset + 5); break;
+        }
+        offset += size;
+      }
+    } else if (mime === "image/webp" && length >= 30 && ascii(0, "RIFF") && ascii(8, "WEBP")) {
+      let offset = 12;
+      for (let chunks = 0; chunks < 128 && offset + 8 <= length; chunks++) {
+        const size = view.getUint32(offset + 4, true), data = offset + 8;
+        if (data + size > length) break;
+        if (ascii(offset, "VP8X") && size >= 10) {
+          if (bytes[data] & 2) throw Error("Animated images are not page checkpoints.");
+          width = little24(data + 4) + 1; height = little24(data + 7) + 1; break;
+        }
+        if (ascii(offset, "VP8 ") && size >= 10 && bytes[data + 3] === 157 && bytes[data + 4] === 1 && bytes[data + 5] === 42) {
+          width = view.getUint16(data + 6, true) & 16383; height = view.getUint16(data + 8, true) & 16383; break;
+        }
+        if (ascii(offset, "VP8L") && size >= 5 && bytes[data] === 47) {
+          width = 1 + (bytes[data + 1] | (bytes[data + 2] & 63) << 8);
+          height = 1 + (bytes[data + 2] >> 6 | bytes[data + 3] << 2 | (bytes[data + 4] & 15) << 10); break;
+        }
+        offset = data + size + (size & 1);
+      }
+    }
+    if (!width || !height) throw Error("This recorded image has an unsupported or incomplete raster header.");
+    if (width > 4096 || height > 4096 || width * height > MAX_FRAME_PIXELS) throw Error("This recorded image exceeds the viewer's bounded decoding limit (4096 pixels per side, 8 megapixels). Event details remain available.");
+    return {width, height, pixels:width * height};
+  }
+  function predecode(url, pixels) {
+    const image = document.createElement("img");
+    let complete = false, timer = null, resolveResult;
+    const promise = new Promise(resolve => { resolveResult = resolve; });
+    function finish(result) {
+      if (complete) return;
+      complete = true; clearTimeout(timer); image.onload = null; image.onerror = null; resolveResult(result);
+    }
+    image.onload = () => {
+      if (!image.naturalWidth || !image.naturalHeight || image.naturalWidth > 4096 || image.naturalHeight > 4096 || image.naturalWidth * image.naturalHeight > pixels) { finish(false); return; }
+      if (typeof image.decode === "function") void image.decode().then(() => finish(true), () => finish(false));
+      else finish(true);
+    };
+    image.onerror = () => finish(false);
+    timer = setTimeout(() => finish(false), 12000);
+    image.src = url;
+    return {image, promise, cancel:() => finish(false)};
+  }
+  function evictFrame(protectedKey) {
+    for (const key of frameCache.keys()) {
+      if (key !== displayedFrameKey && key !== requestedFrameKey && key !== protectedKey) { dropFrame(key); return true; }
+    }
+    return false;
+  }
+  function loadFrame(frame) {
+    let entry = frameCache.get(frame.key);
+    if (entry) {
+      frameCache.delete(frame.key); frameCache.set(frame.key, entry);
+      return entry.promise;
+    }
+    while (frameCache.size >= MAX_FRAME_ENTRIES) if (!evictFrame(frame.key)) return Promise.resolve(null);
+    const scope = {cache:cacheEpoch, session:sessionEpoch, selection:selectionEpoch, playback:playbackEpoch, source:assetSource, record:selected};
+    entry = {key:frame.key, state:"loading", bytes:0, pixels:0, url:null, decoder:null, cancelDecode:null, error:null, finish:null, promise:null};
+    let timer;
+    entry.promise = new Promise(resolve => { entry.finish = result => { clearTimeout(timer); entry.finish = null; resolve(result); }; });
+    frameCache.set(frame.key, entry);
+    const current = () => entry.state === "loading" && frameCache.get(frame.key) === entry && dialog.open && scope.cache === cacheEpoch && scope.session === sessionEpoch && scope.selection === selectionEpoch && scope.playback === playbackEpoch && scope.source === assetSource && scope.record === selected && desiredFrameKeys.has(frame.key);
+    function fail(text) {
+      if (!current()) { if (frameCache.get(frame.key) === entry) dropFrame(frame.key); return; }
+      entry.state = "failed"; entry.error = text; releaseFrame(entry); entry.finish?.(entry);
+    }
+    timer = setTimeout(() => fail("This checkpoint took too long to read. The previously displayed frame is retained."), 20000);
+    void (async () => {
+      try {
+        const blob = await scope.source.getAsset(scope.record.id, frame.asset.hash);
+        if (!current()) { if (frameCache.get(frame.key) === entry) dropFrame(frame.key); return; }
+        if (!(blob instanceof Blob) || !blob.size || blob.size > MAX_IMAGE_BYTES) throw Error("This checkpoint attachment is unavailable or exceeds the 8 MiB image limit.");
+        const buffer = await blob.arrayBuffer();
+        if (!current()) { if (frameCache.get(frame.key) === entry) dropFrame(frame.key); return; }
+        const dimensions = rasterDimensions(buffer, frame.asset.mime);
+        while (cacheBytes + blob.size > MAX_CACHE_BYTES || cachePixels + dimensions.pixels > MAX_CACHE_PIXELS) {
+          if (!evictFrame(frame.key)) throw Error("The next checkpoint exceeds the available preview image budget.");
+        }
+        entry.bytes = blob.size; entry.pixels = dimensions.pixels; cacheBytes += entry.bytes; cachePixels += entry.pixels;
+        entry.url = URL.createObjectURL(blob);
+        const decoder = predecode(entry.url, entry.pixels); entry.decoder = decoder.image; entry.cancelDecode = decoder.cancel;
+        const decoded = await decoder.promise;
+        if (!current()) { if (frameCache.get(frame.key) === entry) dropFrame(frame.key); return; }
+        if (!decoded) throw Error("This recorded checkpoint could not be decoded. Its event details are still readable.");
+        entry.state = "ready"; entry.cancelDecode = null; entry.finish?.(entry);
+      } catch (error) { fail(error?.message || "This checkpoint could not be read."); }
+    })();
+    return entry.promise;
+  }
+  function indexHistory() {
+    if (indexedEvents === events) return;
+    indexedEvents = events;
+    frames = []; frameAtEvent = new Int32Array(events.length); nextFrameAt = []; previousFrameAt = [];
+    eventTimes = events.map(eventMillis); eventPositions = new Float64Array(events.length);
+    eventGroups = new Int32Array(events.length).fill(-1); precedingGroups = new Int32Array(events.length).fill(-1);
+    requestGroups = [];
+    const requestById = new Map();
+    let latest = -1;
+    for (let index = 0; index < events.length; index++) {
+      const event = events[index], image = checkpointImage(event);
+      if (image) frames.push({eventIndex:index, asset:image, key:image.mime + ":" + image.hash});
+      frameAtEvent[index] = frames.length - 1;
+      if (event.type === "ai.request") {
+        const id = requestId(event), group = {number:requestGroups.length, index, id, responses:[], inputs:[], finished:[], related:[], ambiguous:false};
+        latest = group.number; requestGroups.push(group); eventGroups[index] = latest;
+        if (id && requestById.has(id)) {
+          const previous = requestById.get(id);
+          if (previous !== null) requestGroups[previous].ambiguous = true;
+          group.ambiguous = true; requestById.set(id, null);
+        } else if (id) requestById.set(id, latest);
+      }
+      precedingGroups[index] = latest;
+    }
+    // A delayed ai.input can follow the response/finish; join once by identity,
+    // never by adjacency or undefined IDs, and never scan the whole log per tick.
+    for (let index = 0; index < events.length; index++) {
+      const event = events[index];
+      const field = event.type === "ai.response" ? "responses" : event.type === "ai.input" ? "inputs" : event.type === "ai.finished" ? "finished" : ["page.checkpoint", "canvas.commit", "canvas.undo", "canvas.redo", "native.revision"].includes(event.type) ? "related" : null;
+      if (!field) continue;
+      const id = requestId(event), groupIndex = id ? requestById.get(id) : undefined;
+      if (groupIndex === undefined || groupIndex === null) continue;
+      const group = requestGroups[groupIndex];
+      if (index <= group.index) continue;
+      eventGroups[index] = groupIndex;
+      group[field].push(index);
+    }
+    moments = []; momentAtEvent = new Int32Array(events.length);
+    const aiMoment = new Map();
+    for (let index = 0; index < events.length; index++) {
+      const event = events[index], group = eventGroups[index];
+      if (group >= 0) {
+        if (!aiMoment.has(group)) {
+          aiMoment.set(group, moments.length);
+          moments.push({kind:"ai", group, start:index, end:index, index, raw:[index], web:0, native:0, checkpoints:0});
+        } else { const moment = moments[aiMoment.get(group)]; moment.raw.push(index); moment.end = index; }
+        momentAtEvent[index] = aiMoment.get(group);
+        continue;
+      }
+      const web = ["canvas.commit", "canvas.undo", "canvas.redo"].includes(event.type), native = event.type === "native.revision", checkpoint = Boolean(checkpointImage(event));
+      const previous = moments.at(-1), time = eventTimes[index], priorTime = previous ? eventTimes[previous.start] : null;
+      const closeInTime = time !== null && priorTime !== null ? time >= priorTime && time - priorTime <= 4000 : previous?.raw.length < 2;
+      // Nearby ordinary edits/checkpoints are presentation groups, not inferred
+      // stroke ancestry. AI output joins only through a real localRequestId.
+      if ((web || native || checkpoint) && previous?.kind === "work" && previous.raw.length < 8 && closeInTime) {
+        previous.raw.push(index); previous.end = index; previous.index = index;
+        previous.web += Number(web); previous.native += Number(native); previous.checkpoints += Number(checkpoint);
+        momentAtEvent[index] = moments.length - 1;
+      } else {
+        momentAtEvent[index] = moments.length;
+        moments.push({kind:web || native || checkpoint ? "work" : "observation", start:index, end:index, index, raw:[index], web:Number(web), native:Number(native), checkpoints:Number(checkpoint)});
+      }
+    }
+    for (let index = 0; index < frames.length; index++) previousFrameAt[index] = index === 0 ? -1 : frames[index - 1].key === frames[index].key ? previousFrameAt[index - 1] : index - 1;
+    for (let index = frames.length - 1; index >= 0; index--) nextFrameAt[index] = index === frames.length - 1 ? -1 : frames[index + 1].key === frames[index].key ? nextFrameAt[index + 1] : index + 1;
+    timeBased = events.length > 1 && eventTimes.every((time, index) => time !== null && (index === 0 || time >= eventTimes[index - 1])) && eventTimes.at(-1) > eventTimes[0];
+    const count = Math.min(12, Math.max(1, events.length));
+    activityBins = Array.from({length:count}, () => ({first:-1, last:-1, editIndex:-1, web:0, native:0, gaps:0, groups:[]}));
+    for (let index = 0; index < events.length; index++) {
+      const position = timeBased ? (eventTimes[index] - eventTimes[0]) / (eventTimes.at(-1) - eventTimes[0]) : index / Math.max(1, events.length - 1);
+      eventPositions[index] = position;
+      const bin = activityBins[Math.min(count - 1, Math.floor(position * count))], type = events[index].type;
+      if (bin.first < 0) bin.first = index;
+      bin.last = index;
+      if (["canvas.commit", "canvas.undo", "canvas.redo"].includes(type)) { bin.web++; if (bin.editIndex < 0) bin.editIndex = index; }
+      if (type === "native.revision") { bin.native++; if (bin.editIndex < 0) bin.editIndex = index; }
+      if (type === "coverage.gap") bin.gaps++;
+      if (type === "ai.request") bin.groups.push(eventGroups[index]);
+    }
+  }
+  function latestAt(indices, index) {
+    let low = 0, high = indices.length;
+    while (low < high) { const mid = (low + high) >>> 1; if (indices[mid] <= index) low = mid + 1; else high = mid; }
+    return low ? indices[low - 1] : -1;
+  }
+  function nearestPosition(position) {
+    let low = 0, high = eventPositions.length;
+    while (low < high) { const mid = (low + high) >>> 1; if (eventPositions[mid] < position) low = mid + 1; else high = mid; }
+    return Math.min(Math.max(0, events.length - 1), low);
+  }
+  function svgElement(name, attributes = {}, text) {
+    const element = document.createElementNS("http://www.w3.org/2000/svg", name);
+    for (const [key, item] of Object.entries(attributes)) element.setAttribute(key, String(item));
+    if (text !== undefined) element.textContent = text;
+    return element;
+  }
+  function graphButton(parent, label, action) {
+    const button = svgElement("g", {role:"button", tabindex:0, "aria-label":label, class:"tenet-process-graph-button"});
+    button.append(svgElement("title", {}, label));
+    button.addEventListener("click", action);
+    button.addEventListener("keydown", event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); action(); } });
+    parent.append(button); return button;
+  }
+  function paintActivity() {
+    const host = dialog.querySelector(".tenet-process-graph"); host.replaceChildren();
+    value("activity-note").textContent = `${timeBased ? "Equal device-time bins." : "Recorded-order bins: missing, equal or out-of-order timestamps prevent a reliable time axis."} Bar heights count observed canvas edits and PencilKit revisions, not individual strokes or seconds of proven work. Checkpoints, reloads and coverage gaps are not counted as activity. Tap a bar to seek or a purple star to inspect AI requests; large histories are aggregated.`;
+    if (!events.length) { host.textContent = "No recorded activity to display."; return; }
+    const svg = svgElement("svg", {viewBox:"0 0 720 170", role:"group", "aria-label":"Observed edits and revisions with AI request markers"});
+    const width = 660 / activityBins.length, peak = Math.max(1, ...activityBins.map(bin => bin.web + bin.native));
+    svg.append(svgElement("line", {x1:30, y1:126, x2:690, y2:126, class:"tenet-process-graph-axis"}));
+    activityBins.forEach((bin, binIndex) => {
+      const x = 30 + binIndex * width, middle = x + width / 2;
+      const index = bin.editIndex >= 0 ? bin.editIndex : bin.first >= 0 ? bin.first : nearestPosition(binIndex / activityBins.length);
+      const label = `Interval ${binIndex + 1}: ${bin.web} canvas edits, ${bin.native} PencilKit revisions, ${bin.gaps} coverage gap observations. Seek to recorded event ${index + 1}.`;
+      const button = graphButton(svg, label, () => seekEvent(index));
+      button.append(svgElement("rect", {x, y:49, width, height:80, rx:5, class:"tenet-process-bin-hit"}));
+      const webHeight = bin.web / peak * 60, nativeHeight = bin.native / peak * 60;
+      button.append(svgElement("rect", {x:x + 9, y:125 - webHeight, width:width - 18, height:webHeight, rx:2, class:"tenet-process-web-bar"}));
+      button.append(svgElement("rect", {x:x + 9, y:125 - webHeight - nativeHeight, width:width - 18, height:nativeHeight, rx:2, class:"tenet-process-native-bar"}));
+      button.append(svgElement("text", {x:middle, y:Math.max(61, 118 - webHeight - nativeHeight), "text-anchor":"middle", class:"tenet-process-bin-count"}, String(bin.web + bin.native)));
+      svg.append(svgElement("text", {x:middle, y:146, "text-anchor":"middle", class:"tenet-process-bin-label"}, String(binIndex + 1)));
+      if (bin.groups.length) {
+        const star = graphButton(svg, `${bin.groups.length} AI request${bin.groups.length === 1 ? "" : "s"} in interval ${binIndex + 1}. Open recorded interactions.`, () => showAISummary(binIndex));
+        star.append(svgElement("rect", {x, y:2, width, height:44, rx:7, class:"tenet-process-star-hit"}));
+        star.append(svgElement("path", {d:`M ${middle} 8 l 3.8 8 8.8 1.3 -6.3 6.2 1.5 8.8 -7.8 -4.2 -7.8 4.2 1.5 -8.8 -6.3 -6.2 8.8 -1.3 Z`, class:"tenet-process-ai-star"}));
+        if (bin.groups.length > 1) star.append(svgElement("text", {x:middle + 15, y:13, class:"tenet-process-star-count"}, String(bin.groups.length)));
+      }
+    });
+    svg.append(svgElement("line", {x1:30, x2:30, y1:47, y2:131, class:"tenet-process-current-marker", "aria-hidden":"true"}));
+    svg.append(svgElement("text", {x:30, y:164, class:"tenet-process-axis-label"}, timeBased ? "Earlier device time" : "Earlier recorded events"));
+    svg.append(svgElement("text", {x:690, y:164, "text-anchor":"end", class:"tenet-process-axis-label"}, timeBased ? "Later device time" : "Later recorded events"));
+    host.append(svg);
+  }
+  function momentTitle(moment) {
+    if (!moment) return "No work moment selected";
+    if (moment.kind === "ai") return `AI interaction / ${originLabel(events[requestGroups[moment.group].index])}`;
+    if (moment.kind === "work") {
+      const changes = [];
+      if (moment.web) changes.push(`${moment.web} canvas edit${moment.web === 1 ? "" : "s"}`);
+      if (moment.native) changes.push(`${moment.native} PencilKit revision${moment.native === 1 ? "" : "s"}`);
+      return changes.length ? "Work updated / " + changes.join(", ") : "Saved page state";
+    }
+    return String(events[moment.index]?.type || "").startsWith("ai.") ? "Unlinked AI observation" : eventTitle(events[moment.index]);
+  }
+  function seekMoment(position) {
+    const moment = moments[position]; if (!moment) return;
+    if (moment.kind === "ai") {
+      aiFilter = null; aiListPage = Math.floor(moment.group / AI_LIST_PAGE_SIZE);
+      dialog.querySelector(".tenet-process-ai-summary").hidden = false;
+      find("ai-summary").setAttribute("aria-expanded", "true");
+      paintAIList(); chooseAIRequest(moment.group);
+    } else seekEvent(moment.index);
+  }
+  function updateActivityPosition(index) {
+    const marker = dialog.querySelector(".tenet-process-current-marker");
+    if (marker) { const x = 30 + (eventPositions[index] || 0) * 660; marker.setAttribute("x1", String(x)); marker.setAttribute("x2", String(x)); }
+    const moment = moments[momentAtEvent[index]];
+    value("selected-time").textContent = events[index] ? `Work moment ${momentAtEvent[index] + 1}: ${momentTitle(moment)}. Selected observation time: ${recordedEventTime(events[index])}.` : "No selected work moment.";
+  }
+  function seekEvent(index) {
+    stopPlaying(); clearInput();
+    const session = sessionEpoch, selection = selectionEpoch;
+    void renderEvent(index).catch(error => { if (session === sessionEpoch && selection === selectionEpoch && dialog.open) message(error?.message || "The selected event could not be displayed.", true); });
+  }
+  function summaryGroups() { return aiFilter === null ? requestGroups.map(group => group.number) : activityBins[aiFilter]?.groups || []; }
+  function showAISummary(binIndex = null) {
+    if (!selected || !dialog.open) return;
+    aiFilter = binIndex;
+    const groups = summaryGroups();
+    const near = groups.find(number => number === eventGroups[currentIndex]) ?? groups[0];
+    aiListPage = Math.max(0, Math.floor(groups.indexOf(near) / AI_LIST_PAGE_SIZE));
+    dialog.querySelector(".tenet-process-ai-summary").hidden = false;
+    find("ai-summary").setAttribute("aria-expanded", "true");
+    paintAIList();
+    if (near !== undefined) chooseAIRequest(near);
+    else { clearInput(); value("ai-title").textContent = "No AI requests recorded"; value("ai-question").textContent = "Absence of a recorded request is not proof that no AI was used."; }
+    dialog.querySelector(".tenet-process-ai-summary").scrollIntoView({block:"nearest"});
+  }
+  function paintAIList() {
+    const groups = summaryGroups(), list = dialog.querySelector(".tenet-process-ai-requests"); list.replaceChildren();
+    const lastPage = Math.max(0, Math.ceil(groups.length / AI_LIST_PAGE_SIZE) - 1);
+    aiListPage = Math.max(0, Math.min(aiListPage, lastPage));
+    const start = aiListPage * AI_LIST_PAGE_SIZE;
+    value("ai-list-note").textContent = `${aiFilter === null ? "All recorded requests" : "Requests in activity interval " + (aiFilter + 1)}. ${groups.length ? `${start + 1}-${Math.min(groups.length, start + AI_LIST_PAGE_SIZE)} of ${groups.length}` : "None recorded"}.`;
+    for (const number of groups.slice(start, start + AI_LIST_PAGE_SIZE)) {
+      const group = requestGroups[number], request = events[group.index], button = document.createElement("button"), title = document.createElement("span"), note = document.createElement("small");
+      button.type = "button"; button.dataset.request = String(number); button.setAttribute("aria-current", String(inspectedGroup === number));
+      title.textContent = `${number + 1}. ${originLabel(request)}`;
+      note.textContent = String(request.details?.question || "No question text recorded; inspect recorded context.").slice(0, 160);
+      button.title = `${originLabel(request)} / ${recordedEventTime(request)}`;
+      button.append(title, note); button.addEventListener("click", () => chooseAIRequest(number)); list.append(button);
+    }
+    find("ai-previous").disabled = aiListPage === 0; find("ai-next").disabled = aiListPage >= lastPage;
+  }
+  function chooseAIRequest(number) {
+    const group = requestGroups[number]; if (!group) return;
+    inspectedGroup = number; seekEvent(group.index); paintAIInspector(group);
+    dialog.querySelectorAll(".tenet-process-ai-requests button").forEach(button => button.setAttribute("aria-current", String(Number(button.dataset.request) === number)));
+  }
+  function paintAIInspector(group) {
+    clearInput();
+    const request = events[group.index], details = request.details || {};
+    value("ai-title").textContent = `Interaction ${group.number + 1} / complete recorded lifecycle`;
+    value("ai-origin").textContent = `${originLabel(request)}. Origin evidence: ${details.originEvidence || "not recorded"}. Requested action: ${details.action || "not recorded"}. Request observed: ${recordedEventTime(request)}.`;
+    const finish = group.finished.length ? events[group.finished.at(-1)] : null;
+    value("ai-lifecycle").textContent = `${finish ? `Latest finish observation: ${finish.details?.outcome || "outcome not recorded"} at ${recordedEventTime(finish)}.` : "No finished lifecycle event is recorded: the history may be pending or incomplete."} ${group.responses.length} reply observation(s), ${group.inputs.length} client-input record(s), ${group.related.length} explicitly linked page/edit observation(s). ${group.ambiguous ? "Duplicate request identifiers prevent reliable linking; replies and inputs are not guessed." : !group.id ? "Legacy request has no usable linking identifier; replies and inputs cannot be safely associated." : "The full recorded lifecycle is grouped here even when input hashing finished later. Nearby student edits are not attributed to AI without a recorded link."}`;
+    value("ai-question").textContent = details.question || "No typed/transcribed question text was recorded. Do not infer the wording from the page image.";
+    const replyParts = group.responses.map(index => {
+      const event = events[index];
+      return `Reply observed ${recordedEventTime(event)}\n${event.details?.text || "Non-text or unavailable reply body; inspect recorded tool/event details and later checkpoints."}${event.details?.textTruncated ? "\n[Capture marked this reply as truncated.]" : ""}\nObserved output is not evidence of student acceptance or canvas placement.`;
+    });
+    value("ai-replies").textContent = replyParts.join("\n\n") || "No linked reply body was recorded. A finished request alone does not establish what was returned.";
+    value("ai-context").textContent = JSON.stringify({action:details.action ?? null, origin:details.origin ?? null, originEvidence:details.originEvidence ?? null, questionSource:details.questionSource ?? null, requestRevision:details.requestRevision ?? null, questionTruncated:details.questionTruncated === true, context:details.context ?? null, boundary:"Local observation, not an attested Gateway/provider prompt or policy"}, null, 2);
+    const inputs = dialog.querySelector(".tenet-process-input-records"); inputs.replaceChildren();
+    if (!group.inputs.length) {
+      const note = document.createElement("p"); note.textContent = "Client request inputs were not recorded in this history (legacy, unavailable or omitted). They cannot be reconstructed from a reply or page checkpoint."; inputs.append(note); return;
+    }
+    // Controls are bounded even if an imported archive repeats input events.
+    for (const index of group.inputs.slice(0, 12)) {
+      const event = events[index], data = event.details || {}, block = document.createElement("div"), note = document.createElement("p");
+      block.className = "tenet-process-input-record";
+      note.textContent = `Input observation: ${recordedEventTime(event)}. Request boundary: ${data.boundary || "not recorded"}. Body: ${data.bodyStatus || "not recorded"}; image: ${data.imageStatus || "not recorded"}. ${data.observation || "Receipt not established."}${Array.isArray(data.omitted) && data.omitted.length ? " Omissions: " + data.omitted.map(String).join("; ") : ""}`;
+      block.append(note);
+      const metadata = document.createElement("details"), heading = document.createElement("summary"), pre = document.createElement("pre");
+      heading.textContent = "Input observation metadata"; pre.textContent = JSON.stringify(data, null, 2); metadata.append(heading, pre); block.append(metadata);
+      for (const asset of (event.assets || []).slice(0, 4)) {
+        const json = asset.name === "ai-input.json" && asset.mime === "application/json";
+        const raster = /^ai-input\.(?:png|jpe?g|webp)$/i.test(String(asset.name || "")) && ["image/png", "image/jpeg", "image/webp"].includes(asset.mime);
+        if (!json && !raster) continue;
+        const button = document.createElement("button"); button.type = "button";
+        button.textContent = json ? "Inspect recorded request JSON" : "View submitted image";
+        button.addEventListener("click", () => void openRecordedInput(group, event, asset, json)); block.append(button);
+      }
+      inputs.append(block);
+    }
+    if (group.inputs.length > 12) { const note = document.createElement("p"); note.textContent = "The input-control display is limited to the first 12 observations for this request; additional input events remain in the recorded event history."; inputs.append(note); }
+  }
+  async function openRecordedInput(group, inputEvent, asset, json) {
+    clearInput();
+    const token = inputEpoch, session = sessionEpoch, selection = selectionEpoch, playback = playbackEpoch, source = assetSource, record = selected;
+    // Inspector ownership is independent of checkpoint rendering. Selecting a
+    // different request/page, seeking, closing, playback changes or sign-out
+    // retires it; a late frame decode cannot adopt this input attachment.
+    const current = () => token === inputEpoch && session === sessionEpoch && selection === selectionEpoch && playback === playbackEpoch && source === assetSource && record === selected && inspectedGroup === group.number && dialog.open;
+    value("input-status").textContent = "Reading the selected local input attachment...";
+    try {
+      const blob = await source.getAsset(record.id, asset.hash);
+      if (!current()) return;
+      if (!(blob instanceof Blob) || !blob.size || blob.size > (json ? 12 * 1024 * 1024 : MAX_IMAGE_BYTES)) throw Error("This input attachment is unavailable or exceeds the local viewer limit.");
+      if (json) {
+        const text = await blob.text(); if (!current()) return;
+        const body = JSON.parse(text);
+        if (!body || typeof body !== "object" || Array.isArray(body)) throw Error("The recorded client JSON body is not recognized; no provider prompt is inferred.");
+        const preview = JSON.stringify(body, (key, item) => key === "atlasImage" && typeof item === "string" && item.startsWith("data:image/") ? "[Image data hidden in this text preview only. Use View submitted image or save the original JSON.]" : item, 2);
+        value("input-body").textContent = preview.length > 131072 ? preview.slice(0, 131072) + "\n[Text preview limited to 128 KiB. Save the recorded JSON for its complete captured contents.]" : preview;
+        value("input-body").hidden = false;
+      } else {
+        const buffer = await blob.arrayBuffer(); if (!current()) return;
+        const dimensions = rasterDimensions(buffer, asset.mime);
+        inputUrl = URL.createObjectURL(blob);
+        const decoder = predecode(inputUrl, dimensions.pixels); inputDecoder = decoder.image; cancelInputDecode = decoder.cancel;
+        const decoded = await decoder.promise; if (!current()) return;
+        if (!decoded) throw Error("This recorded input image could not be decoded.");
+        const image = dialog.querySelector(".tenet-process-input-image"); image.src = inputUrl; image.hidden = false;
+      }
+      if (!current()) return;
+      if (!inputUrl) inputUrl = URL.createObjectURL(blob);
+      value("input-download").href = inputUrl; value("input-download").download = asset.name; value("input-download").hidden = false;
+      value("input-status").textContent = `Recorded client-to-Whiteboard input. Capture status: ${inputEvent.details?.bodyStatus || "not recorded"}; format: ${inputEvent.details?.bodyFormat || "not recorded"}. ${inputEvent.details?.bodyExact === true ? "Capture marks the body as exact at this client boundary." : "Exact body capture is not established; review omission metadata."} Text-preview image placeholders and display limits do not change the downloadable recorded JSON. This is not a server receipt or the final Gateway/provider prompt. The page replay is unchanged.`;
+    } catch (error) {
+      if (!current()) return;
+      clearInput(); value("input-status").textContent = error?.message || "This recorded input is unavailable.";
+    }
+  }
   function eventTitle(event) {
     const titles = { "capture.started":"Recording began", "capture.paused":"Recording paused", "canvas.commit":"Canvas edit committed", "canvas.undo":"Edit undone", "canvas.redo":"Edit restored", "native.revision":"PencilKit revision received", "ai.request":"Question sent to Tenet", "ai.response":"Tenet reply observed", "ai.finished":"AI request finished", "coverage.gap":"Coverage gap recorded" };
     if (!event) return "No event selected";
-    if ((event.assets || []).some(isCheckpointImage)) return event.details?.representation === "saved-page-thumbnail" ? "Saved-page thumbnail" : "Page checkpoint";
+    if (checkpointImage(event)) return event.details?.representation === "saved-page-thumbnail" ? "Saved-page thumbnail" : "Page checkpoint";
     return Object.hasOwn(titles, event.type) ? titles[event.type] : String(event.type).replaceAll(".", " ");
   }
   function paintObservation(event, index) {
@@ -464,20 +927,23 @@ window.PENECHO_CONFIG = {tenetMode:true,tenetAssignmentPreview:true,tenetHistory
     value("event-title").textContent = eventTitle(event);
     const data = event?.details || {};
     value("event-description").textContent = event?.type === "coverage.gap" ? String(data.reason || data.note || "Part of the work was not captured. Do not infer what happened during this gap.") : event?.type === "ai.response" ? "A reply was observed before canvas placement. This does not prove the student used or accepted it." : event?.type === "native.revision" ? "One accepted drawing revision was observed. It may contain multiple strokes or edits." : event?.type === "ai.request" ? "This is the locally observed question and scope, not a copy of the exact provider payload." : "Use the timeline to compare recorded page states. Device timestamps and gaps do not establish authorship, effort or outside help.";
-    let request = null;
-    const requestId = data.localRequestId;
-    for (let cursor = index; cursor >= 0; cursor--) {
-      const item = events[cursor];
-      if (item?.type === "ai.request" && (!requestId || item.details?.localRequestId === requestId)) { request = item; break; }
-    }
+    const groupNumber = eventGroups[index] >= 0 ? eventGroups[index] : String(event?.type || "").startsWith("ai.") ? -1 : precedingGroups[index];
+    const group = requestGroups[groupNumber], request = group ? events[group.index] : null;
+    const interaction = eventGroups[index] >= 0;
+    const moment = moments[momentAtEvent[index]];
+    value("event-title").textContent = momentTitle(moment);
+    if (interaction && group) {
+      const finish = group.finished.length ? events[group.finished.at(-1)] : null;
+      value("event-description").textContent = `One recorded AI interaction: question, linked reply and lifecycle. ${finish ? "Finish observation: " + (finish.details?.outcome || "outcome unavailable") + "." : "No finish observation recorded; pending or incomplete history."} Observed output is not proof of acceptance. Only edits with an explicit request identifier are associated with AI.`;
+    } else if (moment?.kind === "work") value("event-description").textContent = `${moment.web} observed canvas edits, ${moment.native} PencilKit revisions and ${moment.checkpoints} saved page images grouped as a work moment. This grouping is not a count of individual pen strokes or proof of active work time. It does not attribute the edits to AI.`;
     const conversation = dialog.querySelector(".tenet-process-conversation");
     conversation.hidden = !request;
     value("question").textContent = ""; value("response").textContent = ""; value("ai-provenance").textContent = "";
     if (!request) return;
-    const response = events.slice(0, index + 1).find(item => item.type === "ai.response" && item.details?.localRequestId === request.details?.localRequestId);
+    const responseIndex = interaction ? group.responses.at(-1) ?? -1 : latestAt(group.responses, index), response = responseIndex >= 0 ? events[responseIndex] : null;
     value("question").textContent = request.details?.question || "No typed question captured. This request may have used handwriting or automatic context.";
-    value("response").textContent = response ? response.details?.text || "Non-text output observed; inspect later page checkpoints and technical tool details." : "No reply observed yet at this point in the timeline.";
-    value("ai-provenance").textContent = `Scope: ${request.details?.context?.scope || "not recorded"}. ${sample ? "Scripted example, not a live AI interaction." : "Local client evidence only; exact Gateway payload and policy are not attested."}${request.details?.questionTruncated || response?.details?.textTruncated ? " Some text was truncated during capture." : ""}`;
+    value("response").textContent = response ? response.details?.text || "Non-text output observed; inspect recorded tool details and later page checkpoints." : interaction ? "No linked reply body was recorded for this interaction. Pending, failed and missing captures are not reconstructed." : "No reply observed yet at this point in the timeline.";
+    value("ai-provenance").textContent = `${interaction ? "Full recorded interaction: the latest linked reply may be later than the displayed checkpoint." : "Latest linked reply at this replay position only."} ${originLabel(request)}. Scope: ${request.details?.context?.scope || "not recorded"}. Open the AI interaction summary for all recorded replies, lifecycle and inputs. ${sample ? "Scripted example, not a live AI interaction." : "Local client evidence only; exact Gateway payload and policy are not attested."}${request.details?.questionTruncated || response?.details?.textTruncated ? " Some text was truncated during capture." : ""}${group.ambiguous || !group.id ? " Request linkage is unavailable or ambiguous; no response is inferred." : ""}`;
   }
   async function syntheticAssignment() {
     // All sample work is generated locally. No network, journal writes, capture
@@ -557,66 +1023,88 @@ window.PENECHO_CONFIG = {tenetMode:true,tenetAssignmentPreview:true,tenetHistory
     if (!rows.length) { const empty = document.createElement("p"); empty.textContent = "No recorded assignments yet."; list.append(empty); }
     control.dataset.recording = String(Boolean(capture()?.isRecording()));
   }
-  function recordedEventTime(event) {
+  function eventMillis(event) {
     const iso = event?.timestamp;
     const isoTime = typeof iso === "string" && iso.length <= 40 && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/.test(iso) ? Date.parse(iso) : NaN;
     const legacyTime = typeof event?.clientWallTime === "number" ? event.clientWallTime : NaN;
     for (const time of [isoTime, legacyTime]) {
       if (!Number.isFinite(time)) continue;
       const date = new Date(time);
-      if (Number.isFinite(date.getTime())) return date.toLocaleString();
+      if (Number.isFinite(date.getTime())) return time;
     }
-    return "Time unavailable";
+    return null;
+  }
+  function recordedEventTime(event) {
+    const time = eventMillis(event);
+    return time === null ? "Time unavailable" : new Date(time).toLocaleString();
   }
   async function renderEvent(index) {
-    const token = ++generation; clearImage();
+    const token = ++generation, session = sessionEpoch, selection = selectionEpoch, playback = playbackEpoch;
+    const current = () => token === generation && session === sessionEpoch && selection === selectionEpoch && playback === playbackEpoch && dialog.open;
+    indexHistory();
     index = Math.max(0, Math.min(Number(index) || 0, Math.max(0, events.length - 1)));
+    currentIndex = index;
     const event = events[index];
-    slider.value = String(index); value("position").textContent = `${event ? index + 1 : 0} / ${events.length}`;
-    value("detail").textContent = event ? JSON.stringify({ event: event.type, sequence: event.sequence, recordedAt: recordedEventTime(event), details: event.details }, null, 2) : "No events recorded.";
+    const momentNumber = momentAtEvent[index], moment = moments[momentNumber];
+    slider.value = String(momentNumber || 0); value("position").textContent = `${event ? momentNumber + 1 : 0} / ${moments.length} moments`;
+    value("detail").textContent = event ? JSON.stringify({ event: event.type, sequence: event.sequence, recordedAt: recordedEventTime(event), groupedMoment:momentTitle(moment), groupedRawSequences:moment?.raw.map(raw => events[raw].sequence), details: event.details }, null, 2) : "No events recorded.";
     paintObservation(event, index);
-    dialog.querySelectorAll(".tenet-process-events button").forEach(button => button.setAttribute("aria-current", String(Number(button.dataset.index) === index)));
-    let image = null, imageEvent = null;
-    for (let cursor = index; cursor >= 0 && !image; cursor--) {
-      image = (events[cursor]?.assets || []).find(isCheckpointImage);
-      if (image) imageEvent = events[cursor];
-    }
-    value("checkpoint-caption").textContent = imageEvent?.details?.representation === "saved-page-thumbnail" ? "This frame is a saved-page thumbnail, not a full-resolution checkpoint or a recording of every stroke. It is the nearest saved image at or before this event." : "Checkpoint replay, not a recording of every pen movement. The image is the nearest recorded checkpoint at or before the selected event.";
-    value("preview").hidden = false; value("preview").textContent = image ? "Loading recorded checkpoint..." : "No rendered checkpoint at or before this event.";
+    updateActivityPosition(index);
+    dialog.querySelectorAll(".tenet-process-events button").forEach(button => button.setAttribute("aria-current", String(Number(button.dataset.moment) === momentNumber)));
+    const frameIndex = frameAtEvent[index], frame = frames[frameIndex];
+    requestedFrameKey = frame?.key || null;
+    desiredFrameKeys = new Set([frame?.key, frames[nextFrameAt[frameIndex]]?.key, frames[previousFrameAt[frameIndex]]?.key].filter(Boolean));
+    for (const [key, entry] of frameCache) if (entry.state === "loading" && !desiredFrameKeys.has(key)) dropFrame(key);
+    value("preview").hidden = false;
+    value("preview").textContent = frame ? "Preparing the next checkpoint. Any visible image retains its own timestamp below." : "No rendered checkpoint at or before this event.";
+    dialog.querySelector(".tenet-process-preview").dataset.retained = String(Boolean(imageUrl));
     if (savedPageId !== null && !historyAvailable) {
       value("preview").textContent = "History unavailable for this saved whiteboard. No past steps or AI interactions can be reconstructed.";
       value("event-title").textContent = "No recorded history";
       value("event-description").textContent = "This page predates saved work-history capture or contains no saved history. It is not evidence that no AI was used.";
     }
-    if (!image || !selected) return;
-    const blob = await assetSource.getAsset(selected.id, image.hash);
-    if (token !== generation || !dialog.open) return;
-    if (!(blob instanceof Blob)) throw Error("This checkpoint attachment is unavailable. The event history is still readable.");
-    imageUrl = URL.createObjectURL(blob); picture.src = imageUrl; picture.hidden = false; value("preview").hidden = true;
+    if (!frame || !selected) {
+      hidePicture(); value("checkpoint-caption").textContent = "No page image is recorded at or before this position. AI input images are not page checkpoints."; return;
+    }
+    const entry = await loadFrame(frame);
+    if (!current()) return;
+    if (!entry || entry.state !== "ready" || !entry.url) {
+      value("preview").textContent = entry?.error || "This checkpoint is unavailable. Event history remains readable.";
+      return;
+    }
+    imageUrl = entry.url; displayedFrameKey = frame.key;
+    if (picture.getAttribute("src") !== imageUrl) picture.src = imageUrl;
+    picture.hidden = false; value("preview").hidden = true;
+    dialog.querySelector(".tenet-process-preview").dataset.retained = "false";
+    const imageEvent = events[frame.eventIndex];
+    value("frame-time").textContent = `Displayed ${imageEvent.details?.representation === "saved-page-thumbnail" ? "saved-page thumbnail" : "checkpoint"}: event ${frame.eventIndex + 1}, ${recordedEventTime(imageEvent)}. Selected event: ${index + 1}, ${recordedEventTime(event)}.`;
+    value("checkpoint-caption").textContent = imageEvent.details?.representation === "saved-page-thumbnail" ? "This displayed frame is a saved-page thumbnail, not a full-resolution checkpoint or a recording of every stroke." : "Recorded checkpoints and native revision observations, not a video of individual pen strokes. A checkpoint may combine several edits.";
+    const next = frames[nextFrameAt[frameIndex]];
+    if (next && current()) void loadFrame(next);
   }
   async function paintRecord() {
     dialog.querySelector(".tenet-process-empty").hidden = Boolean(selected);
     dialog.querySelector(".tenet-process-record").hidden = !selected;
     if (!selected) return;
+    indexHistory();
     value("title").textContent = selected.title;
-    const aiCount = events.filter(event => event.type.startsWith("ai.")).length;
-    value("meta").textContent = `${selected.subject || "Assignment"} / ${events.length} events / ${aiCount} AI lifecycle events`;
+    value("meta").textContent = `${selected.subject || "Assignment"} / ${moments.length} work moments / ${requestGroups.length} AI interactions. ${events.length} raw observations retained.`;
     value("badge").textContent = savedPageId !== null ? "SAVED WHITEBOARD / ON DEVICE" : sample ? "SYNTHETIC EXAMPLE" : imported ? "IMPORTED / UNVERIFIED" : String(selected.status).toUpperCase();
     value("coverage").textContent = savedPageId !== null && !historyAvailable ? "No process history is available for this saved whiteboard. We cannot reconstruct earlier edits, time spent or AI help, and do not substitute a sample." : `${savedPageId !== null ? "Actual process history stored with this whiteboard. " : sample ? "Fictional work and scripted AI replies. " : "Local observations, not server-attested evidence. "}Coalesced checkpoints, not full stroke playback. No verified student identity, assignment-rule enforcement or Schoology receipt.${selected.incomplete ? " Known gaps: " + (selected.coverageNotes || selected.incompleteReasons || []).join(" ") : " Not proof of independent work."}${selected.droppedEvents > 0 ? " Events omitted by retention limits: " + selected.droppedEvents + "." : ""}`;
-    value("checkpoints").textContent = String(events.filter(event => (event.assets || []).some(isCheckpointImage)).length);
-    value("requests").textContent = String(events.filter(event => event.type === "ai.request").length);
+    value("checkpoints").textContent = String(frames.length);
+    value("requests").textContent = String(requestGroups.length);
     value("gaps").textContent = String(events.filter(event => event.type === "coverage.gap").length || (selected.incomplete ? "Recorded" : 0));
-    slider.max = String(Math.max(0, events.length - 1)); slider.disabled = !events.length;
+    slider.max = String(Math.max(0, moments.length - 1)); slider.disabled = !moments.length;
     const list = dialog.querySelector(".tenet-process-events"); list.replaceChildren();
     // Keep a long notebook from turning into thousands of live DOM controls.
-    const start = Math.max(0, events.length - 150);
-    value("timeline-note").textContent = start ? "Latest 150 events shown here. The playback slider covers the full history." : "Observed order and device times, not a measure of effort or authorship.";
-    for (let index = start; index < events.length; index++) {
-      const button = document.createElement("button"); button.type = "button"; button.dataset.index = String(index);
-      button.textContent = `${events[index].sequence}. ${eventTitle(events[index])}`;
-      button.addEventListener("click", () => { stopPlaying(); void perform(() => renderEvent(index)); }); list.append(button);
+    const start = Math.max(0, moments.length - 100);
+    value("timeline-note").textContent = `${start ? "Latest 100 work moments shown; the slider covers all moments. " : ""}AI requests, replies, finishes and recorded inputs are one interaction. Nearby ordinary edits/checkpoints are grouped work moments; no student edit is attributed to AI without an explicit recorded link. Raw order and details are retained.`;
+    for (let index = start; index < moments.length; index++) {
+      const button = document.createElement("button"); button.type = "button"; button.dataset.moment = String(index);
+      button.textContent = `${index + 1}. ${momentTitle(moments[index])}`;
+      button.addEventListener("click", () => seekMoment(index)); list.append(button);
     }
-    paintActions(); await renderEvent(Math.max(0, events.length - 1));
+    paintActivity(); paintActions(); await renderEvent(moments.at(-1)?.index || 0);
   }
   async function selectAttempt(id) {
     if (viewerOnly) return;
@@ -627,13 +1115,29 @@ window.PENECHO_CONFIG = {tenetMode:true,tenetAssignmentPreview:true,tenetHistory
     imported = false; sample = false; savedPageId = null; historyAvailable = true; assetSource = journal; selected = attempt; events = nextEvents;
     await paintRecord(); await refreshLibrary();
   }
-  async function tick(index, token) {
+  async function tick(position, token) {
     if (!playing || !dialog.open || token !== playbackEpoch) return;
-    try { await renderEvent(index); }
+    const moment = moments[position]; if (!moment) { stopPlaying(); return; }
+    try { await renderEvent(moment.index); }
     catch (error) { if (token === playbackEpoch) { stopPlaying(); message(error.message, true); } return; }
     if (!playing || !dialog.open || token !== playbackEpoch) return;
-    if (index >= events.length - 1) { stopPlaying(); return; }
-    playTimer = setTimeout(() => void tick(index + 1, token), 1000);
+    if (position >= moments.length - 1) { stopPlaying(); return; }
+    const previous = eventTimes[moment.start], next = eventTimes[moments[position + 1].start];
+    const reliable = previous !== null && next !== null && next >= previous;
+    const recordedDelay = reliable ? next - previous : 1000;
+    const shortened = skipLongPauses && recordedDelay > 10000;
+    const delay = Math.max(60, (shortened ? 1000 : recordedDelay) / playbackSpeed);
+    value("pacing").textContent = `${playbackSpeed}x playback. ${reliable ? shortened ? "A recorded pause longer than 10 seconds is shortened to 1 second before speed adjustment." : "Using the recorded interval to the next event." : "Next interval has missing or out-of-order times: using a 1-second fallback in recorded order."} Rapid simultaneous events have a 60 ms display floor. Pausing, seeking or changing pacing stops this timer.`;
+    function waitRemaining(remaining) {
+      if (!playing || !dialog.open || token !== playbackEpoch) return;
+      const chunk = Math.min(60000, remaining);
+      playTimer = setTimeout(() => {
+        if (!playing || !dialog.open || token !== playbackEpoch) return;
+        if (remaining > chunk) waitRemaining(remaining - chunk);
+        else void tick(position + 1, token);
+      }, chunk);
+    }
+    waitRemaining(delay);
   }
   async function prepareExport() {
     if (viewerOnly || !selected || imported) return;
@@ -713,11 +1217,25 @@ window.PENECHO_CONFIG = {tenetMode:true,tenetAssignmentPreview:true,tenetHistory
   find("play").addEventListener("click", () => {
     if (playing) { stopPlaying(); return; }
     if (!events.length || !dialog.open || dialog.dataset.busy === "true") return;
-    playing = true; find("play").textContent = "Pause replay";
+    clearInput(); playing = true; find("play").textContent = "Pause replay";
     const token = ++playbackEpoch;
-    void tick(Number(slider.value) >= events.length - 1 ? 0 : Number(slider.value) + 1, token);
+    void tick(Number(slider.value) >= moments.length - 1 ? 0 : Number(slider.value), token);
   });
-  slider.addEventListener("input", () => { stopPlaying(); void renderEvent(Number(slider.value)).catch(error => message(error.message, true)); });
+  slider.addEventListener("input", () => seekMoment(Number(slider.value)));
+  dialog.querySelector('[data-control="speed"]').addEventListener("change", event => {
+    const speed = Number(event.currentTarget.value);
+    if (![0.5, 1, 2, 4, 8].includes(speed)) return;
+    playbackSpeed = speed; seekEvent(currentIndex);
+    value("pacing").textContent = `Paused. Press Play history to continue at ${speed}x recorded-time speed. Missing or out-of-order times use a 1-second fallback in recorded order.`;
+  });
+  dialog.querySelector('[data-control="skip-pauses"]').addEventListener("change", event => {
+    skipLongPauses = event.currentTarget.checked === true; seekEvent(currentIndex);
+    value("pacing").textContent = skipLongPauses ? "Paused. Long pauses over 10 seconds will be shortened to 1 second before speed adjustment." : "Paused. Long recorded pauses will be retained. This timing is not a measure of active work.";
+  });
+  find("ai-summary").addEventListener("click", () => showAISummary());
+  find("hide-ai-summary").addEventListener("click", () => { clearInput(); dialog.querySelector(".tenet-process-ai-summary").hidden = true; find("ai-summary").setAttribute("aria-expanded", "false"); find("ai-summary").focus(); });
+  find("ai-previous").addEventListener("click", () => { aiListPage--; paintAIList(); });
+  find("ai-next").addEventListener("click", () => { aiListPage++; paintAIList(); });
   const picker = dialog.querySelector('[data-file="archive"]');
   find("open").addEventListener("click", () => picker.click());
   picker.addEventListener("change", () => void perform(async () => {

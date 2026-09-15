@@ -45,10 +45,24 @@ const realPersistence = ["snapshotDb", "requestResult", "transactionDone", "canv
   "saveDeviceSnapshot", "readDeviceSnapshot", "snapshotName", "finalizeCanvasForSnapshot", "snapshotPreviewBlob",
   "exportRegion", "renderExportCanvas", "save", "saveSnapshot"].map(persistenceFunction).join("\n");
 
-function raster(contents) {
+function raster(contents, framed = false) {
   const canvas = { width:320, height:180, contents,
     getContext:() => context,
-    toBlob(callback, mime = "image/png") { queueMicrotask(() => callback(new Blob([canvas.contents], { type:mime }))); } };
+    toBlob(callback, mime = "image/png") {
+      // The Teacher fixture owns simulated decode(). Supply its bounded PNG
+      // header contract while retaining observable scene markers. This is not
+      // a browser-codec or pixel-fidelity qualification; tiles remain unchanged.
+      const parts = [];
+      if (framed && mime === "image/png") {
+        const header = Buffer.alloc(33);
+        Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).copy(header);
+        header.writeUInt32BE(13, 8); header.write("IHDR", 12);
+        header.writeUInt32BE(canvas.width, 16); header.writeUInt32BE(canvas.height, 20);
+        parts.push(header);
+      }
+      parts.push(canvas.contents);
+      queueMicrotask(() => callback(new Blob(parts, { type:mime })));
+    } };
   const context = { fillRect() {}, save() {}, restore() {}, setTransform() {},
     drawImage(image) { canvas.contents += image.contents || "native-preview-fixture"; } };
   return canvas;
@@ -92,7 +106,7 @@ async function boot(indexedDB = memoryIndexedDB(), { settledNative = true } = {}
     saveCloudSnapshot:() => assert.fail("This integration must never save student work to the cloud"),
     fetch:() => assert.fail("No provider or upload requests are part of this local regression"),
     exportInkBounds:() => c.tiles.size ? { x:0, y:0, w:256, h:256 } : h.controller.snapshot()?.bounds || null,
-    offscreen:(width, height) => Object.assign(raster(""), { width, height }),
+    offscreen:(width, height) => Object.assign(raster("", true), { width, height }),
     drawCanvasLineGrid:noop, drawAnimationsToContext:noop, drawWidgetsToContext:noop,
     drawImagesToContext:noop, drawTextBoxesToContext:noop, drawSharpOverlays:context => h.controller.draw(context),
     refreshSnapshots:async () => { c.snapshotItems = await vm.runInContext("allSnapshots()", c); },
@@ -120,8 +134,10 @@ async function boot(indexedDB = memoryIndexedDB(), { settledNative = true } = {}
   };
 }
 function observeAI(h, question = "What should I try next?", reply = "Which operation would undo adding six?") {
+  const packed = { questionOnly:true, selectionQuestion:question };
   const token = h.capture.aiRequested({ action:"hint", automatic:false, revision:h.state.userRevision,
-    captureCurrentViewport:false, packed:{ questionOnly:true, selectionQuestion:question } });
+    captureCurrentViewport:false, packed, voice:false,
+    requestBody:JSON.stringify({ ...packed, userAction:"hint", trigger:"manual" }) });
   assert.ok(token, "The real ordinary-session observer must accept the request");
   h.capture.aiResponse(token, { commands:[{ tool:"write_text", text:reply }], requestId:"local-fixture-request" });
   h.capture.aiFinished(token, "completed");
@@ -193,7 +209,7 @@ test("observed web/native/AI work saves atomically, survives a new runtime and o
   assert.equal(ui.value("requests").textContent, "1");
   assert.doesNotMatch(ui.value("detail").textContent, /Invalid Date/);
   const checkpoint = record.events.flatMap(event => event.assets).findLast(asset => asset.mime === "image/png");
-  const displayed = [...ui.urls.values()].at(-1);
+  const displayed = ui.urls.get(ui.dialog.querySelector("img")?.getAttribute("src"));
   assert.ok(displayed instanceof Blob, "Teacher view must select the nearest full checkpoint even when the last event is AI lifecycle metadata");
   assert.equal(displayed.type, "image/png");
   assert.equal(await displayed.text(), await (await record.getAsset(id, checkpoint.hash)).text());
@@ -237,7 +253,7 @@ test("save captures a fresh full frame when the last edit has not reached the co
   const ui = teacherUI({ config:{ tenetAssignmentPreview:false, tenetHistoryViewerOnly:false }, documentHistory:h.history });
   t.after(() => ui.dialog.close());
   assert.equal(await ui.win.TenetProcessUI.openSavedPage(id), true);
-  assert.equal(await [...ui.urls.values()].at(-1).text(), await frame.text());
+  assert.equal(await ui.urls.get(ui.dialog.querySelector("img")?.getAttribute("src")).text(), await frame.text());
 });
 
 test("a mutation during final full-frame encoding refuses the pinned save rather than widening its revision", options, async t => {
@@ -326,4 +342,48 @@ test("navigation during snapshot encoding refuses the stale save and late AI res
   encoding.resolve(); assert.equal(await saving, null);
   assert.deepEqual(plain(await h.history.listSavedPages()), []);
   assert.equal(h.state.currentSnapshotId, null); assert.equal(h.history.hasWork(), false);
+});
+
+test("actual local transaction preserves submitted JSON and crop hashes across overwrite and fresh runtime", options, async t => {
+  const h = await boot(); t.after(() => h.dispose());
+  h.webEdit("worksheet-before-request");
+  const image = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
+  const packed = { atlasImage:"data:image/png;base64," + image.toString("base64"),
+    sourceRect:{ x:17, y:23, w:41, h:59 }, atlasSize:{ w:1, h:1 }, selectionQuestion:"Why this step?",
+    selectionContext:{ closed:true, path:[{ x:17, y:23 }, { x:58, y:23 }, { x:58, y:82 }] } };
+  const body = JSON.stringify({ ...packed, trigger:"manual", userAction:"hint", reasoningEffort:"medium",
+    canvasSize:{ w:20000, h:20000 }, uiTheme:"studio", persona:"Fixture client persona", plugins:["graph"] });
+  const token = h.capture.aiRequested({ action:"hint", automatic:false, voice:true,
+    revision:h.state.userRevision, packed, requestBody:body });
+  h.capture.aiResponse(token, { commands:[{ tool:"write_text", text:"Which value changes?" }] });
+  h.capture.aiFinished(token, "completed");
+  const id = await h.savePage();
+  assert.ok(id); assert.equal(h.history.isDirty(), false);
+  const fresh = await boot(h.indexedDB); t.after(() => fresh.dispose());
+  const record = await fresh.history.readSavedPage(id);
+  const request = record.events.find(event => event.type === "ai.request");
+  const input = record.events.find(event => event.type === "ai.input");
+  assert.equal(request.details.origin, "voice-question");
+  assert.equal(input.details.localRequestId, request.details.localRequestId);
+  assert.equal(input.details.bodyExact, true); assert.equal(input.details.gatewayProviderPromptObserved, false);
+  assert.equal(input.assets.length, 2);
+  const json = input.assets.find(asset => asset.name === "ai-input.json");
+  const crop = input.assets.find(asset => asset.name === "ai-input.png");
+  assert.equal(await (await record.getAsset(id, json.hash)).text(), body);
+  assert.deepEqual(Buffer.from(await (await record.getAsset(id, crop.hash)).arrayBuffer()), image);
+  for (const asset of input.assets) {
+    const blob = await record.getAsset(id, asset.hash);
+    assert.equal(Buffer.from(await webcrypto.subtle.digest("SHA-256", await blob.arrayBuffer())).toString("hex"), asset.hash);
+  }
+  assert.equal(record.events.filter(event => event.type === "canvas.checkpoint").some(event =>
+    event.assets.some(asset => asset.name.startsWith("ai-input."))), false);
+  const stored = await h.readStored(id);
+  assert.equal(await stored.tileEntries[0].blob.text(), "worksheet-before-request");
+  fresh.state.currentSnapshotId = id; fresh.state.currentSnapshotLocation = "device";
+  fresh.history.restore(stored.item);
+  fresh.webEdit("worksheet-after-reopen");
+  assert.equal(await fresh.savePage({ overwriteId:id }), id);
+  const after = await fresh.history.readSavedPage(id);
+  assert.equal(await (await after.getAsset(id, json.hash)).text(), body);
+  assert.equal(after.events.filter(event => event.type === "ai.input").length, 1);
 });

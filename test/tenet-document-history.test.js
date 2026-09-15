@@ -385,3 +385,324 @@ test("editing during a fresh save checkpoint still rejects the pinned save inste
   assert.equal(h.api.isSaveCurrent(prepared.token, 1), false);
   assert.equal(h.api.isDirty(), true); assert.equal(h.pages.size, 0);
 });
+
+const AI_BODY_LIMIT = 12 * 1024 * 1024, AI_IMAGE_LIMIT = 8 * 1024 * 1024;
+const inputPNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
+const nextTurn = () => new Promise(setImmediate);
+function requestInput(h, settings = {}) {
+  const packed = settings.packed || { questionOnly:true, selectionQuestion:"Which step should I try?" };
+  const body = settings.body ?? JSON.stringify({ ...packed, trigger:"manual", userAction:"hint" });
+  const input = { action:"hint", automatic:false, revision:h.state.userRevision, packed, voice:false,
+    requestBody:body, ...settings.input };
+  const token = h.capture.aiRequested(input);
+  assert.ok(token);
+  return { token, body, input };
+}
+function blockInputHash(h) {
+  const entered = deferred(), release = deferred();
+  h.context.crypto = { randomUUID:() => webcrypto.randomUUID(), subtle:{
+    async digest(...args) { entered.resolve(); await release.promise; return webcrypto.subtle.digest(...args); },
+  } };
+  return { entered:entered.promise, release:release.resolve };
+}
+function capturedInput(prepared, token) {
+  return prepared.item.workHistory.events.find(event => event.type === "ai.input" && event.details.localRequestId === token.id);
+}
+function storedInputAsset(prepared, event, name) {
+  const reference = event.assets.find(asset => asset.name === name);
+  return reference && prepared.item.workHistory.assets.find(asset => asset.hash === reference.hash);
+}
+
+test("exact serialized client body and crop are retained independently of later edits and response completion", options, async () => {
+  const h = harness(); await h.api.flush();
+  const packed = { atlasImage:"data:image/png;base64," + inputPNG.toString("base64"), atlasSize:{ w:1, h:1 },
+    sourceRect:{ x:17, y:29, w:40, h:50 }, changedBox:{ x:20, y:30, w:10, h:12 },
+    selectionContext:{ closed:true, path:[{ x:17, y:29 }, { x:57, y:29 }, { x:57, y:79 }] },
+    selectionQuestion:"Explain this π step", focusInset:null };
+  const body = JSON.stringify({ ...packed, userAction:"hint", trigger:"manual", reasoningEffort:"medium",
+    canvasSize:{ w:20000, h:20000 }, uiTheme:"studio", persona:"Exact client persona", plugins:["graph"] }, null, 2);
+  const gate = blockInputHash(h), sent = requestInput(h, { packed, body });
+  await gate.entered;
+  h.capture.aiResponse(sent.token, { commands:[{ tool:"write_text", text:"What is known?" }] });
+  h.capture.aiFinished(sent.token, "completed");
+  packed.selectionQuestion = "Later text must not replace request"; edit(h);
+  gate.release(); await h.api.flush();
+  const prepared = await h.prepare(), input = capturedInput(prepared, sent.token);
+  assert.equal(input.details.requestRevision, 0); assert.equal(input.details.userRevision, 0);
+  assert.equal(input.details.bodyStatus, "recorded"); assert.equal(input.details.bodyExact, true);
+  assert.equal(input.details.bodyFormat, "raw-client-json"); assert.equal(input.details.imageStatus, "recorded");
+  assert.equal(input.details.boundary, "client-to-whiteboard"); assert.equal(input.details.gatewayProviderPromptObserved, false);
+  assert.ok(Number.isFinite(Date.parse(input.details.requestObservedAt)));
+  assert.ok(input.sequence > prepared.item.workHistory.events.find(event => event.type === "ai.finished").sequence);
+  assert.equal(await storedInputAsset(prepared, input, "ai-input.json").blob.text(), body);
+  const image = storedInputAsset(prepared, input, "ai-input.png");
+  assert.deepEqual(Buffer.from(await image.blob.arrayBuffer()), inputPNG);
+  assert.equal(input.assets.length, 2);
+  for (const event of prepared.item.workHistory.events) {
+    assert.ok(event.assets.length <= 2); assert.ok(Buffer.byteLength(JSON.stringify(event.details)) <= 12 * 1024);
+    if (event.type === "canvas.checkpoint") assert.equal(event.assets.some(asset => asset.name.startsWith("ai-input.")), false);
+  }
+  h.commitPrepared(prepared);
+  const reloaded = harness({ pages:structuredClone(h.pages) }), record = await reloaded.api.readSavedPage("page-a");
+  const savedInput = record.events.find(event => event.type === "ai.input");
+  assert.equal(await (await record.getAsset("page-a", savedInput.assets[0].hash)).text(), body);
+  assert.equal(h.api.isDirty(), false);
+});
+
+test("request origins distinguish explicit questions from typed canvas context without retaining voice IDs", options, async () => {
+  const cases = [
+    { origin:"quick-help", packed:{}, input:{ typedInput:{ text:"Canvas textbox" } }, source:"canvas-typed-input" },
+    { origin:"specific-question", packed:{ selectionQuestion:"Why?" }, source:"selection-question" },
+    { origin:"voice-question", packed:{ questionOnly:true, selectionQuestion:"Edited spoken question" }, input:{ voice:true, voiceRequestId:"never-retain-voice-id" }, source:"selection-question" },
+    { origin:"automatic", packed:{}, input:{ action:"auto", automatic:true }, source:"none" },
+    { origin:"unknown", packed:{}, input:{ voice:undefined }, source:"none" },
+  ];
+  for (const item of cases) {
+    const h = harness(), sent = requestInput(h, item);
+    const prepared = await h.prepare(), request = prepared.item.workHistory.events.find(event => event.type === "ai.request");
+    assert.equal(request.details.origin, item.origin); assert.equal(request.details.questionSource, item.source);
+    assert.equal(capturedInput(prepared, sent.token).details.origin, item.origin);
+    assert.doesNotMatch(JSON.stringify(prepared.item.workHistory.events), /never-retain-voice-id/);
+  }
+});
+
+test("credential and header fields are removed only from local retained JSON and marked partial", options, async () => {
+  const h = harness();
+  const value = { selectionQuestion:"Keep the question", authorization:"secret-one", headers:{ Authorization:"secret-two" },
+    nested:{ api_key:"secret-three", clientSecret:"secret-four", safe:"keep this" },
+    list:[{ refresh_token:"secret-five", text:"Keep this too" }], typedInput:{ text:"ordinary student text" } };
+  const body = JSON.stringify(value), sent = requestInput(h, { body });
+  const prepared = await h.prepare(), input = capturedInput(prepared, sent.token);
+  const retained = await storedInputAsset(prepared, input, "ai-input.json").blob.text();
+  assert.equal(sent.body, body); assert.match(body, /secret-one/);
+  assert.doesNotMatch(retained, /secret-(?:one|two|three|four|five)/);
+  assert.deepEqual(JSON.parse(retained), { selectionQuestion:"Keep the question", nested:{ safe:"keep this" },
+    list:[{ text:"Keep this too" }], typedInput:{ text:"ordinary student text" } });
+  assert.equal(input.details.bodyStatus, "partial"); assert.equal(input.details.bodyExact, false);
+  assert.equal(input.details.bodyFormat, "redacted-client-json");
+  assert.ok(input.details.omitted.includes("sensitive-body-fields-omitted"));
+  assert.equal(prepared.item.workHistory.incomplete, true);
+});
+
+test("raw body limits are enforced in both source characters and UTF8 Blob bytes", options, async () => {
+  for (const [body, reason] of [
+    ["x".repeat(AI_BODY_LIMIT + 1), "body-character-limit"],
+    [JSON.stringify({ text:"\u4f60".repeat(Math.floor(AI_BODY_LIMIT / 3) + 1) }), "body-byte-limit"],
+  ]) {
+    const h = harness(), sent = requestInput(h, { body });
+    const prepared = await h.prepare(), input = capturedInput(prepared, sent.token);
+    assert.equal(input.details.bodyStatus, "unavailable"); assert.equal(input.assets.length, 0);
+    assert.ok(input.details.omitted.includes(reason)); assert.equal(prepared.item.workHistory.incomplete, true);
+    h.commitPrepared(prepared); assert.equal(h.api.isDirty(), false, "Stored partial history must not cause autosave churn");
+  }
+  const h = harness(), overhead = JSON.stringify({ text:"" }).length;
+  const body = JSON.stringify({ text:"a".repeat(AI_BODY_LIMIT - overhead) });
+  assert.equal(Buffer.byteLength(body), AI_BODY_LIMIT);
+  const sent = requestInput(h, { body }), prepared = await h.prepare(), input = capturedInput(prepared, sent.token);
+  assert.equal(input.details.bodyExact, true); assert.equal(storedInputAsset(prepared, input, "ai-input.json").size, AI_BODY_LIMIT);
+});
+
+test("redaction expansion beyond the body ceiling cannot attach a rejected Blob", options, async () => {
+  // JSON number normalization can expand a valid serialized body's text.
+  const head = '{"password":"remove","numbers":[' + Array(100).fill("1e21").join(",") + '],"padding":"';
+  const body = head + "x".repeat(AI_BODY_LIMIT - head.length - 2) + '"}';
+  assert.equal(Buffer.byteLength(body), AI_BODY_LIMIT);
+  const h = harness(), sent = requestInput(h, { body }), prepared = await h.prepare(), input = capturedInput(prepared, sent.token);
+  assert.equal(input.details.bodyStatus, "unavailable"); assert.equal(input.details.bodyAssetName, null);
+  assert.equal(input.assets.length, 0); assert.ok(input.details.omitted.includes("body-structure-limit"));
+  assert.equal(prepared.item.workHistory.assets.some(asset => asset.size > AI_BODY_LIMIT), false);
+});
+
+test("image convenience caps, invalid encodings and remote URLs do not widen capture or issue fetches", options, async () => {
+  const oversizedImage = Buffer.alloc(AI_IMAGE_LIMIT + 1).toString("base64");
+  for (const [atlasImage, imageStatus, reason] of [
+    [undefined, "not-submitted", null],
+    ["https://private.invalid/student-image.png", "omitted", "image-format-unavailable"],
+    ["data:image/svg+xml;base64,PHN2Zy8+", "omitted", "image-format-unavailable"],
+    ["data:image/png;base64,%%%", "omitted", "image-encoding-invalid"],
+    ["data:image/png;base64," + oversizedImage, "omitted", "image-byte-limit"],
+  ]) {
+    const h = harness(), body = JSON.stringify({ atlasImage, selectionQuestion:"Help" });
+    const sent = requestInput(h, { body }), prepared = await h.prepare(), input = capturedInput(prepared, sent.token);
+    assert.equal(input.details.bodyStatus, "recorded"); assert.equal(input.details.imageStatus, imageStatus);
+    assert.equal(input.assets.length, 1); assert.equal(await storedInputAsset(prepared, input, "ai-input.json").blob.text(), body);
+    if (reason) assert.ok(input.details.omitted.includes(reason)); else assert.deepEqual(plain(input.details.omitted), []);
+  }
+});
+
+test("unknown or overcomplex bodies produce explicit missing input instead of claiming completeness", options, async () => {
+  for (const [body, reason] of [["not-json", "body-format-unavailable"], ["[]", "body-format-unavailable"],
+    [JSON.stringify({ values:Array(8193).fill(1) }), "body-structure-limit"],
+    ['{"next":'.repeat(34) + "{}" + "}".repeat(34), "body-structure-limit"]]) {
+    const h = harness(), sent = requestInput(h, { body }), prepared = await h.prepare(), input = capturedInput(prepared, sent.token);
+    assert.equal(input.details.bodyStatus, "unavailable"); assert.equal(input.details.bodyExact, false);
+    assert.ok(input.details.omitted.includes(reason)); assert.equal(input.assets.length, 0);
+  }
+});
+
+test("two-job and aggregate-character queue caps preserve explicit omissions while accepting tutoring lifecycle events", options, async () => {
+  for (const aggregate of [false, true]) {
+    const h = harness(); await h.api.flush(); const gate = blockInputHash(h);
+    const body = aggregate ? JSON.stringify({ text:"x".repeat(6 * 1024 * 1024) }) : undefined;
+    const first = requestInput(h, { body }); await gate.entered;
+    h.capture.aiFinished(first.token, "completed");
+    const second = requestInput(h, { body }); h.capture.aiFinished(second.token, "completed");
+    const third = aggregate ? null : requestInput(h);
+    if (third) h.capture.aiFinished(third.token, "completed");
+    gate.release(); const prepared = await h.prepare();
+    const events = prepared.item.workHistory.events.filter(event => event.type === "ai.input");
+    assert.equal(events.filter(event => event.details.bodyStatus === "recorded").length, aggregate ? 1 : 2);
+    assert.equal(events.filter(event => event.details.omitted.includes("input-queue-limit")).length, 1);
+    assert.equal(prepared.item.workHistory.events.filter(event => event.type === "ai.finished").length, aggregate ? 2 : 3);
+  }
+});
+
+test("save flush waits for admitted input attachments and later inputs remain dirty across first-save binding", options, async () => {
+  const h = harness(); await h.api.flush(); const gate = blockInputHash(h);
+  const first = requestInput(h); await gate.entered;
+  let settled = false;
+  const saving = h.prepare().then(value => { settled = true; return value; });
+  await nextTurn(); assert.equal(settled, false);
+  gate.release(); const prepared = await saving;
+  assert.equal(capturedInput(prepared, first.token).details.bodyStatus, "recorded");
+  const laterGate = blockInputHash(h), later = requestInput(h); await laterGate.entered;
+  h.commitPrepared(prepared); assert.equal(h.api.isDirty(), true);
+  laterGate.release(); await h.api.flush();
+  const next = await h.prepare("page-a");
+  assert.equal(capturedInput(next, later.token).details.bodyStatus, "recorded");
+  h.commitPrepared(next); assert.equal(h.api.isDirty(), false);
+});
+
+test("page, account and background boundaries invalidate both running and queued input jobs", options, async () => {
+  for (const boundary of ["page", "account", "background"]) {
+    const h = harness(); await h.api.flush(); const gate = blockInputHash(h);
+    const first = requestInput(h, { packed:{ selectionQuestion:"Old page private question" } }); await gate.entered;
+    requestInput(h, { packed:{ selectionQuestion:"Queued old private question" } });
+    const oldFlush = h.api.flush();
+    if (boundary === "account") h.signal("tenet:sign-out");
+    else if (boundary === "background") {
+      h.document.hidden = true; h.document.dispatchEvent(new CustomEvent("visibilitychange"));
+      h.document.hidden = false; h.document.dispatchEvent(new CustomEvent("visibilitychange"));
+    } else {
+      h.capture.boundary("page-transition"); h.state.snapshotLoadGeneration++; h.api.restore(null);
+    }
+    gate.release(); await oldFlush; await nextTurn();
+    if (boundary === "account") {
+      assert.equal(h.api.beginSave("device"), null); assert.equal(h.capture.aiRequested({ action:"hint" }), null);
+    } else {
+      h.capture.aiFinished(first.token, "completed");
+      const prepared = await h.prepare();
+      assert.equal(prepared.item.workHistory.events.filter(event => event.type === "ai.input").length, 0);
+      assert.equal(prepared.item.workHistory.assets.some(asset => asset.mime === "application/json"), false);
+      if (boundary === "page") assert.doesNotMatch(JSON.stringify(prepared.item.workHistory.events), /Old page private|Queued old private/);
+      else assert.ok(prepared.item.workHistory.events.some(event => event.type === "coverage.gap" && event.details.reason === "backgrounded"));
+    }
+  }
+});
+
+test("input timeout produces one explicit omission and cannot append again after delayed hashing resolves", options, async () => {
+  const h = harness(); await h.api.flush(); const gate = blockInputHash(h);
+  const sent = requestInput(h); await gate.entered;
+  const [id, timeout] = [...h.timers].filter(([, value]) => value.delay === 12000).at(-1);
+  h.timers.delete(id); timeout.fn(); await h.api.flush();
+  gate.release(); await nextTurn();
+  const prepared = await h.prepare(), inputs = prepared.item.workHistory.events.filter(event => event.type === "ai.input");
+  assert.equal(inputs.length, 1); assert.equal(inputs[0].details.localRequestId, sent.token.id);
+  assert.equal(inputs[0].details.bodyStatus, "unavailable"); assert.equal(inputs[0].assets.length, 0);
+  assert.ok(inputs[0].details.omitted.includes("input-capture-failed"));
+});
+
+test("legacy saved request summaries retain unknown origin and absent full inputs without reconstruction", options, async () => {
+  const original = { sequence:1, timestamp:"2026-09-01T12:00:00.000Z", type:"ai.request",
+    details:{ localRequestId:"old", question:"Old summary only", action:"hint" }, assets:[] };
+  const item = { id:"legacy", name:"Legacy AI work", createdAt:1, workHistory:{ version:1,
+    events:[original], assets:[], incomplete:false, droppedEvents:0 } };
+  const h = harness({ pages:new Map([[item.id, item]]) }), reader = await h.api.readSavedPage(item.id);
+  assert.deepEqual(plain(reader.events), [original]); assert.equal(reader.events[0].details.origin, undefined);
+  assert.equal(reader.events[0].details.inputVersion, undefined); assert.equal(reader.events.some(event => event.type === "ai.input"), false);
+  h.state.currentSnapshotId = item.id; h.state.currentSnapshotLocation = "device"; h.api.restore(item);
+  const prepared = await h.prepare(item.id);
+  assert.deepEqual(plain(prepared.item.workHistory.events.find(event => event.type === "ai.request")), original);
+  assert.equal(prepared.item.workHistory.assets.some(asset => asset.mime === "application/json"), false);
+});
+
+function installRequestRuntime(h, settings = {}) {
+  const begin = aiSource.indexOf("  async function requestAI("), end = aiSource.indexOf("  function viewportRect(", begin);
+  assert.ok(begin >= 0 && end > begin);
+  const calls = { fetch:[], statuses:[], clears:0 }, noop = () => {};
+  Object.assign(h.state, { mode:"pen", auto:false, theme:"studio", reasoningEffort:"medium", aiColor:"blue",
+    recognitionGeneration:0, hotspotTrail:[], images:[], widgets:[], dirty:null, latestTypedInput:null });
+  Object.assign(h.context, { AbortController, SIZE:20000, aiPreparationGeneration:0, aiPreparation:null,
+    AI_CANCELLED:"cancelled", AI_SUPERSEDED:"superseded", AI_REJECTED:"rejected",
+    MAX_VISIBLE_WIDGETS:20, MAX_VISIBLE_IMAGES:100,
+    tenetInkFlush:async () => {}, tenetInkMessage:message => calls.statuses.push(message),
+    clearWidgetRefineCandidate:noop, createAIProcessingScope:() => null, pluginEnabled:() => false,
+    aiPreparationInvalid:() => false, containsRect:() => true,
+    setBusy:value => { h.state.busy = value; }, setStatusKey:key => calls.statuses.push(key),
+    setStatus:message => calls.statuses.push(message), activeAiRequestTimeoutMs:() => 30000,
+    createActivityAwareAbortTimeout:() => ({ clear() { calls.clears++; }, activity:noop }),
+    aiRequestHeaders:headers => ({ ...headers, Authorization:"PRIVATE_AUTH_HEADER" }),
+    pluginRequestPayload:settings.pluginRequestPayload || (() => ({ plugins:["graph"], clientCapabilities:{ diagrams:true } })),
+    async fetch(url, init) { calls.fetch.push({ url, init }); return { ok:true }; },
+    readAiCommandResponse:async () => ({ ok:true, data:{ requestId:"fixture-response", commands:[] } }),
+    applyAiProgress:noop, rememberRequest:noop, showTenetGatewayBanner:noop,
+    validate:commands => commands, normalizeCommandPlacements:commands => commands,
+    debug:noop, t:key => key, restoreDirty:noop, schedule:noop,
+  });
+  vm.runInContext(aiSource.slice(begin, end), h.context, { filename:"actual-requestAI.js" });
+  return { calls, request:(action, packed, options) => h.context.requestAI(action, packed, options) };
+}
+
+test("real requestAI sends and records the same once-serialized body without headers, voice ID or raw audio", options, async () => {
+  const h = harness(); await h.api.flush(); const runtime = installRequestRuntime(h);
+  const packed = { atlasImage:"data:image/png;base64," + inputPNG.toString("base64"),
+    sourceRect:{ x:1, y:2, w:3, h:4 }, changedBox:{ x:1, y:2, w:3, h:4 }, selectionQuestion:"Help here" };
+  await runtime.request("answer", packed, { voiceRequestId:"PRIVATE_VOICE_ID", audio:"PRIVATE_RAW_AUDIO", oneShotInput:true });
+  assert.equal(runtime.calls.fetch.length, 1); assert.equal(runtime.calls.fetch[0].url, "/api/ai/command");
+  const sent = runtime.calls.fetch[0].init;
+  assert.equal(sent.headers.Authorization, "PRIVATE_AUTH_HEADER"); assert.equal(sent.credentials, "same-origin");
+  const body = JSON.parse(sent.body); assert.equal(body.userAction, "hint"); assert.equal(body.trigger, "manual");
+  assert.deepEqual(body.plugins, ["graph"]); assert.equal(body.reasoningEffort, "medium"); assert.equal(body.uiTheme, "studio");
+  assert.match(body.persona, /well-organized/); assert.deepEqual(body.sourceRect, packed.sourceRect);
+  const prepared = await h.prepare(), input = prepared.item.workHistory.events.find(event => event.type === "ai.input");
+  assert.equal(input.details.origin, "voice-question");
+  const retained = await storedInputAsset(prepared, input, "ai-input.json").blob.text();
+  assert.equal(retained, sent.body); assert.doesNotMatch(retained, /PRIVATE_AUTH_HEADER|PRIVATE_VOICE_ID|PRIVATE_RAW_AUDIO/);
+  assert.doesNotMatch(JSON.stringify(prepared.item.workHistory.events), /PRIVATE_AUTH_HEADER|PRIVATE_VOICE_ID|PRIVATE_RAW_AUDIO/);
+  assert.equal(h.state.activeAI, null); assert.equal(h.state.busy, false); assert.ok(runtime.calls.clears > 0);
+});
+
+test("real requestAI cleanup still runs for body construction and serialization failures", options, async () => {
+  const cyclic = {}; cyclic.self = cyclic;
+  for (const pluginRequestPayload of [() => cyclic, () => { throw Error("Body construction failed"); }]) {
+    const h = harness(), runtime = installRequestRuntime(h, { pluginRequestPayload });
+    await runtime.request("hint", { questionOnly:true, selectionQuestion:"Start here" }, { oneShotInput:true });
+    assert.equal(runtime.calls.fetch.length, 0); assert.equal(h.state.activeAI, null); assert.equal(h.state.busy, false);
+    assert.ok(runtime.calls.clears > 0); assert.equal(runtime.calls.statuses.some(value => String(value).startsWith("aiError")), true);
+  }
+});
+
+test("real tutoring request is not blocked by a throwing history observer or a failed input hash", options, async () => {
+  for (const failure of ["observer", "hash"]) {
+    const h = harness(); await h.api.flush(); const runtime = installRequestRuntime(h);
+    if (failure === "observer") h.window.TenetProcessCapture = { aiRequested() { throw Error("History unavailable"); }, aiResponse() {}, aiFinished() {} };
+    else h.context.crypto = { randomUUID:() => webcrypto.randomUUID(), subtle:{ digest:async () => { throw Error("Hash unavailable"); } } };
+    await runtime.request("hint", { questionOnly:true, selectionQuestion:"Tutor still works" }, { oneShotInput:true });
+    await h.api.flush();
+    assert.equal(runtime.calls.fetch.length, 1); assert.equal(h.state.activeAI, null); assert.equal(h.state.busy, false);
+    assert.equal(runtime.calls.statuses.some(value => String(value).startsWith("aiError")), false);
+  }
+});
+
+test("saturated input capture cannot delay real tutoring requests or alter their serialized questions", options, async () => {
+  const h = harness(); await h.api.flush(); const runtime = installRequestRuntime(h), gate = blockInputHash(h);
+  for (let index = 0; index < 3; index++) {
+    await runtime.request("hint", { questionOnly:true, selectionQuestion:"Question " + index }, { oneShotInput:true });
+    if (index === 0) await gate.entered;
+  }
+  assert.equal(runtime.calls.fetch.length, 3); assert.equal(h.state.activeAI, null);
+  assert.deepEqual(runtime.calls.fetch.map(call => JSON.parse(call.init.body).selectionQuestion), ["Question 0", "Question 1", "Question 2"]);
+  gate.release(); const prepared = await h.prepare();
+  const inputs = prepared.item.workHistory.events.filter(event => event.type === "ai.input");
+  assert.equal(inputs.length, 3); assert.equal(inputs.filter(event => event.details.omitted.includes("input-queue-limit")).length, 1);
+});

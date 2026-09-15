@@ -21,7 +21,7 @@
     .tenet-process-record-heading h3{margin:0;font-size:21px}.tenet-process-record-heading p{font-size:12px;color:#68716f;margin:7px 0}.tenet-process-badge{padding:6px 9px;border-radius:20px;background:#e6eee8;font-size:11px;font-weight:700;white-space:nowrap}.tenet-process-coverage{font-size:12px;line-height:1.5;color:#805530}
     .tenet-process-actions{display:flex;flex-wrap:wrap;gap:7px;margin:12px 0}.tenet-process-preview{min-height:230px;height:32vh;max-height:390px;display:flex;align-items:center;justify-content:center;border:1px solid #dddcd5;border-radius:12px;background:repeating-linear-gradient(0deg,#fff,#fff 23px,#f3f2ee 24px);overflow:hidden}.tenet-process-preview img{max-width:100%;max-height:100%;object-fit:contain}.tenet-process-preview p{padding:20px;text-align:center;color:#737c81;font-size:13px}
     .tenet-process-playback{display:flex;align-items:center;gap:12px;margin-top:12px}.tenet-process-playback input{flex:1;min-width:50px;accent-color:#267b6b}.tenet-process-playback output{font-size:12px;min-width:48px;text-align:right}.tenet-process-caption{font-size:11px;line-height:1.5;color:#68716f}.tenet-process-detail{display:grid;grid-template-columns:minmax(130px,1fr) minmax(0,1.35fr);gap:12px}.tenet-process-events{max-height:210px;overflow:auto;display:flex;flex-direction:column;gap:5px}.tenet-process-events button{text-align:left;min-height:38px;font-size:11px}.tenet-process-events button[aria-current=true]{background:#eaf2ef;border-color:#4c8274}.tenet-process-detail pre{white-space:pre-wrap;overflow:auto;margin:0;padding:12px;max-height:185px;border-radius:9px;background:#eeeae0;font:11px/1.6 ui-monospace,monospace;overflow-wrap:anywhere}
-    @media(max-width:720px){.tenet-process-dialog{padding:16px}.tenet-process-layout{grid-template-columns:1fr}.tenet-process-sidebar{border-right:0;border-bottom:1px solid #e0ddd4;padding:0 0 18px}.tenet-process-heading h2{font-size:22px}.tenet-process-list{max-height:150px}.tenet-process-detail{grid-template-columns:1fr}.tenet-process-launch span{display:none}.tenet-process-launch{min-width:42px;justify-content:center}.tenet-process-preview{height:30vh}}
+    @media(max-width:900px){.tenet-process-dialog{padding:16px}.tenet-process-layout{grid-template-columns:1fr}.tenet-process-sidebar{border-right:0;border-bottom:1px solid #e0ddd4;padding:0 0 18px}.tenet-process-heading h2{font-size:22px}.tenet-process-list{max-height:150px}.tenet-process-detail{grid-template-columns:1fr}.tenet-process-launch span{display:none}.tenet-process-launch{min-width:42px;justify-content:center}.tenet-process-preview{height:30vh}}
 .tenet-process-launch{display:inline-flex;align-items:center;gap:6px;min-height:44px;box-sizing:border-box;margin-inline-start:8px;padding:7px 11px;border:1px solid #d6d3ca;border-radius:9px;background:#f7f3e9;color:#172638;font:600 13px "Avenir Next","Trebuchet MS",sans-serif;text-decoration:none;flex-shrink:0;cursor:pointer;touch-action:manipulation}.tenet-process-launch svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}.tenet-process-launch-floating{position:fixed;top:calc(8px + env(safe-area-inset-top));right:12px;z-index:40}
 
 .tenet-history-standalone{margin:0;min-height:100vh;background:radial-gradient(ellipse at top left,#fffdf4,#e9ede8);color:#172638;font-family:"Avenir Next","Trebuchet MS",sans-serif}
@@ -29,4 +29,66 @@
 .tenet-history-standalone>footer{max-width:740px;margin:0 auto;padding:0 32px 32px;font-size:12px;color:#68716f}.tenet-history-standalone>footer a{color:#315c50;text-underline-offset:3px}
 
 /* Saved document history is the ordinary in-app Teacher view entry point. */
-.tenet-process-saved-heading{display:flex;align-items:center;justify-content:space-between;gap:10px}.tenet-process-saved-heading h3{margin:0}.tenet-process-saved-caption{font-size:12px;line-height:1.55;color:#68716f}.tenet-process-saved-pages{display:grid;gap:8px;max-height:420px;overflow:auto;margin:14px 0 20px;font-size:12px;line-height:1.55;color:#68716f}.tenet-process-saved-pages button{text-align:left;display:grid;gap:5px;min-height:58px;overflow-wrap:anywhere}.tenet-process-saved-pages small{font-size:11px;font-weight:400;color:#66766e}.tenet-process-saved-pages button[aria-current=true]{border-color:#527f77;background:#ecf3ec;box-shadow:inset 3px 0 #427d69}.tenet-process-examples{border-top:1px solid #dddcd1;margin-top:20px;padding-top:5px}.tenet-process-examples>.tenet-process-demo{margin-top:8px}.tenet-process-examples>summary{font-size:12px;color:#647268}@media(max-width:720px){.tenet-process-saved-pages{max-height:230px}}
+/* Replay is a bounded checkpoint viewer, not a stroke-video player. */
+.tenet-process-dialog{--process-ai:#7650bd;--process-edit:#347766;--process-native:#ad8050}
+.tenet-process-dialog button,.tenet-process-dialog select{min-height:44px}
+.tenet-process-dialog select{padding:8px 12px;border:1px solid #d2d5d5;border-radius:9px;background:#fffdfa;color:#172638;font:600 13px "Avenir Next","Trebuchet MS",sans-serif}
+.tenet-process-dialog select:focus-visible,.tenet-process-dialog summary:focus-visible,.tenet-process-graph:focus-visible,.tenet-process-dialog a:focus-visible{outline:3px solid #5a98c1;outline-offset:3px}
+.tenet-process-metrics>button{display:grid;gap:4px;text-align:left;padding:12px;border:1px solid #d6c8e8;background:#f5f0fc}
+.tenet-process-metrics>button strong{color:var(--process-ai)}
+.tenet-process-metrics>button:hover,.tenet-process-metrics>button[aria-expanded=true]{background:#ebe1f8;border-color:var(--process-ai)}
+.tenet-process-frame-time{font-size:11px;line-height:1.6;color:#475e59;margin:8px 0;font-variant-numeric:tabular-nums}
+.tenet-process-preview[data-retained=true] [data-value=preview]{position:absolute;bottom:8px;left:8px;right:8px;padding:8px 10px;margin:0;border:1px solid #d8ddd3;border-radius:7px;background:#fffffff2;font-size:11px;color:#465b54}
+.tenet-process-pacing{display:flex;flex-wrap:wrap;align-items:center;gap:12px 20px;margin-top:12px}
+.tenet-process-pacing label{display:flex;align-items:center;gap:9px;min-height:44px;font-size:12px;color:#4d605a}
+.tenet-process-skip{padding:0 9px;border:1px solid #dddcd1;border-radius:8px;background:#fffefa;cursor:pointer}
+.tenet-process-skip input{width:20px;height:20px;accent-color:var(--process-edit)}
+.tenet-process-playback input{min-height:44px}
+.tenet-process-playback output{min-width:94px;max-width:140px;line-height:1.4}
+.tenet-process-activity{margin:20px 0;padding:16px 0;border-top:1px solid #deddd4;border-bottom:1px solid #deddd4}
+.tenet-process-activity-heading{display:flex;align-items:baseline;flex-wrap:wrap;justify-content:space-between;gap:6px 12px}
+.tenet-process-activity-heading h3{margin:0}.tenet-process-activity-heading>span{font-size:11px;color:#68716f}
+.tenet-process-graph{max-width:100%;overflow-x:auto;overscroll-behavior-x:contain;border:1px solid #e0e0d7;border-radius:10px;background:linear-gradient(180deg,#faf8fc,#fffefa 42%);padding:2px 0}
+.tenet-process-graph>svg{display:block;width:100%;min-width:720px;height:auto;overflow:visible}
+.tenet-process-graph-axis{stroke:#ced5ce;stroke-width:1}
+.tenet-process-bin-hit{fill:transparent;stroke:transparent;stroke-width:2;pointer-events:all}
+.tenet-process-graph-button{cursor:pointer;touch-action:manipulation;outline:none}
+.tenet-process-graph-button:hover .tenet-process-bin-hit{fill:#edf2ec}
+.tenet-process-graph-button:focus-visible .tenet-process-bin-hit,.tenet-process-graph-button:focus-visible .tenet-process-star-hit{stroke:#4181a3;stroke-width:3}
+.tenet-process-web-bar{fill:var(--process-edit);pointer-events:none}
+.tenet-process-native-bar{fill:var(--process-native);pointer-events:none}
+.tenet-process-bin-count{font-size:11px;fill:#465e52;pointer-events:none;font-variant-numeric:tabular-nums}
+.tenet-process-bin-label,.tenet-process-axis-label{font-size:10px;fill:#758178;pointer-events:none}
+.tenet-process-star-hit{fill:#f1eaf9;stroke:transparent;pointer-events:all}
+.tenet-process-graph-button:hover .tenet-process-star-hit{fill:#e5d8f4}
+.tenet-process-ai-star{fill:var(--process-ai);pointer-events:none}
+.tenet-process-star-count{font-size:10px;font-weight:700;fill:#6540a8;pointer-events:none}
+.tenet-process-current-marker{stroke:#172638;stroke-width:2;stroke-dasharray:3 3;pointer-events:none}
+.tenet-process-legend{display:flex;flex-wrap:wrap;gap:8px 16px;font-size:10px;color:#627268;margin:10px 0}
+.tenet-process-legend span{display:inline-flex;gap:6px;align-items:center}
+.tenet-process-legend span:before{content:"";width:9px;height:9px;border-radius:2px;background:var(--process-edit)}
+.tenet-process-legend .tenet-process-native-key:before{background:var(--process-native)}
+.tenet-process-legend .tenet-process-ai-key:before{background:var(--process-ai);clip-path:polygon(50% 0,62% 35%,100% 38%,70% 61%,80% 100%,50% 77%,20% 100%,30% 61%,0 38%,38% 35%);width:13px;height:13px}
+.tenet-process-ai-summary{padding:18px;margin:18px 0 24px;border:1px solid #d8cce8;border-radius:14px;background:linear-gradient(135deg,#faf7fe,#fffdf8)}
+.tenet-process-ai-summary>header{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.tenet-process-ai-summary>header small{font-size:10px;letter-spacing:.12em;color:var(--process-ai);font-weight:700}
+.tenet-process-ai-summary>header h3{margin:6px 0}
+.tenet-process-ai-layout{display:grid;grid-template-columns:minmax(150px,.8fr) minmax(0,1.3fr);gap:16px}
+.tenet-process-ai-layout>div,.tenet-process-ai-inspector{min-width:0}
+.tenet-process-ai-requests{display:grid;gap:7px;max-height:340px;overflow:auto}
+.tenet-process-ai-requests button{display:grid;gap:5px;text-align:left;min-height:64px;overflow-wrap:anywhere}
+.tenet-process-ai-requests small{font-size:11px;line-height:1.45;font-weight:400;color:#71677b}
+.tenet-process-ai-requests button[aria-current=true]{border-color:var(--process-ai);background:#eee6f7;box-shadow:inset 3px 0 var(--process-ai)}
+.tenet-process-ai-pagination{display:flex;flex-wrap:wrap;gap:7px;margin:9px 0}
+.tenet-process-ai-pagination button{font-size:11px}
+.tenet-process-ai-inspector{padding:14px;border:1px solid #e2dbe9;background:#fffdfb;border-radius:10px;overflow-wrap:anywhere}
+.tenet-process-ai-inspector h4{font-size:12px;margin:15px 0 6px;color:#5d427d}.tenet-process-ai-inspector>h4:first-child{margin-top:0}
+.tenet-process-ai-inspector p{font-size:12px;line-height:1.6;white-space:pre-wrap}
+.tenet-process-ai-inspector pre{box-sizing:border-box;white-space:pre-wrap;overflow-wrap:anywhere;overflow:auto;max-height:280px;background:#f2efe9;padding:11px;border-radius:8px;font:11px/1.65 ui-monospace,monospace}
+.tenet-process-ai-inspector [data-value=ai-replies]{font:12px/1.65 "Avenir Next","Trebuchet MS",sans-serif;background:#f1edf7;color:#3e3152}
+.tenet-process-input-record{padding:9px 0;border-top:1px solid #e9e1ee}.tenet-process-input-record button{margin:4px 5px 4px 0;font-size:11px}
+.tenet-process-input-image{display:block;max-width:100%;max-height:250px;object-fit:contain;border:1px solid #ddd6e6;border-radius:8px;background:white}
+.tenet-process-ai-inspector [data-value=input-download]{display:inline-flex;align-items:center;min-height:44px;color:#64429c;font-size:12px;text-underline-offset:3px}
+.tenet-process-events button{min-height:44px}
+@media(max-width:850px){.tenet-process-ai-layout{grid-template-columns:1fr}.tenet-process-ai-requests{max-height:225px}.tenet-process-ai-summary{padding:13px}.tenet-process-metrics>div,.tenet-process-metrics>button{padding:9px}.tenet-process-metrics span{line-height:1.4}}
+.tenet-process-saved-heading{display:flex;align-items:center;justify-content:space-between;gap:10px}.tenet-process-saved-heading h3{margin:0}.tenet-process-saved-caption{font-size:12px;line-height:1.55;color:#68716f}.tenet-process-saved-pages{display:grid;gap:8px;max-height:420px;overflow:auto;margin:14px 0 20px;font-size:12px;line-height:1.55;color:#68716f}.tenet-process-saved-pages button{text-align:left;display:grid;gap:5px;min-height:58px;overflow-wrap:anywhere}.tenet-process-saved-pages small{font-size:11px;font-weight:400;color:#66766e}.tenet-process-saved-pages button[aria-current=true]{border-color:#527f77;background:#ecf3ec;box-shadow:inset 3px 0 #427d69}.tenet-process-examples{border-top:1px solid #dddcd1;margin-top:20px;padding-top:5px}.tenet-process-examples>.tenet-process-demo{margin-top:8px}.tenet-process-examples>summary{font-size:12px;color:#647268}@media(max-width:900px){.tenet-process-saved-pages{max-height:230px}}

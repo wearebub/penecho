@@ -1398,7 +1398,10 @@ test("plugin manager is a centered dynamic catalog with General HTML and bundled
   assert.match(handleConnectionAction, /closeAfterActivation = settingsConnectionQuickList\?\.contains\(button\) === true[\s\S]*?if \(closeAfterActivation\) closeSettings\(\)/);
   assert.doesNotMatch(handleConnectionAction, /updateConnection\("activate"/);
   assert.match(app, /fetch\("\/api\/plugins\/improve"[\s\S]*?headers:aiRequestHeaders/);
-  assert.match(app, /fetch\("\/api\/ai\/command"[\s\S]*?headers:\s*aiRequestHeaders/);
+  const recordedCommandRequest = functionSource(app, "requestAI");
+  assert.match(recordedCommandRequest, /const request = \{[\s\S]*?credentials:\s*"same-origin"[\s\S]*?headers:\s*aiRequestHeaders\(/);
+  assert.match(recordedCommandRequest, /fetch\("\/api\/ai\/command", request\)/);
+  assert.match(recordedCommandRequest, /requestBody:request\.body/);
   assert.match(functionSource(app, "validate"), /acceptedTools = \["write_text", "draw_formula", "plot_function", "draw", "erase"\]/);
   assert.doesNotMatch(functionSource(app, "validate"), /animate_scene/);
   assert.match(functionSource(app, "renderPluginOptions"), /localizedManifestValue[\s\S]*?pluginPromptEstimate[\s\S]*?copy\.append\(titleRow, help, meta\)/);

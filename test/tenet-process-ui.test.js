@@ -50,15 +50,18 @@ class Element extends Events {
     else this._value = String(value);
   }
   get value() { return this._value; }
+  set src(value) { this._src = String(value); this.attributes.src = this._src; if (this.tagName === "img") this.doc.loadImage?.(this, this._src); }
+  get src() { return this._src || ""; }
   setAttribute(name, value) {
     this.attributes[name] = String(value);
     if (name === "class") this.className = String(value);
     if (name.startsWith("data-")) this.dataset[name.slice(5).replace(/-([a-z])/g, (_, char) => char.toUpperCase())] = String(value);
     if (["id", "type", "name", "min", "max", "value"].includes(name)) this[name] = value;
     if (name === "hidden") this.hidden = true;
+    if (name === "checked") this.checked = true;
   }
   getAttribute(name) { if (name.startsWith("data-")) return this.dataset[name.slice(5).replace(/-([a-z])/g, (_, char) => char.toUpperCase())] ?? null; if (name === "class") return this.className || null; if (name === "id") return this.id || null; return this.attributes[name] ?? null; }
-  removeAttribute(name) { delete this.attributes[name]; if (name === "src") delete this.src; }
+  removeAttribute(name) { delete this.attributes[name]; if (name === "src") this._src = ""; }
   append(...nodes) { for (const node of nodes) { node.parentElement = this; this.children.push(node); } }
   replaceChildren(...nodes) { this.children = []; this._text = ""; this.append(...nodes); }
   insertAdjacentElement(_position, node) { const parent = this.parentElement; node.parentElement = parent; parent.children.splice(parent.children.indexOf(this) + 1, 0, node); }
@@ -79,32 +82,68 @@ class Element extends Events {
   }
   querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
   click() { if (!this.disabled) this.fire("click"); }
+  focus() { this.doc.activeElement = this; }
+  scrollIntoView() { this.doc.lastScrolled = this; }
   showModal() { this.open = true; }
   close() { if (this.open) { this.open = false; this.fire("close"); } }
   get elements() { return Object.fromEntries(this.querySelectorAll("input").map(node => [node.name, node])); }
   reportValidity() { return Boolean(this.elements.title?.value.trim() && this.elements.consent?.checked); }
 }
 function deferred() { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return {promise, resolve, reject}; }
-async function settle() { for (let index = 0; index < 40; index++) await Promise.resolve(); }
+async function settle() { for (let index = 0; index < 40; index++) await Promise.resolve(); await new Promise(resolve => setImmediate(resolve)); for (let index = 0; index < 40; index++) await Promise.resolve(); }
+const rasterMetadata = new WeakMap();
+// Header fixtures qualify bounds/ownership, not a browser's image codec. The
+// browser decode boundary is separately controllable in this DOM harness.
+function rasterBlob(label, mime = "image/png", width = 900, height = 600) {
+  let header;
+  if (mime === "image/png") {
+    header = Buffer.alloc(33); Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).copy(header);
+    header.writeUInt32BE(13, 8); header.write("IHDR", 12); header.writeUInt32BE(width, 16); header.writeUInt32BE(height, 20);
+  } else if (mime === "image/jpeg") {
+    header = Buffer.from([255,216,255,192,0,8,8,0,0,0,0,0]); header.writeUInt16BE(height, 7); header.writeUInt16BE(width, 9);
+  } else {
+    header = Buffer.alloc(30); header.write("RIFF", 0); header.writeUInt32LE(22, 4); header.write("WEBP", 8); header.write("VP8X", 12); header.writeUInt32LE(10, 16);
+    header.writeUIntLE(width - 1, 24, 3); header.writeUIntLE(height - 1, 27, 3);
+  }
+  const blob = new Blob([header, label], {type:mime}); rasterMetadata.set(blob, {label, width, height}); return blob;
+}
+function displayedLabel(ui) { const image = ui.dialog.querySelector(".tenet-process-preview img"); return rasterMetadata.get(ui.urls.get(image.src))?.label; }
+function recorded(type, sequence, details = {}, assets = [], time = 1700000000000 + sequence * 5000) { return {type, sequence, details, assets, clientWallTime:time}; }
+function fixtureWith(events, getAsset = async () => null) { return {...bundle("Interaction fixture", 0), events, getAsset}; }
+function rawInputFixture() {
+  const body = {action:"hint", question:"How do I start?", atlasImage:"data:image/png;base64,AAAA", context:{scope:"selection"}};
+  const json = new Blob([JSON.stringify(body)], {type:"application/json"}), image = rasterBlob("exact submitted crop");
+  const events = [
+    recorded("ai.request", 1, {localRequestId:"request-a", question:"How do I start?", origin:"voice-question", originEvidence:"local-submit-path", questionSource:"selection-question", inputVersion:1, action:"hint", context:{scope:"selection"}}),
+    recorded("ai.response", 2, {localRequestId:"request-a", text:"Which operation would undo +6?", committedToPage:false}),
+    recorded("ai.finished", 3, {localRequestId:"request-a", outcome:"completed"}),
+    recorded("ai.input", 4, {localRequestId:"request-a", inputVersion:1, boundary:"client-to-whiteboard", method:"POST", endpoint:"/api/ai/command", observation:"prepared-client-request-not-server-receipt", origin:"voice-question", requestObservedAt:new Date(1700000005000).toISOString(), bodyStatus:"recorded", bodyFormat:"raw-client-json", bodyExact:true, imageStatus:"recorded", bodyAssetName:"ai-input.json", imageAssetName:"ai-input.png", omitted:[], gatewayProviderPromptObserved:false}, [{name:"ai-input.json", hash:"body", mime:"application/json"}, {name:"ai-input.png", hash:"crop", mime:"image/png"}]),
+  ];
+  const reads = [], assets = new Map([["body", json], ["crop", image]]);
+  return {body, json, image, assets, reads, fixture:fixtureWith(events, async (_id, hash) => { reads.push(hash); return assets.get(hash); })};
+}
+async function inspectInput(ui, text) { const button = ui.dialog.querySelectorAll(".tenet-process-input-record button").find(item => item.textContent === text); assert.ok(button, text); button.click(); await settle(); }
+async function seek(ui, index) { ui.slider.value = String(index); ui.slider.fire("input"); await settle(); }
 function bundle(title = "Fixture assignment", count = 3, getAsset) {
-  const events = Array.from({length:count}, (_, index) => ({sequence:index + 1, type:"page.checkpoint", clientWallTime:1700000000000 + index * 1000, details:{stage:index}, assets:[{hash:"frame" + index, mime:"image/png"}]}));
-  return {attempt:{id:title, title, subject:"Math", status:"frozen", incomplete:false}, events, getAsset:getAsset || (async (_id, hash) => new Blob([hash], {type:"image/png"}))};
+  const events = Array.from({length:count}, (_, index) => ({sequence:index + 1, type:"page.checkpoint", clientWallTime:1700000000000 + index * 5000, details:{stage:index}, assets:[{hash:"frame" + index, mime:"image/png"}]}));
+  return {attempt:{id:title, title, subject:"Math", status:"frozen", incomplete:false}, events, getAsset:getAsset || (async (_id, hash) => rasterBlob(hash))};
 }
 function boot(options = {}) {
   const doc = new Events(); doc.head = new Element("head", doc); doc.body = new Element("body", doc); doc.hidden = false;
   const anchor = new Element("button", doc); anchor.id = "saveCanvasBtn"; doc.body.append(anchor);
   doc.querySelector = selector => doc.head.querySelector(selector) || doc.body.querySelector(selector);
   doc.querySelectorAll = selector => [...doc.head.querySelectorAll(selector), ...doc.body.querySelectorAll(selector)];
-  const calls = {list:0, begin:0, canvases:0, read:0, archive:0};
+  const calls = {list:0, begin:0, canvases:0, read:0, archive:0, decoded:[]};
   doc.createElement = tag => {
     const node = new Element(tag, doc);
     if (tag === "canvas") {
       calls.canvases++;
       node.getContext = () => ({fillRect() {}, fillText() {}, beginPath() {}, moveTo() {}, lineTo() {}, stroke() {}});
-      node.toBlob = callback => callback(new Blob(["synthetic checkpoint"], {type:"image/png"}));
+      node.toBlob = callback => callback(rasterBlob("synthetic checkpoint", "image/png", node.width, node.height));
     }
     return node;
   };
+  doc.createElementNS = (_namespace, tag) => doc.createElement(tag);
   const current = options.bundle || bundle();
   const journal = {
     listAttempts:async () => { calls.list++; return options.rows || []; },
@@ -118,6 +157,13 @@ function boot(options = {}) {
   win.TenetDocumentHistory = options.documentHistory;
   win.confirm = () => true; win.TenetProcessJournal = options.noJournal ? undefined : options.readOnlyJournal ? Object.freeze({readArchive:journal.readArchive}) : journal; win.TenetProcessCapture = capture;
   const timers = new Map(); let timerId = 0, urlId = 0; const urls = new Map(), revoked = [];
+  doc.loadImage = (image, url) => {
+    if (typeof image.onload !== "function") return;
+    const blob = urls.get(url), metadata = rasterMetadata.get(blob) || {width:1, height:1};
+    image.naturalWidth = options.naturalWidth || metadata.width; image.naturalHeight = options.naturalHeight || metadata.height;
+    image.decode = () => { calls.decoded.push(url); return options.decode ? options.decode(url, blob, image) : Promise.resolve(); };
+    void Promise.resolve().then(() => { if (image.src === url) image.onload?.(); });
+  };
   const context = vm.createContext({window:win, document:doc, Blob, File, navigator:{}, URL:{createObjectURL:blob => { const url = "blob:fixture-" + (++urlId); urls.set(url, blob); return url; }, revokeObjectURL:url => { urls.delete(url); revoked.push(url); }}, setTimeout:(callback, ms) => { const id = ++timerId; timers.set(id, {callback, ms}); return id; }, clearTimeout:id => timers.delete(id)});
   new vm.Script(source, {filename}).runInContext(context);
   const dialog = doc.querySelector("dialog");
@@ -129,7 +175,7 @@ function boot(options = {}) {
     slider:dialog?.querySelector('input[type="range"]'),
     async import(file = {name:"fixture.json"}) { await settle(); const picker = dialog.querySelector('[data-file="archive"]'); picker.files = [file]; picker.fire("change"); await settle(); },
     async click(name) { await settle(); this.action(name).click(); await settle(); },
-    async runTimer() { const [id, entry] = timers.entries().next().value || []; assert.ok(entry, "A replay timer must be scheduled"); timers.delete(id); entry.callback(); await settle(); },
+    async runTimer(ms) { const [id, entry] = [...timers.entries()].find(([, item]) => ms === undefined || item.ms === ms) || []; assert.ok(entry, "An expected timer must be scheduled"); timers.delete(id); entry.callback(); await settle(); },
   };
 }
 
@@ -159,6 +205,19 @@ test("all process UI uses same-origin external styles and no frames under the un
   assert.match(viewerHTML, /<body class="tenet-history-standalone">/);
   assert.doesNotMatch(processCSS, /@import|url\(\s*["']?https?:/i);
   assert.match(viewerHTML, /Tenet fork source/); assert.match(viewerHTML, /AGPL-3\.0/);
+});
+
+test("iPad portrait reuses stacked sidebar and detail layout while landscape remains desktop", () => {
+  const responsive = processCSS.match(/@media\(max-width:(\d+)px\)\{\.tenet-process-dialog\{padding:16px\}[^\r\n]+/);
+  assert.ok(responsive, "Existing compact layout must remain available");
+  const breakpoint = Number(responsive[1]);
+  assert.equal(breakpoint, 900);
+  assert.ok(768 <= breakpoint, "768px iPad portrait uses stacked layout");
+  assert.ok(1024 > breakpoint, "1024px iPad landscape keeps desktop layout");
+  assert.match(responsive[0], /\.tenet-process-layout\{grid-template-columns:1fr\}/);
+  assert.match(responsive[0], /\.tenet-process-detail\{grid-template-columns:1fr\}/);
+  assert.match(responsive[0], /\.tenet-process-sidebar\{border-right:0;border-bottom:/);
+  assert.match(processCSS, /@media\(max-width:900px\)\{\.tenet-process-saved-pages\{max-height:230px\}\}/);
 });
 
 test("ordinary Tenet sessions open an inline read-only viewer without navigating or reading histories", async () => {
@@ -222,7 +281,7 @@ test("standalone preview never enumerates shared-profile history and exposes no 
 test("synthetic example works without recording, journal enumeration or network APIs", async () => {
   const ui = boot(); await ui.click("sample");
   assert.equal(ui.value("badge").textContent, "SYNTHETIC EXAMPLE");
-  assert.equal(ui.value("position").textContent, "1 / 12");
+  assert.equal(ui.value("position").textContent, "1 / 10 moments");
   assert.equal(ui.value("checkpoints").textContent, "4"); assert.equal(ui.value("requests").textContent, "1"); assert.equal(ui.value("gaps").textContent, "1");
   assert.equal(ui.calls.begin, 0); assert.equal(ui.calls.list, 0); assert.equal(ui.calls.canvases, 4);
   assert.equal(ui.action("freeze").hidden, true); assert.equal(ui.action("remove").hidden, true);
@@ -239,11 +298,11 @@ test("local capture is explicit, consent-gated and unavailable in ordinary sessi
 });
 
 test("replay starts with checkpoint zero and advances once per timer without skipping", async () => {
-  const ui = boot(); await ui.import(); assert.equal(ui.value("position").textContent, "3 / 3");
-  await ui.click("play"); assert.equal(ui.value("position").textContent, "1 / 3"); assert.equal(ui.timers.size, 1);
-  assert.equal(await [...ui.urls.values()][0].text(), "frame0");
-  await ui.runTimer(); assert.equal(ui.value("position").textContent, "2 / 3");
-  await ui.runTimer(); assert.equal(ui.value("position").textContent, "3 / 3"); assert.equal(ui.timers.size, 0); assert.equal(ui.action("play").textContent, "Play history");
+  const ui = boot(); await ui.import(); assert.equal(ui.value("position").textContent, "3 / 3 moments");
+  await ui.click("play"); assert.equal(ui.value("position").textContent, "1 / 3 moments"); assert.equal(ui.timers.size, 1);
+  assert.equal(displayedLabel(ui), "frame0");
+  await ui.runTimer(); assert.equal(ui.value("position").textContent, "2 / 3 moments");
+  await ui.runTimer(); assert.equal(ui.value("position").textContent, "3 / 3 moments"); assert.equal(ui.timers.size, 0); assert.equal(ui.action("play").textContent, "Play history");
 });
 
 test("pause and close retire scheduled replay; closing clears loaded history from the hidden dialog", async () => {
@@ -257,11 +316,11 @@ test("pause and close retire scheduled replay; closing clears loaded history fro
 
 test("an old replay frame cannot schedule another timer after pause and restart", async () => {
   const pending = deferred(); let requested = 0;
-  const ui = boot({bundle:bundle("Delayed frames", 3, async (_id, hash) => hash === "frame0" && requested++ === 0 ? pending.promise : new Blob([hash], {type:"image/png"}))});
+  const ui = boot({bundle:bundle("Delayed frames", 3, async (_id, hash) => hash === "frame0" && requested++ === 0 ? pending.promise : rasterBlob(hash))});
   await ui.import(); await ui.click("play"); await ui.click("play"); await ui.click("play");
-  assert.equal(ui.value("position").textContent, "2 / 3"); assert.equal(ui.timers.size, 1);
-  pending.resolve(new Blob(["stale"], {type:"image/png"})); await settle();
-  assert.equal(ui.timers.size, 1); assert.equal(await [...ui.urls.values()][0].text(), "frame1");
+  assert.equal(ui.value("position").textContent, "1 / 3 moments"); assert.equal(ui.timers.size, 1);
+  pending.resolve(rasterBlob("stale")); await settle();
+  assert.equal(ui.timers.size, 1); assert.equal(displayedLabel(ui), "frame0");
 });
 
 test("close/reopen and a newer import invalidate the older in-flight import", async () => {
@@ -280,14 +339,14 @@ test("a failed import completing after close does not reopen the dialog", async 
 
 test("a late frame from an older selection cannot replace a new archive image", async () => {
   const pending = deferred();
-  const old = bundle("Old archive", 3, async (_id, hash) => hash === "frame0" ? pending.promise : new Blob([hash], {type:"image/png"}));
+  const old = bundle("Old archive", 3, async (_id, hash) => hash === "frame0" ? pending.promise : rasterBlob(hash));
   const ui = boot({readArchive:file => file.name === "old" ? old : bundle("New archive")});
   await ui.import({name:"old"}); ui.slider.value = "0"; ui.slider.fire("input"); await settle(); await ui.import({name:"new"});
-  pending.resolve(new Blob(["old-frame"], {type:"image/png"})); await settle();
-  assert.equal(ui.value("title").textContent, "New archive"); assert.equal(await [...ui.urls.values()][0].text(), "frame2");
+  pending.resolve(rasterBlob("old-frame")); await settle();
+  assert.equal(ui.value("title").textContent, "New archive"); assert.equal(displayedLabel(ui), "frame2");
 });
 
-test("AI question and response are linked by request id, remain chronological and render as text", async () => {
+test("AI question and response form one interaction by request id and render as text", async () => {
   const fixture = bundle();
   fixture.events = [
     {sequence:1, type:"ai.request", details:{localRequestId:"one", question:'<img src=x onerror="attack()">', context:{scope:"selection"}}, assets:[]},
@@ -295,25 +354,28 @@ test("AI question and response are linked by request id, remain chronological an
     {sequence:3, type:"ai.request", details:{localRequestId:"two", question:"Another question", context:{scope:"text-only"}}, assets:[]},
   ];
   const ui = boot({bundle:fixture}); await ui.import();
-  assert.equal(ui.value("question").textContent, "Another question"); assert.match(ui.value("response").textContent, /No reply observed yet/);
+  assert.equal(ui.value("question").textContent, "Another question"); assert.match(ui.value("response").textContent, /No linked reply body/);
   ui.slider.value = "0"; ui.slider.fire("input"); await settle();
   assert.equal(ui.value("question").textContent, fixture.events[0].details.question); assert.equal(ui.value("question").querySelector("img"), null);
-  assert.match(ui.value("response").textContent, /No reply observed yet/);
-  ui.slider.value = "1"; ui.slider.fire("input"); await settle();
-  assert.equal(ui.value("response").textContent, "What would undo +6?"); assert.match(ui.value("event-description").textContent, /does not prove/);
+  assert.equal(ui.value("response").textContent, "What would undo +6?"); assert.match(ui.value("event-description").textContent, /not proof of acceptance/);
+  assert.equal(ui.value("position").textContent, "1 / 2 moments");
+  assert.match(ui.value("ai-replies").textContent, /What would undo \+6/);
+  ui.slider.value = "1"; ui.slider.fire("input"); await settle(); assert.equal(ui.value("question").textContent, "Another question");
 });
 
 test("empty histories remain readable with playback disabled", async () => {
   const ui = boot({bundle:bundle("Empty history", 0)}); await ui.import();
-  assert.equal(ui.value("position").textContent, "0 / 0"); assert.equal(ui.action("play").disabled, true);
+  assert.equal(ui.value("position").textContent, "0 / 0 moments"); assert.equal(ui.action("play").disabled, true);
   assert.match(ui.value("preview").textContent, /No rendered checkpoint/); assert.equal(ui.timers.size, 0);
 });
 
-test("missing replay attachment stops playback with readable error rather than an unhandled promise", async () => {
-  const ui = boot({bundle:bundle("Missing checkpoint", 3, async (_id, hash) => hash === "frame0" ? null : new Blob([hash], {type:"image/png"}))});
+test("missing replay attachment retains the labeled prior frame and readable event history", async () => {
+  const ui = boot({bundle:bundle("Missing checkpoint", 3, async (_id, hash) => hash === "frame0" ? null : rasterBlob(hash))});
   await ui.import(); await ui.click("play");
-  assert.equal(ui.timers.size, 0); assert.equal(ui.action("play").textContent, "Play history");
-  assert.match(ui.dialog.querySelector(".tenet-process-status").textContent, /checkpoint attachment is unavailable/);
+  assert.equal(ui.timers.size, 1); assert.equal(ui.action("play").textContent, "Pause replay");
+  assert.match(ui.value("preview").textContent, /checkpoint attachment is unavailable/); assert.equal(displayedLabel(ui), "frame2");
+  assert.match(ui.value("frame-time").textContent, /checkpoint: event 3/);
+  await ui.runTimer(); assert.equal(displayedLabel(ui), "frame1");
 });
 
 test("backgrounding stops replay, and sign-out clears retained display and object URLs", async () => {
@@ -369,7 +431,7 @@ test("saved page selection renders its actual AI question/reply and checkpoint w
   assert.equal(result, true); assert.equal(ui.dialog.open, true);
   assert.equal(ui.value("question").textContent, "Why do I need a common denominator?");
   assert.equal(ui.value("response").textContent, "What size pieces are you combining?");
-  assert.equal(await [...ui.urls.values()][0].text(), "frame2");
+  assert.equal(displayedLabel(ui), "frame2");
   assert.strictEqual(ui.win.scratch, scratch); assert.deepEqual(scratch.strokes, ["current unsaved ink"]);
   assert.equal(ui.win.location.href, "https://district.example/whiteboard"); assert.equal(ui.calls.canvases, 0); assert.equal(ui.calls.begin, 0);
   ui.action("close").click(); await settle(); assert.equal(ui.value("question").textContent, ""); assert.equal(ui.urls.size, 0);
@@ -388,7 +450,7 @@ test("clicking a saved whiteboard changes only the history selection", async () 
 test("legacy saved whiteboards explicitly report unavailable history without invented events or examples", async () => {
   const history = savedProvider([savedBundle("old", "Last year's work", false)], "old");
   const ui = savedBoot(history.provider); ui.launch.click(); await settle();
-  assert.equal(ui.value("title").textContent, "Last year's work"); assert.equal(ui.value("position").textContent, "0 / 0");
+  assert.equal(ui.value("title").textContent, "Last year's work"); assert.equal(ui.value("position").textContent, "0 / 0 moments");
   assert.match(ui.value("preview").textContent, /History unavailable/); assert.match(ui.value("coverage").textContent, /do not substitute a sample/);
   assert.equal(ui.value("question").textContent, ""); assert.equal(ui.action("play").disabled, true); assert.equal(ui.calls.canvases, 0);
   assert.match(ui.dialog.querySelector(".tenet-process-status").textContent, /cannot be reconstructed/);
@@ -404,11 +466,11 @@ test("saved history coverage reasons and dropped events remain visible", async (
 test("saved-page WebP thumbnails render and are explicitly distinguished from full checkpoints", async () => {
   const work = savedBundle("webp", "Saved fallback thumbnail");
   work.events = [{sequence:1, type:"canvas.checkpoint", clientWallTime:1700000000000, details:{representation:"saved-page-thumbnail", everyStroke:false}, assets:[{hash:"saved-thumb", name:"page.webp", mime:"image/webp"}]}];
-  work.getAsset = async () => new Blob(["saved webp thumbnail"], {type:"image/webp"});
+  work.getAsset = async () => rasterBlob("saved webp thumbnail", "image/webp");
   const history = savedProvider([work]); const ui = savedBoot(history.provider);
   assert.equal(await ui.win.TenetProcessUI.openSavedPage("webp"), true); await settle();
-  assert.equal(ui.value("checkpoints").textContent, "1"); assert.equal(ui.value("event-title").textContent, "Saved-page thumbnail");
-  assert.equal(await [...ui.urls.values()][0].text(), "saved webp thumbnail");
+  assert.equal(ui.value("checkpoints").textContent, "1"); assert.equal(ui.value("event-title").textContent, "Saved page state");
+  assert.equal(displayedLabel(ui), "saved webp thumbnail");
   assert.match(ui.value("checkpoint-caption").textContent, /saved-page thumbnail, not a full-resolution checkpoint/);
   assert.equal(ui.calls.canvases, 0);
 });
@@ -417,13 +479,13 @@ test("event details normalize saved ISO timestamps and legacy numeric times with
   const work = savedBundle("times", "Timestamp compatibility");
   const iso = "2026-09-15T18:30:45.123Z", legacy = 1700000000000;
   work.events = [
-    {sequence:1, type:"canvas.commit", timestamp:iso, details:{note:"ISO saved event"}, assets:[]},
-    {sequence:2, type:"canvas.commit", clientWallTime:legacy, details:{note:"Older clock value, later event order"}, assets:[]},
-    {sequence:3, type:"canvas.commit", timestamp:"not a time", details:{note:"Bad timestamp"}, assets:[]},
-    {sequence:4, type:"canvas.commit", clientWallTime:1e30, details:{note:"Out of Date range"}, assets:[]},
-    {sequence:5, type:"canvas.commit", clientWallTime:null, details:{note:"No timestamp"}, assets:[]},
-    {sequence:6, type:"canvas.commit", clientWallTime:0, details:{note:"Numeric epoch is valid"}, assets:[]},
-    {sequence:7, type:"canvas.commit", timestamp:"bad", clientWallTime:legacy, details:{note:"Legacy fallback"}, assets:[]},
+    {sequence:1, type:"history.observation", timestamp:iso, details:{note:"ISO saved event"}, assets:[]},
+    {sequence:2, type:"history.observation", clientWallTime:legacy, details:{note:"Older clock value, later event order"}, assets:[]},
+    {sequence:3, type:"history.observation", timestamp:"not a time", details:{note:"Bad timestamp"}, assets:[]},
+    {sequence:4, type:"history.observation", clientWallTime:1e30, details:{note:"Out of Date range"}, assets:[]},
+    {sequence:5, type:"history.observation", clientWallTime:null, details:{note:"No timestamp"}, assets:[]},
+    {sequence:6, type:"history.observation", clientWallTime:0, details:{note:"Numeric epoch is valid"}, assets:[]},
+    {sequence:7, type:"history.observation", timestamp:"bad", clientWallTime:legacy, details:{note:"Legacy fallback"}, assets:[]},
   ];
   const history = savedProvider([work]); const ui = savedBoot(history.provider);
   assert.equal(await ui.win.TenetProcessUI.openSavedPage("times"), true); await settle();
@@ -484,4 +546,260 @@ test("public standalone viewer cannot enumerate saved app whiteboards even when 
   assert.equal(ui.dialog.querySelector(".tenet-process-saved").hidden, true);
   assert.equal(await ui.win.TenetProcessUI.openSavedPage("private"), false);
   assert.equal(history.calls.list, 0); assert.deepEqual(history.calls.reads, []);
+});
+
+test("final capture contract forms one AI moment including inputs appended after finish", async () => {
+  const input = rawInputFixture(), ui = boot({bundle:input.fixture}); await ui.import();
+  assert.equal(ui.value("position").textContent, "1 / 1 moments");
+  assert.equal(ui.dialog.querySelectorAll(".tenet-process-events button").length, 1);
+  assert.match(ui.value("response").textContent, /undo \+6/);
+  assert.equal(ui.value("checkpoints").textContent, "0"); assert.deepEqual(input.reads, []);
+  await ui.click("ai-summary");
+  assert.match(ui.value("ai-origin").textContent, /Voice question.*local-submit-path/);
+  assert.match(ui.value("ai-lifecycle").textContent, /completed.*1 reply observation.*1 client-input record/);
+  assert.match(ui.value("ai-replies").textContent, /undo \+6/);
+  assert.equal(JSON.parse(ui.value("ai-context").textContent).questionSource, "selection-question");
+  assert.deepEqual(JSON.parse(ui.value("detail").textContent).groupedRawSequences, [1,2,3,4]);
+  assert.deepEqual(input.reads, [], "Inspector attachment reads must be explicit/lazy");
+});
+
+test("explicitly linked late edit selects its own request rather than a newer preceding request", async () => {
+  const events = [
+    recorded("ai.request", 1, {localRequestId:"a", question:"First question", origin:"quick-help"}),
+    recorded("ai.response", 2, {localRequestId:"a", text:"First hint"}),
+    recorded("ai.request", 3, {localRequestId:"b", question:"Second question", origin:"specific-question"}),
+    recorded("ai.response", 4, {localRequestId:"b", text:"Second hint"}),
+    recorded("canvas.commit", 5, {localRequestId:"a", note:"Explicit recorded output link"}),
+    recorded("canvas.commit", 6, {note:"Independent later student edit"}),
+  ];
+  const ui = boot({bundle:fixtureWith(events)}); await ui.import();
+  const linkedBar = ui.dialog.querySelectorAll('g[role="button"]').find(node => /Seek to recorded event 5\./.test(node.getAttribute("aria-label")));
+  assert.ok(linkedBar); linkedBar.click(); await settle();
+  assert.equal(ui.value("question").textContent, "First question"); assert.equal(ui.value("response").textContent, "First hint");
+  assert.deepEqual(JSON.parse(ui.value("detail").textContent).groupedRawSequences, [1,2,5]);
+  assert.equal(ui.value("position").textContent, "1 / 3 moments");
+  await seek(ui, 2);
+  assert.match(ui.value("event-title").textContent, /Work updated/);
+  assert.match(ui.value("event-description").textContent, /does not attribute the edits to AI/);
+  assert.deepEqual(JSON.parse(ui.value("detail").textContent).groupedRawSequences, [6]);
+});
+
+test("nearby edits and checkpoints group into work moments without counting images as edits", async () => {
+  const baseline = 1700000000000;
+  const events = [recorded("canvas.commit",1,{},[],baseline), recorded("page.checkpoint",2,{},[{hash:"work",mime:"image/png"}],baseline+10), recorded("native.revision",3,{},[],baseline+20), recorded("page.checkpoint",4,{},[{hash:"work",mime:"image/png"}],baseline+30), recorded("coverage.gap",5,{reason:"not observed"},[],baseline+40)];
+  const ui = boot({bundle:fixtureWith(events, async () => rasterBlob("work"))}); await ui.import();
+  assert.equal(ui.slider.max, "1"); await seek(ui, 0);
+  assert.match(ui.value("event-description").textContent, /1 observed canvas edits, 1 PencilKit revisions and 2 saved page images/);
+  assert.deepEqual(JSON.parse(ui.value("detail").textContent).groupedRawSequences, [1,2,3,4]);
+  assert.match(ui.value("activity-note").textContent, /reloads and coverage gaps are not counted/);
+});
+
+test("duplicate and missing request identities never fabricate linked replies", async () => {
+  const events = [recorded("ai.request",1,{localRequestId:"dup",question:"First"}), recorded("ai.request",2,{localRequestId:"dup",question:"Second"}), recorded("ai.response",3,{localRequestId:"dup",text:"Must not attribute"}), recorded("ai.request",4,{question:"No identity"}), recorded("ai.response",5,{text:"No identity response"})];
+  const ui = boot({bundle:fixtureWith(events)}); await ui.import(); await ui.click("ai-summary");
+  assert.match(ui.value("ai-lifecycle").textContent, /Duplicate request identifiers/);
+  assert.doesNotMatch(ui.value("ai-replies").textContent, /Must not attribute/);
+  ui.dialog.querySelectorAll(".tenet-process-ai-requests button")[2].click(); await settle();
+  assert.match(ui.value("ai-origin").textContent, /not recorded \(legacy\)/);
+  assert.match(ui.value("ai-lifecycle").textContent, /no usable linking identifier/);
+  assert.doesNotMatch(ui.value("ai-replies").textContent, /No identity response/);
+});
+
+test("all supported playback speeds use recorded-time intervals and stop old timers on change", async () => {
+  const ui = boot(); await ui.import();
+  const control = ui.dialog.querySelector('[data-control="speed"]');
+  for (const speed of [0.5,1,2,4,8]) {
+    control.value = String(speed); control.fire("change"); await settle();
+    assert.equal(ui.timers.size, 0); assert.equal(ui.action("play").textContent, "Play history");
+    await ui.click("play"); assert.equal([...ui.timers.values()][0].ms, 5000 / speed);
+    await ui.click("play");
+  }
+  assert.doesNotMatch(ui.value("pacing").textContent, /proven work/);
+});
+
+test("long-pause skipping is explicit and unskipped delays are chunked without timer overflow", async () => {
+  const fixture = bundle("Long pause", 2); fixture.events[1].clientWallTime = fixture.events[0].clientWallTime + 90000;
+  const ui = boot({bundle:fixture}); await ui.import(); await ui.click("play");
+  assert.equal([...ui.timers.values()][0].ms, 1000); assert.match(ui.value("pacing").textContent, /shortened to 1 second/);
+  const skip = ui.dialog.querySelector('[data-control="skip-pauses"]'); skip.checked = false; skip.fire("change"); await settle();
+  assert.equal(ui.timers.size, 0); await ui.click("play"); assert.equal([...ui.timers.values()][0].ms, 60000);
+  await ui.runTimer(60000); assert.equal([...ui.timers.values()][0].ms, 30000);
+  await ui.runTimer(30000); assert.equal(ui.value("position").textContent, "2 / 2 moments"); assert.equal(ui.timers.size, 0);
+});
+
+test("nonmonotonic and missing timestamps retain append order with honest pacing fallback", async () => {
+  const fixture = fixtureWith([recorded("history.observation",1,{},[],3000), recorded("history.observation",2,{},[],1000), recorded("history.observation",3,{},[],null)]);
+  const ui = boot({bundle:fixture}); await ui.import();
+  assert.match(ui.value("activity-note").textContent, /Recorded-order bins/);
+  await ui.click("play"); assert.equal([...ui.timers.values()][0].ms, 1000); assert.match(ui.value("pacing").textContent, /fallback in recorded order/);
+  await ui.runTimer(); assert.equal(JSON.parse(ui.value("detail").textContent).sequence, 2);
+  assert.equal([...ui.timers.values()][0].ms, 1000); await ui.runTimer(); assert.equal(JSON.parse(ui.value("detail").textContent).sequence, 3);
+});
+
+test("scrubbing and speed changes invalidate already-dispatched old replay callbacks", async () => {
+  const ui = boot(); await ui.import(); await ui.click("play"); const old = [...ui.timers.values()][0].callback;
+  await seek(ui, 1); old(); await settle(); assert.equal(ui.value("position").textContent, "2 / 3 moments"); assert.equal(ui.timers.size, 0);
+  const speed = ui.dialog.querySelector('[data-control="speed"]'); speed.value = "2"; speed.fire("change"); await settle();
+  old(); await settle(); assert.equal(ui.value("position").textContent, "2 / 3 moments");
+});
+
+test("a pending next decode keeps the displayed checkpoint and its own timestamp visible", async () => {
+  const gate = deferred();
+  const ui = boot({decode:(_url, blob) => rasterMetadata.get(blob)?.label === "frame0" ? gate.promise : Promise.resolve()});
+  await ui.import(); const prior = ui.dialog.querySelector(".tenet-process-preview img").src;
+  await seek(ui, 0); assert.equal(ui.dialog.querySelector(".tenet-process-preview img").src, prior);
+  assert.equal(ui.dialog.querySelector(".tenet-process-preview img").hidden, false);
+  assert.match(ui.value("frame-time").textContent, /checkpoint: event 3/); assert.match(ui.value("selected-time").textContent, /Work moment 1/);
+  gate.resolve(); await settle(); assert.equal(displayedLabel(ui), "frame0"); assert.match(ui.value("frame-time").textContent, /checkpoint: event 1/);
+});
+
+test("same checkpoint asset is read once across different events and non-image observations", async () => {
+  const reads = [], fixture = bundle("Repeated frame", 3, async (_id, hash) => { reads.push(hash); return rasterBlob(hash); });
+  fixture.events.forEach(event => { event.assets[0].hash = "same"; });
+  fixture.events.push(recorded("history.observation",4));
+  const ui = boot({bundle:fixture}); await ui.import(); await seek(ui,0); await seek(ui,1); await seek(ui,2); await seek(ui,3);
+  assert.deepEqual(reads, ["same"]); assert.equal(ui.urls.size,1); assert.equal(displayedLabel(ui),"same");
+});
+
+test("prefetch reuses next frame and bounds decoded cache count and total pixels", async () => {
+  const reads = [], fixture = bundle("Cache budget",6,async (_id,hash) => { reads.push(hash); return rasterBlob(hash,"image/png",4000,2000); });
+  const ui = boot({bundle:fixture}); await ui.import(); await seek(ui,0); assert.ok(reads.includes("frame1"),"Next checkpoint prefetched");
+  await seek(ui,1); assert.equal(reads.filter(hash => hash === "frame1").length,1);
+  for (let index = 2; index < 6; index++) {
+    await seek(ui,index); assert.ok(ui.urls.size <= 3);
+    const pixels = [...ui.urls.values()].reduce((total,blob) => { const meta=rasterMetadata.get(blob); return total + meta.width*meta.height; },0);
+    assert.ok(pixels <= 16*1024*1024);
+  }
+  assert.ok(ui.revoked.length>0); await ui.click("close"); assert.equal(ui.urls.size,0); assert.equal(ui.timers.size,0);
+});
+
+test("oversized, mismatched and malformed raster headers never enter the decoded cache", async () => {
+  const bad = [rasterBlob("too-wide","image/png",5000,10),rasterBlob("too-many-pixels","image/png",4096,4096),new Blob(["<svg><script>attack()</script></svg>"],{type:"image/png"}),new Blob([new Uint8Array(8*1024*1024+1)],{type:"image/png"})];
+  for (const blob of bad) {
+    const ui = boot({bundle:bundle("Bad image",1,async()=>blob)}); await ui.import();
+    assert.equal(ui.urls.size,0); assert.equal(ui.calls.decoded.length,0); assert.equal(ui.timers.size,0);
+    assert.match(ui.value("preview").textContent,/limit|header/); assert.equal(ui.value("position").textContent,"1 / 1 moments");
+  }
+});
+
+test("PNG JPEG and WebP image header paths retain readable decoded frames", async () => {
+  for (const mime of ["image/png","image/jpeg","image/webp"]) {
+    const fixture = bundle(mime,1,async()=>rasterBlob(mime,mime)); fixture.events[0].assets[0].mime=mime;
+    const ui=boot({bundle:fixture}); await ui.import(); assert.equal(displayedLabel(ui),mime); assert.equal(ui.calls.decoded.length,1);
+    await ui.click("close"); assert.equal(ui.urls.size,0);
+  }
+});
+
+test("retiring a view cancels deferred decodes and revokes every page image URL", async () => {
+  for (const action of ["close","signout","pagehide"]) {
+    const gate=deferred(), ui=boot({decode:(_url,blob)=>rasterMetadata.get(blob)?.label==="frame0"?gate.promise:Promise.resolve()});
+    await ui.import(); await seek(ui,0); assert.ok(ui.urls.size>0);
+    if(action==="close") ui.dialog.close(); else ui.win.fire(action==="signout"?"tenet:sign-out":"pagehide");
+    await settle(); assert.equal(ui.urls.size,0); assert.equal(ui.timers.size,0); gate.resolve(); await settle();
+    assert.equal(ui.urls.size,0); assert.equal(ui.value("question").textContent,"");
+  }
+});
+
+test("unresolved checkpoint reads have a bounded timeout and cannot repaint after retirement", async () => {
+  const gate=deferred(), ui=boot({bundle:bundle("Hung checkpoint",1,()=>gate.promise)});
+  await ui.import(); await ui.runTimer(20000); assert.match(ui.value("preview").textContent,/too long/);
+  assert.equal(ui.timers.size,0); await ui.click("close"); gate.resolve(rasterBlob("late")); await settle(); assert.equal(ui.urls.size,0);
+});
+
+test("AI input rasters and all AI lifecycle image assets are excluded from page replay and counts", async () => {
+  const input=rawInputFixture();
+  input.fixture.events[0].assets=[{name:"page.png",hash:"must-not-read",mime:"image/png"}];
+  input.fixture.events.push(recorded("page.checkpoint",5,{},[{name:"ai-input.png",hash:"must-not-read",mime:"image/png"}]));
+  const ui=boot({bundle:input.fixture}); await ui.import();
+  assert.equal(ui.value("checkpoints").textContent,"0"); assert.equal(ui.urls.size,0); assert.deepEqual(input.reads,[]);
+  assert.equal(ui.value("requests").textContent,"1");
+});
+
+test("raw client input inspector is lazy, text-safe and downloads the unchanged recorded body", async () => {
+  const input=rawInputFixture(); input.body.question='<img src=x onerror="attack()">'; input.assets.set("body",new Blob([JSON.stringify(input.body)],{type:"application/json"}));
+  const ui=boot({bundle:input.fixture}); await ui.import(); await ui.click("ai-summary"); assert.deepEqual(input.reads,[]);
+  await inspectInput(ui,"Inspect recorded request JSON");
+  assert.match(ui.value("input-body").textContent,/Image data hidden in this text preview only/);
+  assert.match(ui.value("input-body").textContent,/<img src=x/); assert.equal(ui.value("input-body").querySelector("img"),null);
+  assert.equal(await ui.urls.get(ui.value("input-download").href).text(),JSON.stringify(input.body));
+  assert.match(ui.value("input-status").textContent,/not a server receipt or the final Gateway\/provider prompt/);
+  assert.equal(ui.value("checkpoints").textContent,"0");
+});
+
+test("input body limit matches final 12 MiB capture contract and text preview has a separate limit", async () => {
+  const input=rawInputFixture(), body={notes:"x".repeat(1024*1024+20)};
+  input.assets.set("body",new Blob([JSON.stringify(body)],{type:"application/json"}));
+  const ui=boot({bundle:input.fixture}); await ui.import(); await ui.click("ai-summary"); await inspectInput(ui,"Inspect recorded request JSON");
+  assert.match(ui.value("input-body").textContent,/Text preview limited to 128 KiB/);
+  assert.equal(JSON.parse(await ui.urls.get(ui.value("input-download").href).text()).notes.length,body.notes.length);
+  input.assets.set("body",new Blob([new Uint8Array(12*1024*1024+1)],{type:"application/json"}));
+  await inspectInput(ui,"Inspect recorded request JSON"); assert.match(ui.value("input-status").textContent,/exceeds the local viewer limit/); assert.equal(ui.urls.size,0);
+});
+
+test("recorded image inspector is separate from page frames and releases its URL on hiding", async () => {
+  const input=rawInputFixture(), ui=boot({bundle:input.fixture}); await ui.import(); await ui.click("ai-summary"); await inspectInput(ui,"View submitted image");
+  const image=ui.dialog.querySelector(".tenet-process-input-image"); assert.equal(image.hidden,false); assert.equal(rasterMetadata.get(ui.urls.get(image.src)).label,"exact submitted crop");
+  assert.equal(ui.dialog.querySelector(".tenet-process-preview img").hidden,true); assert.equal(ui.value("checkpoints").textContent,"0");
+  assert.equal(ui.urls.size,1); await ui.click("hide-ai-summary"); assert.equal(ui.urls.size,0); assert.equal(image.hidden,true);
+});
+
+test("redacted and absent legacy inputs are explicitly unavailable or partial, never reconstructed", async () => {
+  const input=rawInputFixture(); Object.assign(input.fixture.events[3].details,{bodyStatus:"partial",bodyFormat:"redacted-client-json",bodyExact:false,omitted:["credential-field-omitted"]});
+  const ui=boot({bundle:input.fixture}); await ui.import(); await ui.click("ai-summary"); await inspectInput(ui,"Inspect recorded request JSON");
+  assert.match(ui.value("input-status").textContent,/partial.*redacted-client-json/); assert.match(ui.value("input-status").textContent,/not established/);
+  assert.match(ui.dialog.querySelector(".tenet-process-input-records").textContent,/credential-field-omitted/);
+  const legacy=boot({bundle:fixtureWith([recorded("ai.request",1,{localRequestId:"old"})])}); await legacy.import(); await legacy.click("ai-summary");
+  assert.match(legacy.value("ai-origin").textContent,/legacy/); assert.match(legacy.dialog.querySelector(".tenet-process-input-records").textContent,/cannot be reconstructed/);
+});
+
+test("late recorded input reads cannot cross saved-page selection, close, or account retirement", async () => {
+  for(const action of ["page","close","signout"]) {
+    const input=rawInputFixture(), gate=deferred(); input.fixture.getAsset=()=>gate.promise;
+    const next=bundle("Other student's selected page",0), ui=boot({readArchive:file=>file.name==="next"?next:input.fixture});
+    await ui.import(); await ui.click("ai-summary"); await inspectInput(ui,"Inspect recorded request JSON");
+    if(action==="page") await ui.import({name:"next"}); else if(action==="close") ui.dialog.close(); else ui.win.fire("tenet:sign-out");
+    gate.resolve(input.json); await settle(); assert.equal(ui.value("input-body").textContent,""); assert.equal(ui.urls.size,0); assert.equal(ui.value("ai-question").textContent,"");
+  }
+});
+
+test("late input-image decodes cannot recreate a private URL after sign-out", async () => {
+  const input=rawInputFixture(), gate=deferred(), ui=boot({bundle:input.fixture,decode:()=>gate.promise});
+  await ui.import(); await ui.click("ai-summary"); await inspectInput(ui,"View submitted image"); assert.equal(ui.urls.size,1);
+  ui.win.fire("tenet:sign-out"); await settle(); assert.equal(ui.urls.size,0); assert.equal(ui.timers.size,0);
+  gate.resolve(); await settle(); assert.equal(ui.dialog.querySelector(".tenet-process-input-image").hidden,true); assert.equal(ui.urls.size,0);
+});
+
+test("activity graph is bounded, accessible and counts edits/revisions rather than gaps or reloads", async () => {
+  const events=[recorded("canvas.commit",1),recorded("native.revision",2),recorded("coverage.gap",3),recorded("page.reload",4),recorded("capture.paused",5),recorded("page.checkpoint",6,{},[{hash:"page",mime:"image/png"}])];
+  const ui=boot({bundle:fixtureWith(events,async()=>rasterBlob("page"))}); await ui.import();
+  const bars=ui.dialog.querySelectorAll('g[role="button"]'); assert.equal(bars.length,6);
+  const labels=bars.map(node=>node.getAttribute("aria-label"));
+  assert.equal(labels.filter(label=>/1 canvas edits/.test(label)).length,1); assert.equal(labels.filter(label=>/1 PencilKit revisions/.test(label)).length,1);
+  assert.equal(labels.filter(label=>/1 coverage gap/.test(label)).length,1);
+  for(const bar of bars) { assert.equal(bar.getAttribute("tabindex"),"0"); const hit=bar.querySelector("rect"); assert.ok(Number(hit.getAttribute("width"))>=44); assert.ok(Number(hit.getAttribute("height"))>=44); }
+  bars[0].fire("keydown",{key:"Enter"}); await settle(); assert.equal(JSON.parse(ui.value("detail").textContent).sequence,1);
+  assert.match(processCSS,/tenet-process-graph>svg\{[^}]*min-width:720px/);
+});
+
+test("large histories aggregate purple AI stars and paginate the complete request summary", async () => {
+  const events=[];
+  for(let index=0;index<50;index++) { events.push(recorded("ai.request",index*2+1,{localRequestId:"r"+index,question:"Question "+index,origin:"quick-help"})); events.push(recorded("ai.finished",index*2+2,{localRequestId:"r"+index,outcome:"failed"})); }
+  const ui=boot({bundle:fixtureWith(events)}); await ui.import();
+  assert.equal(ui.value("requests").textContent,"50"); assert.equal(ui.value("position").textContent,"50 / 50 moments");
+  assert.ok(ui.dialog.querySelectorAll('g[role="button"]').length<=24);
+  const stars=ui.dialog.querySelectorAll(".tenet-process-ai-star"); assert.ok(stars.length<=12); assert.ok(stars.length>0); assert.match(processCSS,/tenet-process-ai-star\{fill:var\(--process-ai\)/);
+  stars[0].parentElement.fire("keydown",{key:" "}); await settle(); assert.equal(ui.dialog.querySelector(".tenet-process-ai-summary").hidden,false);
+  assert.match(ui.value("ai-list-note").textContent,/activity interval/); assert.match(ui.value("ai-lifecycle").textContent,/failed/);
+  await ui.click("ai-summary"); assert.equal(ui.dialog.querySelectorAll(".tenet-process-ai-requests button").length,20);
+  await ui.click("ai-next"); assert.equal(ui.dialog.querySelectorAll(".tenet-process-ai-requests button").length,20);
+  await ui.click("ai-next"); assert.equal(ui.dialog.querySelectorAll(".tenet-process-ai-requests button").length,10); assert.equal(ui.action("ai-next").disabled,true);
+});
+
+test("rendered graph and inspector retain strict CSP and same-document modal contract", async () => {
+  const input=rawInputFixture(), ui=boot({bundle:input.fixture}); await ui.import(); await ui.click("ai-summary");
+  assert.equal(ui.dialog.id,"tenetProcessDialog"); assert.equal(ui.dialog.querySelector("iframe"),null);
+  assert.equal(ui.dialog.querySelectorAll("[style]").length,0); assert.equal(ui.doc.head.querySelector("style"),null);
+  assert.equal(ui.doc.head.querySelector("#tenetProcessStyles").href,"./tenet-process.css");
+  assert.equal(ui.calls.list,0); assert.equal(ui.calls.begin,0); assert.match(ui.dialog.querySelector(".tenet-process-source").textContent,/AGPL-3.0/);
+  assert.doesNotMatch(source,/\.style\.(?:cssText|setProperty|removeProperty|[A-Za-z_$][\w$]*\s*=)/);
 });
