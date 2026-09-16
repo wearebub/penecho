@@ -63,5 +63,36 @@ Baseline source: `6729802e81ae55d296d54d7d0ced0ee72d9b8357`.
 Baseline receipt:
 `/opt/tenet-demo/backups/whiteboard-1.12.0-6729802/deployment-receipt.json`.
 
-Deployment receipts and workflow links are added after actual publication.
-Until those receipts exist, this note is qualification, not deployment proof.
+## Published result
+
+Source: `607673d7b981a3ad9fec9f22bc201b6a057e1c40`.
+Immutable release: https://github.com/wearebub/penecho/releases/tag/tenet-web-v1.13.0
+
+- Web release, including Node 22/24: https://github.com/wearebub/penecho/actions/runs/35053847530
+- Public Teacher Preview: https://github.com/wearebub/penecho/actions/runs/35053849009
+- Branch CI: https://github.com/wearebub/penecho/actions/runs/35053833581
+- Unsigned iPad compile: https://github.com/wearebub/penecho/actions/runs/35053833703
+
+All four workflows succeeded. No signed IPA or new TestFlight build was needed
+or published. The existing native 1.11.0 (51) uses this hosted client update.
+
+Installed on both district and Spanish demo hosts. All served manifest assets
+matched their hashes with no-store caching. Both unauthenticated host roots
+still returned 302. Service PIDs, policy and dependency lock were unchanged.
+Public https://wearebub.github.io/penecho/ matched the source SHA and all three
+published file hashes; its live sample rendered with the new full-screen UI,
+clock axis and speed options, without console warnings/errors.
+
+Sanitized evidence: `tenet-whiteboard-1.13.0-deployment.json` beside this note.
+No notebook contents, credentials or policy contents are in that receipt.
+
+Rollback, guarded against later unrecognized changes:
+
+```sh
+sudo node /opt/tenet-demo/backups/whiteboard-1.13.0-607673d/deploy-runtime.mjs rollback
+```
+
+Rollback restores the qualified installed 1.12.0 client files without restarting
+services. The immutable 1.12.0 release remains available for public preview
+republication as a separate operator action. Physical-device uptake remains
+for the iPad user to confirm after fully closing and reopening the application.
