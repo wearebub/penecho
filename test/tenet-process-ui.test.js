@@ -83,6 +83,7 @@ class Element extends Events {
   querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
   click() { if (!this.disabled) this.fire("click"); }
   focus() { this.doc.activeElement = this; }
+  contains(node) { while (node) { if (node === this) return true; node = node.parentElement; } return false; }
   scrollIntoView() { this.doc.lastScrolled = this; }
   showModal() { this.open = true; }
   close() { if (this.open) { this.open = false; this.fire("close"); } }
@@ -165,7 +166,7 @@ function boot(options = {}) {
     void Promise.resolve().then(() => { if (image.src === url) image.onload?.(); });
   };
   const intl = options.timeZone ? {DateTimeFormat:function(locale, format) { return new Intl.DateTimeFormat(locale, {...format, timeZone:options.timeZone}); }} : Intl;
-  const context = vm.createContext({window:win, document:doc, Blob, File, Intl:intl, navigator:{}, URL:{createObjectURL:blob => { const url = "blob:fixture-" + (++urlId); urls.set(url, blob); return url; }, revokeObjectURL:url => { urls.delete(url); revoked.push(url); }}, setTimeout:(callback, ms) => { const id = ++timerId; timers.set(id, {callback, ms}); return id; }, clearTimeout:id => timers.delete(id)});
+  const context = vm.createContext({window:win, document:doc, Blob, File, TextEncoder, Intl:intl, navigator:{}, URL:{createObjectURL:blob => { const url = "blob:fixture-" + (++urlId); urls.set(url, blob); return url; }, revokeObjectURL:url => { urls.delete(url); revoked.push(url); }}, setTimeout:(callback, ms) => { const id = ++timerId; timers.set(id, {callback, ms}); return id; }, clearTimeout:id => timers.delete(id)});
   new vm.Script(source, {filename}).runInContext(context);
   const dialog = doc.querySelector("dialog");
   return {
@@ -190,10 +191,10 @@ test("relative and clock labels expose a five-minute recorded span without using
   assert.match(ui.value("recorded-end").textContent, /3:05:12 PM UTC/);
   assert.match(ui.value("timing-note").textContent, /not measured active work/);
   assert.match(ui.value("timing-note").textContent, /not a server-verified clock/);
-  const rows = ui.dialog.querySelectorAll(".tenet-process-events button");
-  assert.match(rows[1].textContent, /Moment starts \+4m 12s \|.*3:04:12 PM UTC/);
+  assert.equal(ui.dialog.querySelector(".tenet-process-events"), null);
+  assert.match(ui.dialog.querySelectorAll(".tenet-process-axis-label").at(-1).textContent, /3:05:12 PM/);
   await seek(ui,1); assert.match(ui.value("selected-time").textContent, /\+4m 12s \|.*3:04:12 PM UTC/);
-  assert.match(ui.dialog.querySelector(".tenet-process-graph").textContent, /\+5m 12s \|/);
+  assert.equal(ui.dialog.querySelectorAll(".tenet-process-elapsed-label").at(-1).textContent, "+5m 12s");
   assert.equal(ui.calls.begin,0);
 });
 
@@ -311,17 +312,16 @@ test("all process UI uses same-origin external styles and no frames under the un
   assert.match(viewerHTML, /Tenet fork source/); assert.match(viewerHTML, /AGPL-3\.0/);
 });
 
-test("iPad portrait reuses stacked sidebar and detail layout while landscape remains desktop", () => {
-  const responsive = processCSS.match(/@media\(max-width:(\d+)px\)\{\.tenet-process-dialog\{padding:16px\}[^\r\n]+/);
-  assert.ok(responsive, "Existing compact layout must remain available");
-  const breakpoint = Number(responsive[1]);
-  assert.equal(breakpoint, 900);
-  assert.ok(768 <= breakpoint, "768px iPad portrait uses stacked layout");
-  assert.ok(1024 > breakpoint, "1024px iPad landscape keeps desktop layout");
-  assert.match(responsive[0], /\.tenet-process-layout\{grid-template-columns:1fr\}/);
-  assert.match(responsive[0], /\.tenet-process-detail\{grid-template-columns:1fr\}/);
-  assert.match(responsive[0], /\.tenet-process-sidebar\{border-right:0;border-bottom:/);
-  assert.match(processCSS, /@media\(max-width:900px\)\{\.tenet-process-saved-pages\{max-height:230px\}\}/);
+test("teacher review owns the full viewport with a collapsible narrow library", () => {
+  assert.match(processCSS, /#tenetProcessDialog\{[^}]*position:fixed;inset:0;[^}]*max-width:none;[^}]*height:100dvh;max-height:none/);
+  assert.match(processCSS, /#tenetProcessDialog\[open\]\{display:grid;grid-template-rows:auto auto auto minmax\(0,1fr\) auto/);
+  assert.match(processCSS, /#tenetProcessDialog\[data-library=open\] \.tenet-process-layout\{grid-template-columns:224px minmax\(0,1fr\)/);
+  assert.match(processCSS, /#tenetProcessDialog \.tenet-process-work\{[^}]*min-height:0;[^}]*overflow:auto/);
+  assert.match(processCSS, /safe-area-inset-top/);
+  assert.match(processCSS, /#tenetProcessDialog\{[^}]*width:100vw/);
+  assert.match(processCSS, /html:has\(#tenetProcessDialog\[open\]\),body:has\(#tenetProcessDialog\[open\]\)\{overflow:hidden\}/);
+  assert.match(processCSS, /@media\(max-width:700px\)/);
+  assert.match(processCSS, /#tenetProcessDialog\[data-library=open\] \.tenet-process-work\{display:none\}/);
 });
 
 test("ordinary Tenet sessions open an inline read-only viewer without navigating or reading histories", async () => {
@@ -656,7 +656,7 @@ test("public standalone viewer cannot enumerate saved app whiteboards even when 
 test("final capture contract forms one AI moment including inputs appended after finish", async () => {
   const input = rawInputFixture(), ui = boot({bundle:input.fixture}); await ui.import();
   assert.equal(ui.value("position").textContent, "1 / 1 moments");
-  assert.equal(ui.dialog.querySelectorAll(".tenet-process-events button").length, 1);
+  assert.equal(ui.dialog.querySelectorAll(".tenet-process-events button").length, 0);
   assert.match(ui.value("response").textContent, /undo \+6/);
   assert.equal(ui.value("checkpoints").textContent, "0"); assert.deepEqual(input.reads, []);
   await ui.click("ai-summary");
@@ -713,7 +713,7 @@ test("duplicate and missing request identities never fabricate linked replies", 
 test("all supported playback speeds use recorded-time intervals and stop old timers on change", async () => {
   const ui = boot(); await ui.import();
   const control = ui.dialog.querySelector('[data-control="speed"]');
-  for (const speed of [0.5,1,2,4,8]) {
+  for (const speed of [0.5,1,2,4,8,16,32]) {
     control.value = String(speed); control.fire("change"); await settle();
     assert.equal(ui.timers.size, 0); assert.equal(ui.action("play").textContent, "Play history");
     await ui.click("play"); assert.equal([...ui.timers.values()][0].ms, 5000 / speed);
@@ -894,7 +894,7 @@ test("large histories aggregate purple AI stars and paginate the complete reques
   assert.ok(ui.dialog.querySelectorAll('g[role="button"]').length<=24);
   const stars=ui.dialog.querySelectorAll(".tenet-process-ai-star"); assert.ok(stars.length<=12); assert.ok(stars.length>0); assert.match(processCSS,/tenet-process-ai-star\{fill:var\(--process-ai\)/);
   stars[0].parentElement.fire("keydown",{key:" "}); await settle(); assert.equal(ui.dialog.querySelector(".tenet-process-ai-summary").hidden,false);
-  assert.match(ui.value("ai-list-note").textContent,/activity interval/); assert.match(ui.value("ai-lifecycle").textContent,/failed/);
+  assert.match(ui.value("ai-list-note").textContent,/Requests from .* to /); assert.match(ui.value("ai-lifecycle").textContent,/failed/);
   await ui.click("ai-summary"); assert.equal(ui.dialog.querySelectorAll(".tenet-process-ai-requests button").length,20);
   await ui.click("ai-next"); assert.equal(ui.dialog.querySelectorAll(".tenet-process-ai-requests button").length,20);
   await ui.click("ai-next"); assert.equal(ui.dialog.querySelectorAll(".tenet-process-ai-requests button").length,10); assert.equal(ui.action("ai-next").disabled,true);
@@ -1233,4 +1233,102 @@ test("prepared report guards keep codec account invalidation and its own asset r
   await ui.win.TenetProcessUI.openSavedPage("a");await ui.click("report");const report=calls.reports[0];
   assert.equal(report.settings.isCurrent(),true);accountCurrent=false;assert.equal(report.settings.isCurrent(),false);
   assert.throws(report.bundle.assertCurrent,/Saved account changed/);await assert.rejects(report.bundle.getAsset(prepared.attempt.id,"final-page"),/Saved account changed/);
+});
+
+
+test("selecting work collapses the library and the header reopens it without losing the report", async () => {
+  const ui=boot(); await ui.import();
+  assert.equal(ui.dialog.dataset.library,"closed");
+  assert.equal(ui.dialog.querySelector(".tenet-process-sidebar").hidden,true);
+  assert.equal(ui.action("library").getAttribute("aria-expanded"),"false");
+  const title=ui.value("title").textContent, frame=displayedLabel(ui);
+  await ui.click("library");
+  assert.equal(ui.dialog.dataset.library,"open");
+  assert.equal(ui.dialog.querySelector(".tenet-process-sidebar").hidden,false);
+  assert.equal(ui.action("library").getAttribute("aria-controls"),"tenetProcessLibrary");
+  assert.equal(ui.value("title").textContent,title);
+  await ui.click("library"); assert.equal(displayedLabel(ui),frame);
+});
+
+test("saved-page selection moves focus off the collapsed library into the report", async () => {
+  const history=savedProvider([savedBundle("one","One saved page")]);
+  const ui=savedBoot(history.provider); ui.launch.click(); await settle();
+  const button=ui.dialog.querySelector(".tenet-process-saved-pages button"); button.focus(); button.click(); await settle();
+  assert.equal(ui.dialog.dataset.library,"closed");
+  assert.equal(ui.doc.activeElement,ui.dialog.querySelector(".tenet-process-work"));
+  assert.equal(ui.calls.begin,0);
+});
+
+test("an empty viewer keeps work selection available and retirement clears the storage readout", async () => {
+  const ui=boot(); await settle();
+  assert.equal(ui.dialog.dataset.library,"open"); assert.equal(ui.action("library").getAttribute("aria-expanded"),"true");
+  await ui.import(); ui.action("close").click();
+  for(const name of ["history-size","storage-note","axis-context"]) assert.equal(ui.value(name).textContent,"");
+  assert.equal(ui.dialog.dataset.library,"open");
+});
+
+test("clock-axis ticks replace bin ordinals and keep elapsed labels and AI inspection", async () => {
+  const start=Date.parse("2026-09-15T15:00:00Z"),events=[];
+  for(let i=0;i<13;i++) events.push(recorded(i===6?"ai.request":"canvas.commit",i+1,i===6?{localRequestId:"a",question:"A hint?",origin:"quick-help"}:{},[],start+i*60000));
+  const ui=boot({bundle:fixtureWith(events),timeZone:"UTC"}); await ui.import();
+  const labels=ui.dialog.querySelectorAll(".tenet-process-axis-label").map(item=>item.textContent);
+  assert.equal(labels.length,5); assert.match(labels[0],/3:00:00 PM/); assert.match(labels.at(-1),/3:12:00 PM/);
+  assert.equal(ui.dialog.querySelectorAll(".tenet-process-bin-label").length,0);
+  assert.equal(ui.dialog.querySelectorAll(".tenet-process-elapsed-label").at(-1).textContent,"+12m 0s");
+  assert.match(ui.value("axis-context").textContent,/UTC.*elapsed/);
+  ui.dialog.querySelector(".tenet-process-ai-star").parentElement.click(); await settle();
+  assert.equal(ui.dialog.querySelector(".tenet-process-ai-summary").hidden,false);
+  assert.equal(ui.value("ai-question").textContent,"A hint?");
+});
+
+test("an unreliable clock keeps recorded order and never fabricates an elapsed graph axis", async () => {
+  const ui=boot({bundle:fixtureWith([recorded("canvas.commit",1,{},[],1700000010000),recorded("canvas.commit",2,{},[],1700000000000),{sequence:3,type:"canvas.commit",details:{},assets:[]}])});
+  await ui.import();
+  assert.match(ui.value("axis-context").textContent,/spacing does not represent elapsed time/);
+  assert.equal(ui.dialog.querySelectorAll(".tenet-process-axis-label").at(-1).textContent,"Time unavailable");
+  assert.ok(ui.dialog.querySelectorAll(".tenet-process-elapsed-label").every(item=>item.textContent==="Time not comparable"));
+  assert.equal(ui.value("recorded-span").textContent,"Unavailable");
+});
+
+test("the removed work timeline has no hidden event list while graph and slider still seek", async () => {
+  const ui=boot(); await ui.import();
+  assert.equal(ui.dialog.querySelector(".tenet-process-events"),null);
+  assert.equal(ui.value("timeline-note"),null);
+  assert.doesNotMatch(ui.dialog.textContent,/Work timeline/);
+  assert.equal(ui.dialog.querySelector(".tenet-process-detail").tagName,"details");
+  await seek(ui,1); assert.equal(JSON.parse(ui.value("detail").textContent).sequence,2);
+  ui.dialog.querySelectorAll('g[role="button"]')[0].click(); await settle();
+  assert.equal(JSON.parse(ui.value("detail").textContent).sequence,1);
+});
+
+test("storage totals count event metadata and unique attachments without eagerly loading assets", async () => {
+  const first={hash:"shared",mime:"application/octet-stream",size:2048,name:"drawing.pkdrawing"};
+  const second={hash:"input",mime:"application/json",size:1024,name:"ai-input.json"};
+  const events=[recorded("history.observation",1,{},[first]),recorded("history.observation",2,{},[first,second])];
+  let reads=0;const ui=boot({bundle:fixtureWith(events,async()=>{reads++;return null;})});await ui.import();
+  const bytes=events.reduce((total,event)=>total+Buffer.byteLength(JSON.stringify(event)),3072);
+  assert.equal(ui.value("history-size").textContent,(bytes/1024).toFixed(1)+" KiB");
+  assert.match(ui.value("storage-note").textContent,/2 unique recorded attachments: 3.0 KiB/);
+  assert.match(ui.value("storage-note").textContent,/not browser memory or the compressed export size/);
+  assert.equal(reads,0);
+});
+
+test("missing or inconsistent attachment sizes are not represented as a complete size", async () => {
+  for(const assets of [[{hash:"missing",mime:"application/octet-stream"}],[{hash:"same",size:1},{hash:"same",size:2}]]) {
+    const ui=boot({bundle:fixtureWith([recorded("history.observation",1,{},assets)])});await ui.import();
+    assert.equal(ui.value("history-size").textContent,"Incomplete sizes");
+    assert.match(ui.value("storage-note").textContent,/complete total cannot be reported/);
+  }
+});
+
+test("16x and 32x remain selectable and rapid observations keep the existing display floor", async () => {
+  const ui=boot({bundle:fixtureWith([recorded("history.observation",1,{},[],1700000000000),recorded("history.observation",2,{},[],1700000000100)])});await ui.import();
+  const speed=ui.dialog.querySelector('[data-control="speed"]');
+  for(const rate of [16,32]) {
+    assert.ok(speed.querySelectorAll("option").some(option=>option.value===String(rate)));
+    speed.value=String(rate);speed.fire("change");await settle();
+    await ui.click("play"); assert.equal([...ui.timers.values()][0].ms,60);
+    await ui.runTimer(60);assert.equal(ui.action("play").textContent,"Play history");
+    assert.equal(ui.value("recorded-span").textContent,"<1s");
+  }
 });

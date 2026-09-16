@@ -121,3 +121,66 @@
 @media(max-width:560px){.tenet-process-time-cards{grid-template-columns:1fr 1fr;gap:12px}.tenet-process-time-cards>div:first-child{grid-column:1/-1}.tenet-process-timing{padding:12px}}
 @media(max-width:850px){.tenet-process-ai-layout{grid-template-columns:1fr}.tenet-process-ai-requests{max-height:225px}.tenet-process-ai-summary{padding:13px}.tenet-process-metrics>div,.tenet-process-metrics>button{padding:9px}.tenet-process-metrics span{line-height:1.4}}
 .tenet-process-saved-heading{display:flex;align-items:center;justify-content:space-between;gap:10px}.tenet-process-saved-heading h3{margin:0}.tenet-process-saved-caption{font-size:12px;line-height:1.55;color:#68716f}.tenet-process-saved-pages{display:grid;gap:8px;max-height:420px;overflow:auto;margin:14px 0 20px;font-size:12px;line-height:1.55;color:#68716f}.tenet-process-saved-pages button{text-align:left;display:grid;gap:5px;min-height:58px;overflow-wrap:anywhere}.tenet-process-saved-pages small{font-size:11px;font-weight:400;color:#66766e}.tenet-process-saved-pages button[aria-current=true]{border-color:#527f77;background:#ecf3ec;box-shadow:inset 3px 0 #427d69}.tenet-process-examples{border-top:1px solid #dddcd1;margin-top:20px;padding-top:5px}.tenet-process-examples>.tenet-process-demo{margin-top:8px}.tenet-process-examples>summary{font-size:12px;color:#647268}@media(max-width:900px){.tenet-process-saved-pages{max-height:230px}}
+
+/* Teacher review is a full-screen workspace, not a narrow canvas dialog.
+   The ID also overrides the app's generic dialog sizing without weakening CSP. */
+#tenetProcessDialog{position:fixed;inset:0;margin:0;box-sizing:border-box;width:100vw;min-width:0;max-width:none;height:100vh;height:100dvh;max-height:none;padding:max(12px,env(safe-area-inset-top)) max(20px,env(safe-area-inset-right)) max(8px,env(safe-area-inset-bottom)) max(20px,env(safe-area-inset-left));border:0;border-radius:0;overflow:hidden;overscroll-behavior:contain;box-shadow:none;background:linear-gradient(135deg,#fffefb,#f6f4ed)}
+#tenetProcessDialog[open]{display:grid;grid-template-rows:auto auto auto minmax(0,1fr) auto;gap:8px}
+#tenetProcessDialog .tenet-process-heading{min-width:0;gap:16px}
+#tenetProcessDialog .tenet-process-heading h2{font-size:clamp(19px,2.2vw,28px)}
+#tenetProcessDialog .tenet-process-heading-actions{display:flex;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end;gap:8px}
+#tenetProcessDialog .tenet-process-heading-actions [aria-expanded=true]{background:#eaf2ed;border-color:#427d69}
+#tenetProcessDialog .tenet-process-privacy{max-height:22dvh;overflow:auto}
+#tenetProcessDialog .tenet-process-privacy>summary{padding:3px 0;color:#59695f;font-size:12px;min-height:24px}
+#tenetProcessDialog .tenet-process-disclosure{max-width:none;margin:6px 0}
+#tenetProcessDialog .tenet-process-status{margin:0;padding:8px 12px;min-height:0;max-height:15dvh;overflow:auto;font-size:12px}
+#tenetProcessDialog .tenet-process-layout{grid-template-columns:minmax(0,1fr);gap:0;min-height:0;overflow:hidden}
+#tenetProcessDialog[data-library=open] .tenet-process-layout{grid-template-columns:224px minmax(0,1fr);gap:20px}
+#tenetProcessDialog .tenet-process-sidebar{min-width:0;min-height:0;overflow:auto;overscroll-behavior:contain;border-right:1px solid #e0ddd4;border-bottom:0;padding:8px 16px 20px 0}
+#tenetProcessDialog .tenet-process-saved-pages{max-height:none;overflow:visible}
+#tenetProcessDialog .tenet-process-work{min-height:0;min-width:0;overflow:auto;overscroll-behavior:contain;padding:8px 8px 24px 0;scrollbar-gutter:stable}
+#tenetProcessDialog .tenet-process-work:focus-visible{outline:2px solid #5a98c1;outline-offset:-2px}
+#tenetProcessDialog .tenet-process-record-heading{align-items:flex-start;flex-wrap:wrap}
+#tenetProcessDialog .tenet-process-record-heading>div{min-width:0;flex:1 1 260px}
+#tenetProcessDialog .tenet-process-record-heading h3{overflow-wrap:anywhere;font-size:24px}
+#tenetProcessDialog .tenet-process-badge{white-space:normal}
+#tenetProcessDialog .tenet-process-notes>summary{font-size:12px;color:#59695f;padding:7px 0;min-height:24px}
+#tenetProcessDialog .tenet-process-notes>.tenet-process-caption{margin:4px 0 10px}
+#tenetProcessDialog .tenet-process-timing{margin:10px 0;padding:12px 16px}
+#tenetProcessDialog .tenet-process-time-cards{grid-template-columns:minmax(125px,.7fr) repeat(2,minmax(0,1fr))}
+#tenetProcessDialog .tenet-process-time-cards strong{font-size:14px}
+#tenetProcessDialog .tenet-process-time-cards [data-value=recorded-span]{font-size:27px}
+#tenetProcessDialog .tenet-process-metrics{grid-template-columns:repeat(4,minmax(0,1fr));margin:10px 0;gap:10px}
+#tenetProcessDialog .tenet-process-metrics span{font-size:12px;line-height:1.4}
+#tenetProcessDialog .tenet-process-portable{margin:8px 0;padding:0 14px;background:#f3f5ed}
+#tenetProcessDialog .tenet-process-portable[open]{padding-bottom:12px}
+#tenetProcessDialog .tenet-process-preview{height:50vh;height:50dvh;min-height:240px;max-height:720px;background:#fff}
+#tenetProcessDialog .tenet-process-frame-time{font-size:12px}
+#tenetProcessDialog .tenet-process-activity{margin:14px 0;padding:14px 0}
+#tenetProcessDialog .tenet-process-graph>svg{min-width:600px}
+#tenetProcessDialog .tenet-process-axis-context{font-size:12px;line-height:1.6;color:#52675b;margin:4px 0 10px;font-variant-numeric:tabular-nums}
+#tenetProcessDialog .tenet-process-axis-label{font-size:12px;fill:#344e43;font-variant-numeric:tabular-nums}
+#tenetProcessDialog .tenet-process-elapsed-label{font-size:11px;fill:#63776a;pointer-events:none;font-variant-numeric:tabular-nums}
+#tenetProcessDialog .tenet-process-legend{font-size:12px}
+#tenetProcessDialog .tenet-process-ai-layout{grid-template-columns:minmax(190px,.6fr) minmax(0,1.6fr)}
+#tenetProcessDialog .tenet-process-ai-inspector p,#tenetProcessDialog .tenet-process-ai-inspector [data-value=ai-replies]{font-size:14px}
+#tenetProcessDialog .tenet-process-detail{display:block;margin:12px 0}
+#tenetProcessDialog .tenet-process-source{margin:0;padding:6px 0 0;line-height:1.4}
+@media(max-width:700px){
+  #tenetProcessDialog{padding-inline:max(12px,env(safe-area-inset-left)) max(12px,env(safe-area-inset-right))}
+  #tenetProcessDialog .tenet-process-heading{align-items:flex-start}
+  #tenetProcessDialog .tenet-process-heading-actions{max-width:48%}
+  #tenetProcessDialog .tenet-process-heading-actions button{font-size:12px;padding:7px 9px}
+  #tenetProcessDialog[data-library=open] .tenet-process-layout{grid-template-columns:minmax(0,1fr)}
+  #tenetProcessDialog[data-library=open] .tenet-process-work{display:none}
+  #tenetProcessDialog .tenet-process-sidebar{border:0;padding-right:4px}
+  #tenetProcessDialog .tenet-process-time-cards{grid-template-columns:1fr 1fr;gap:10px}
+  #tenetProcessDialog .tenet-process-time-cards>div:first-child{grid-column:1/-1}
+  #tenetProcessDialog .tenet-process-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
+  #tenetProcessDialog .tenet-process-ai-layout{grid-template-columns:1fr}
+  #tenetProcessDialog .tenet-process-preview{min-height:200px;height:42dvh}
+  #tenetProcessDialog .tenet-process-pacing{gap:8px}
+}
+
+/* Keep the underlying canvas or standalone landing page from retaining a scrollbar. */
+html:has(#tenetProcessDialog[open]),body:has(#tenetProcessDialog[open]){overflow:hidden}

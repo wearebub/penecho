@@ -94,6 +94,7 @@ async function harness({ readOnly = false, documentHistory = null } = {}) {
     showModal() { this.open = true; }
     close() { if (this.open) { this.open = false; this.dispatchEvent(new Event("close")); } }
     click() { this.dispatchEvent(new Event("click")); }
+    focus() { document.activeElement = this; }
   }
   document.body = new Element("body"); document.hidden = false; document.readyState = "complete";
   document.querySelectorAll = selector => document.body.querySelectorAll(selector);
@@ -109,6 +110,10 @@ async function harness({ readOnly = false, documentHistory = null } = {}) {
   close.setAttribute("data-action", "close");
   const play = new Element("button", { x:460, y:790, width:110, height:44 });
   play.setAttribute("data-action", "play");
+  const libraryToggle = new Element("button");
+  libraryToggle.setAttribute("data-action", "library");
+  const sidebar = new Element("aside"); sidebar.className = "tenet-process-sidebar";
+  const work = new Element("section"); work.className = "tenet-process-work";
   const slider = new Element("input", { x:590, y:790, width:400, height:44 });
   slider.setAttribute("type", "range");
   const library = new Element("nav"), timeline = new Element("nav");
@@ -116,7 +121,7 @@ async function harness({ readOnly = false, documentHistory = null } = {}) {
   const values = ["detail", "question", "response"].map(name => {
     const element = new Element("p"); element.setAttribute("data-value", name); return element;
   });
-  dialog.append(close, play, slider, library, timeline, ...values);
+  dialog.append(close, play, slider, libraryToggle, sidebar, work, library, timeline, ...values);
   document.body.append(view, control, dialog);
   const state = { currentSnapshotManifestExtensions:{ keep:"notebook-metadata" }, scale:.5, panX:25, panY:35,
     pen:4, inkColor:"#172638", mode:"pen", userRevision:0, history:[], future:[],
@@ -185,6 +190,9 @@ async function harness({ readOnly = false, documentHistory = null } = {}) {
   savedPages.className = "tenet-process-saved-pages";
   dialog.append(savedPages);
   const savedStart = uiSource.indexOf("  function clearRecord()");
+  const libraryStart = uiSource.indexOf("  function setLibraryOpen(");
+  const libraryEnd = uiSource.indexOf("  function message(", libraryStart);
+  assert.ok(libraryStart >= 0 && libraryEnd > libraryStart, "Actual library visibility and focus handling must be available");
   const savedEnd = uiSource.indexOf("  function eventTitle(", savedStart);
   assert.ok(savedStart > 0 && savedEnd > savedStart, "Actual saved-page lifecycle must be available");
   const gateEnd = uiSource.indexOf("  let selected =", gateStart);
@@ -210,6 +218,7 @@ async function harness({ readOnly = false, documentHistory = null } = {}) {
     const stopPlaying = () => {}, clearImage = () => { previewLifecycle.clearImage++; };
     const clearPrepared = () => { previewLifecycle.clearPrepared++; }, paintRecord = async () => {};
     const perform = async operation => operation(), message = () => {};
+    ${uiSource.slice(libraryStart, libraryEnd)}
     ${uiSource.slice(savedStart, savedEnd)}
     ${uiSource.slice(refreshStart, refreshEnd)}
     ${uiSource.slice(start, closeStart + closeMarker.length)}

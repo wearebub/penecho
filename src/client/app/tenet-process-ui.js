@@ -25,6 +25,7 @@
   let requestGroups = [], activityBins = [], timeBased = false, currentIndex = 0;
   let orderedTimestamps = false;
   const clockFormatter = new Intl.DateTimeFormat(undefined, {year:"numeric", month:"short", day:"numeric", hour:"numeric", minute:"2-digit", second:"2-digit", timeZoneName:"short"});
+  const axisClockFormatter = new Intl.DateTimeFormat(undefined, {hour:"numeric", minute:"2-digit", second:"2-digit"});
   let moments = [], momentAtEvent = [];
   let playbackSpeed = 1, skipLongPauses = true, aiFilter = null, aiListPage = 0, inspectedGroup = null;
   let inputEpoch = 0, inputUrl = null, inputDecoder = null, cancelInputDecode = null;
@@ -40,11 +41,11 @@
   dialog.setAttribute("aria-labelledby", "tenetProcessTitle");
   control.setAttribute("aria-controls", dialog.id);
   dialog.innerHTML = `
-    <header class="tenet-process-heading"><div><small>TENET / TEACHER VIEW</small><h2 id="tenetProcessTitle">The work behind the answer.</h2></div><button type="button" data-action="close" aria-label="Close teacher view">Back to canvas</button></header>
-    <p class="tenet-process-disclosure">On-device Teacher view, not an authenticated teacher or LMS service. Select a saved whiteboard to inspect the actions, checkpoints and AI interactions saved with it. This viewer never loads the page onto your canvas, starts recording, uploads work or calls AI. District AI rules still apply to normal canvas requests.</p>
+    <header class="tenet-process-heading"><div><small>TENET / TEACHER VIEW</small><h2 id="tenetProcessTitle">The work behind the answer.</h2></div><div class="tenet-process-heading-actions"><button type="button" data-action="library" aria-controls="tenetProcessLibrary" aria-expanded="true">Saved work &amp; files</button><button type="button" data-action="close" aria-label="Close teacher view">Back to canvas</button></div></header>
+    <details class="tenet-process-privacy"><summary>Local, read-only review. Not verified identity or a school submission.</summary><p class="tenet-process-disclosure">On-device Teacher view, not an authenticated teacher or LMS service. Select a saved whiteboard to inspect the actions, checkpoints and AI interactions saved with it. This viewer never loads the page onto your canvas, starts recording, uploads work or calls AI. District AI rules still apply to normal canvas requests.</p></details>
     <p class="tenet-process-status" role="status" aria-live="polite">Choose a saved whiteboard to see its actual work history.</p>
     <div class="tenet-process-layout">
-      <aside class="tenet-process-sidebar">
+      <aside class="tenet-process-sidebar" id="tenetProcessLibrary" aria-label="Saved work and shared files">
         <section class="tenet-process-saved"><div class="tenet-process-saved-heading"><h3>Saved whiteboards</h3><button type="button" data-action="refresh-pages">Refresh</button></div><p class="tenet-process-saved-caption">History travels with the saved page. Older pages may not have recorded history.</p><nav class="tenet-process-saved-pages" aria-label="Saved whiteboards"></nav></section>
         <section class="tenet-process-file-tools" aria-label="Open shared work"><button type="button" data-action="open">Open shared work</button><p>Choose an original Tenet PDF, a .tenet work file, or a legacy history archive. Files are read here, not uploaded.</p><input data-file="archive" type="file" accept=".pdf,.tenet,.json,.tenet-work,application/pdf,application/json,application/vnd.tenet.whiteboard" hidden /></section>
         <details class="tenet-process-examples"><summary>Explore a synthetic example</summary>
@@ -59,14 +60,14 @@
         <div class="tenet-process-library-heading"><h3>Advanced captures</h3><button type="button" data-action="refresh">Refresh</button></div>
         <nav class="tenet-process-list" aria-label="Recorded assignments"></nav>
       </aside>
-      <section class="tenet-process-work" aria-label="Assignment history viewer">
+      <section class="tenet-process-work" aria-label="Assignment history viewer" tabindex="-1">
         <div class="tenet-process-empty"><span>SAVED WHITEBOARD HISTORY</span><h3>Choose the work you want to understand.</h3><p>Select a saved whiteboard to review its actual recorded edits and AI help. No manual recording or archive export is required. Missing history is never reconstructed.</p></div>
         <div class="tenet-process-record" hidden>
           <div class="tenet-process-record-heading"><div><h3 data-value="title"></h3><p data-value="meta"></p></div><span class="tenet-process-badge" data-value="badge"></span></div>
-          <p class="tenet-process-coverage" data-value="coverage"></p>
-          <section class="tenet-process-timing" aria-label="Recorded elapsed and clock time"><div class="tenet-process-time-cards"><div><span>Recorded span</span><strong data-value="recorded-span">Unavailable</strong></div><div><span>First observation</span><strong data-value="recorded-start">Not recorded</strong></div><div><span>Last observation</span><strong data-value="recorded-end">Not recorded</strong></div></div><p class="tenet-process-caption" data-value="timing-note"></p></section>
-          <div class="tenet-process-metrics" aria-label="Observed history summary"><div><strong data-value="checkpoints">0</strong><span>Page checkpoints</span></div><button type="button" data-action="ai-summary" aria-expanded="false" aria-controls="tenetProcessAIRequests"><strong data-value="requests">0</strong><span>AI interactions / Open summary</span></button><div><strong data-value="gaps">0</strong><span>Coverage gaps</span></div></div>
-          <section class="tenet-process-portable" aria-label="Share work and report"><div class="tenet-process-portable-actions"><button type="button" data-action="share-work" class="tenet-process-share-work">Share work (.tenet)</button><button type="button" data-action="report">Open report / PDF</button><button type="button" data-action="final-page" hidden>Show saved final page</button></div><p data-value="sharing-note" class="tenet-process-sharing-note"></p></section>
+          <details class="tenet-process-notes"><summary>Recording coverage and limitations</summary><p class="tenet-process-coverage" data-value="coverage"></p></details>
+          <section class="tenet-process-timing" aria-label="Recorded elapsed and clock time"><div class="tenet-process-time-cards"><div><span>Recorded span</span><strong data-value="recorded-span">Unavailable</strong></div><div><span>First observation</span><strong data-value="recorded-start">Not recorded</strong></div><div><span>Last observation</span><strong data-value="recorded-end">Not recorded</strong></div></div><details class="tenet-process-notes"><summary>Recorded span includes pauses, not just active work</summary><p class="tenet-process-caption" data-value="timing-note"></p></details></section>
+          <div class="tenet-process-metrics" aria-label="Observed history summary"><div><strong data-value="checkpoints">0</strong><span>Page checkpoints</span></div><button type="button" data-action="ai-summary" aria-expanded="false" aria-controls="tenetProcessAIRequests"><strong data-value="requests">0</strong><span>AI interactions / Open summary</span></button><div><strong data-value="gaps">0</strong><span>Coverage gaps</span></div><div><strong data-value="history-size">Unavailable</strong><span>History data / before export compression</span></div></div><details class="tenet-process-notes"><summary>History storage details</summary><p class="tenet-process-caption" data-value="storage-note"></p></details>
+          <details class="tenet-process-portable"><summary>Share work, export PDF or view the saved final page</summary><div class="tenet-process-portable-actions"><button type="button" data-action="share-work" class="tenet-process-share-work">Share work (.tenet)</button><button type="button" data-action="report">Open report / PDF</button><button type="button" data-action="final-page" hidden>Show saved final page</button></div><p data-value="sharing-note" class="tenet-process-sharing-note"></p></details>
           <div class="tenet-process-actions">
             <button type="button" data-action="checkpoint">Capture checkpoint</button>
             <button type="button" data-action="pause">Pause recording</button>
@@ -79,12 +80,12 @@
           <div class="tenet-process-preview"><img alt="Recorded page checkpoint" hidden /><p data-value="preview">No rendered checkpoint selected.</p></div>
           <p class="tenet-process-frame-time" data-value="frame-time">Displayed checkpoint: none.</p>
           <div class="tenet-process-playback"><button type="button" data-action="play">Play history</button><input type="range" min="0" max="0" value="0" aria-label="History position" /><output data-value="position">0 / 0</output></div>
-          <div class="tenet-process-pacing"><label>Playback speed<select data-control="speed" aria-label="Playback speed"><option value="0.5">0.5x</option><option value="1" selected>1x</option><option value="2">2x</option><option value="4">4x</option><option value="8">8x</option></select></label><label class="tenet-process-skip"><input type="checkbox" data-control="skip-pauses" checked />Skip long pauses</label></div>
-          <p class="tenet-process-caption" data-value="pacing">Recorded-time pacing. Pauses longer than 10 seconds can be shortened to 1 second before speed adjustment.</p>
-          <p class="tenet-process-caption" data-value="checkpoint-caption">Checkpoint replay, not a recording of every pen movement. The image is the nearest recorded checkpoint at or before the selected event.</p>
-          <section class="tenet-process-activity" aria-label="Observed work activity"><div class="tenet-process-activity-heading"><h3>Work activity</h3><span>Edits, revisions and AI requests</span></div><p class="tenet-process-caption" data-value="activity-note"></p><div class="tenet-process-graph" tabindex="0" aria-label="Scrollable activity graph"></div><p class="tenet-process-legend"><span class="tenet-process-web-key">Canvas edits</span><span class="tenet-process-native-key">PencilKit revisions</span><span class="tenet-process-ai-key">Purple stars: AI requests</span></p><p class="tenet-process-caption" data-value="selected-time"></p></section>
+          <div class="tenet-process-pacing"><label>Playback speed<select data-control="speed" aria-label="Playback speed"><option value="0.5">0.5x</option><option value="1" selected>1x</option><option value="2">2x</option><option value="4">4x</option><option value="8">8x</option><option value="16">16x</option><option value="32">32x</option></select></label><label class="tenet-process-skip"><input type="checkbox" data-control="skip-pauses" checked />Skip long pauses</label></div>
+          <details class="tenet-process-notes"><summary>Playback timing and checkpoint details</summary><p class="tenet-process-caption" data-value="pacing">Recorded-time pacing. Pauses longer than 10 seconds can be shortened to 1 second before speed adjustment.</p>
+          <p class="tenet-process-caption" data-value="checkpoint-caption">Checkpoint replay, not a recording of every pen movement. The image is the nearest recorded checkpoint at or before the selected event.</p></details>
+          <section class="tenet-process-activity" aria-label="Observed work activity"><div class="tenet-process-activity-heading"><h3>Work activity</h3><span>Edits, revisions and AI requests</span></div><details class="tenet-process-notes"><summary>How to read this graph</summary><p class="tenet-process-caption" data-value="activity-note"></p></details><p class="tenet-process-axis-context" data-value="axis-context"></p><div class="tenet-process-graph" tabindex="0" aria-label="Scrollable activity graph"></div><p class="tenet-process-legend"><span class="tenet-process-web-key">Canvas edits</span><span class="tenet-process-native-key">PencilKit revisions</span><span class="tenet-process-ai-key">Purple stars: AI requests</span></p><p class="tenet-process-caption" data-value="selected-time"></p></section>
           <section class="tenet-process-ai-summary" id="tenetProcessAIRequests" aria-label="Recorded AI interactions" hidden><header><div><small>RECORDED AI INTERACTIONS</small><h3>What was asked. What came back.</h3></div><button type="button" data-action="hide-ai-summary">Hide AI summary</button></header><p class="tenet-process-caption">This panel shows the complete recorded interaction, including replies and inputs appended later than the selected request. It is not limited to the replay cursor. Observation is not proof of receipt, acceptance or use.</p><div class="tenet-process-ai-layout"><div><p data-value="ai-list-note" class="tenet-process-caption"></p><nav class="tenet-process-ai-requests" aria-label="AI request summary"></nav><div class="tenet-process-ai-pagination"><button type="button" data-action="ai-previous">Previous requests</button><button type="button" data-action="ai-next">Next requests</button></div></div><section class="tenet-process-ai-inspector" aria-label="Complete recorded AI interaction"><h4 data-value="ai-title"></h4><p data-value="ai-origin"></p><p data-value="ai-lifecycle"></p><h4>Recorded question</h4><p data-value="ai-question"></p><h4>Recorded replies</h4><pre data-value="ai-replies"></pre><details><summary>Recorded request context</summary><pre data-value="ai-context"></pre></details><h4>Recorded client inputs</h4><p class="tenet-process-caption">These inputs, when available, were prepared by the client for Whiteboard. They are not the final Gateway or provider prompt, district policy, or a server receipt. No microphone audio is included.</p><div class="tenet-process-input-records"></div><p data-value="input-status" role="status"></p><img class="tenet-process-input-image" alt="Recorded image prepared for an AI request, not a page replay checkpoint" hidden /><pre data-value="input-body" hidden></pre><a data-value="input-download" download hidden>Save this recorded input</a></section></div></section>
-          <div class="tenet-process-detail"><div><h3>Work timeline</h3><p class="tenet-process-caption" data-value="timeline-note"></p><nav class="tenet-process-events" aria-label="Recorded events"></nav></div><section class="tenet-process-observation" aria-label="AI help and process evidence"><small data-value="event-label"></small><h3 data-value="event-title"></h3><p data-value="event-description"></p><div class="tenet-process-conversation" hidden><h4>Question observed</h4><p data-value="question"></p><h4>Tenet reply observed</h4><p data-value="response"></p><p class="tenet-process-caption" data-value="ai-provenance"></p></div><details><summary>Technical event details</summary><pre data-value="detail" aria-label="Event details"></pre></details></section></div>
+          <details class="tenet-process-detail"><summary>Selected observation details</summary><section class="tenet-process-observation" aria-label="AI help and process evidence"><small data-value="event-label"></small><h3 data-value="event-title"></h3><p data-value="event-description"></p><div class="tenet-process-conversation" hidden><h4>Question observed</h4><p data-value="question"></p><h4>Tenet reply observed</h4><p data-value="response"></p><p class="tenet-process-caption" data-value="ai-provenance"></p></div><details><summary>Technical event details</summary><pre data-value="detail" aria-label="Event details"></pre></details></section></details>
         </div>
       </section>
     </div><footer class="tenet-process-source">Built on PenEcho. <a href="https://github.com/wearebub/penecho/tree/codex/tenet-ipad" target="_blank" rel="noopener noreferrer">Tenet fork source</a> / <a href="https://github.com/wearebub/penecho/blob/codex/tenet-ipad/LICENSE" target="_blank" rel="noopener noreferrer">AGPL-3.0</a></footer>`;
@@ -110,11 +111,20 @@
     dialog.querySelector(".tenet-process-saved").hidden = true;
     dialog.querySelector(".tenet-process-examples").open = true;
     dialog.querySelector(".tenet-process-heading small").textContent = "TENET WORK HISTORY VIEWER";
-    dialog.querySelector(".tenet-process-disclosure").textContent = "Open shared work as a .tenet file or a legacy history archive, or explore the synthetic example. Files may contain private student work, questions, replies and images. This read-only viewer reads files locally and never enumerates saved app whiteboards or makes AI, school-account or upload requests. File integrity is not proof of student identity or independent work.";
+    dialog.querySelector(".tenet-process-disclosure").textContent = "Open an original Tenet PDF, a .tenet work file or a legacy history archive, or explore the synthetic example. Files may contain private student work, questions, replies and images. This read-only viewer reads files locally and never enumerates saved app whiteboards or makes AI, school-account or upload requests. File integrity is not proof of student identity or independent work.";
     dialog.querySelector(".tenet-process-empty p").textContent = "Open shared work from your device to inspect the saved page and any recorded history. This public viewer cannot list whiteboards saved inside the app. The synthetic example is optional.";
     find("close").textContent = "Close";
-    statusLine.textContent = "Open a shared .tenet file or legacy archive from your device. Nothing is uploaded.";
+    statusLine.textContent = "Open an original Tenet PDF, a .tenet file or a legacy archive from your device. Nothing is uploaded.";
   }
+  function setLibraryOpen(open) {
+    const sidebar = dialog.querySelector(".tenet-process-sidebar");
+    const moveFocus = !open && sidebar.contains(document.activeElement);
+    sidebar.hidden = !open;
+    dialog.dataset.library = open ? "open" : "closed";
+    find("library").setAttribute("aria-expanded", String(open));
+    if (moveFocus) dialog.querySelector(".tenet-process-work").focus({preventScroll:true});
+  }
+  setLibraryOpen(true);
   function message(text, error = false) {
     statusLine.textContent = text; statusLine.dataset.error = String(error); control.title = text;
   }
@@ -176,7 +186,7 @@
     dialog.querySelector(".tenet-process-input-records").replaceChildren();
     dialog.querySelector(".tenet-process-ai-summary").hidden = true;
     find("ai-summary").setAttribute("aria-expanded", "false");
-    for (const name of ["ai-title", "ai-origin", "ai-lifecycle", "ai-question", "ai-replies", "ai-context", "ai-list-note", "activity-note", "selected-time", "recorded-span", "recorded-start", "recorded-end", "timing-note"]) value(name).textContent = "";
+    for (const name of ["ai-title", "ai-origin", "ai-lifecycle", "ai-question", "ai-replies", "ai-context", "ai-list-note", "activity-note", "selected-time", "recorded-span", "recorded-start", "recorded-end", "timing-note", "axis-context", "history-size", "storage-note"]) value(name).textContent = "";
   }
   function clearPrepared() {
     exportFile = null; find("download").hidden = true; find("share").hidden = true;
@@ -186,7 +196,6 @@
     savedPageId = null; historyAvailable = true;
     clearPrepared(); clearImage();
     for (const name of ["title", "meta", "badge", "coverage", "detail", "question", "response", "ai-provenance", "event-title", "event-description"]) value(name).textContent = "";
-    dialog.querySelector(".tenet-process-events").replaceChildren();
     dialog.querySelector(".tenet-process-saved-pages").replaceChildren();
     dialog.querySelector(".tenet-process-list").replaceChildren();
     void paintRecord();
@@ -611,34 +620,58 @@
     button.addEventListener("keydown", event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); action(); } });
     parent.append(button); return button;
   }
+  function activityIntervalLabel(binIndex) {
+    const bin = activityBins[binIndex];
+    if (!bin) return "Time unavailable";
+    if (timeBased) {
+      const span = eventTimes.at(-1) - eventTimes[0];
+      const start = eventTimes[0] + span * binIndex / activityBins.length;
+      const end = eventTimes[0] + span * (binIndex + 1) / activityBins.length;
+      return clockTime(start) + " to " + clockTime(end);
+    }
+    return bin.first >= 0 ? recordedEventTime(events[bin.first]) : "No timestamped observation in this interval";
+  }
   function paintActivity() {
     const host = dialog.querySelector(".tenet-process-graph"); host.replaceChildren();
     value("activity-note").textContent = `${timeBased ? "Equal device-time bins." : "Recorded-order bins: missing, equal or out-of-order timestamps prevent a reliable time axis."} Bar heights count observed canvas edits and PencilKit revisions, not individual strokes or seconds of proven work. Checkpoints, reloads and coverage gaps are not counted as activity. Tap a bar to seek or a purple star to inspect AI requests; large histories are aggregated.`;
+    value("axis-context").textContent = timeBased
+      ? `Clock time (${clockFormatter.resolvedOptions().timeZone || "local time"}) / elapsed since first observation. Bars group events into time intervals.`
+      : "Events are spaced in recorded order. Recorded clock times are shown where available; spacing does not represent elapsed time.";
     if (!events.length) { host.textContent = "No recorded activity to display."; return; }
-    const svg = svgElement("svg", {viewBox:"0 0 720 170", role:"group", "aria-label":"Observed edits and revisions with AI request markers"});
+    const svg = svgElement("svg", {viewBox:"0 0 720 185", role:"group", "aria-label":"Observed edits and revisions by recorded clock time, with AI request markers"});
     const width = 660 / activityBins.length, peak = Math.max(1, ...activityBins.map(bin => bin.web + bin.native));
     svg.append(svgElement("line", {x1:30, y1:126, x2:690, y2:126, class:"tenet-process-graph-axis"}));
     activityBins.forEach((bin, binIndex) => {
       const x = 30 + binIndex * width, middle = x + width / 2;
       const index = bin.editIndex >= 0 ? bin.editIndex : bin.first >= 0 ? bin.first : nearestPosition(binIndex / activityBins.length);
-      const label = `Interval ${binIndex + 1}: ${bin.web} canvas edits, ${bin.native} PencilKit revisions, ${bin.gaps} coverage gap observations. Seek to recorded event ${index + 1}: ${recordedEventTime(events[index])}.`;
+      const label = `${activityIntervalLabel(binIndex)}: ${bin.web} canvas edits, ${bin.native} PencilKit revisions, ${bin.gaps} coverage gap observations. Seek to recorded event ${index + 1}: ${recordedEventTime(events[index])}.`;
       const button = graphButton(svg, label, () => seekEvent(index));
       button.append(svgElement("rect", {x, y:49, width, height:80, rx:5, class:"tenet-process-bin-hit"}));
       const webHeight = bin.web / peak * 60, nativeHeight = bin.native / peak * 60;
       button.append(svgElement("rect", {x:x + 9, y:125 - webHeight, width:width - 18, height:webHeight, rx:2, class:"tenet-process-web-bar"}));
       button.append(svgElement("rect", {x:x + 9, y:125 - webHeight - nativeHeight, width:width - 18, height:nativeHeight, rx:2, class:"tenet-process-native-bar"}));
       button.append(svgElement("text", {x:middle, y:Math.max(61, 118 - webHeight - nativeHeight), "text-anchor":"middle", class:"tenet-process-bin-count"}, String(bin.web + bin.native)));
-      svg.append(svgElement("text", {x:middle, y:146, "text-anchor":"middle", class:"tenet-process-bin-label"}, String(binIndex + 1)));
       if (bin.groups.length) {
-        const star = graphButton(svg, `${bin.groups.length} AI request${bin.groups.length === 1 ? "" : "s"} in interval ${binIndex + 1}. Open recorded interactions.`, () => showAISummary(binIndex));
+        const star = graphButton(svg, `${bin.groups.length} AI request${bin.groups.length === 1 ? "" : "s"}: ${activityIntervalLabel(binIndex)}. Open recorded interactions.`, () => showAISummary(binIndex));
         star.append(svgElement("rect", {x, y:2, width, height:44, rx:7, class:"tenet-process-star-hit"}));
         star.append(svgElement("path", {d:`M ${middle} 8 l 3.8 8 8.8 1.3 -6.3 6.2 1.5 8.8 -7.8 -4.2 -7.8 4.2 1.5 -8.8 -6.3 -6.2 8.8 -1.3 Z`, class:"tenet-process-ai-star"}));
         if (bin.groups.length > 1) star.append(svgElement("text", {x:middle + 15, y:13, class:"tenet-process-star-count"}, String(bin.groups.length)));
       }
     });
     svg.append(svgElement("line", {x1:30, x2:30, y1:47, y2:131, class:"tenet-process-current-marker", "aria-hidden":"true"}));
-    svg.append(svgElement("text", {x:30, y:164, class:"tenet-process-axis-label"}, timeBased ? recordedEventTime(events[0]) : "Earlier recorded events"));
-    svg.append(svgElement("text", {x:690, y:164, "text-anchor":"end", class:"tenet-process-axis-label"}, timeBased ? recordedEventTime(events.at(-1)) : "Later recorded events"));
+    // Clock ticks replace ordinal bin numbers. Keep original order when the
+    // device clock is incomplete or reverses; do not invent a time scale.
+    const steps = Math.min(4, Math.max(1, events.length - 1));
+    for (let tick = 0; tick <= steps; tick++) {
+      if (events.length === 1 && tick > 0) break;
+      const fraction = tick / steps, x = 30 + fraction * 660;
+      const eventIndex = Math.round(fraction * (events.length - 1));
+      const time = timeBased ? eventTimes[0] + fraction * (eventTimes.at(-1) - eventTimes[0]) : eventTimes[eventIndex];
+      const anchor = tick === 0 ? "start" : tick === steps ? "end" : "middle";
+      svg.append(svgElement("line", {x1:x, x2:x, y1:126, y2:132, class:"tenet-process-graph-axis"}));
+      svg.append(svgElement("text", {x, y:150, "text-anchor":anchor, class:"tenet-process-axis-label"}, time === null ? "Time unavailable" : axisClockFormatter.format(new Date(time))));
+      svg.append(svgElement("text", {x, y:170, "text-anchor":anchor, class:"tenet-process-elapsed-label"}, orderedTimestamps && time !== null ? "+" + elapsedTime(time - eventTimes[0]) : "Time not comparable"));
+    }
     host.append(svg);
   }
   function momentTitle(moment) {
@@ -692,7 +725,7 @@
     const lastPage = Math.max(0, Math.ceil(groups.length / AI_LIST_PAGE_SIZE) - 1);
     aiListPage = Math.max(0, Math.min(aiListPage, lastPage));
     const start = aiListPage * AI_LIST_PAGE_SIZE;
-    value("ai-list-note").textContent = `${aiFilter === null ? "All recorded requests" : "Requests in activity interval " + (aiFilter + 1)}. ${groups.length ? `${start + 1}-${Math.min(groups.length, start + AI_LIST_PAGE_SIZE)} of ${groups.length}` : "None recorded"}.`;
+    value("ai-list-note").textContent = `${aiFilter === null ? "All recorded requests" : "Requests from " + activityIntervalLabel(aiFilter)}. ${groups.length ? `${start + 1}-${Math.min(groups.length, start + AI_LIST_PAGE_SIZE)} of ${groups.length}` : "None recorded"}.`;
     for (const number of groups.slice(start, start + AI_LIST_PAGE_SIZE)) {
       const group = requestGroups[number], request = events[group.index], button = document.createElement("button"), title = document.createElement("span"), note = document.createElement("small"), time = document.createElement("small");
       button.type = "button"; button.dataset.request = String(number); button.setAttribute("aria-current", String(inspectedGroup === number));
@@ -794,7 +827,7 @@
     value("event-label").textContent = sample ? "FICTIONAL EXAMPLE" : "LOCAL OBSERVATION";
     value("event-title").textContent = eventTitle(event);
     const data = event?.details || {};
-    value("event-description").textContent = event?.type === "coverage.gap" ? String(data.reason || data.note || "Part of the work was not captured. Do not infer what happened during this gap.") : event?.type === "ai.response" ? "A reply was observed before canvas placement. This does not prove the student used or accepted it." : event?.type === "native.revision" ? "One accepted drawing revision was observed. It may contain multiple strokes or edits." : event?.type === "ai.request" ? "This is the locally observed question and scope, not a copy of the exact provider payload." : "Use the timeline to compare recorded page states. Device timestamps and gaps do not establish authorship, effort or outside help.";
+    value("event-description").textContent = event?.type === "coverage.gap" ? String(data.reason || data.note || "Part of the work was not captured. Do not infer what happened during this gap.") : event?.type === "ai.response" ? "A reply was observed before canvas placement. This does not prove the student used or accepted it." : event?.type === "native.revision" ? "One accepted drawing revision was observed. It may contain multiple strokes or edits." : event?.type === "ai.request" ? "This is the locally observed question and scope, not a copy of the exact provider payload." : "Use the activity graph or replay slider to compare recorded page states. Device timestamps and gaps do not establish authorship, effort or outside help.";
     const groupNumber = eventGroups[index] >= 0 ? eventGroups[index] : String(event?.type || "").startsWith("ai.") ? -1 : precedingGroups[index];
     const group = requestGroups[groupNumber], request = group ? events[group.index] : null;
     const interaction = eventGroups[index] >= 0;
@@ -941,7 +974,6 @@
     value("detail").textContent = event ? JSON.stringify({ event: event.type, sequence: event.sequence, recordedAt: recordedEventTime(event), groupedMoment:momentTitle(moment), groupedRawSequences:moment?.raw.map(raw => events[raw].sequence), details: event.details }, null, 2) : "No events recorded.";
     paintObservation(event, index);
     updateActivityPosition(index);
-    dialog.querySelectorAll(".tenet-process-events button").forEach(button => button.setAttribute("aria-current", String(Number(button.dataset.moment) === momentNumber)));
     const frameIndex = frameAtEvent[index];
     const finalImage = finalPage && isCheckpointImage(finalPage.asset, {type:"submission.final-page"}) ? finalPage.asset : null;
     const finalView = Boolean(finalImage && (showingFinalPage || !events.length));
@@ -982,13 +1014,36 @@
     paintActions();
     if (next && current()) void loadFrame(next);
   }
+  function paintHistorySize() {
+    const encoder = new TextEncoder(), assets = new Map();
+    let metadataBytes = 0, attachmentBytes = 0, unknown = false;
+    for (const event of events) {
+      metadataBytes += encoder.encode(JSON.stringify(event)).byteLength;
+      for (const asset of event.assets || []) {
+        if (!asset.hash || !Number.isSafeInteger(asset.size) || asset.size < 0) { unknown = true; continue; }
+        if (assets.has(asset.hash)) {
+          if (assets.get(asset.hash).size !== asset.size) unknown = true;
+          continue;
+        }
+        assets.set(asset.hash, asset); attachmentBytes += asset.size;
+      }
+    }
+    const total = metadataBytes + attachmentBytes;
+    const format = bytes => bytes >= 1024 * 1024 ? (bytes / (1024 * 1024)).toFixed(2) + " MiB" : (bytes / 1024).toFixed(1) + " KiB";
+    value("history-size").textContent = !events.length ? "Unavailable" : unknown ? "Incomplete sizes" : format(total);
+    value("storage-note").textContent = !events.length
+      ? "No recorded history is available to measure. This does not mean the saved canvas uses no storage."
+      : `${events.length} event records: ${format(metadataBytes)}. ${assets.size} unique recorded attachments: ${format(attachmentBytes)}. Identical attachment hashes are counted once. This is retained history payload, not browser memory or the compressed export size; it excludes the saved canvas, file envelopes and database overhead. Page images, native drawing snapshots and retained AI inputs share this budget. ${unknown ? "Some attachment sizes are missing or inconsistent, so a complete total cannot be reported." : "The .tenet export compresses its package; image-heavy histories may remain large."}`;
+  }
   async function paintRecord() {
     dialog.querySelector(".tenet-process-empty").hidden = Boolean(selected);
     dialog.querySelector(".tenet-process-record").hidden = !selected;
+    setLibraryOpen(!selected);
     if (!selected) return;
+    dialog.querySelector(".tenet-process-work").scrollTop = 0;
     indexHistory();
     value("title").textContent = selected.title;
-    paintTiming();
+    paintTiming(); paintHistorySize();
     value("meta").textContent = `${selected.subject || "Assignment"} / ${moments.length} work moments / ${requestGroups.length} AI interactions. ${events.length} raw observations retained.`;
     value("badge").textContent = savedPageId !== null ? "SAVED WHITEBOARD / ON DEVICE" : sample ? "SYNTHETIC EXAMPLE" : portableFile ? "PORTABLE WORK / LOCAL FILE" : imported ? "IMPORTED / UNVERIFIED" : String(selected.status).toUpperCase();
     value("coverage").textContent = (savedPageId !== null || portableFile) && !historyAvailable ? "No process history is available for this saved whiteboard. We cannot reconstruct earlier edits, time spent or AI help, and do not substitute a sample. A saved final-page preview, when supplied, is shown separately without inventing events." : `${savedPageId !== null ? "Actual process history stored with this whiteboard. " : sample ? "Fictional work and scripted AI replies. " : "Local observations, not server-attested evidence. "}Coalesced checkpoints, not full stroke playback. No verified student identity, assignment-rule enforcement or Schoology receipt.${selected.incomplete ? " Known gaps: " + (selected.coverageNotes || selected.incompleteReasons || []).join(" ") : " Not proof of independent work."}${selected.droppedEvents > 0 ? " Events omitted by retention limits: " + selected.droppedEvents + "." : ""}`;
@@ -997,17 +1052,6 @@
     value("requests").textContent = String(requestGroups.length);
     value("gaps").textContent = String(events.filter(event => event.type === "coverage.gap").length || (selected.incomplete ? "Recorded" : 0));
     slider.max = String(Math.max(0, moments.length - 1)); slider.disabled = !moments.length;
-    const list = dialog.querySelector(".tenet-process-events"); list.replaceChildren();
-    // Keep a long notebook from turning into thousands of live DOM controls.
-    const start = Math.max(0, moments.length - 100);
-    value("timeline-note").textContent = `${start ? "Latest 100 work moments shown; the slider covers all moments. " : ""}AI requests, replies, finishes and recorded inputs are one interaction. Nearby ordinary edits/checkpoints are grouped work moments; no student edit is attributed to AI without an explicit recorded link. Raw order and details are retained.`;
-    for (let index = start; index < moments.length; index++) {
-      const button = document.createElement("button"); button.type = "button"; button.dataset.moment = String(index);
-      button.textContent = `${index + 1}. ${momentTitle(moments[index])}`;
-      const time = document.createElement("small"); time.className = "tenet-process-event-time";
-      time.textContent = `Moment starts ${recordedEventTime(events[moments[index].start])}`; button.append(time);
-      button.addEventListener("click", () => seekMoment(index)); list.append(button);
-    }
     paintActivity(); paintActions(); await renderEvent(moments.at(-1)?.index || 0);
   }
   async function selectAttempt(id) {
@@ -1067,6 +1111,7 @@
     void perform(async () => { await refreshSavedPages(true); if (session !== sessionEpoch || !dialog.open) return; await refreshLibrary(); if (session !== sessionEpoch || !dialog.open) return; await paintRecord(); });
   });
   find("close").addEventListener("click", () => dialog.close());
+  find("library").addEventListener("click", () => setLibraryOpen(dialog.dataset.library !== "open"));
   function retireView() { stopPlaying(); generation++; sessionEpoch++; selectionEpoch++; savedListEpoch++; busyOwner++; dialog.dataset.busy = "false"; dialog.removeAttribute("aria-busy"); clearRecord(); }
   dialog.addEventListener("close", retireView);
   find("refresh-pages").addEventListener("click", () => void refreshSavedPages());
@@ -1129,7 +1174,7 @@
   slider.addEventListener("input", () => seekMoment(Number(slider.value)));
   dialog.querySelector('[data-control="speed"]').addEventListener("change", event => {
     const speed = Number(event.currentTarget.value);
-    if (![0.5, 1, 2, 4, 8].includes(speed)) return;
+    if (![0.5, 1, 2, 4, 8, 16, 32].includes(speed)) return;
     playbackSpeed = speed; seekEvent(currentIndex);
     value("pacing").textContent = `Paused. Press Play history to continue at ${speed}x recorded-time speed. Missing or out-of-order times use a 1-second fallback in recorded order.`;
   });
@@ -1169,7 +1214,7 @@
     control.dataset.recording = String(Boolean(capture()?.isRecording()));
     if (event.detail?.error) message(String(event.detail.error), true);
   });
-  window.addEventListener("tenet:sign-out", () => { dialog.close(); retireView(); selected = null; events = []; assetSource = journal; imported = false; sample = false; clearPrepared(); value("detail").textContent = ""; value("question").textContent = ""; value("response").textContent = ""; dialog.querySelector(".tenet-process-list").replaceChildren(); dialog.querySelector(".tenet-process-events").replaceChildren(); void paintRecord(); });
+  window.addEventListener("tenet:sign-out", () => { dialog.close(); retireView(); selected = null; events = []; assetSource = journal; imported = false; sample = false; clearPrepared(); value("detail").textContent = ""; value("question").textContent = ""; value("response").textContent = ""; dialog.querySelector(".tenet-process-list").replaceChildren(); void paintRecord(); });
   document.addEventListener("visibilitychange", () => { if (document.hidden) stopPlaying(); });
   window.addEventListener("pagehide", () => { retireView(); clearPrepared(); });
   window.TenetProcessUI = Object.freeze({openSavedPage, shareSavedPage, openFile});
