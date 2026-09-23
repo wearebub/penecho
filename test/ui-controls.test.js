@@ -3206,7 +3206,9 @@ test("local snapshot database upgrades preserve existing canvas records", () => 
   const persistence = read("src/client/app/persistence.js"),
     saveDevice = functionSource(persistence, "saveDeviceSnapshot");
   assert.match(saveDevice, /db\.transaction\(\[SNAPSHOT_STORE, SNAPSHOT_TILE_STORE\], "readwrite"\)/);
-  assert.match(saveDevice, /objectStore\(SNAPSHOT_STORE\)\.put\(item\)/);
+  assert.match(saveDevice, /store = transaction\.objectStore\(SNAPSHOT_STORE\)/);
+  assert.match(saveDevice, /store\.get\(item\.id\)[\s\S]*assertSaveContinuation\(previous\.result\.workHistory, item\.workHistory\)[\s\S]*store\.put\(item\)/);
+  assert.match(saveDevice, /transaction\.abort\(\)/);
   assert.match(persistence, /item\.workHistory = await documentHistory\.serializeForSave\(historySave, item, savedUserRevision\)/);
   assert.match(persistence, /documentHistory\.didSave\(historySave, storedId\)/);
   assert.match(persistence, /TenetDocumentHistory\?\.restore\(item\)/);

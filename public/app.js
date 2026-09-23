@@ -11786,15 +11786,37 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     finishAIDraftHandMode();
   }
   async function saveDeviceSnapshot(item, tileEntries, overwriteId) {
-    const db = await snapshotDb();
-    let oldTileKeys = [];
-    if (overwriteId) oldTileKeys = await requestResult(db.transaction(SNAPSHOT_TILE_STORE, "readonly").objectStore(SNAPSHOT_TILE_STORE).index("snapshotId").getAllKeys(overwriteId));
-    const transaction = db.transaction([SNAPSHOT_STORE, SNAPSHOT_TILE_STORE], "readwrite");
-    transaction.objectStore(SNAPSHOT_STORE).put(item);
-    const tileStore = transaction.objectStore(SNAPSHOT_TILE_STORE);
-    oldTileKeys.forEach((key) => tileStore.delete(key));
-    tileEntries.forEach(({ k, blob }) => tileStore.put({ id:`${item.id}:${k}`, snapshotId:item.id, k, blob }));
-    await transactionDone(transaction);
+    const db = await snapshotDb(),
+      transaction = db.transaction([SNAPSHOT_STORE, SNAPSHOT_TILE_STORE], "readwrite"),
+      completed = transactionDone(transaction),
+      store = transaction.objectStore(SNAPSHOT_STORE),
+      tileStore = transaction.objectStore(SNAPSHOT_TILE_STORE);
+    let failure = null;
+    const abort = error => { failure = error; transaction.abort(); };
+    try {
+      // Read and guard the durable record inside the same write transaction.
+      // A cached library row or an earlier readonly transaction can be stale.
+      const previous = store.get(item.id);
+      previous.onsuccess = () => {
+        try {
+          if (previous.result?.workHistory) {
+            const history = window.TenetDocumentHistory;
+            if (typeof history?.assertSaveContinuation !== "function")
+              throw Error("Save stopped to protect earlier replay history. Your previous saved page is unchanged.");
+            history.assertSaveContinuation(previous.result.workHistory, item.workHistory);
+          }
+          const keys = tileStore.index("snapshotId").getAllKeys(item.id);
+          keys.onsuccess = () => {
+            try {
+              store.put(item);
+              keys.result.forEach(key => tileStore.delete(key));
+              tileEntries.forEach(({ k, blob }) => tileStore.put({ id:`${item.id}:${k}`, snapshotId:item.id, k, blob }));
+            } catch (error) { abort(error); }
+          };
+        } catch (error) { abort(error); }
+      };
+    } catch (error) { abort(error); }
+    await completed.catch(error => { throw failure || error; });
   }
   async function snapshotBundleAsset(kind, blob, metadata = {}) {
     const encoded = await blobDataUrl(blob),
@@ -12115,6 +12137,8 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     if (overwriteId && state.currentSnapshotLocation !== location) throw Error(t("noCurrentSnapshot"));
     const documentHistory = window.TenetDocumentHistory,
       historySave = documentHistory?.beginSave(location);
+    if (location === "device" && documentHistory && !historySave)
+      throw Error("Replay history is not ready to save. Keep this page open and try again; your previous saved page is unchanged.");
     await finalizeCanvasForSnapshot();
     if (historySave && !documentHistory.isSaveCurrent(historySave)) return null;
     if (!tenetInkBounds() && !tiles.size && !state.images.length && !state.textBoxes.length && !state.preservedSnapshotAnimations.length && (!pluginEnabled("animation") || !state.animations.length) && !visibleWidgets().length && !documentHistory?.hasWork()) {
@@ -12184,9 +12208,15 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
     } else {
       try { await saveDeviceSnapshot(item, tileEntries, overwriteId); }
       catch (error) {
-        if (!historySave || !item.workHistory || !["QuotaExceededError", "DataCloneError"].includes(error?.name)) throw error;
-        item.workHistory = documentHistory.degradeForSave(historySave, item.workHistory);
-        await saveDeviceSnapshot(item, tileEntries, overwriteId);
+        // Never retry by replacing all recorded work with a gap marker.
+        // IndexedDB rollback preserves the last complete page and history.
+        if (["QuotaExceededError", "DataCloneError"].includes(error?.name)) {
+          const message = error.name === "QuotaExceededError"
+            ? "Not enough device storage to save the page and its replay history."
+            : "The page and its replay history could not be stored.";
+          throw Error(message + " Your previous saved page is unchanged. New work is still open and has not been saved; keep this page open and retry.");
+        }
+        throw error;
       }
     }
     // A save finishing after navigation must not adopt its old ID into the new page.
@@ -28397,6 +28427,31 @@ function tenetSyncResizeHandles() {
       gap(ctx, "failed-load-unobserved-period");
       requestCheckpoint(ctx, "after-failed-load-baseline");
     }
+    function assertSaveContinuation(previous, next) {
+      if (!previous) return;
+      const message = "Save stopped to protect earlier replay history. Your previous saved page is unchanged. Keep this page open and save a separate copy if needed.";
+      let before, after;
+      try { before = decode(previous); after = decode(next); }
+      catch { throw Error(message); }
+      const retained = new Map(after.events.map(event => [event.sequence, event]));
+      const first = after.events[0]?.sequence ?? Infinity;
+      let omitted = 0;
+      for (const event of before.events) {
+        const match = retained.get(event.sequence);
+        if (!match) {
+          // Only the bounded recorder's explicit prefix retention may remove
+          // events. A stale save, new session or reduced fallback is not a fork.
+          if (event.sequence >= first) throw Error(message);
+          omitted++;
+        } else if (JSON.stringify(match) !== JSON.stringify(event)) {
+          throw Error(message);
+        }
+      }
+      if (omitted && (!after.events.length || !after.incomplete ||
+          after.droppedEvents < before.droppedEvents + omitted ||
+          !after.events.some(event => event.type === "coverage.gap" &&
+            event.details?.reason === "history-retention-limit"))) throw Error(message);
+    }
     function beginSave(location) {
       const ctx = live();
       return ctx && location === "device" ? { ctx, epoch:ctx.epoch, accountEpoch, preparedVersion:null } : null;
@@ -28444,16 +28499,12 @@ function tenetSyncResizeHandles() {
       return snapshot(ctx);
     }
     function degradeForSave(token, prepared) {
+      // Compatibility for callers from older bundles: retrying must not shrink
+      // a durable replay to one gap marker or acknowledge unsaved observations.
       if (!token || !prepared) return null;
-      mark(token.ctx, "snapshot-history-storage-failed");
-      // Keep all in-memory events for retry. Only this fallback save is reduced;
-      // it explicitly states that its history is unavailable, not complete.
-      const last = prepared.events.at(-1);
-      return { version:1, startedAt:prepared.startedAt, updatedAt:now(), incomplete:true,
-        incompleteReasons:["snapshot-history-storage-failed"], droppedEvents:prepared.droppedEvents + prepared.events.length,
-        events:[{ sequence:(last?.sequence || 0) + 1, timestamp:now(), type:"coverage.gap",
-          details:{ reason:"snapshot-history-storage-failed", evidence:"local-client-observation", serverVerified:false,
-            omittedEvents:prepared.events.length, notebookContentPreserved:true }, assets:[] }], assets:[] };
+      token.preparedVersion = null;
+      report(token.ctx, "Could not save complete replay history. Earlier saved work must not be replaced with reduced history.");
+      return prepared;
     }
     function didSave(token, id) {
       const ctx = token?.ctx;
@@ -28534,7 +28585,7 @@ function tenetSyncResizeHandles() {
       isDirty:() => Boolean(live()?.hasWork && current.version > current.savedVersion),
       hasWork:() => Boolean(live()?.hasWork), flush,
       beginSave:protect(beginSave), pinSave:protect(pinSave), isSaveCurrent,
-      serializeForSave, degradeForSave:protect(degradeForSave), didSave:protect(didSave),
+      serializeForSave, assertSaveContinuation, degradeForSave:protect(degradeForSave), didSave:protect(didSave),
       restore:protect(restore), loadFailed:protect(loadFailed) });
     window.TenetProcessCapture = Object.freeze({
       boundary:protect(boundary), aiRequested:protect(aiRequested), aiResponse:protect(aiResponse), aiFinished:protect(aiFinished),

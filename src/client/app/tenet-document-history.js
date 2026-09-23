@@ -481,6 +481,31 @@
       gap(ctx, "failed-load-unobserved-period");
       requestCheckpoint(ctx, "after-failed-load-baseline");
     }
+    function assertSaveContinuation(previous, next) {
+      if (!previous) return;
+      const message = "Save stopped to protect earlier replay history. Your previous saved page is unchanged. Keep this page open and save a separate copy if needed.";
+      let before, after;
+      try { before = decode(previous); after = decode(next); }
+      catch { throw Error(message); }
+      const retained = new Map(after.events.map(event => [event.sequence, event]));
+      const first = after.events[0]?.sequence ?? Infinity;
+      let omitted = 0;
+      for (const event of before.events) {
+        const match = retained.get(event.sequence);
+        if (!match) {
+          // Only the bounded recorder's explicit prefix retention may remove
+          // events. A stale save, new session or reduced fallback is not a fork.
+          if (event.sequence >= first) throw Error(message);
+          omitted++;
+        } else if (JSON.stringify(match) !== JSON.stringify(event)) {
+          throw Error(message);
+        }
+      }
+      if (omitted && (!after.events.length || !after.incomplete ||
+          after.droppedEvents < before.droppedEvents + omitted ||
+          !after.events.some(event => event.type === "coverage.gap" &&
+            event.details?.reason === "history-retention-limit"))) throw Error(message);
+    }
     function beginSave(location) {
       const ctx = live();
       return ctx && location === "device" ? { ctx, epoch:ctx.epoch, accountEpoch, preparedVersion:null } : null;
@@ -528,16 +553,12 @@
       return snapshot(ctx);
     }
     function degradeForSave(token, prepared) {
+      // Compatibility for callers from older bundles: retrying must not shrink
+      // a durable replay to one gap marker or acknowledge unsaved observations.
       if (!token || !prepared) return null;
-      mark(token.ctx, "snapshot-history-storage-failed");
-      // Keep all in-memory events for retry. Only this fallback save is reduced;
-      // it explicitly states that its history is unavailable, not complete.
-      const last = prepared.events.at(-1);
-      return { version:1, startedAt:prepared.startedAt, updatedAt:now(), incomplete:true,
-        incompleteReasons:["snapshot-history-storage-failed"], droppedEvents:prepared.droppedEvents + prepared.events.length,
-        events:[{ sequence:(last?.sequence || 0) + 1, timestamp:now(), type:"coverage.gap",
-          details:{ reason:"snapshot-history-storage-failed", evidence:"local-client-observation", serverVerified:false,
-            omittedEvents:prepared.events.length, notebookContentPreserved:true }, assets:[] }], assets:[] };
+      token.preparedVersion = null;
+      report(token.ctx, "Could not save complete replay history. Earlier saved work must not be replaced with reduced history.");
+      return prepared;
     }
     function didSave(token, id) {
       const ctx = token?.ctx;
@@ -618,7 +639,7 @@
       isDirty:() => Boolean(live()?.hasWork && current.version > current.savedVersion),
       hasWork:() => Boolean(live()?.hasWork), flush,
       beginSave:protect(beginSave), pinSave:protect(pinSave), isSaveCurrent,
-      serializeForSave, degradeForSave:protect(degradeForSave), didSave:protect(didSave),
+      serializeForSave, assertSaveContinuation, degradeForSave:protect(degradeForSave), didSave:protect(didSave),
       restore:protect(restore), loadFailed:protect(loadFailed) });
     window.TenetProcessCapture = Object.freeze({
       boundary:protect(boundary), aiRequested:protect(aiRequested), aiResponse:protect(aiResponse), aiFinished:protect(aiFinished),

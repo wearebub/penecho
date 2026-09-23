@@ -128,21 +128,48 @@ test("first-save identity binding does not stop in-flight AI or discard edits ma
   assert.equal(next.item.workHistory.events.at(-1).details.label, "saved-end-state");
 });
 
-test("failed saves keep unsaved events and quota fallback explicitly omits history without clearing memory", options, async () => {
+test("failed saves and legacy fallback keep the complete replay and do not acknowledge unsaved events", options, async () => {
   const h = harness(); edit(h);
-  const prepared = await h.prepare();
+  const prepared = await h.prepare(), original = structuredClone(prepared.item.workHistory);
   assert.equal(h.api.isDirty(), true); assert.equal(h.pages.size, 0);
-  const originalCount = prepared.item.workHistory.events.length;
   const fallback = h.api.degradeForSave(prepared.token, prepared.item.workHistory);
-  assert.equal(fallback.incomplete, true); assert.equal(fallback.assets.length, 0);
-  assert.equal(fallback.events[0].type, "coverage.gap");
-  assert.equal(fallback.events[0].details.omittedEvents, originalCount);
+  assert.equal(fallback, prepared.item.workHistory);
+  assert.deepEqual(plain(fallback.events), plain(original.events));
+  assert.equal(fallback.assets.length, original.assets.length);
+  assert.equal(prepared.token.preparedVersion, null);
   h.commitPrepared({ token:prepared.token, item:{ ...prepared.item, workHistory:fallback } });
-  assert.equal(h.api.isDirty(), false);
+  assert.equal(h.api.isDirty(), true);
   const retried = await h.prepare("page-a");
-  assert.ok(retried.item.workHistory.events.length >= originalCount);
-  assert.ok(retried.item.workHistory.events.some(event => event.type === "canvas.commit"));
-  assert.ok(h.statuses.some(status => status.incomplete && status.error));
+  assert.ok(retried.item.workHistory.events.length >= original.events.length);
+  h.commitPrepared(retried); assert.equal(h.api.isDirty(), false);
+  assert.ok(h.statuses.some(status => status.error?.includes("complete replay history")));
+});
+
+test("save continuity rejects missing, reset, divergent and stale histories", options, async () => {
+  const h = harness(); edit(h);
+  const original = await h.prepare(); h.commitPrepared(original);
+  edit(h); const next = await h.prepare("page-a");
+  assert.doesNotThrow(() => h.api.assertSaveContinuation(original.item.workHistory, next.item.workHistory));
+  for (const candidate of [null, {version:1,events:[],assets:[]}, (await harness().prepare()).item.workHistory]) {
+    assert.throws(() => h.api.assertSaveContinuation(original.item.workHistory, candidate), /protect earlier replay/);
+  }
+  const divergent = structuredClone(next.item.workHistory);
+  divergent.events[0].details.reason = "another session";
+  assert.throws(() => h.api.assertSaveContinuation(original.item.workHistory, divergent), /protect earlier replay/);
+  assert.throws(() => h.api.assertSaveContinuation(next.item.workHistory, original.item.workHistory), /protect earlier replay/);
+  assert.doesNotThrow(() => h.api.assertSaveContinuation(null, next.item.workHistory));
+});
+
+test("save continuity permits only explicit bounded prefix retention", options, async () => {
+  const h = harness(); edit(h);
+  const original = await h.prepare(); h.commitPrepared(original);
+  for (let i = 0; i < 5100; i++) edit(h);
+  const next = await h.prepare("page-a");
+  assert.ok(next.item.workHistory.droppedEvents > 0);
+  assert.doesNotThrow(() => h.api.assertSaveContinuation(original.item.workHistory, next.item.workHistory));
+  const unmarked = structuredClone(next.item.workHistory);
+  unmarked.events = unmarked.events.filter(event => event.details.reason !== "history-retention-limit");
+  assert.throws(() => h.api.assertSaveContinuation(original.item.workHistory, unmarked), /protect earlier replay/);
 });
 
 test("page transitions fence late render, AI and save callbacks; failed loads retain the previous history", options, async () => {
@@ -260,14 +287,25 @@ test("large multilingual AI text stays within event bounds with explicit truncat
 test("real local snapshot transaction stores workHistory alongside the page and tiles atomically", options, async () => {
   const h = harness(); edit(h); const prepared = await h.prepare();
   const start = persistence.indexOf("  async function saveDeviceSnapshot("), end = persistence.indexOf("  async function snapshotBundleAsset(", start);
-  const transactions = [], puts = [];
+  const transactions = [], puts = [], done = deferred();
   const db = { transaction(stores, mode) {
-    const transaction = { objectStore(name) { return { put(value) { puts.push({ name, value:structuredClone(value) }); } }; } };
+    const request = (result, complete = false) => {
+      const pending = {};
+      queueMicrotask(() => { pending.result = result; pending.onsuccess?.(); if (complete) done.resolve(); });
+      return pending;
+    };
+    const transaction = {
+      abort() { assert.fail("A valid first save must not abort"); },
+      objectStore(name) { return {
+        get() { return request(undefined); }, index() { return { getAllKeys:() => request([], true) }; },
+        delete() {}, put(value) { puts.push({ name, value:structuredClone(value) }); },
+      }; },
+    };
     transactions.push({ stores, mode, transaction }); return transaction;
   } };
   const save = vm.runInNewContext(`(function() { ${persistence.slice(start, end)}; return saveDeviceSnapshot; })()`, {
-    snapshotDb:async () => db, SNAPSHOT_STORE:"snapshots", SNAPSHOT_TILE_STORE:"snapshot-tiles",
-    transactionDone:async transaction => assert.equal(transaction, transactions[0].transaction),
+    window:h.window, snapshotDb:async () => db, SNAPSHOT_STORE:"snapshots", SNAPSHOT_TILE_STORE:"snapshot-tiles",
+    transactionDone:transaction => { assert.equal(transaction, transactions[0].transaction); return done.promise; },
   });
   await save(prepared.item, [{ k:"0,0", blob:new Blob(["tile"]) }], null);
   assert.equal(transactions.length, 1); assert.equal(transactions[0].mode, "readwrite");

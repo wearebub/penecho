@@ -86,3 +86,30 @@ resume old-client writes against new history-bearing saves without a separately
 qualified complete backup/restore of the original records and history assets.
 PDF/PNG exports do not preserve this process history, and no complete history
 backup/export workflow is claimed by this release.
+
+## Repeat-save preservation
+
+The device save transaction now reads the existing durable page before writing
+either its record or tiles. Existing replay events must survive unchanged in the
+new history. Missing, reset, divergent or stale history aborts the whole save,
+including concurrent writers that started from an older version. The recorder's
+existing explicitly marked prefix-retention policy remains bounded at 64 MiB /
+5,000 events; this does not promise unlimited history.
+
+A missing live recording context cannot silently save a page without its history.
+Quota and clone errors no longer retry with a single gap marker in place of the
+entire replay. The failed transaction leaves the previous saved page intact,
+while new work remains unsaved in the open page for retry. Legacy fallback callers
+also receive the complete history rather than a reduced replacement.
+
+Root cause addressed: a whole-record IndexedDB put could discard workHistory,
+and the storage-error retry intentionally replaced it with one loss marker.
+Blindly merging unrelated sessions or increasing storage limits was rejected:
+that could misattribute events or defer another destructive failure. The new
+guard checks durable history in the same transaction instead.
+
+Drawing identity, recording format, account/page boundaries, AI/Gateway rules,
+teacher playback and intentional retention limits are unchanged. Previously
+overwritten events are not reconstructed from the final image. Qualification
+must include repeated saves, save/reopen/save, missing history, storage failure,
+stale concurrent writes and valid retention before this patch is published.

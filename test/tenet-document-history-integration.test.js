@@ -32,7 +32,8 @@ const { memoryIndexedDB } = fixture("tenet-process-journal.test.js", ["memoryInd
   const marker = "const database = {";
   assert.equal(source.split(marker).length, 2);
   // The notebook upgrader additionally uses this standard IndexedDB property.
-  return source.replace(marker, marker + "\nobjectStoreNames:{contains:name => stores.has(name)},");
+  return source.replace(marker, marker + "\nobjectStoreNames:{contains:name => stores.has(name)},")
+    .replace("nextFailure = Error(message)", "nextFailure = Object.assign(Error(message), {name:message})");
 });
 
 function persistenceFunction(name) {
@@ -386,4 +387,96 @@ test("actual local transaction preserves submitted JSON and crop hashes across o
   const after = await fresh.history.readSavedPage(id);
   assert.equal(await (await after.getAsset(id, json.hash)).text(), body);
   assert.equal(after.events.filter(event => event.type === "ai.input").length, 1);
+});
+
+test("repeated overwrites then reopen/save preserve every earlier event and attachment", options, async t => {
+  const h = await boot(); t.after(() => h.dispose());
+  h.webEdit("first-work"); observeAI(h, "First question", "First hint");
+  await h.api.setEngine("pencilkit"); await h.addStroke(); await h.history.flush();
+  const id = await h.savePage(), first = await h.readStored(id);
+  for (let round = 0; round < 3; round++) {
+    h.webEdit("later-work-" + round); observeAI(h, "Follow-up " + round, "Next hint " + round);
+    assert.equal(await h.savePage({overwriteId:id}), id);
+    const current = await h.readStored(id);
+    assert.deepEqual(current.item.workHistory.events.slice(0, first.item.workHistory.events.length), first.item.workHistory.events);
+    assert.equal((await h.history.listSavedPages()).length, 1);
+  }
+  const before = await h.readStored(id), fresh = await boot(h.indexedDB); t.after(() => fresh.dispose());
+  fresh.state.currentSnapshotId = id; fresh.state.currentSnapshotLocation = "device";
+  fresh.history.restore(before.item); fresh.webEdit("after-app-reopen");
+  assert.equal(await fresh.savePage({overwriteId:id}), id);
+  const final = await fresh.readStored(id), reader = await fresh.history.readSavedPage(id);
+  assert.deepEqual(final.item.workHistory.events.slice(0, before.item.workHistory.events.length), before.item.workHistory.events);
+  for (const asset of before.item.workHistory.assets)
+    assert.deepEqual(await (await reader.getAsset(id, asset.hash)).arrayBuffer(), await asset.blob.arrayBuffer());
+  assert.equal(reader.events.filter(event => event.type === "ai.request").length, 4);
+  assert.equal(await final.tileEntries[0].blob.text(), "after-app-reopen");
+});
+
+for (const failure of ["QuotaExceededError", "DataCloneError"]) {
+  test(failure + " preserves the last complete page/replay and a retry keeps both sessions", options, async t => {
+    const h = await boot(); t.after(() => h.dispose());
+    h.webEdit("saved-work"); observeAI(h);
+    const id = await h.savePage(), before = await h.readStored(id), savedRevision = h.state.snapshotSavedRevision;
+    h.webEdit("new-unsaved-work"); observeAI(h, "Later question", "Later hint");
+    h.indexedDB.failNextWrite(failure);
+    await assert.rejects(h.savePage({overwriteId:id}), /previous saved page is unchanged/);
+    const failed = await h.readStored(id);
+    assert.deepEqual(failed.item, before.item); assert.deepEqual(failed.tileEntries, before.tileEntries);
+    assert.equal(h.state.snapshotSavedRevision, savedRevision); assert.equal(h.history.isDirty(), true);
+    assert.equal(await h.savePage({overwriteId:id}), id);
+    const after = await h.readStored(id);
+    assert.deepEqual(after.item.workHistory.events.slice(0,before.item.workHistory.events.length), before.item.workHistory.events);
+    assert.equal(after.item.workHistory.events.filter(event => event.type === "ai.request").length, 2);
+    assert.equal(await after.tileEntries[0].blob.text(), "new-unsaved-work");
+    assert.equal(h.history.isDirty(), false);
+  });
+}
+
+test("missing or reset history cannot replace the durable page or its tiles", options, async t => {
+  const h = await boot(); t.after(() => h.dispose());
+  h.webEdit("durable-work"); const id = await h.savePage(), before = await h.readStored(id);
+  const without = {...before.item}; delete without.workHistory;
+  await assert.rejects(h.context.saveDeviceSnapshot(without, [], id), /protect earlier replay/);
+  h.history.restore(null); h.webEdit("reset-session-work");
+  await assert.rejects(h.savePage({overwriteId:id}), /protect earlier replay/);
+  const after = await h.readStored(id);
+  assert.deepEqual(after.item, before.item); assert.deepEqual(after.tileEntries, before.tileEntries);
+  assert.equal(h.history.isDirty(), true);
+});
+
+test("unavailable live capture refuses save without erasing the existing replay", options, async t => {
+  const h = await boot(); t.after(() => h.dispose());
+  h.webEdit("saved"); const id = await h.savePage(), before = await h.readStored(id);
+  h.capture.boundary("backgrounded");
+  await assert.rejects(h.savePage({overwriteId:id}), /Replay history is not ready/);
+  assert.deepEqual(await h.readStored(id), before);
+});
+
+test("two writers cannot overwrite a newer durable history from the same stale baseline", options, async t => {
+  const left = await boot(); t.after(() => left.dispose());
+  left.webEdit("baseline"); const id = await left.savePage(), baseline = await left.readStored(id);
+  const right = await boot(left.indexedDB); t.after(() => right.dispose());
+  right.state.currentSnapshotId = id; right.state.currentSnapshotLocation = "device"; right.history.restore(baseline.item);
+  left.webEdit("left-writer"); right.webEdit("right-writer");
+  const results = await Promise.allSettled([left.savePage({overwriteId:id}), right.savePage({overwriteId:id})]);
+  assert.equal(results.filter(result => result.status === "fulfilled").length, 1);
+  assert.equal(results.filter(result => result.status === "rejected").length, 1);
+  assert.match(results.find(result => result.status === "rejected").reason.message, /protect earlier replay/);
+  const winner = results[0].status === "fulfilled" ? "left-writer" : "right-writer";
+  const after = await left.readStored(id);
+  assert.equal(await after.tileEntries[0].blob.text(), winner);
+  assert.deepEqual(after.item.workHistory.events.slice(0,baseline.item.workHistory.events.length), baseline.item.workHistory.events);
+});
+
+test("legacy history-free pages can acquire new history without changing their identity", options, async t => {
+  const h = await boot(); t.after(() => h.dispose());
+  h.webEdit("legacy"); const id = await h.savePage();
+  h.indexedDB.seed("snapshots", id, item => { delete item.workHistory; return item; });
+  const legacy = await h.readStored(id); h.history.restore(legacy.item); h.webEdit("new-observed-work");
+  assert.equal(await h.savePage({overwriteId:id}), id);
+  assert.equal((await h.history.listSavedPages()).length, 1);
+  const after = await h.readStored(id);
+  assert.ok(after.item.workHistory.events.some(event => event.details.reason === "history-unavailable-before-this-open"));
+  assert.equal(after.item.workHistory.events.filter(event => event.type === "canvas.commit").length, 1);
 });

@@ -816,15 +816,37 @@
     finishAIDraftHandMode();
   }
   async function saveDeviceSnapshot(item, tileEntries, overwriteId) {
-    const db = await snapshotDb();
-    let oldTileKeys = [];
-    if (overwriteId) oldTileKeys = await requestResult(db.transaction(SNAPSHOT_TILE_STORE, "readonly").objectStore(SNAPSHOT_TILE_STORE).index("snapshotId").getAllKeys(overwriteId));
-    const transaction = db.transaction([SNAPSHOT_STORE, SNAPSHOT_TILE_STORE], "readwrite");
-    transaction.objectStore(SNAPSHOT_STORE).put(item);
-    const tileStore = transaction.objectStore(SNAPSHOT_TILE_STORE);
-    oldTileKeys.forEach((key) => tileStore.delete(key));
-    tileEntries.forEach(({ k, blob }) => tileStore.put({ id:`${item.id}:${k}`, snapshotId:item.id, k, blob }));
-    await transactionDone(transaction);
+    const db = await snapshotDb(),
+      transaction = db.transaction([SNAPSHOT_STORE, SNAPSHOT_TILE_STORE], "readwrite"),
+      completed = transactionDone(transaction),
+      store = transaction.objectStore(SNAPSHOT_STORE),
+      tileStore = transaction.objectStore(SNAPSHOT_TILE_STORE);
+    let failure = null;
+    const abort = error => { failure = error; transaction.abort(); };
+    try {
+      // Read and guard the durable record inside the same write transaction.
+      // A cached library row or an earlier readonly transaction can be stale.
+      const previous = store.get(item.id);
+      previous.onsuccess = () => {
+        try {
+          if (previous.result?.workHistory) {
+            const history = window.TenetDocumentHistory;
+            if (typeof history?.assertSaveContinuation !== "function")
+              throw Error("Save stopped to protect earlier replay history. Your previous saved page is unchanged.");
+            history.assertSaveContinuation(previous.result.workHistory, item.workHistory);
+          }
+          const keys = tileStore.index("snapshotId").getAllKeys(item.id);
+          keys.onsuccess = () => {
+            try {
+              store.put(item);
+              keys.result.forEach(key => tileStore.delete(key));
+              tileEntries.forEach(({ k, blob }) => tileStore.put({ id:`${item.id}:${k}`, snapshotId:item.id, k, blob }));
+            } catch (error) { abort(error); }
+          };
+        } catch (error) { abort(error); }
+      };
+    } catch (error) { abort(error); }
+    await completed.catch(error => { throw failure || error; });
   }
   async function snapshotBundleAsset(kind, blob, metadata = {}) {
     const encoded = await blobDataUrl(blob),
@@ -1145,6 +1167,8 @@
     if (overwriteId && state.currentSnapshotLocation !== location) throw Error(t("noCurrentSnapshot"));
     const documentHistory = window.TenetDocumentHistory,
       historySave = documentHistory?.beginSave(location);
+    if (location === "device" && documentHistory && !historySave)
+      throw Error("Replay history is not ready to save. Keep this page open and try again; your previous saved page is unchanged.");
     await finalizeCanvasForSnapshot();
     if (historySave && !documentHistory.isSaveCurrent(historySave)) return null;
     if (!tenetInkBounds() && !tiles.size && !state.images.length && !state.textBoxes.length && !state.preservedSnapshotAnimations.length && (!pluginEnabled("animation") || !state.animations.length) && !visibleWidgets().length && !documentHistory?.hasWork()) {
@@ -1214,9 +1238,15 @@
     } else {
       try { await saveDeviceSnapshot(item, tileEntries, overwriteId); }
       catch (error) {
-        if (!historySave || !item.workHistory || !["QuotaExceededError", "DataCloneError"].includes(error?.name)) throw error;
-        item.workHistory = documentHistory.degradeForSave(historySave, item.workHistory);
-        await saveDeviceSnapshot(item, tileEntries, overwriteId);
+        // Never retry by replacing all recorded work with a gap marker.
+        // IndexedDB rollback preserves the last complete page and history.
+        if (["QuotaExceededError", "DataCloneError"].includes(error?.name)) {
+          const message = error.name === "QuotaExceededError"
+            ? "Not enough device storage to save the page and its replay history."
+            : "The page and its replay history could not be stored.";
+          throw Error(message + " Your previous saved page is unchanged. New work is still open and has not been saved; keep this page open and retry.");
+        }
+        throw error;
       }
     }
     // A save finishing after navigation must not adopt its old ID into the new page.
