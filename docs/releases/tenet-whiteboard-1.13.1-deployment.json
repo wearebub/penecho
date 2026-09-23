@@ -1,0 +1,190 @@
+{
+  "schemaVersion": 1,
+  "tag": "tenet-web-v1.13.1",
+  "sourceCommit": "22cc1f82fbd7bf16bac24bf54d13e3ead223220d",
+  "nativeRelease": "tenet-ipad-v1.11.0-build.51",
+  "workflow": "https://github.com/wearebub/penecho/actions/runs/35910242869",
+  "archiveSha256": "77247c5b13c5eb2e37fbee77309f592149ed4fa236ecce6f61ee5fac233bd2b4",
+  "manifestSha256": "b111fc6fe87c000a278a52a3ecb27fa7b372359deebeaef8de491665f3dc572c",
+  "previousReceipt": "/opt/tenet-demo/backups/whiteboard-1.13.0-607673d/deployment-receipt.json",
+  "backup": "/opt/tenet-demo/backups/whiteboard-1.13.1-22cc1f8",
+  "status": "installed",
+  "preparedAt": "2026-09-23T19:36:55.698Z",
+  "installedAt": "2026-09-23T19:36:56.804Z",
+  "scope": "Client-only repeat-save history preservation release. Three qualified client paths changed. Existing iPad 1.11.0 (51) remains paired. Service PIDs, policy and dependency lock preserved; no Gateway, server, authentication, AI prompt, capture, storage format, LMS or native binary changes.",
+  "changedFiles": [
+    {
+      "path": "src/client/app/persistence.js",
+      "sha256": "dfd1524dbaf846548db6446cdf124d408fd087950e6d773475a9d77034c508cb",
+      "previousSha256": "a82b92a89cce29c89d6a2c4fa01a330ad8e54fde856a3004ed02936c3ab790d9"
+    },
+    {
+      "path": "src/client/app/tenet-document-history.js",
+      "sha256": "75e95cb415a515fef649a6e2684ee54e35b2481b171701fb648d9e1716a6bfbb",
+      "previousSha256": "c2ad9d4d194cb430829ca0deaba9c4fe30338dde50d93bf672d3617401609e93"
+    },
+    {
+      "path": "public/app.js",
+      "sha256": "19ff3528cd6e5f66fe7c4adedda892fd0cf46447269f89319ca2f449aa92a20a",
+      "previousSha256": "664c376498c57966e0b42d762a5717dd982d043341bba1f11d4452bbc0e09767"
+    }
+  ],
+  "verifiedRuntimeFileCount": 40,
+  "checks": {
+    "serviceProcessesPreserved": true,
+    "policyHashPreserved": true,
+    "dependencyLockHashPreserved": true,
+    "servedHashesAndNoStoreVerified": true
+  },
+  "served": [
+    {
+      "port": 3888,
+      "path": "public/index.html",
+      "sha256": "19b988e0aad1ccb7eb5196741edd19a1b8fdf6efdc050c2464f44704c7dba849",
+      "status": 200
+    },
+    {
+      "port": 3888,
+      "path": "public/summon.js",
+      "sha256": "ea62175548a998e9e5bf09a2210f793ce6e8f5716fc44be2cb03799aafe99e19",
+      "status": 200
+    },
+    {
+      "port": 3888,
+      "path": "public/tenet-history-viewer.html",
+      "sha256": "002983cd143f599e270ab0cf99371d139300fa1a1902d7397e7c8fb6ada5ec5c",
+      "status": 200
+    },
+    {
+      "port": 3888,
+      "path": "public/tenet-history-viewer.js",
+      "sha256": "be6f2d2ff8e13197c2dc16884510aa372ecfdf7923d1c46c7223c387f62e44b1",
+      "status": 200
+    },
+    {
+      "port": 3888,
+      "path": "public/tenet-ink-comparison.css",
+      "sha256": "3a526b435c73f22dd5a2ad0be5f48b593726b555084c5135341fdb3399a3b506",
+      "status": 200
+    },
+    {
+      "port": 3888,
+      "path": "public/tenet-ipad-usability.css",
+      "sha256": "2bee195e5e81d3531a9f2f14c7934a48f708fdc45702bec29230403e0b6d89a8",
+      "status": 200
+    },
+    {
+      "port": 3888,
+      "path": "public/tenet-notebook.css",
+      "sha256": "46d9106c3e0fa47f536de5f3b5107283c01f60ad5566832ac0fb8d356604f2d8",
+      "status": 200
+    },
+    {
+      "port": 3888,
+      "path": "public/tenet-process.css",
+      "sha256": "d9eb1c2844e8f790be93b6a8f139b620a8d8dff3f14c94ef44d93e4cbb8eef23",
+      "status": 200
+    },
+    {
+      "port": 3888,
+      "path": "public/tenet-selection-tools.css",
+      "sha256": "cba6b143628735547b6cb3351310fcf63f072ae66a4b2201d9c3227162c419bf",
+      "status": 200
+    },
+    {
+      "port": 3888,
+      "path": "public/tenet-voice.css",
+      "sha256": "9ef55e81518e356f85289ad84f0b7cc939b81263db0a7ec2cb56d3239df4bf3b",
+      "status": 200
+    },
+    {
+      "port": 3888,
+      "path": "public/app.js",
+      "sha256": "19ff3528cd6e5f66fe7c4adedda892fd0cf46447269f89319ca2f449aa92a20a",
+      "status": 200
+    },
+    {
+      "port": 3889,
+      "path": "public/index.html",
+      "sha256": "19b988e0aad1ccb7eb5196741edd19a1b8fdf6efdc050c2464f44704c7dba849",
+      "status": 200
+    },
+    {
+      "port": 3889,
+      "path": "public/summon.js",
+      "sha256": "ea62175548a998e9e5bf09a2210f793ce6e8f5716fc44be2cb03799aafe99e19",
+      "status": 200
+    },
+    {
+      "port": 3889,
+      "path": "public/tenet-history-viewer.html",
+      "sha256": "002983cd143f599e270ab0cf99371d139300fa1a1902d7397e7c8fb6ada5ec5c",
+      "status": 200
+    },
+    {
+      "port": 3889,
+      "path": "public/tenet-history-viewer.js",
+      "sha256": "be6f2d2ff8e13197c2dc16884510aa372ecfdf7923d1c46c7223c387f62e44b1",
+      "status": 200
+    },
+    {
+      "port": 3889,
+      "path": "public/tenet-ink-comparison.css",
+      "sha256": "3a526b435c73f22dd5a2ad0be5f48b593726b555084c5135341fdb3399a3b506",
+      "status": 200
+    },
+    {
+      "port": 3889,
+      "path": "public/tenet-ipad-usability.css",
+      "sha256": "2bee195e5e81d3531a9f2f14c7934a48f708fdc45702bec29230403e0b6d89a8",
+      "status": 200
+    },
+    {
+      "port": 3889,
+      "path": "public/tenet-notebook.css",
+      "sha256": "46d9106c3e0fa47f536de5f3b5107283c01f60ad5566832ac0fb8d356604f2d8",
+      "status": 200
+    },
+    {
+      "port": 3889,
+      "path": "public/tenet-process.css",
+      "sha256": "d9eb1c2844e8f790be93b6a8f139b620a8d8dff3f14c94ef44d93e4cbb8eef23",
+      "status": 200
+    },
+    {
+      "port": 3889,
+      "path": "public/tenet-selection-tools.css",
+      "sha256": "cba6b143628735547b6cb3351310fcf63f072ae66a4b2201d9c3227162c419bf",
+      "status": 200
+    },
+    {
+      "port": 3889,
+      "path": "public/tenet-voice.css",
+      "sha256": "9ef55e81518e356f85289ad84f0b7cc939b81263db0a7ec2cb56d3239df4bf3b",
+      "status": 200
+    },
+    {
+      "port": 3889,
+      "path": "public/app.js",
+      "sha256": "19ff3528cd6e5f66fe7c4adedda892fd0cf46447269f89319ca2f449aa92a20a",
+      "status": 200
+    },
+    {
+      "host": "district.connect.truemadeai.com",
+      "unauthenticatedStatus": 302
+    },
+    {
+      "host": "spanish.connect.truemadeai.com",
+      "unauthenticatedStatus": 302
+    }
+  ],
+  "qualification": {
+    "localSkipped": 3,
+    "focusedPassed": 54,
+    "physicalIpadAcceptance": false,
+    "localTests": 1463,
+    "localFailed": 0,
+    "localPassed": 1460
+  },
+  "rollback": "sudo node /opt/tenet-demo/backups/whiteboard-1.13.1-22cc1f8/deploy-runtime.mjs rollback"
+}

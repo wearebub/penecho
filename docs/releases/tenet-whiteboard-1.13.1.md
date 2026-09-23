@@ -63,3 +63,39 @@ authentication redirects and readiness before recording success. Keep the prior
 files and a guarded rollback command in the new deployment receipt. Rolling
 back code does not recover already-lost data and would reintroduce this defect;
 protect/export notebook work before any operator rollback.
+
+## Published result
+
+Source: `22cc1f82fbd7bf16bac24bf54d13e3ead223220d`.
+Immutable release: https://github.com/wearebub/penecho/releases/tag/tenet-web-v1.13.1
+
+- Web release and required Node 22/24 CI: https://github.com/wearebub/penecho/actions/runs/35910242869
+- Branch CI: https://github.com/wearebub/penecho/actions/runs/35910243309
+- Unsigned iPad compile: https://github.com/wearebub/penecho/actions/runs/35910243753
+
+All three workflows succeeded. Signed build/archive jobs were intentionally
+skipped; this is not a new TestFlight binary. The immutable runtime archive and
+manifest were checked against GitHub asset digests. Exactly three paths differed
+from the installed 1.13.0 baseline; all 40 runtime paths were qualified.
+
+Installed on the district and Spanish demo hosts. All 22 served public assets
+matched their manifest hashes with no-store caching, both unauthenticated roots
+retained 302 redirects, and readiness, service PIDs, Gateway policy hash and
+dependency-lock hash were preserved. The public read-only Teacher Preview stays
+at 1.13.0 because its assets are unchanged.
+
+Browser acceptance additionally sought back to the original event-4 checkpoint
+after the third save and full reload; its original ink image still rendered.
+The native compile and browser checks do not substitute for physical-iPad
+confirmation. Preserve unsaved work before reopening the iPad app to load the
+hosted update; do not uninstall it or clear its local data.
+
+Sanitized deployment evidence: `tenet-whiteboard-1.13.1-deployment.json` beside
+this note. No student work, credentials or policy contents are included.
+
+```sh
+sudo node /opt/tenet-demo/backups/whiteboard-1.13.1-22cc1f8/deploy-runtime.mjs rollback
+```
+
+Rollback is code-only, restores 1.13.0, and reintroduces its save defect. It is an
+operator recovery option, not a way to reconstruct previously lost history.
