@@ -57,3 +57,36 @@ Publication requires green hosted release CI, an immutable runtime archive,
 manifest/hash qualification, guarded host backup/install with unchanged policy and
 service identity, and public Teacher Preview source/hash verification. Deployment
 evidence and rollback location will be recorded after qualification.
+
+## Published release evidence
+
+Hosted Whiteboard 1.14.0 is deployed. Source commit:
+`5ffc2f542d2aaa35f16825d6389b04b2290c7bad`.
+
+All four workflows completed successfully:
+- Push CI: https://github.com/wearebub/penecho/actions/runs/35915967791
+- Immutable web release: https://github.com/wearebub/penecho/actions/runs/35915967540
+- Public Teacher Preview: https://github.com/wearebub/penecho/actions/runs/35915971628
+- iOS CI / unsigned macOS compile: https://github.com/wearebub/penecho/actions/runs/35915968255
+
+Release: https://github.com/wearebub/penecho/releases/tag/tenet-web-v1.14.0
+Public viewer: https://wearebub.github.io/penecho/
+
+The public viewer source receipt and all three published files matched the
+immutable release. The published page loaded in the browser. Further
+post-publication click automation encountered browser/CDP timeouts; those
+attempts are not evidence of live touch or physical-iPad acceptance. Local browser
+zoom/pan/seek/Fit and the regression results above remain the completed
+interaction evidence.
+
+Native companion remains 1.11.0 (51); there was no new signed TestFlight upload.
+Save current work before reopening the iPad app to load the hosted update.
+
+## Private operational evidence
+
+Deployment completed with a guarded rollback backup. Internal infrastructure
+receipts and rollback commands remain private on the deployment host and are not
+included in this public repository. Hosted-client rollback and public Teacher
+Preview rollback are separate operations; neither should delete saved notebooks
+or alter the native binary. Use the private deployment record and the prior
+qualified release if rollback is required.
