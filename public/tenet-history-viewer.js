@@ -1228,7 +1228,17 @@ window.PENECHO_CONFIG = {tenetMode:true,tenetAssignmentPreview:true,tenetHistory
             <button type="button" data-action="share" hidden>Share archive</button>
             <button type="button" data-action="remove" class="tenet-process-danger">Remove local history</button>
           </div>
-          <div class="tenet-process-preview"><img alt="Recorded page checkpoint" hidden /><p data-value="preview">No rendered checkpoint selected.</p></div>
+          <section class="tenet-process-replay" aria-label="Replay image and magnification">
+            <div class="tenet-process-zoom" role="group" aria-label="Replay zoom controls">
+              <span>Replay</span>
+              <button type="button" data-action="zoom-out" aria-label="Zoom out of replay" title="Zoom out" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="10" r="6"/><path d="m15 15 5 5M7 10h6"/></svg></button>
+              <output data-value="zoom" aria-label="Replay magnification, relative to fit" aria-live="off">100%</output>
+              <button type="button" data-action="zoom-in" aria-label="Zoom into replay" title="Zoom in" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="10" r="6"/><path d="m15 15 5 5M7 10h6M10 7v6"/></svg></button>
+              <button type="button" data-action="zoom-fit" aria-label="Fit replay to view" disabled>Fit</button>
+            </div>
+            <div class="tenet-process-preview" tabindex="0" role="region" aria-label="Zoomable replay image" aria-describedby="tenetReplayZoomHelp" data-ready="false"><svg class="tenet-process-zoom-surface" xmlns="http://www.w3.org/2000/svg"><foreignObject><img xmlns="http://www.w3.org/1999/xhtml" alt="Recorded page checkpoint" draggable="false" hidden /></foreignObject></svg><p data-value="preview">No rendered checkpoint selected.</p></div>
+            <p class="tenet-process-zoom-help" id="tenetReplayZoomHelp">Pinch or double-tap to zoom. Drag to move when zoomed in. Fit shows the whole page. Keyboard: + / - to zoom, arrows to move, 0 to fit.</p>
+          </section>
           <p class="tenet-process-frame-time" data-value="frame-time">Displayed checkpoint: none.</p>
           <div class="tenet-process-playback"><button type="button" data-action="play">Play history</button><input type="range" min="0" max="0" value="0" aria-label="History position" /><output data-value="position">0 / 0</output></div>
           <div class="tenet-process-pacing"><label>Playback speed<select data-control="speed" aria-label="Playback speed"><option value="0.5">0.5x</option><option value="1" selected>1x</option><option value="2">2x</option><option value="4">4x</option><option value="8">8x</option><option value="16">16x</option><option value="32">32x</option></select></label><label class="tenet-process-skip"><input type="checkbox" data-control="skip-pauses" checked />Skip long pauses</label></div>
@@ -1253,6 +1263,145 @@ window.PENECHO_CONFIG = {tenetMode:true,tenetAssignmentPreview:true,tenetHistory
   const value = name => dialog.querySelector(`[data-value="${name}"]`);
   const statusLine = dialog.querySelector(".tenet-process-status"), slider = dialog.querySelector('input[type="range"]');
   const picture = dialog.querySelector(".tenet-process-preview img");
+  const previewViewport = dialog.querySelector(".tenet-process-preview");
+  const previewSurface = previewViewport.querySelector("svg");
+  const previewPlane = previewViewport.querySelector("foreignObject");
+  const previewReport = dialog.querySelector(".tenet-process-work");
+  const previewPointers = new Map();
+  let previewZoom = 1, previewCenterX = 0.5, previewCenterY = 0.5;
+  let previewTap = null, previewLastTap = null;
+  const previewResizeObserver = typeof ResizeObserver === "function" ? new ResizeObserver(() => {
+    if (dialog.open) paintPreviewView();
+  }) : null;
+
+  function previewMetrics() {
+    const width = previewViewport.clientWidth, height = previewViewport.clientHeight;
+    if (picture.hidden || !picture.naturalWidth || !picture.naturalHeight || !width || !height) return null;
+    const fit = Math.min(width / picture.naturalWidth, height / picture.naturalHeight);
+    const baseWidth = picture.naturalWidth * fit, baseHeight = picture.naturalHeight * fit;
+    const scaledWidth = baseWidth * previewZoom, scaledHeight = baseHeight * previewZoom;
+    const bound = (position, size, available) => size <= available ? (available - size) / 2 : Math.max(available - size, Math.min(0, position));
+    return {width, height, baseWidth, baseHeight, scaledWidth, scaledHeight,
+      left:bound(width / 2 - previewCenterX * scaledWidth, scaledWidth, width),
+      top:bound(height / 2 - previewCenterY * scaledHeight, scaledHeight, height)};
+  }
+  function paintPreviewView() {
+    const metrics = previewMetrics();
+    previewViewport.dataset.ready = String(Boolean(metrics));
+    previewViewport.dataset.zoomed = String(previewZoom > 1);
+    value("zoom").textContent = Math.round(previewZoom * 100) + "%";
+    find("zoom-out").disabled = !metrics || previewZoom <= 1;
+    find("zoom-in").disabled = !metrics || previewZoom >= 6;
+    find("zoom-fit").disabled = !metrics;
+    if (!metrics) return;
+    previewCenterX = (metrics.width / 2 - metrics.left) / metrics.scaledWidth;
+    previewCenterY = (metrics.height / 2 - metrics.top) / metrics.scaledHeight;
+    // SVG geometry preserves strict CSP without new raster buffers or edits
+    // to the recorded checkpoint.
+    previewSurface.setAttribute("viewBox", `0 0 ${metrics.width} ${metrics.height}`);
+    previewPlane.setAttribute("x", String(metrics.left));
+    previewPlane.setAttribute("y", String(metrics.top));
+    previewPlane.setAttribute("width", String(metrics.scaledWidth));
+    previewPlane.setAttribute("height", String(metrics.scaledHeight));
+    previewResizeObserver?.observe(previewViewport);
+  }
+  function previewPoint(point) {
+    const rect = previewViewport.getBoundingClientRect();
+    return {x:point.x - rect.left - previewViewport.clientLeft, y:point.y - rect.top - previewViewport.clientTop};
+  }
+  function changePreviewView(scale, from, to = from) {
+    const metrics = previewMetrics();
+    if (!metrics || !Number.isFinite(scale)) return;
+    from ||= {x:metrics.width / 2, y:metrics.height / 2}; to ||= from;
+    const imageX = (from.x - metrics.left) / metrics.scaledWidth;
+    const imageY = (from.y - metrics.top) / metrics.scaledHeight;
+    previewZoom = Math.max(1, Math.min(6, scale));
+    previewCenterX = imageX + (metrics.width / 2 - to.x) / (metrics.baseWidth * previewZoom);
+    previewCenterY = imageY + (metrics.height / 2 - to.y) / (metrics.baseHeight * previewZoom);
+    paintPreviewView();
+  }
+  function clearPreviewPointers() {
+    const ids = [...previewPointers.keys()];
+    previewPointers.clear(); previewTap = null;
+    previewViewport.dataset.dragging = "false";
+    for (const id of ids) {
+      try { if (previewViewport.hasPointerCapture(id)) previewViewport.releasePointerCapture(id); } catch {}
+    }
+  }
+  function resetPreviewView() {
+    clearPreviewPointers(); previewLastTap = null;
+    previewZoom = 1; previewCenterX = 0.5; previewCenterY = 0.5;
+    paintPreviewView();
+  }
+  function previewPair() {
+    const [a, b] = [...previewPointers.values()].slice(0, 2).map(previewPoint);
+    return {middle:{x:(a.x + b.x) / 2, y:(a.y + b.y) / 2}, distance:Math.hypot(a.x - b.x, a.y - b.y)};
+  }
+  previewViewport.addEventListener("pointerdown", event => {
+    if (!dialog.open || !previewMetrics() || event.button !== 0) return;
+    event.preventDefault(); event.stopPropagation();
+    previewViewport.focus({preventScroll:true});
+    const point = {x:event.clientX, y:event.clientY};
+    previewPointers.set(event.pointerId, point);
+    previewTap = previewPointers.size === 1 ? {...point, id:event.pointerId, time:event.timeStamp} : null;
+    if (previewPointers.size > 1) previewLastTap = null;
+    previewViewport.dataset.dragging = "true";
+    try { previewViewport.setPointerCapture(event.pointerId); } catch {}
+  });
+  previewViewport.addEventListener("pointermove", event => {
+    const previous = previewPointers.get(event.pointerId);
+    if (!previous) return;
+    event.preventDefault(); event.stopPropagation();
+    const next = {x:event.clientX, y:event.clientY};
+    if (previewTap && Math.hypot(next.x - previewTap.x, next.y - previewTap.y) > 8) previewTap = null;
+    const before = previewPointers.size >= 2 ? previewPair() : null;
+    previewPointers.set(event.pointerId, next);
+    if (before) {
+      const after = previewPair();
+      if (before.distance > 0 && after.distance > 0) changePreviewView(previewZoom * after.distance / before.distance, before.middle, after.middle);
+    } else if (previewZoom > 1) changePreviewView(previewZoom, previewPoint(previous), previewPoint(next));
+    else if (event.pointerType === "touch") previewReport.scrollTop -= next.y - previous.y;
+  });
+  function finishPreviewPointer(event) {
+    if (!previewPointers.has(event.pointerId)) return;
+    const tap = previewTap;
+    previewPointers.delete(event.pointerId); previewTap = null;
+    previewViewport.dataset.dragging = String(previewPointers.size > 0);
+    try { if (previewViewport.hasPointerCapture(event.pointerId)) previewViewport.releasePointerCapture(event.pointerId); } catch {}
+    if (event.type !== "pointerup") { previewLastTap = null; return; }
+    if (!tap || tap.id !== event.pointerId || previewPointers.size || event.timeStamp - tap.time > 300 ||
+        Math.hypot(event.clientX - tap.x, event.clientY - tap.y) > 8) return;
+    const nextTap = {x:event.clientX, y:event.clientY, time:event.timeStamp};
+    if (previewLastTap && nextTap.time - previewLastTap.time < 350 &&
+        Math.hypot(nextTap.x - previewLastTap.x, nextTap.y - previewLastTap.y) < 28) {
+      changePreviewView(previewZoom > 1 ? 1 : 2, previewPoint(nextTap)); previewLastTap = null;
+    } else previewLastTap = nextTap;
+  }
+  for (const type of ["pointerup", "pointercancel", "lostpointercapture"]) previewViewport.addEventListener(type, finishPreviewPointer);
+  previewViewport.addEventListener("wheel", event => {
+    if ((!event.ctrlKey && !event.metaKey) || !previewMetrics()) return;
+    event.preventDefault();
+    changePreviewView(previewZoom * Math.exp(-Math.max(-100, Math.min(100, event.deltaY)) / 150),
+      previewPoint({x:event.clientX, y:event.clientY}));
+  }, {passive:false});
+  previewViewport.addEventListener("keydown", event => {
+    if (event.ctrlKey || event.metaKey || event.altKey || !previewMetrics()) return;
+    const pans = {ArrowLeft:[40, 0], ArrowRight:[-40, 0], ArrowUp:[0, 40], ArrowDown:[0, -40]};
+    if (event.key === "+" || event.key === "=") changePreviewView(previewZoom * 1.25);
+    else if (event.key === "-") changePreviewView(previewZoom / 1.25);
+    else if (event.key === "0" || event.key === "Home") resetPreviewView();
+    else if (pans[event.key] && previewZoom > 1) {
+      const metrics = previewMetrics(), from = {x:metrics.width / 2, y:metrics.height / 2}, [x, y] = pans[event.key];
+      changePreviewView(previewZoom, from, {x:from.x + x, y:from.y + y});
+    } else return;
+    event.preventDefault(); event.stopPropagation();
+  });
+  find("zoom-in").addEventListener("click", () => changePreviewView(previewZoom * 1.25));
+  find("zoom-out").addEventListener("click", () => changePreviewView(previewZoom / 1.25));
+  find("zoom-fit").addEventListener("click", resetPreviewView);
+  picture.addEventListener("load", paintPreviewView);
+  window.addEventListener("resize", () => { if (dialog.open) paintPreviewView(); });
+
   if (viewerOnly) {
     dialog.querySelector('.tenet-process-record-options').hidden = true;
     dialog.querySelector(".tenet-process-library-heading").hidden = true;
@@ -1284,7 +1433,9 @@ window.PENECHO_CONFIG = {tenetMode:true,tenetAssignmentPreview:true,tenetHistory
     for (const [key, entry] of frameCache) if (entry.state === "loading") dropFrame(key);
   }
   function hidePicture() {
+    clearPreviewPointers();
     picture.hidden = true; picture.removeAttribute("src");
+    paintPreviewView();
     imageUrl = null; displayedFrameKey = null;
     dialog.querySelector(".tenet-process-preview").dataset.retained = "false";
     value("frame-time").textContent = "Displayed checkpoint: none.";
@@ -1319,6 +1470,7 @@ window.PENECHO_CONFIG = {tenetMode:true,tenetAssignmentPreview:true,tenetHistory
     releaseFrame(entry); entry.finish?.(null);
   }
   function clearImage() {
+    resetPreviewView(); previewResizeObserver?.disconnect();
     pendingShareOpen = null;
     shareOwner++; reportOwner++; sharingWork = false; openingReport = false;
     find("share-work").disabled = false; find("report").disabled = false;
@@ -2152,6 +2304,7 @@ window.PENECHO_CONFIG = {tenetMode:true,tenetAssignmentPreview:true,tenetHistory
     imageUrl = entry.url; displayedFrameKey = frame.key;
     if (picture.getAttribute("src") !== imageUrl) picture.src = imageUrl;
     picture.hidden = false; value("preview").hidden = true;
+    paintPreviewView();
     dialog.querySelector(".tenet-process-preview").dataset.retained = "false";
     if (finalView) {
       value("frame-time").textContent = `Displayed saved final page / ${String(finalPage.representation || "preview provenance unavailable").replaceAll("-", " ")}. This is separate from timed replay observations.`;

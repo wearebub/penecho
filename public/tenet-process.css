@@ -184,3 +184,21 @@
 
 /* Keep the underlying canvas or standalone landing page from retaining a scrollbar. */
 html:has(#tenetProcessDialog[open]),body:has(#tenetProcessDialog[open]){overflow:hidden}
+
+/* Preview-only navigation: never changes the saved image or replay position. */
+#tenetProcessDialog .tenet-process-replay{min-width:0;margin-top:12px}
+#tenetProcessDialog .tenet-process-zoom{position:sticky;top:0;z-index:2;display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 10px;border:1px solid #dddcd5;border-bottom:0;border-radius:12px 12px 0 0;background:#f7f6f0}
+#tenetProcessDialog .tenet-process-zoom>span{margin-right:auto;font-size:12px;font-weight:700;color:#42665b}
+#tenetProcessDialog .tenet-process-zoom button{min-width:48px;min-height:48px;padding:10px;display:inline-flex;align-items:center;justify-content:center;background:#fff;border-color:#cdd8d0;touch-action:manipulation}
+#tenetProcessDialog .tenet-process-zoom button[data-action=zoom-fit]{min-width:62px}
+#tenetProcessDialog .tenet-process-zoom svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;pointer-events:none}
+#tenetProcessDialog .tenet-process-zoom output{min-width:50px;text-align:center;font-size:13px;font-variant-numeric:tabular-nums;color:#244e43}
+#tenetProcessDialog .tenet-process-replay .tenet-process-preview{display:block;border-radius:0 0 12px 12px;touch-action:pan-y;isolation:isolate}
+#tenetProcessDialog .tenet-process-preview[data-ready=true]{touch-action:none}
+#tenetProcessDialog .tenet-process-preview[data-zoomed=true]{cursor:grab}
+#tenetProcessDialog .tenet-process-preview[data-zoomed=true][data-dragging=true]{cursor:grabbing}
+#tenetProcessDialog .tenet-process-preview:focus-visible{outline:3px solid #5a98c1;outline-offset:-3px}
+#tenetProcessDialog .tenet-process-zoom-surface{position:absolute;inset:0;width:100%;height:100%;overflow:hidden;pointer-events:none}
+#tenetProcessDialog .tenet-process-preview img{display:block;width:100%;height:100%;max-width:none;max-height:none;object-fit:fill;user-select:none;-webkit-user-select:none;-webkit-user-drag:none;pointer-events:none}
+#tenetProcessDialog .tenet-process-preview p{position:relative;z-index:1;pointer-events:none}
+#tenetProcessDialog .tenet-process-zoom-help{margin:7px 0 10px;font-size:12px;line-height:1.5;color:#596e63}

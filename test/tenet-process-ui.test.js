@@ -16,20 +16,24 @@ const viewerHTML = fs.readFileSync(path.join(__dirname, "../public/tenet-history
 class Events {
   constructor() { this.listeners = new Map(); }
   addEventListener(type, callback) { const list = this.listeners.get(type) || []; list.push(callback); this.listeners.set(type, list); }
-  fire(type, extra = {}) { const event = {type, target:this, currentTarget:this, preventDefault() {}, ...extra}; for (const callback of this.listeners.get(type) || []) callback(event); }
+  fire(type, extra = {}) { const event = {type, target:this, currentTarget:this, defaultPrevented:false, preventDefault() { this.defaultPrevented = true; }, stopPropagation() {}, ...extra}; for (const callback of this.listeners.get(type) || []) callback(event); return event; }
 }
 function matches(element, selector) {
   const attributes = [...selector.matchAll(/\[([^=\]]+)(?:=["']?([^"'\]]+)["']?)?\]/g)];
   const plain = selector.replace(/\[[^\]]+\]/g, "");
   const tag = plain.match(/^[\w-]+/)?.[0];
-  if (tag && element.tagName !== tag.toLowerCase()) return false;
+  if (tag && element.tagName.toLowerCase() !== tag.toLowerCase()) return false;
   const id = plain.match(/#([\w-]+)/)?.[1];
   if (id && element.id !== id) return false;
   for (const item of plain.matchAll(/\.([\w-]+)/g)) if (!element.className.split(/\s+/).includes(item[1])) return false;
   return attributes.every(([, name, value]) => element.getAttribute(name) !== null && (value === undefined || element.getAttribute(name) === value));
 }
 class Element extends Events {
-  constructor(tag, doc) { super(); this.tagName = tag; this.doc = doc; this.children = []; this.parentElement = null; this.attributes = {}; this.dataset = {}; this.style = {cssText:""}; this._text = ""; this._value = ""; this.hidden = false; this.disabled = false; this.open = false; this.id = ""; this.className = ""; }
+  constructor(tag, doc) { super(); this.tagName = tag; this.doc = doc; this.children = []; this.parentElement = null; this.attributes = {}; this.dataset = {}; this.style = {cssText:""}; this._text = ""; this._value = ""; this.hidden = false; this.disabled = false; this.open = false; this.id = ""; this.className = ""; this.clientWidth = 900; this.clientHeight = 600; this.clientLeft = 0; this.clientTop = 0; this.scrollTop = 0; this.capturedPointers = new Set(); }
+  getBoundingClientRect() { return {left:0, top:0, width:this.clientWidth, height:this.clientHeight}; }
+  setPointerCapture(id) { this.capturedPointers.add(id); }
+  hasPointerCapture(id) { return this.capturedPointers.has(id); }
+  releasePointerCapture(id) { if (this.capturedPointers.delete(id)) this.fire("lostpointercapture", {pointerId:id}); }
   set textContent(text) { this.children = []; this._text = String(text); }
   get textContent() { return this._text + this.children.map(child => child.textContent).join(""); }
   set innerHTML(html) {
@@ -58,6 +62,7 @@ class Element extends Events {
     if (name.startsWith("data-")) this.dataset[name.slice(5).replace(/-([a-z])/g, (_, char) => char.toUpperCase())] = String(value);
     if (["id", "type", "name", "min", "max", "value"].includes(name)) this[name] = value;
     if (name === "hidden") this.hidden = true;
+    if (name === "disabled") this.disabled = true;
     if (name === "checked") this.checked = true;
   }
   getAttribute(name) { if (name.startsWith("data-")) return this.dataset[name.slice(5).replace(/-([a-z])/g, (_, char) => char.toUpperCase())] ?? null; if (name === "class") return this.className || null; if (name === "id") return this.id || null; return this.attributes[name] ?? null; }
@@ -159,18 +164,19 @@ function boot(options = {}) {
   win.confirm = () => true; win.TenetProcessJournal = options.noJournal ? undefined : options.readOnlyJournal ? Object.freeze({readArchive:journal.readArchive}) : journal; win.TenetProcessCapture = capture;
   const timers = new Map(); let timerId = 0, urlId = 0; const urls = new Map(), revoked = [];
   doc.loadImage = (image, url) => {
-    if (typeof image.onload !== "function") return;
     const blob = urls.get(url), metadata = rasterMetadata.get(blob) || {width:1, height:1};
     image.naturalWidth = options.naturalWidth || metadata.width; image.naturalHeight = options.naturalHeight || metadata.height;
     image.decode = () => { calls.decoded.push(url); return options.decode ? options.decode(url, blob, image) : Promise.resolve(); };
-    void Promise.resolve().then(() => { if (image.src === url) image.onload?.(); });
+    void Promise.resolve().then(() => { if (image.src === url) { image.onload?.(); image.fire("load"); } });
   };
   const intl = options.timeZone ? {DateTimeFormat:function(locale, format) { return new Intl.DateTimeFormat(locale, {...format, timeZone:options.timeZone}); }} : Intl;
-  const context = vm.createContext({window:win, document:doc, Blob, File, TextEncoder, Intl:intl, navigator:{}, URL:{createObjectURL:blob => { const url = "blob:fixture-" + (++urlId); urls.set(url, blob); return url; }, revokeObjectURL:url => { urls.delete(url); revoked.push(url); }}, setTimeout:(callback, ms) => { const id = ++timerId; timers.set(id, {callback, ms}); return id; }, clearTimeout:id => timers.delete(id)});
+  const observers = [];
+  class ResizeObserver { constructor(callback) { this.callback = callback; this.target = null; observers.push(this); } observe(target) { this.target = target; } disconnect() { this.target = null; } }
+  const context = vm.createContext({window:win, document:doc, ResizeObserver, Blob, File, TextEncoder, Intl:intl, navigator:{}, URL:{createObjectURL:blob => { const url = "blob:fixture-" + (++urlId); urls.set(url, blob); return url; }, revokeObjectURL:url => { urls.delete(url); revoked.push(url); }}, setTimeout:(callback, ms) => { const id = ++timerId; timers.set(id, {callback, ms}); return id; }, clearTimeout:id => timers.delete(id)});
   new vm.Script(source, {filename}).runInContext(context);
   const dialog = doc.querySelector("dialog");
   return {
-    doc, win, journal, capture, calls, timers, urls, revoked, dialog,
+    doc, win, journal, capture, calls, timers, urls, revoked, dialog, observers,
     launch:doc.querySelector(".tenet-process-launch"),
     action:name => dialog.querySelector(`[data-action="${name}"]`),
     value:name => dialog.querySelector(`[data-value="${name}"]`),
@@ -1331,4 +1337,86 @@ test("16x and 32x remain selectable and rapid observations keep the existing dis
     await ui.runTimer(60);assert.equal(ui.action("play").textContent,"Play history");
     assert.equal(ui.value("recorded-span").textContent,"<1s");
   }
+});
+
+function zoomNodes(ui) {
+  const viewport=ui.dialog.querySelector(".tenet-process-preview");
+  return {viewport, plane:viewport.querySelector("foreignObject"), picture:viewport.querySelector("img"), report:ui.dialog.querySelector(".tenet-process-work")};
+}
+function touch(viewport,type,id,x,y,time) { return viewport.fire(type,{pointerId:id,pointerType:"touch",button:0,clientX:x,clientY:y,timeStamp:time}); }
+
+test("replay zoom controls preserve checkpoint evidence and enforce magnification limits", async () => {
+  const fixture=bundle(), original=JSON.stringify(fixture.events), ui=boot({bundle:fixture}); await settle();
+  assert.equal(ui.action("zoom-in").disabled,true);
+  await ui.import(); const {plane,picture}=zoomNodes(ui), src=picture.src, position=ui.slider.value, time=ui.value("frame-time").textContent;
+  assert.equal(ui.value("zoom").textContent,"100%");
+  await ui.click("zoom-in"); assert.equal(ui.value("zoom").textContent,"125%"); assert.equal(plane.getAttribute("width"),"1125");
+  assert.equal(ui.slider.value,position); assert.equal(picture.src,src); assert.equal(ui.value("frame-time").textContent,time);
+  for(let i=0;i<20;i++) await ui.click("zoom-in");
+  assert.equal(ui.value("zoom").textContent,"600%"); assert.equal(ui.action("zoom-in").disabled,true);
+  await ui.click("zoom-fit"); assert.equal(ui.value("zoom").textContent,"100%"); assert.equal(plane.getAttribute("x"),"0");
+  assert.equal(ui.action("zoom-out").disabled,true); assert.equal(JSON.stringify(fixture.events),original);
+  assert.equal(ui.calls.canvases,0); assert.equal(ui.calls.begin,0);
+});
+test("two-finger pinch anchors the image and one-finger pan stays inside image bounds", async () => {
+  const ui=boot();await ui.import();const {viewport,plane}=zoomNodes(ui);
+  touch(viewport,"pointerdown",1,200,300,0);touch(viewport,"pointerdown",2,300,300,10);
+  const moved=touch(viewport,"pointermove",2,400,300,30);
+  assert.equal(moved.defaultPrevented,true);assert.equal(ui.value("zoom").textContent,"200%");
+  assert.equal(plane.getAttribute("width"),"1800");assert.equal(plane.getAttribute("x"),"-200");
+  touch(viewport,"pointerup",2,400,300,40);touch(viewport,"pointermove",1,250,300,50);
+  assert.equal(plane.getAttribute("x"),"-150");
+  touch(viewport,"pointermove",1,3000,300,60);assert.equal(plane.getAttribute("x"),"0");
+  touch(viewport,"pointermove",1,-3000,300,70);assert.equal(plane.getAttribute("x"),"-900");
+  touch(viewport,"pointercancel",1,-3000,300,80);
+  assert.equal(viewport.capturedPointers.size,0);assert.equal(viewport.dataset.dragging,"false");
+  const x=plane.getAttribute("x");touch(viewport,"pointermove",1,200,300,90);assert.equal(plane.getAttribute("x"),x);
+});
+test("double taps toggle zoom while drags and long presses do not count as taps", async () => {
+  const ui=boot();await ui.import();const {viewport}=zoomNodes(ui);
+  for(const [start,end] of [[0,80],[150,230]]) {touch(viewport,"pointerdown",1,450,300,start);touch(viewport,"pointerup",1,450,300,end);}
+  assert.equal(ui.value("zoom").textContent,"200%");
+  for(const [start,end] of [[500,580],[650,730]]) {touch(viewport,"pointerdown",1,450,300,start);touch(viewport,"pointerup",1,450,300,end);}
+  assert.equal(ui.value("zoom").textContent,"100%");
+  touch(viewport,"pointerdown",1,450,300,1000);touch(viewport,"pointermove",1,450,250,1020);touch(viewport,"pointerup",1,450,250,1080);
+  touch(viewport,"pointerdown",1,450,250,1150);touch(viewport,"pointerup",1,450,250,1700);
+  assert.equal(ui.value("zoom").textContent,"100%");
+});
+test("a fit-view finger swipe scrolls the report rather than the saved page", async () => {
+  const ui=boot();await ui.import();const {viewport,plane,report}=zoomNodes(ui),position=ui.slider.value;
+  touch(viewport,"pointerdown",1,400,400,0);touch(viewport,"pointermove",1,400,300,20);touch(viewport,"pointerup",1,400,300,50);
+  assert.equal(report.scrollTop,100);assert.equal(plane.getAttribute("y"),"0");assert.equal(ui.slider.value,position);
+  assert.equal(ui.value("zoom").textContent,"100%");
+});
+test("keyboard and trackpad zoom preserve report scrolling and provide reset", async () => {
+  const ui=boot();await ui.import();const {viewport,plane}=zoomNodes(ui);
+  assert.equal(viewport.fire("wheel",{deltaY:50}).defaultPrevented,false);
+  assert.equal(viewport.fire("keydown",{key:"+"}).defaultPrevented,true);assert.equal(ui.value("zoom").textContent,"125%");
+  const x=Number(plane.getAttribute("x"));viewport.fire("keydown",{key:"ArrowRight"});assert.ok(Number(plane.getAttribute("x"))<x);
+  assert.equal(viewport.fire("wheel",{deltaY:-50,ctrlKey:true,clientX:450,clientY:300}).defaultPrevented,true);
+  assert.ok(parseInt(ui.value("zoom").textContent)>125);
+  viewport.fire("keydown",{key:"0"});assert.equal(ui.value("zoom").textContent,"100%");
+  assert.equal(viewport.fire("keydown",{key:"ArrowDown"}).defaultPrevented,false);
+});
+test("magnification persists across seek and playback but resets for another record", async () => {
+  const ui=boot();await ui.import();await ui.click("zoom-in");
+  await seek(ui,0);assert.equal(ui.value("zoom").textContent,"125%");assert.equal(displayedLabel(ui),"frame0");
+  await ui.click("play");await ui.runTimer(5000);
+  assert.equal(ui.value("zoom").textContent,"125%");assert.equal(displayedLabel(ui),"frame1");
+  await ui.import({name:"another.json"});assert.equal(ui.value("zoom").textContent,"100%");
+});
+test("orientation and modal lifecycle resize or retire replay navigation", async () => {
+  const ui=boot();await ui.import();await ui.click("zoom-in");const {viewport,plane}=zoomNodes(ui), observer=ui.observers[0];
+  viewport.clientWidth=450;observer.callback();assert.equal(plane.getAttribute("width"),"562.5");assert.equal(ui.value("zoom").textContent,"125%");
+  touch(viewport,"pointerdown",1,200,200,0);ui.dialog.close();
+  assert.equal(viewport.capturedPointers.size,0);assert.equal(observer.target,null);
+  assert.equal(ui.action("zoom-in").disabled,true);assert.equal(ui.value("zoom").textContent,"100%");
+});
+test("zoom uses touch-sized controls and SVG geometry without weakening CSP", async () => {
+  const ui=boot();await ui.import();await ui.click("zoom-in");
+  assert.ok(zoomNodes(ui).viewport.querySelector("svg"));assert.equal(ui.dialog.querySelectorAll("[style]").length,0);
+  assert.doesNotMatch(source,/\.style\.(?:cssText|setProperty|removeProperty|[A-Za-z_$][\w$]*\s*=)/);
+  assert.match(processCSS,/\.tenet-process-zoom button\{[^}]*min-width:48px;min-height:48px/);
+  assert.match(processCSS,/\.tenet-process-preview\[data-ready=true\]\{touch-action:none\}/);
+  assert.equal(zoomNodes(ui).viewport.getAttribute("tabindex"),"0");assert.equal(ui.calls.canvases,0);
 });

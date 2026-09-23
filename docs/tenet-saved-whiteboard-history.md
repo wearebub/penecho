@@ -113,3 +113,25 @@ teacher playback and intentional retention limits are unchanged. Previously
 overwritten events are not reconstructed from the final image. Qualification
 must include repeated saves, save/reopen/save, missing history, storage failure,
 stale concurrent writes and valid retention before this patch is published.
+
+## Replay magnification
+
+The replay image has its own touch navigation: pinch to zoom around the fingers,
+drag to pan while magnified, double-tap to toggle 2x/fit, and 48px zoom buttons
+plus Fit. Magnification is relative to the fitted image and bounded to 1x-6x.
+It stays at the same normalized image location while seeking or playing, adapts
+to orientation/layout changes, and resets when another work file is opened.
+At Fit, a one-finger swipe scrolls the report instead of moving the whole image.
+Keyboard and control-wheel/trackpad-pinch alternatives are available.
+
+Root cause: the report only fitted checkpoint images into a clipped preview; it
+had no image-level navigation. Global browser zoom was rejected because it
+magnifies the whole report and is not dependable in the iPad webview. SVG geometry
+attributes position the image without inline styles or weakening strict CSP.
+Pointer capture and resize observation are retired when the work is cleared.
+
+Saved checkpoint bytes, capture resolution, replay timing, AI input inspection,
+history persistence and exports are intentionally unchanged. Magnification does
+not reconstruct detail absent from a recorded thumbnail. This implementation
+still requires touch/browser, strict-CSP and regression qualification before a
+release; no physical-device acceptance is claimed.
