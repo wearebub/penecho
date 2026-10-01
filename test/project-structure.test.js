@@ -16,11 +16,12 @@ test("root JavaScript is limited to entry points and Electron Forge configuratio
   assert.deepEqual(rootScripts, ["cli.js", "forge.config.js", "server.js"]);
 });
 
-test("the browser application preserves all twenty-five ordered source sections and the generated bundle", () => {
+test("the browser application preserves all twenty-seven ordered source sections and the generated bundle", () => {
   assert.deepEqual(SOURCES, [
     "src/client/app/client-activity.js",
     "src/client/app/tenet-process-journal.js",
     "src/client/app/core.js",
+    "src/client/app/tenet-research-model.js",
     "src/client/app/canvas-runtime.js",
     "src/client/app/visual-explainer.js",
     "src/client/app/persistence.js",
@@ -34,6 +35,7 @@ test("the browser application preserves all twenty-five ordered source sections 
     "src/client/app/tenet-selection-tools.js",
     "src/client/app/tenet-voice.js",
     "src/client/app/tenet-ipad-usability.js",
+    "src/client/app/tenet-research.js",
     "src/client/app/tenet-object-resize.js",
   "src/client/app/tenet-process-capture.js",
   "src/client/app/tenet-document-history.js",

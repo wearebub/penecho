@@ -1,0 +1,57 @@
+/* Local ELA workspace. All layout lives in the stylesheet for strict CSP. */
+.tenet-research {
+  --research-ink: #182b3d;
+  --research-muted: #52636d;
+  color: var(--research-ink); background: #fcfaf4;
+  border: 1px solid #d8d6cc; border-radius: 22px; padding: 24px;
+  width: min(1040px, calc(100vw - 32px)); max-width: calc(100vw - 32px);
+  max-height: calc(100dvh - 40px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  box-sizing: border-box; overflow: auto; overscroll-behavior: contain;
+  font-family: "Avenir Next", "Trebuchet MS", sans-serif;
+  box-shadow: 0 24px 90px #182b3d38;
+}
+.tenet-research::backdrop { background: #10243e70; backdrop-filter: blur(5px); }
+.tenet-research * { box-sizing: border-box; }
+.tenet-research [hidden] { display: none !important; }
+.tenet-research-header { display: flex; gap: 16px; align-items: center; justify-content: space-between; }
+.tenet-research h2 { font-size: 27px; letter-spacing: -.7px; margin: 0; }
+.tenet-research h3 { font-size: 17px; margin: 12px 0; }
+.tenet-research-intro { color: var(--research-muted); margin: 8px 0 22px; }
+.tenet-research button { font: inherit; font-size: 14px; font-weight: 650; min-height: 46px; padding: 10px 15px; border: 1px solid #ccd0cb; border-radius: 10px; color: var(--research-ink); background: #fff; cursor: pointer; touch-action: manipulation; }
+.tenet-research button:hover { background: #edf3ef; }
+.tenet-research button:disabled { opacity: .6; cursor: wait; }
+.tenet-research :focus-visible { outline: 3px solid #457d70; outline-offset: 3px; }
+.tenet-research button.tenet-research-primary { color: #fff; background: #214f46; border-color: #214f46; }
+.tenet-research-layout { display: grid; grid-template-columns: minmax(180px, .7fr) minmax(0, 2fr); gap: 26px; }
+.tenet-research-library { border-right: 1px solid #dcded5; padding-right: 20px; min-width: 0; }
+.tenet-research-library > button { width: 100%; }
+.tenet-research-library p { font-size: 14px; line-height: 1.5; color: var(--research-muted); }
+.tenet-research-list { display: flex; flex-direction: column; gap: 8px; max-height: 520px; overflow: auto; }
+.tenet-research .tenet-research-list-item { text-align: left; overflow-wrap: anywhere; border-left: 5px solid #d6c57d; }
+.tenet-research-list-item[data-kind="fact"] { background: #fff5c4; }
+.tenet-research-list-item[data-kind="thought"] { background: #e7f1fc; border-left-color: #73a6d5; }
+.tenet-research-list-item[data-kind="source"] { background: #e4f1df; border-left-color: #71a56c; }
+.tenet-research-list-item[data-kind="frame"] { background: #f0ece4; border-left-color: #8d8e7e; }
+.tenet-research-list-item[aria-pressed="true"] { outline: 2px solid #214f46; outline-offset: -2px; }
+.tenet-research-field { display: grid; gap: 6px; margin-bottom: 13px; font-size: 13px; font-weight: 650; }
+.tenet-research input, .tenet-research textarea, .tenet-research select { width: 100%; min-width: 0; border: 1px solid #cbd0c8; border-radius: 9px; background: #fff; color: #182b3d; font: inherit; font-size: 16px; padding: 11px 12px; }
+.tenet-research textarea { resize: vertical; min-height: 140px; line-height: 1.5; }
+.tenet-research-editor > button { margin-bottom: 16px; }
+.tenet-research-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.tenet-research-templates { margin-top: 24px; padding-top: 14px; border-top: 1px solid #dcded5; }
+.tenet-research-template-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.tenet-research-template-grid button { display: grid; gap: 6px; text-align: left; padding: 16px; background: linear-gradient(120deg, #fff 65%, #eff3ec); }
+.tenet-research-template-grid span { font-weight: 400; font-size: 13px; color: var(--research-muted); line-height: 1.4; }
+.tenet-research-status { min-height: 22px; background: #edf3ef; border-radius: 9px; padding: 12px; font-size: 14px; line-height: 1.5; }
+.tenet-research-footer { position: static; display: flex; gap: 20px; align-items: flex-start; border: 0; background: none; padding: 0; height: auto; }
+.tenet-research-footer button { flex: 0 0 auto; }
+.tenet-research-footer p { margin: 0; color: var(--research-muted); font-size: 13px; line-height: 1.55; }
+@media (max-width: 650px) {
+  .tenet-research { padding: 16px; border-radius: 14px; }
+  .tenet-research h2 { font-size: 22px; }
+  .tenet-research-layout { grid-template-columns: 1fr; gap: 14px; }
+  .tenet-research-library { border-right: 0; border-bottom: 1px solid #dcded5; padding: 0 0 12px; }
+  .tenet-research-list { max-height: 140px; }
+  .tenet-research-template-grid { grid-template-columns: 1fr; }
+  .tenet-research-footer { flex-direction: column; gap: 10px; }
+}

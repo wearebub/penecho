@@ -319,6 +319,7 @@
       blob:item.blob,
       image:item.image,
       ...(item.plotExpression ? { plotExpression:item.plotExpression } : {}),
+      ...(item.tenetResearch ? { tenetResearch:{ ...item.tenetResearch } } : {}),
     };
   }
   function storedImageRecord(item) {
@@ -333,6 +334,7 @@
       sourceName:item.sourceName,
       blob:item.blob,
       ...(item.plotExpression ? { plotExpression:item.plotExpression } : {}),
+      ...(item.tenetResearch ? { tenetResearch:{ ...item.tenetResearch } } : {}),
     };
   }
   function imageRecord(item) {
@@ -355,6 +357,8 @@
       blob:item.blob,
       image:item.image,
       ...(plotExpression ? { plotExpression } : {}),
+      ...(typeof window !== "undefined" && window.TenetResearchModel?.normalize(item.tenetResearch)
+        ? { tenetResearch:window.TenetResearchModel.normalize(item.tenetResearch) } : {}),
     };
   }
   function imageHistoryState() {
@@ -4505,7 +4509,14 @@
             shared,
             priority:2,
           });
-        if (plotExpression) {
+        if (handTarget.tenetResearch && window.TenetResearch) {
+          specs.push({
+            key:`image:${handTarget.id}:research`, kind:"copy", label:"Edit note", tooltip:"Edit research note or organizer",
+            box, objectToolbarItem:true, objectToolbarKey:toolbarKey, toolbarSlot:"tool", toolbarOrder:0,
+            toolbarItemCount:1, baseWidth:70, baseHeight:28,
+            activate:() => void window.TenetResearch.open(handTarget.id), ...shared, priority:3,
+          });
+        } else if (plotExpression) {
           specs.push({
             key:`image:${handTarget.id}:copy`,
             kind:"copy",

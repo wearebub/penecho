@@ -60,7 +60,7 @@ test("the native filename whitelist consumes the whole ASCII name, including fin
 
 test("encoded and decoded export limits both enforce 64 MiB tenet and 24 MiB PDF before writing", () => {
   const body = method("exportFile");
-  assert.match(body, /let limit = filename\.hasSuffix\("\.pdf"\) \? 24 \* 1024 \* 1024 : 64 \* 1024 \* 1024/);
+  assert.match(body, /let limit = \(filename\.hasSuffix\("\.pdf"\) \|\| filename\.hasSuffix\("\.png"\)\) \? 24 \* 1024 \* 1024 : 64 \* 1024 \* 1024/);
   assert.match(body, /guard !base64\.isEmpty, base64\.utf8\.count <= \(\(limit \+ 2\) \/ 3\) \* 4/);
   assert.match(body, /guard let data = Data\(base64Encoded: base64\), !data\.isEmpty, data\.count <= limit else/);
   assert.doesNotMatch(body, /ignoreUnknownCharacters/);

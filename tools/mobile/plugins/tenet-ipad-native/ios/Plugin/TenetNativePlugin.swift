@@ -1182,12 +1182,12 @@ public final class TenetNativePlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthenti
     // Keep the same presentation lock as the existing single-page PDF exporter.
     @objc public func exportFile(_ call: CAPPluginCall) {
         guard let filename = call.getString("filename"),
-              filename.range(of: "\\A[A-Za-z0-9][A-Za-z0-9._ -]{0,80}\\.(tenet|pdf)\\z", options: .regularExpression) != nil,
+              filename.range(of: "\\A[A-Za-z0-9][A-Za-z0-9._ -]{0,80}\\.(tenet|pdf|png)\\z", options: .regularExpression) != nil,
               let base64 = call.getString("base64") else {
-            call.reject("Choose a short .tenet or .pdf filename without path characters.", "invalid_export_filename")
+            call.reject("Choose a short .tenet, .pdf or .png filename without path characters.", "invalid_export_filename")
             return
         }
-        let limit = filename.hasSuffix(".pdf") ? 24 * 1024 * 1024 : 64 * 1024 * 1024
+        let limit = (filename.hasSuffix(".pdf") || filename.hasSuffix(".png")) ? 24 * 1024 * 1024 : 64 * 1024 * 1024
         guard !base64.isEmpty, base64.utf8.count <= ((limit + 2) / 3) * 4 else {
             call.reject("The file exceeds the safe sharing limit.", "export_too_large")
             return
@@ -1215,6 +1215,10 @@ public final class TenetNativePlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthenti
                     if filename.hasSuffix(".pdf"), !data.starts(with: Data("%PDF-".utf8)) {
                         throw NSError(domain: "TenetSubmission", code: 2,
                                       userInfo: [NSLocalizedDescriptionKey: "The PDF could not be read."])
+                    }
+                    if filename.hasSuffix(".png"), !data.starts(with: Data([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) {
+                        throw NSError(domain: "TenetSubmission", code: 3,
+                                      userInfo: [NSLocalizedDescriptionKey: "The PNG could not be read."])
                     }
                     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false,
                         attributes: [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication])
