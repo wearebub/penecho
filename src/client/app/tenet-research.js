@@ -17,7 +17,7 @@
   }
   function requireCurrent(revision = null) {
     if (disposed || !ui?.dialog.open || generation !== state.snapshotLoadGeneration
-      || revision !== null && revision !== state.userRevision) throw Error("The page changed. Reopen Research on the intended page.");
+      || revision !== null && revision !== state.userRevision) throw Error("The page changed. Reopen Plan & Write on the intended page.");
     editable();
   }
   function setBusy(value) {
@@ -52,8 +52,8 @@
     ui.remove.hidden = !item;
     ui.copy.hidden = !item;
     ui.exportNote.hidden = !item;
-    ui.heading.textContent = item ? "Edit " + (data.kind === "frame" ? "organizer" : "research note") : "New research note";
-    say(item ? "Edits keep this note's place on the board. Undo is available after saving." : "Research stays on this iPad. Nothing here asks AI or uploads your sources.");
+    ui.heading.textContent = item ? "Edit " + (data.kind === "frame" ? "organizer" : "note") : "New note";
+    say(item ? "Edits keep this note's place on the board. Undo is available after saving." : "Plan & Write stays on this iPad. Nothing here asks AI or uploads your sources.");
     refreshList();
   }
   function refreshList() {
@@ -88,7 +88,7 @@
       suspended = true;
       await window.TenetInk?.suspend(reason);
       await tenetInkFlush();
-      if (expectedGeneration !== state.snapshotLoadGeneration || expectedLifecycle !== lifecycle) throw Error("The page changed. Reopen Research on the intended page.");
+      if (expectedGeneration !== state.snapshotLoadGeneration || expectedLifecycle !== lifecycle) throw Error("The page changed. Reopen Plan & Write on the intended page.");
       editable();
       if (state.imageEdit) acceptImageEdit({restoreMode:false});
       if (state.widgetEdit) acceptWidgetEdit();
@@ -97,7 +97,7 @@
       selectNote(id, draft);
       ui.dialog.showModal();
       ui.title.focus();
-    } catch (error) { tenetInkMessage(error?.message || "Research could not open. Try again after lifting your Pencil."); }
+    } catch (error) { tenetInkMessage(error?.message || "Plan & Write could not open. Try again after lifting your Pencil."); }
     finally { opening = false; if (!ui.dialog.open) release(); }
   }
   function element(tag, className, text) {
@@ -149,7 +149,7 @@
     cancelDictation(); requireCurrent();
     const data = draft(), existing = editingId ? notes().find(item => item.id === editingId) : null;
     if (editingId && !existing) throw Error("That note was removed. Add a new note instead.");
-    if (!existing && state.images.length >= MAX_VISIBLE_IMAGES) throw Error("This page is full. Create another page for more research.");
+    if (!existing && state.images.length >= MAX_VISIBLE_IMAGES) throw Error("This page is full. Create another page for more notes.");
     const revision = state.userRevision;
     setBusy(true);
     try {
@@ -157,7 +157,7 @@
       requireCurrent(revision);
       const placement = existing ? imageBox(existing) : importedImagePlacement(prepared.naturalW, prepared.naturalH);
       const item = imageRecord({...placement, ...prepared, ...(existing ? {id:existing.id} : {}),
-        sourceName:data.title || "Research note", tenetResearch:data});
+        sourceName:data.title || "Writing note", tenetResearch:data});
       if (!item) throw Error("The note could not be placed. Your previous note is retained.");
       recordImagesBefore();
       if (existing) state.images.splice(state.images.indexOf(existing), 1, item);
@@ -196,7 +196,7 @@
       state.panX = 40 - x * state.scale; state.panY = 60 - y * state.scale;
       updateCoordinates(); requestRender(); tenetInkController?.sync();
       setBusy(false); ui.dialog.close(); setCanvasMode("hand");
-      tenetInkMessage("Organizer added without replacing your work. Drag notes into the zones; use Insert for arrows. Research edits each heading.");
+      tenetInkMessage("Organizer added without replacing your work. Drag notes into the zones; use Insert for arrows. Plan & Write edits each heading.");
     } finally { setBusy(false); }
   }
   function removeNote() {
@@ -296,20 +296,20 @@
     const toolbar = document.querySelector("[data-tenet-ink-toolbar]");
     if (!toolbar) return;
     const sheet = element("link"); sheet.rel = "stylesheet"; sheet.href = "/tenet-research.css"; document.head.append(sheet);
-    trigger = button("Research", () => open(), "tenet-tool-trigger"); trigger.id = "tenetResearchButton";
+    trigger = button("Plan & Write", () => open(), "tenet-tool-trigger"); trigger.id = "tenetResearchButton";
     trigger.setAttribute("aria-haspopup", "dialog"); trigger.setAttribute("aria-controls", "tenetResearchDialog");
     toolbar.prepend(trigger);
     const dialog = element("dialog", "tenet-research"); dialog.id = "tenetResearchDialog";
     dialog.setAttribute("aria-labelledby", "tenetResearchTitle");
     ui = {dialog};
     const header = element("header", "tenet-research-header");
-    const title = element("h2", "", "Research & writing"); title.id = "tenetResearchTitle";
+    const title = element("h2", "", "Plan & Write"); title.id = "tenetResearchTitle";
     header.append(title, button("Back to board", close));
     const intro = element("p", "tenet-research-intro", "Collect evidence. Make connections. Write in your own words.");
     const layout = element("div", "tenet-research-layout"), sidebar = element("aside", "tenet-research-library");
-    ui.list = element("div", "tenet-research-list"); ui.empty = element("p", "", "No research notes yet. Start with a fact or your own idea.");
+    ui.list = element("div", "tenet-research-list"); ui.empty = element("p", "", "No notes yet. Start with a fact or your own idea.");
     sidebar.append(button("+ New note", () => selectNote(), "tenet-research-primary"), element("h3", "", "On this board"), ui.empty, ui.list);
-    const form = element("form", "tenet-research-editor"); ui.heading = element("h3", "", "New research note"); form.append(ui.heading);
+    const form = element("form", "tenet-research-editor"); ui.heading = element("h3", "", "New note"); form.append(ui.heading);
     form.append(field("Note type", "kind", "select"));
     for (const [id, label] of [["fact","Yellow / Evidence & direct quotes"],["thought","Blue / My thinking"],["source","Green / Source & citation"],["frame","Organizer / Named subtopic zone"]]) {
       const option = element("option", "", label); option.value = id; ui.kind.append(option);

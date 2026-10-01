@@ -5013,7 +5013,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       frames: Object.freeze(frames.map(([title, text]) => Object.freeze({ title, text }))) });
   }
   const TEMPLATES = Object.freeze([
-    template('research', 'Research organizer', 'Group research into three subtopics, with evidence and sources.', [
+    template('research', 'Topic organizer', 'Group ideas into three subtopics, with evidence and sources.', [
       ['Subtopic 1', 'What do you want to learn? Add facts, questions, and sources for this subtopic.'],
       ['Subtopic 2', 'Gather related facts. Explain their meaning and keep each source with its evidence.'],
       ['Subtopic 3', 'Explore another part of the topic. Note connections and questions to investigate.']
@@ -5053,7 +5053,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
         line = '';
         const units = segmenter ? Array.from(segmenter.segment(token), item => item.segment) : Array.from(token);
         for (const unit of units) {
-          if (inkWidth(ctx, unit) > width) throw new RangeError('A text glyph cannot fit the research canvas.');
+          if (inkWidth(ctx, unit) > width) throw new RangeError('A text glyph cannot fit the note.');
           if (line && inkWidth(ctx, line + unit) > width) { lines.push(line); line = ''; }
           line += unit;
         }
@@ -5065,7 +5065,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
 
   function render(value) {
     const note = normalize(value);
-    if (!note) throw new TypeError('Invalid research note.');
+    if (!note) throw new TypeError('Invalid note.');
     if (typeof document === 'undefined') throw new Error('Canvas rendering requires a document.');
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
@@ -5090,7 +5090,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
         const height = Math.ceil(Math.max(size * 1.45, ascent + descent + 6));
         rows.push({ text: line, font, x: pad + Math.max(0, m.actualBoundingBoxLeft || 0), y: y + ascent });
         y += height;
-        if (y + pad > maxHeight) throw new RangeError('Research text cannot fit without clipping; split it into smaller notes.');
+        if (y + pad > maxHeight) throw new RangeError('Note text cannot fit without clipping; split it into smaller notes.');
       }
       y += gap;
     }
@@ -5105,7 +5105,7 @@ User writes “我需要根据地点, 显示空气质量”, names a place, and 
       if (note.url) add(note.url, 20, 400, 0);
     }
     const needed = Math.ceil(y + pad);
-    if (needed > maxHeight) throw new RangeError('Research text cannot fit without clipping; split it into smaller notes.');
+    if (needed > maxHeight) throw new RangeError('Note text cannot fit without clipping; split it into smaller notes.');
     canvas.width = width;
     canvas.height = frame ? 800 : Math.max(320, needed);
     // Resizing clears context state. Paint only after the full layout fits.
@@ -27538,7 +27538,7 @@ var tenetVoice = null;
   }
   function requireCurrent(revision = null) {
     if (disposed || !ui?.dialog.open || generation !== state.snapshotLoadGeneration
-      || revision !== null && revision !== state.userRevision) throw Error("The page changed. Reopen Research on the intended page.");
+      || revision !== null && revision !== state.userRevision) throw Error("The page changed. Reopen Plan & Write on the intended page.");
     editable();
   }
   function setBusy(value) {
@@ -27573,8 +27573,8 @@ var tenetVoice = null;
     ui.remove.hidden = !item;
     ui.copy.hidden = !item;
     ui.exportNote.hidden = !item;
-    ui.heading.textContent = item ? "Edit " + (data.kind === "frame" ? "organizer" : "research note") : "New research note";
-    say(item ? "Edits keep this note's place on the board. Undo is available after saving." : "Research stays on this iPad. Nothing here asks AI or uploads your sources.");
+    ui.heading.textContent = item ? "Edit " + (data.kind === "frame" ? "organizer" : "note") : "New note";
+    say(item ? "Edits keep this note's place on the board. Undo is available after saving." : "Plan & Write stays on this iPad. Nothing here asks AI or uploads your sources.");
     refreshList();
   }
   function refreshList() {
@@ -27609,7 +27609,7 @@ var tenetVoice = null;
       suspended = true;
       await window.TenetInk?.suspend(reason);
       await tenetInkFlush();
-      if (expectedGeneration !== state.snapshotLoadGeneration || expectedLifecycle !== lifecycle) throw Error("The page changed. Reopen Research on the intended page.");
+      if (expectedGeneration !== state.snapshotLoadGeneration || expectedLifecycle !== lifecycle) throw Error("The page changed. Reopen Plan & Write on the intended page.");
       editable();
       if (state.imageEdit) acceptImageEdit({restoreMode:false});
       if (state.widgetEdit) acceptWidgetEdit();
@@ -27618,7 +27618,7 @@ var tenetVoice = null;
       selectNote(id, draft);
       ui.dialog.showModal();
       ui.title.focus();
-    } catch (error) { tenetInkMessage(error?.message || "Research could not open. Try again after lifting your Pencil."); }
+    } catch (error) { tenetInkMessage(error?.message || "Plan & Write could not open. Try again after lifting your Pencil."); }
     finally { opening = false; if (!ui.dialog.open) release(); }
   }
   function element(tag, className, text) {
@@ -27670,7 +27670,7 @@ var tenetVoice = null;
     cancelDictation(); requireCurrent();
     const data = draft(), existing = editingId ? notes().find(item => item.id === editingId) : null;
     if (editingId && !existing) throw Error("That note was removed. Add a new note instead.");
-    if (!existing && state.images.length >= MAX_VISIBLE_IMAGES) throw Error("This page is full. Create another page for more research.");
+    if (!existing && state.images.length >= MAX_VISIBLE_IMAGES) throw Error("This page is full. Create another page for more notes.");
     const revision = state.userRevision;
     setBusy(true);
     try {
@@ -27678,7 +27678,7 @@ var tenetVoice = null;
       requireCurrent(revision);
       const placement = existing ? imageBox(existing) : importedImagePlacement(prepared.naturalW, prepared.naturalH);
       const item = imageRecord({...placement, ...prepared, ...(existing ? {id:existing.id} : {}),
-        sourceName:data.title || "Research note", tenetResearch:data});
+        sourceName:data.title || "Writing note", tenetResearch:data});
       if (!item) throw Error("The note could not be placed. Your previous note is retained.");
       recordImagesBefore();
       if (existing) state.images.splice(state.images.indexOf(existing), 1, item);
@@ -27717,7 +27717,7 @@ var tenetVoice = null;
       state.panX = 40 - x * state.scale; state.panY = 60 - y * state.scale;
       updateCoordinates(); requestRender(); tenetInkController?.sync();
       setBusy(false); ui.dialog.close(); setCanvasMode("hand");
-      tenetInkMessage("Organizer added without replacing your work. Drag notes into the zones; use Insert for arrows. Research edits each heading.");
+      tenetInkMessage("Organizer added without replacing your work. Drag notes into the zones; use Insert for arrows. Plan & Write edits each heading.");
     } finally { setBusy(false); }
   }
   function removeNote() {
@@ -27817,20 +27817,20 @@ var tenetVoice = null;
     const toolbar = document.querySelector("[data-tenet-ink-toolbar]");
     if (!toolbar) return;
     const sheet = element("link"); sheet.rel = "stylesheet"; sheet.href = "/tenet-research.css"; document.head.append(sheet);
-    trigger = button("Research", () => open(), "tenet-tool-trigger"); trigger.id = "tenetResearchButton";
+    trigger = button("Plan & Write", () => open(), "tenet-tool-trigger"); trigger.id = "tenetResearchButton";
     trigger.setAttribute("aria-haspopup", "dialog"); trigger.setAttribute("aria-controls", "tenetResearchDialog");
     toolbar.prepend(trigger);
     const dialog = element("dialog", "tenet-research"); dialog.id = "tenetResearchDialog";
     dialog.setAttribute("aria-labelledby", "tenetResearchTitle");
     ui = {dialog};
     const header = element("header", "tenet-research-header");
-    const title = element("h2", "", "Research & writing"); title.id = "tenetResearchTitle";
+    const title = element("h2", "", "Plan & Write"); title.id = "tenetResearchTitle";
     header.append(title, button("Back to board", close));
     const intro = element("p", "tenet-research-intro", "Collect evidence. Make connections. Write in your own words.");
     const layout = element("div", "tenet-research-layout"), sidebar = element("aside", "tenet-research-library");
-    ui.list = element("div", "tenet-research-list"); ui.empty = element("p", "", "No research notes yet. Start with a fact or your own idea.");
+    ui.list = element("div", "tenet-research-list"); ui.empty = element("p", "", "No notes yet. Start with a fact or your own idea.");
     sidebar.append(button("+ New note", () => selectNote(), "tenet-research-primary"), element("h3", "", "On this board"), ui.empty, ui.list);
-    const form = element("form", "tenet-research-editor"); ui.heading = element("h3", "", "New research note"); form.append(ui.heading);
+    const form = element("form", "tenet-research-editor"); ui.heading = element("h3", "", "New note"); form.append(ui.heading);
     form.append(field("Note type", "kind", "select"));
     for (const [id, label] of [["fact","Yellow / Evidence & direct quotes"],["thought","Blue / My thinking"],["source","Green / Source & citation"],["frame","Organizer / Named subtopic zone"]]) {
       const option = element("option", "", label); option.value = id; ui.kind.append(option);

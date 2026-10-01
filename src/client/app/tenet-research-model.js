@@ -48,7 +48,7 @@
       frames: Object.freeze(frames.map(([title, text]) => Object.freeze({ title, text }))) });
   }
   const TEMPLATES = Object.freeze([
-    template('research', 'Research organizer', 'Group research into three subtopics, with evidence and sources.', [
+    template('research', 'Topic organizer', 'Group ideas into three subtopics, with evidence and sources.', [
       ['Subtopic 1', 'What do you want to learn? Add facts, questions, and sources for this subtopic.'],
       ['Subtopic 2', 'Gather related facts. Explain their meaning and keep each source with its evidence.'],
       ['Subtopic 3', 'Explore another part of the topic. Note connections and questions to investigate.']
@@ -88,7 +88,7 @@
         line = '';
         const units = segmenter ? Array.from(segmenter.segment(token), item => item.segment) : Array.from(token);
         for (const unit of units) {
-          if (inkWidth(ctx, unit) > width) throw new RangeError('A text glyph cannot fit the research canvas.');
+          if (inkWidth(ctx, unit) > width) throw new RangeError('A text glyph cannot fit the note.');
           if (line && inkWidth(ctx, line + unit) > width) { lines.push(line); line = ''; }
           line += unit;
         }
@@ -100,7 +100,7 @@
 
   function render(value) {
     const note = normalize(value);
-    if (!note) throw new TypeError('Invalid research note.');
+    if (!note) throw new TypeError('Invalid note.');
     if (typeof document === 'undefined') throw new Error('Canvas rendering requires a document.');
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
@@ -125,7 +125,7 @@
         const height = Math.ceil(Math.max(size * 1.45, ascent + descent + 6));
         rows.push({ text: line, font, x: pad + Math.max(0, m.actualBoundingBoxLeft || 0), y: y + ascent });
         y += height;
-        if (y + pad > maxHeight) throw new RangeError('Research text cannot fit without clipping; split it into smaller notes.');
+        if (y + pad > maxHeight) throw new RangeError('Note text cannot fit without clipping; split it into smaller notes.');
       }
       y += gap;
     }
@@ -140,7 +140,7 @@
       if (note.url) add(note.url, 20, 400, 0);
     }
     const needed = Math.ceil(y + pad);
-    if (needed > maxHeight) throw new RangeError('Research text cannot fit without clipping; split it into smaller notes.');
+    if (needed > maxHeight) throw new RangeError('Note text cannot fit without clipping; split it into smaller notes.');
     canvas.width = width;
     canvas.height = frame ? 800 : Math.max(320, needed);
     // Resizing clears context state. Paint only after the full layout fits.

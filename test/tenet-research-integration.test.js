@@ -382,7 +382,23 @@ for (const phase of ['suspend', 'flush']) {
   });
 }
 
-test('read-only and loading pages cannot open Research', async () => {
+test('Plan & Write uses consistent visible names without changing saved-data or bridge identities', async () => {
+  const h = harness();
+  await h.open();
+  assert.equal(h.dialog.querySelector('h2').textContent, 'Plan & Write');
+  assert.equal(h.dialog.getAttribute('aria-labelledby'), 'tenetResearchTitle');
+  assert.match(uiSource, /trigger = button\("Plan & Write",/);
+  assert.doesNotMatch(uiSource, /button\("Research",|"Research & writing"|Reopen Research/);
+  assert.equal(typeof h.window.TenetResearch.open, 'function');
+  assert.equal(h.window.TenetResearchModel.TEMPLATES.find(item => item.id === 'research').title, 'Topic organizer');
+  assert.match(h.status(), /Plan & Write stays on this iPad/);
+  h.fill();
+  await h.submit();
+  assert.equal(h.state.images[0].tenetResearch.version, 1);
+  assert.deepEqual(plain(h.state.images[0].tenetResearch), note());
+});
+
+test('read-only and loading pages cannot open Plan & Write', async () => {
   for (const loading of [false, true]) {
     const h = harness(); h.state.viewMode = !loading; h.context.snapshotLoadInProgress = loading;
     await h.open(); assert.equal(h.dialog.open, false);
@@ -409,7 +425,7 @@ test('a URI-list-only browser link drop opens a usable source-card draft', async
   await h.submit(); assert.equal(h.state.images.length, 1, h.status());
 });
 
-test('drop errors while Research is closed produce a visible canvas message', async () => {
+test('drop errors while Plan & Write is closed produce a visible canvas message', async () => {
   const h = harness(); await h.drop('Unsafe link', 'javascript:alert(1)');
   assert.equal(h.dialog.open, false); assert.equal(h.effects.commits.length, 0);
   assert.ok(h.effects.messages.some(message => /http|source|link/i.test(message)), 'Error was only written into a closed dialog');

@@ -259,7 +259,7 @@ test('frames have a named title band, prompt, border, and mostly transparent int
 
 test('invalid notes fail before canvas creation; unavailable contexts fail explicitly', () => {
   const { api, canvases } = browser();
-  assert.throws(() => api.render(note({ text: 'x'.repeat(4001) })), /Invalid research note/);
+  assert.throws(() => api.render(note({ text: 'x'.repeat(4001) })), /Invalid note/);
   assert.equal(canvases.length, 0);
   assert.throws(() => browser({ noContext: true }).api.render(note()), /2D canvas context/);
   assert.throws(() => model.render(note()), /requires a document/);
